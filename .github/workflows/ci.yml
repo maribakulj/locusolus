@@ -26,6 +26,14 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
 
+      # La règle 5 de CLAUDE.md se vérifie en démarrant un Emacs, pas en lisant du code.
+      # `--require-emacs` interdit à la garde de sauter cette règle en silence quand le
+      # binaire manque : une frontière non vérifiée doit se voir.
+      - name: Install Emacs
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends emacs-nox
+
       - name: Install
         run: npm ci
 
@@ -34,6 +42,9 @@ jobs:
 
       - name: Repository layout
         run: npm run check:repo
+
+      - name: Architectural boundaries
+        run: npm run check:boundaries -- --require-emacs
 
       - name: Typecheck
         run: npm run typecheck

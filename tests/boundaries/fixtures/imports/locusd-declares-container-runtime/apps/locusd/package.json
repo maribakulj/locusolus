@@ -1,0 +1,8 @@
+{
+  "name": "@locus/locusd",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "dockerode": "^4.0.0"
+  }
+}

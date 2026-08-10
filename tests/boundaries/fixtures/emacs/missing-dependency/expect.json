@@ -1,0 +1,4 @@
+{
+  "title": "un client qui suppose un paquet absent de sa load-path",
+  "violations": [{ "rule": "emacs-client-is-self-contained", "where": "apps/emacs/locus.el" }]
+}

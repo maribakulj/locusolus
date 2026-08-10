@@ -1,0 +1,7 @@
+{
+  "title": "packages/domain importe un package d'infrastructure, et un sous-chemin d'un SDK d'infrastructure",
+  "violations": [
+    { "rule": "domain-imports-no-infrastructure", "where": "packages/domain/src/store.ts" },
+    { "rule": "domain-imports-no-infrastructure", "where": "packages/domain/src/trace.ts" }
+  ]
+}
