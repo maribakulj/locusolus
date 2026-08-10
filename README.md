@@ -28,12 +28,16 @@ répertoire vide sous `apps/` ou `packages/` fait échouer la CI.
 
 ## Développement
 
-Node.js LTS, épinglé dans `.nvmrc`. Aucune autre dépendance système.
+Node.js LTS, épinglé dans `.nvmrc`. Emacs pour la cinquième frontière ; les autres vérifications
+n'ont aucune dépendance système.
 
 ```bash
 npm ci
-npm run check   # format, structure du dépôt, typecheck, tests — ce que la CI exécute
+npm run check   # format, structure, frontières, typecheck, tests — ce que la CI exécute
 ```
+
+Les cinq frontières architecturales de `CLAUDE.md` sont opposables, pas déclaratives : leur forme
+exécutable est `boundaries.json` et `npm run check:boundaries` les fait échouer.
 
 Les vérifications sont détaillées dans `tooling/README.md`.
 

@@ -9,6 +9,10 @@ unités. Les tests unitaires d'un package vivent dans ce package, pas ici.
 
 - `repo/` — le contrat de structure du dépôt lui-même : racines normatives, cohérence du workspace,
   absence de répertoires-stubs.
+- `boundaries/` — les cinq frontières architecturales. Chaque règle est mise en défaut par une
+  arborescence de `fixtures/` qui la franchit délibérément et déclare le verdict attendu ; un test
+  refuse qu'une règle du contrat n'en ait aucune. Les fixtures Emacs demandent un `emacs` sur la
+  machine : elles se sautent en local quand il manque, et la CI l'exige (`--require-emacs`).
 
 ## Suites prévues
 
