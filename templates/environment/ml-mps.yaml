@@ -1,0 +1,10 @@
+environment_id: ml-mps-v1
+platform: { os: macos, arch: arm64 }
+toolchains: [python-science, ml-mps]
+accelerator: { type: mps, count: 1 }
+trust: local-native
+resources:
+  cpu: { minimum: 4 }
+  memory_mb: { minimum: 8192 }
+health_checks:
+  - python -c "import torch; assert torch.backends.mps.is_available()"

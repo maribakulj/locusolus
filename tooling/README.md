@@ -5,8 +5,8 @@ Rien ici n'est livré au produit.
 
 ```text
 lib/          utilitaires partagés entre vérifications
-repo/         contrat de structure du dépôt (npm run check:repo)
-boundaries/   frontières architecturales (npm run check:boundaries)
+repo/         structure du dépôt et nom retiré (check:repo, check:naming)
+boundaries/   frontières architecturales (check:boundaries)
 ```
 
 ## Exécution
@@ -15,6 +15,7 @@ boundaries/   frontières architecturales (npm run check:boundaries)
 npm run check            # tout ce que la CI exécute, dans le même ordre
 npm run check:format     # prettier
 npm run check:repo       # structure du dépôt et cohérence du workspace
+npm run check:naming     # aucune occurrence non justifiée du nom retiré
 npm run check:boundaries # les cinq frontières de CLAUDE.md
 npm run typecheck        # tsc --noEmit sur tooling/ et tests/
 npm test                 # tests/**/*.test.ts
@@ -23,6 +24,17 @@ npm test                 # tests/**/*.test.ts
 Chaque vérification est aussi un module importable — `check-repo.ts` n'est qu'une entrée CLI
 au-dessus de `layout.ts`. C'est ce qui permet de les tester depuis `tests/` contre des arborescences
 fabriquées, plutôt que de tester la CI en la lançant.
+
+## `repo/naming.ts` — le nom retiré
+
+`docs/10_V1_ROADMAP.md` énonce le test de sortie de W0.1 : « `grep -r "locus-solus"` ne renvoie rien
+hors historique Git ». Pris à la lettre, il ne peut jamais passer — les documents qui **consignent**
+le renommage citent forcément l'ancien nom : la roadmap cite son propre test, l'ADR 0009 nomme ce à
+quoi il se substitue, le ledger consigne le renommage.
+
+La garde interdit donc toute occurrence et exige que chacune des survivantes soit nommée dans
+`historicalMentions` avec sa raison. Une mention que personne n'a justifiée est un résidu ; une
+justification à laquelle plus aucune mention ne correspond est caduque, et signalée aussi.
 
 ## `boundaries/` — la garde de frontières
 

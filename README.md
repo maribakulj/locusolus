@@ -8,9 +8,18 @@ control plane via LEP, le protocole d'exécution défini ici.
 
 ## État
 
-Squelette. Le dépôt porte son outillage, sa configuration de workspace et sa CI ; il ne porte pas
-encore de code produit. La feuille de route est `docs/10_V1_ROADMAP.md`, et un item n'y est terminé
-que quand son test de sortie passe en CI.
+Squelette documenté. Le dépôt porte le corpus normatif du chantier, son outillage, sa configuration
+de workspace et sa CI ; il ne porte pas encore de code produit.
+
+## Par où commencer
+
+`CLAUDE.md` — invariants et règles de ce dépôt. `START_HERE_CLAUDE.md` — ordre de lecture, règle de
+priorité en cas de contradiction, et les trois erreurs à ne pas commettre. `docs/10_V1_ROADMAP.md`
+est la feuille de route : un item n'y est terminé que quand son test de sortie passe en CI, et
+`IMPLEMENTATION_LEDGER.md` dit lesquels le sont.
+
+Les ADR arbitrent. En cas de contradiction : ADR → `docs/00` → `docs/01` → `docs/DECISIONS.md` →
+`docs/SPEC_V1.md` → le reste.
 
 ## Structure
 
@@ -18,6 +27,8 @@ que quand son test de sortie passe en CI.
 apps/       unités déployables (locusd, locus-execd, cli, web, emacs…)
 packages/   bibliothèques (domain, protocol, event-store, graph…)
 schemas/    JSON Schemas versionnés — les contrats de fil
+docs/       corpus normatif : spec, ADR, roadmap, matrice d'acceptation
+templates/  gabarits d'environnement et de profil de déploiement
 tests/      suites transverses au dépôt
 tooling/    automatisation du dépôt exécutée par la CI
 ```
@@ -37,7 +48,9 @@ npm run check   # format, structure, frontières, typecheck, tests — ce que la
 ```
 
 Les cinq frontières architecturales de `CLAUDE.md` sont opposables, pas déclaratives : leur forme
-exécutable est `boundaries.json` et `npm run check:boundaries` les fait échouer.
+exécutable est `boundaries.json` et `npm run check:boundaries` les fait échouer. Le corpus de
+`docs/`, `templates/` et `schemas/examples/` est reçu du paquet de handoff et placé à l'octet près ;
+il est exclu du formatage pour cette raison.
 
 Les vérifications sont détaillées dans `tooling/README.md`.
 

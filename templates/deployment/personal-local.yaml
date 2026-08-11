@@ -1,0 +1,9 @@
+profile: personal-local
+workflow_backend: temporal
+domain_store: postgres
+artifact_store: filesystem
+execution_backend: lima-podman
+identity_backend: local
+defaults:
+  network: deny
+  sandbox_level: S3

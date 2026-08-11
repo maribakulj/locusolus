@@ -2,3 +2,14 @@ node_modules/
 package-lock.json
 LICENSE
 CHANGELOG.md
+
+# Corpus normatif reçu du paquet de handoff, placé à l'octet près (W0.1) et vérifié contre
+# CHECKSUMS.sha256. Le reformater ferait diverger le dépôt de la source qui fait autorité, et
+# reflower un tableau ou un bloc de spec est une mutation silencieuse d'un document normatif.
+/CLAUDE.md
+/START_HERE_CLAUDE.md
+/docs/
+/templates/
+/schemas/examples/
+/apps/emacs/SPEC.md
+/apps/emacs/CLAUDE.md

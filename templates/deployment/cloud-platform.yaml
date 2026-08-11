@@ -1,0 +1,10 @@
+profile: cloud-platform
+workflow_backend: cloud-workflows-adapter
+domain_store: postgres
+artifact_store: cloud-object-store
+execution_backend: cloud-sandbox-adapter
+identity_backend: zero-trust-oidc
+defaults:
+  network: deny
+  sandbox_level: S4
+# Concrete provider values live in an adapter-specific overlay.

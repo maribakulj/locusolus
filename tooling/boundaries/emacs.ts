@@ -67,6 +67,14 @@ export async function checkEmacsIsolation(
   }
 
   const sources = await entryPoints(unit);
+  if (sources.length === 0) {
+    return {
+      state: "not-applicable",
+      scanned: 0,
+      note: `${rule.unit} ne porte encore aucun point d'entrée Elisp`,
+      findings: [],
+    };
+  }
   const results = await Promise.all(
     sources.map((file) => loadInIsolation(rule, unit, `${rule.unit}/${file}`, join(unit, file))),
   );
