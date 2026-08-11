@@ -127,3 +127,46 @@ versionnement, horodatage. Dépendances satisfaites : W0.2 et W0.3 sont terminé
 `docs/10` placent W0.4 immédiatement après. Réserve à lever d'abord : **W0.1 n'a pas été exécuté** —
 `CLAUDE.md`, `docs/` et `schemas/examples/` ne sont pas encore dans le dépôt, alors que W0.5 et W0.7
 en dépendent directement.
+
+## 2026-08-10 — W0.1 — placement de la doc dans les quatre dépôts
+
+Réserve de l'entrée précédente levée : W0.1 est exécuté, hors séquence.
+
+**Périmètre.** Quatre dépôts. Sur `locusolus`, 45 fichiers reçus : `CLAUDE.md`,
+`START_HERE_CLAUDE.md`, `docs/` (00–12, `DECISIONS.md`, `adr/0001`–`0010`, `deployment/`),
+`docs/SPEC_V1.md`, `apps/emacs/{SPEC,CLAUDE}.md`, `schemas/examples/`, `templates/` ; plus la garde
+`tooling/repo/{naming,check-naming}.ts` et son test, l'extraction de `tooling/lib/walk.ts`,
+l'exclusion du corpus dans `.prettierignore`, et les `README.md` que le corpus change. Sur
+`canterel` : `docs/locus/` plus deux fichiers amont, justifiés dans son propre ledger. Sur `xiiif`
+et `emacs-config` : trois documents chacun, aucun fichier existant modifié sur `xiiif`.
+
+**Tests exécutés.** Intégrité du paquet d'abord : `sha256sum -c CHECKSUMS.sha256` → 59/59. Puis
+chaque fichier placé comparé à son original : 45/45 identiques sur `locusolus`, 3/3 sur `canterel`,
+3/3 sur `xiiif`, 2/3 sur `emacs-config` (voir écart). Test de sortie de l'item — « l'ancien nom du
+projet ne subsiste nulle part » — vérifié sur les quatre dépôts, et rendu permanent sur `locusolus`
+par `npm run check:naming`, exécuté en CI. `npm run check` → 31 tests, exit 0.
+
+**Décisions prises.** Le corpus reçu est exclu du formatage, sur `locusolus` comme sur `canterel` :
+reflower un tableau ou un bloc de spec est une mutation silencieuse d'un document normatif. Vérifié
+que l'exclusion est porteuse et non décorative — sans elle, `prettier --list-different` signale
+`SPEC_V1.md`. Sur `canterel`, le `CLAUDE.md` amont est **conservé et complété**, pas remplacé : ADR
+0010 prescrit ce motif pour le `NOTICE`, et le document amont porte l'architecture de prompts et le
+guide de RCA dont une session travaillant sur le code amont a besoin.
+
+**Écart avec la spec.** Quatre, tous consignés. (1) Le test de sortie tel qu'écrit —
+`grep -r "locus-solus"` ne renvoie rien — ne peut pas passer : les documents qui consignent le
+renommage citent forcément l'ancien nom. `check:naming` implémente l'intention : toute occurrence
+est interdite et chaque survivante est nommée avec sa raison, une dérogation devenue caduque étant
+signalée à son tour. (2) `emacs-config/CLAUDE.md` corrigé sur deux lignes :
+`modules/marcel-locus-solus.el` était la dernière occurrence **vivante** de l'ancien nom, et le
+répertoire était faux — les modules de ce dépôt vivent dans `lisp/`. Seul contenu reçu modifié de
+tout W0.1. (3) Deux placements que la table de `START_HERE_CLAUDE.md` ne prévoit pas :
+`START_HERE_CLAUDE.md` lui-même à la racine, et `apps-emacs/CLAUDE-notes.md` →
+`apps/emacs/CLAUDE.md`. (4) `canterel/IMPLEMENTATION_LEDGER.md` créé en avance sur W0.10, ADR 0010
+exigeant que la modification de fichiers amont y soit justifiée.
+
+**Prochain item.** Inchangé : **W0.4**, `packages/protocol`. Ses dépendances sont désormais
+pleinement satisfaites, la réserve de l'entrée précédente étant levée — `docs/06` (politique de
+versionnement) et `docs/SPEC_V1.md` sont dans le dépôt, et `schemas/examples/` y est pour W0.5 et
+W0.7. Déverrouillé en parallèle et sans dépendance : les six items `xiiif` de `docs/10` §W10, et
+l'inventaire de `emacs-config`.
