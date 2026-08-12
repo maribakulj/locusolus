@@ -22,5 +22,9 @@ goulot du projet entier : il se fige en `lep/1.0` avant que deux consommateurs e
 
 `packages/domain` n'importe aucun package d'infrastructure. `@temporalio/*` ne vit que sous
 `packages/workflow-backends`. Aucun client PostgreSQL hors `packages/event-store` et des
-projections. Les règles de frontière opposables sont listées dans `CLAUDE.md`, section « Frontières
-vérifiées par la CI ».
+projections.
+
+Les trois règles sont opposables : `npm run check:boundaries`, exécuté en CI. Leur forme exécutable
+est `boundaries.json`, leur énoncé est dans `CLAUDE.md`, section « Frontières vérifiées par la CI ».
+Un chemin relatif qui sort du package est ramené au nom du package visé avant d'être confronté aux
+règles : `../../event-store/src/client.ts` ne contourne rien.

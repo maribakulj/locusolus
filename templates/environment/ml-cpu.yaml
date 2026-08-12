@@ -1,0 +1,10 @@
+environment_id: ml-cpu-v1
+platform: { os: linux, arch: any }
+toolchains: [base, python-science, ml-cpu]
+resources:
+  cpu: { minimum: 4, preferred: 8 }
+  memory_mb: { minimum: 8192, preferred: 16384 }
+  disk_mb: 20000
+network: { mode: allowlist }
+health_checks:
+  - python -c "import torch; print(torch.__version__)"

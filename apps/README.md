@@ -22,5 +22,8 @@ autres apportent le manifeste de leur écosystème.
 ## Frontières
 
 `apps/locusd` n'ouvre jamais de socket de runtime de containers — c'est le rôle de
-`apps/locus-execd`. `apps/emacs` doit démarrer sous `emacs -Q` avec sa seule `load-path`. Les règles
-de frontière opposables sont listées dans `CLAUDE.md`, section « Frontières vérifiées par la CI ».
+`apps/locus-execd`. `apps/emacs` doit démarrer sous `emacs -Q` avec sa seule `load-path` — cette
+dernière est vérifiée en démarrant réellement un Emacs, pas en lisant le code.
+
+Les deux règles sont opposables : `npm run check:boundaries`, exécuté en CI. Leur forme exécutable
+est `boundaries.json`, leur énoncé est dans `CLAUDE.md`, section « Frontières vérifiées par la CI ».

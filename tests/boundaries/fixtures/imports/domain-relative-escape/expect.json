@@ -1,0 +1,6 @@
+{
+  "title": "packages/domain contourne le nom de package par un chemin relatif",
+  "violations": [
+    { "rule": "domain-imports-no-infrastructure", "where": "packages/domain/src/leak.ts" }
+  ]
+}

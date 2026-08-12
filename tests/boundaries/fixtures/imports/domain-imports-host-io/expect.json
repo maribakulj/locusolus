@@ -1,0 +1,6 @@
+{
+  "title": "packages/domain ouvre un fichier",
+  "violations": [
+    { "rule": "domain-imports-no-infrastructure", "where": "packages/domain/src/load.ts" }
+  ]
+}

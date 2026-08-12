@@ -1,0 +1,4 @@
+{
+  "title": "du code dans un langage sans extracteur d'imports",
+  "violations": [{ "rule": "boundary-blind-spot", "where": "apps/locusd/main.go" }]
+}

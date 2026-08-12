@@ -1,0 +1,23 @@
+{
+  "sandbox_id": "sbx-example",
+  "backend": "lima-podman",
+  "isolation_level": "S3",
+  "image_digest": "sha256:...",
+  "rootless": true,
+  "read_only_rootfs": true,
+  "network_mode": "deny",
+  "host_home_mounted": false,
+  "runtime_socket_exposed": false,
+  "limits": {
+    "cpu": 4,
+    "memory_mb": 8192,
+    "pids": 512,
+    "disk_mb": 12000
+  },
+  "self_tests": {
+    "write_outside_workspace": "blocked",
+    "read_host_home": "blocked",
+    "network_egress": "blocked",
+    "memory_limit": "enforced"
+  }
+}

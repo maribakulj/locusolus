@@ -1,0 +1,9 @@
+profile: single-node-vm
+workflow_backend: temporal
+domain_store: postgres
+artifact_store: s3-compatible
+execution_backend: rootless-oci
+identity_backend: oidc
+defaults:
+  network: deny
+  sandbox_level: S3

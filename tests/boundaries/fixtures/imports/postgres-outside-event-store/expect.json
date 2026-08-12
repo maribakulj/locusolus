@@ -1,0 +1,6 @@
+{
+  "title": "un client PostgreSQL hors event-store et projections",
+  "violations": [
+    { "rule": "postgres-confined-to-event-store", "where": "packages/graph/src/read.ts" }
+  ]
+}

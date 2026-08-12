@@ -1,0 +1,6 @@
+{
+  "title": "@temporalio/* hors de packages/workflow-backends",
+  "violations": [
+    { "rule": "temporal-confined-to-workflow-backends", "where": "packages/scheduler/src/run.ts" }
+  ]
+}

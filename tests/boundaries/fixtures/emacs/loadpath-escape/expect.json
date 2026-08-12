@@ -1,0 +1,4 @@
+{
+  "title": "un client qui s'ajoute un répertoire extérieur au chargement",
+  "violations": [{ "rule": "emacs-client-is-self-contained", "where": "apps/emacs/locus.el" }]
+}

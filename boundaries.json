@@ -1,0 +1,251 @@
+{
+  "$comment": [
+    "Forme opposable des cinq règles de CLAUDE.md, section « Frontières vérifiées par la CI ».",
+    "Le champ `statement` de chaque règle reprend le texte de CLAUDE.md mot pour mot : si les deux",
+    "divergent, CLAUDE.md fait foi et ce fichier est en retard.",
+    "Vérifié par `npm run check:boundaries`, exécuté en CI."
+  ],
+
+  "exclude": ["node_modules/**", "**/node_modules/**", "tests/boundaries/fixtures/**"],
+
+  "extensions": {
+    "$comment": [
+      "Un fichier source dont l'extension n'est ni analysable ni ignorée est un angle mort :",
+      "la garde le signale et la CI échoue. C'est délibéré. Le langage d'implémentation de locusd",
+      "n'est pas tranché ; le jour où du code arrive dans un langage sans extracteur d'imports,",
+      "les frontières cessent d'être vérifiables sur ce code et il faut le savoir tout de suite,",
+      "pas six mois plus tard."
+    ],
+    "analysable": [".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs", ".el"],
+    "ignored": [
+      ".md",
+      ".txt",
+      ".json",
+      ".jsonc",
+      ".yml",
+      ".yaml",
+      ".toml",
+      ".lock",
+      ".sql",
+      ".css",
+      ".html",
+      ".svg",
+      ".png",
+      ".jpg",
+      ".jpeg",
+      ".webp",
+      ".ico",
+      ".pdf",
+      ".patch",
+      ".pem",
+      ".sh"
+    ]
+  },
+
+  "catalogues": {
+    "temporal": {
+      "$comment": "Règle 2. Le SDK Temporal, dans les écosystèmes où le projet peut aller.",
+      "patterns": [
+        "@temporalio/*",
+        "temporalio",
+        "temporal-sdk*",
+        "go.temporal.io/*",
+        "github.com/temporalio/*",
+        "io.temporal.*"
+      ]
+    },
+
+    "postgres": {
+      "$comment": "Règle 3. Clients PostgreSQL, drivers, et ORM qui en embarquent un.",
+      "patterns": [
+        "pg",
+        "pg-native",
+        "pg-pool",
+        "pg-promise",
+        "pg-cursor",
+        "postgres",
+        "slonik",
+        "@neondatabase/*",
+        "@vercel/postgres",
+        "@electric-sql/pglite",
+        "knex",
+        "sequelize",
+        "typeorm",
+        "prisma",
+        "@prisma/client",
+        "drizzle-orm/node-postgres",
+        "drizzle-orm/postgres-js",
+        "psycopg",
+        "psycopg2",
+        "psycopg2-binary",
+        "asyncpg",
+        "sqlalchemy",
+        "github.com/lib/pq",
+        "github.com/jackc/pgx*",
+        "tokio-postgres",
+        "postgres-types",
+        "diesel",
+        "sqlx"
+      ]
+    },
+
+    "container-runtime": {
+      "$comment": [
+        "Règle 4. Ce qui parle à un socket de runtime de containers ou à un orchestrateur.",
+        "locusd ne détient jamais de socket runtime : c'est le rôle de locus-execd."
+      ],
+      "patterns": [
+        "dockerode",
+        "docker",
+        "docker-cli-js",
+        "docker-compose",
+        "node-docker-api",
+        "podman",
+        "podman-py",
+        "@podman-desktop/*",
+        "testcontainers",
+        "@testcontainers/*",
+        "kubernetes",
+        "kubernetes-client",
+        "@kubernetes/client-node",
+        "github.com/docker/docker*",
+        "github.com/docker/cli*",
+        "github.com/containers/*",
+        "github.com/opencontainers/*",
+        "k8s.io/client-go*",
+        "bollard",
+        "shiplift"
+      ]
+    },
+
+    "host-io": {
+      "$comment": [
+        "Règle 1. Les primitives d'entrée-sortie de l'hôte. Un domaine qui ouvre un fichier ou",
+        "une socket a déjà cessé d'être un domaine — l'invariant 1 de CLAUDE.md dit que le",
+        "domaine ne dépend pas du backend de déploiement."
+      ],
+      "patterns": [
+        "node:fs",
+        "node:fs/*",
+        "node:net",
+        "node:tls",
+        "node:http",
+        "node:http2",
+        "node:https",
+        "node:dgram",
+        "node:dns",
+        "node:child_process",
+        "node:cluster",
+        "node:worker_threads",
+        "node:os",
+        "fs",
+        "net",
+        "tls",
+        "http",
+        "http2",
+        "https",
+        "dgram",
+        "dns",
+        "child_process",
+        "cluster",
+        "worker_threads",
+        "os"
+      ]
+    },
+
+    "infrastructure": {
+      "$comment": [
+        "Règle 1. Définition opposable de « package d'infrastructure » : les packages du dépôt",
+        "qui portent un adaptateur technique, et les bibliothèques qui en sont un. La liste est",
+        "amendée par revue quand un package apparaît — l'amender est un acte d'architecture,",
+        "visible dans le diff, ce qui est exactement l'effet recherché."
+      ],
+      "patterns": [
+        "@locus/event-store",
+        "@locus/graph",
+        "@locus/workflow-backends",
+        "@locus/execution",
+        "@locus/environments",
+        "@locus/toolchains",
+        "@locus/telemetry",
+        "@locus/artifacts",
+        "@locus/federation",
+        "ioredis",
+        "redis",
+        "nats",
+        "amqplib",
+        "kafkajs",
+        "mongodb",
+        "mysql2",
+        "better-sqlite3",
+        "minio",
+        "aws-sdk",
+        "@aws-sdk/*",
+        "@azure/*",
+        "@google-cloud/*",
+        "@opentelemetry/*",
+        "express",
+        "fastify",
+        "hono",
+        "koa",
+        "ws",
+        "socket.io",
+        "undici",
+        "node-fetch",
+        "axios"
+      ]
+    }
+  },
+
+  "rules": [
+    {
+      "id": "domain-imports-no-infrastructure",
+      "claudeMd": 1,
+      "statement": "packages/domain n'importe aucun package d'infrastructure.",
+      "kind": "imports",
+      "scope": ["packages/domain/**"],
+      "deny": ["infrastructure", "postgres", "temporal", "container-runtime", "host-io"]
+    },
+
+    {
+      "id": "temporal-confined-to-workflow-backends",
+      "claudeMd": 2,
+      "statement": "@temporalio/* seulement sous packages/workflow-backends.",
+      "kind": "imports",
+      "scope": ["**"],
+      "except": ["packages/workflow-backends/**"],
+      "deny": ["temporal"]
+    },
+
+    {
+      "id": "postgres-confined-to-event-store",
+      "claudeMd": 3,
+      "statement": "Aucun client PostgreSQL hors packages/event-store et projections.",
+      "$comment": [
+        "L'emplacement des projections n'est pas encore fixé : W1.d le confirme ou le déplace.",
+        "En attendant, `packages/projections/**` tient la place que la règle leur reconnaît."
+      ],
+      "kind": "imports",
+      "scope": ["**"],
+      "except": ["packages/event-store/**", "packages/projections/**"],
+      "deny": ["postgres"]
+    },
+
+    {
+      "id": "locusd-holds-no-runtime-socket",
+      "claudeMd": 4,
+      "statement": "apps/locusd n'importe aucun SDK de runtime de containers.",
+      "kind": "imports",
+      "scope": ["apps/locusd/**"],
+      "deny": ["container-runtime"]
+    },
+
+    {
+      "id": "emacs-client-is-self-contained",
+      "claudeMd": 5,
+      "statement": "apps/emacs démarre en emacs -Q avec sa seule load-path.",
+      "kind": "emacs-isolation",
+      "unit": "apps/emacs"
+    }
+  ]
+}
