@@ -1,7 +1,8 @@
 # `tests/`
 
 Suites transverses : celles qui portent sur le dépôt entier ou sur la frontière entre plusieurs
-unités. Les tests unitaires d'un package vivent dans ce package, pas ici.
+unités. Les tests unitaires d'un package vivent dans ce package, pas ici — pour un crate Rust, dans
+son propre répertoire `tests/`, exécutés par `cargo test`.
 
 `npm test` exécute `tests/**/*.test.ts` avec le lanceur intégré de Node.
 

@@ -12,6 +12,11 @@ Le découpage visé par `docs/SPEC_V1.md` §5 sépare le domaine (`domain`, `app
 C'est une annexe indicative, pas un gabarit à instancier. **Un package apparaît quand il porte une
 garantie testée** ; un répertoire vide fait échouer `npm run check:repo`.
 
+Un seul existe à ce jour : `protocol` (crate `locus-protocol`), qui porte les primitives de LEP —
+identifiants typés, horodatage, enveloppe d'erreur structurée, versionnement. Les crates Rust sont
+nommés `locus-<répertoire>`, les packages npm `@locus/<répertoire>` ; les deux conventions sont
+vérifiées par `check:repo`.
+
 ## Ordre de construction
 
 `domain`, `protocol` et `event-store` d'abord, avec des ports purs. Temporal, les containers et le

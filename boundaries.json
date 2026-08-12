@@ -6,7 +6,17 @@
     "Vérifié par `npm run check:boundaries`, exécuté en CI."
   ],
 
-  "exclude": ["node_modules/**", "**/node_modules/**", "tests/boundaries/fixtures/**"],
+  "$comment-exclude": [
+    "Sorties de build et fixtures. La garde scanne tout ce qui n'est pas listé ici : c'est le",
+    "bon défaut, mais il faut lui dire ce qui n'est pas du code source."
+  ],
+  "exclude": [
+    "node_modules/**",
+    "**/node_modules/**",
+    "target/**",
+    "**/target/**",
+    "tests/boundaries/fixtures/**"
+  ],
 
   "extensions": {
     "$comment": [

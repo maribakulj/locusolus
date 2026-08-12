@@ -9,8 +9,11 @@ export const requiredRoots = ["apps", "packages", "schemas", "tests", "tooling"]
 /** Roots whose direct children are build units — one app or one package each. */
 export const unitRoots = ["apps", "packages"] as const;
 
-/** npm scope every workspace unit is named under. */
+/** npm scope every TypeScript workspace unit is named under. */
 export const workspaceScope = "@locus";
+
+/** Prefix every Rust crate in the repository is named under. */
+export const cratePrefix = "locus";
 
 const workspaceGlobs = unitRoots.map((root) => `${root}/*`);
 
@@ -123,8 +126,64 @@ async function checkUnit(
     });
     return;
   }
-  if (!entries.some((entry) => entry.isFile() && entry.name === "package.json")) return;
-  await checkWorkspaceManifest(root, where, name, seen, findings);
+  const has = (filename: string): boolean =>
+    entries.some((entry) => entry.isFile() && entry.name === filename);
+  if (has("package.json")) await checkWorkspaceManifest(root, where, name, seen, findings);
+  if (has("Cargo.toml")) await checkCrateManifest(root, where, name, seen, findings);
+}
+
+/**
+ * A Rust unit answers to the same naming discipline as a TypeScript one.
+ *
+ * Cargo has no scopes, so the convention is a prefix: `packages/protocol` is `locus-protocol`.
+ * The check exists so the rule does not stay npm-only now that the repository holds both.
+ */
+async function checkCrateManifest(
+  root: string,
+  where: string,
+  dirname: string,
+  seen: Map<string, string>,
+  findings: Finding[],
+): Promise<void> {
+  const manifestPath = `${where}/Cargo.toml`;
+  const source = await readTextFile(join(root, manifestPath));
+  if (source === null) return;
+  const expected = `${cratePrefix}-${dirname}`;
+  const name = crateName(source);
+  if (name !== expected) {
+    findings.push({
+      rule: "unit-name",
+      where: manifestPath,
+      message: `name must be "${expected}", found ${JSON.stringify(name)}`,
+    });
+    return;
+  }
+  const previous = seen.get(name);
+  if (previous) {
+    findings.push({
+      rule: "unit-name-unique",
+      where: manifestPath,
+      message: `name "${name}" is already used by ${previous}`,
+    });
+  }
+  seen.set(name, manifestPath);
+}
+
+/** The `name` of the `[package]` table, or `null` when absent. */
+function crateName(source: string): string | null {
+  let inPackage = false;
+  for (const raw of source.split("\n")) {
+    const line = raw.replace(/#.*$/, "").trim();
+    const header = /^\[\s*([^\]]+?)\s*\]$/.exec(line);
+    if (header) {
+      inPackage = header[1] === "package";
+      continue;
+    }
+    if (!inPackage) continue;
+    const name = /^name\s*=\s*"([^"]*)"/.exec(line);
+    if (name?.[1] !== undefined) return name[1];
+  }
+  return null;
 }
 
 async function checkWorkspaceManifest(

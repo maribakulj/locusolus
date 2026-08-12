@@ -59,6 +59,19 @@ test("a conforming unit is clean", async () => {
   assert.deepEqual(await inspectRepo(root), []);
 });
 
+test("a Rust unit answers to the same naming discipline", async () => {
+  const root = await skeleton();
+  await write(root, "packages/protocol/Cargo.toml", '[package]\nname = "protocol"\n');
+  assert.deepEqual(await rules(root), ["unit-name"]);
+});
+
+test("a conforming crate is clean, and coexists with a package of the same directory", async () => {
+  const root = await skeleton();
+  await write(root, "packages/protocol/Cargo.toml", '[package]\nname = "locus-protocol"\n');
+  await write(root, "packages/protocol/package.json", unit("@locus/protocol"));
+  assert.deepEqual(await inspectRepo(root), []);
+});
+
 test("the pinned Node major must match engines.node", async () => {
   const root = await skeleton();
   await write(root, ".nvmrc", "20\n");
