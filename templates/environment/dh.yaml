@@ -1,0 +1,10 @@
+environment_id: dh-v1
+platform: { os: linux, arch: any }
+toolchains: [base, python-science, browser, dh]
+resources:
+  cpu: { minimum: 2, preferred: 4 }
+  memory_mb: { minimum: 4096, preferred: 8192 }
+network: { mode: allowlist }
+health_checks:
+  - python -c "import lxml, PIL"
+  - tesseract --version

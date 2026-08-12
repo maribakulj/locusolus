@@ -43,6 +43,9 @@ jobs:
       - name: Repository layout
         run: npm run check:repo
 
+      - name: Retired project name
+        run: npm run check:naming
+
       - name: Architectural boundaries
         run: npm run check:boundaries -- --require-emacs
 

@@ -1,0 +1,14 @@
+environment_id: math-formal-v1
+platform: { os: linux, arch: any }
+toolchains: [base, python-science, math-formal]
+resources:
+  cpu: { minimum: 2, preferred: 4 }
+  memory_mb: { minimum: 4096, preferred: 8192 }
+  disk_mb: 12000
+  pids: 512
+network: { mode: deny }
+health_checks:
+  - lean --version
+  - lake --version
+  - z3 --version
+  - python -c "import sympy"
