@@ -1,0 +1,11 @@
+[package]
+name = "locusd"
+version = "0.0.0"
+edition = "2021"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+bollard = "0.17"
+
+[dev-dependencies]
+insta = "1"

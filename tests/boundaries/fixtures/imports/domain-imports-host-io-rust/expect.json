@@ -1,0 +1,6 @@
+{
+  "title": "packages/domain ouvre un fichier et une socket, via un groupe use",
+  "violations": [
+    { "rule": "domain-imports-no-infrastructure", "where": "packages/domain/src/load.rs" }
+  ]
+}

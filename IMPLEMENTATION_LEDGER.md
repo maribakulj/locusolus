@@ -170,3 +170,49 @@ pleinement satisfaites, la réserve de l'entrée précédente étant levée — 
 versionnement) et `docs/SPEC_V1.md` sont dans le dépôt, et `schemas/examples/` y est pour W0.5 et
 W0.7. Déverrouillé en parallèle et sans dépendance : les six items `xiiif` de `docs/10` §W10, et
 l'inventaire de `emacs-config`.
+
+## 2026-08-11 — ADR 0011 — langage du control plane, et sa mise en application
+
+Hors roadmap : `docs/10` ne numérote pas cette décision, il la déclare ouverte et exige qu'elle
+tombe avant W1.
+
+**Périmètre.** Deux PR. La décision : `docs/adr/0011-langage-de-locusd.md`, règle 2 de `CLAUDE.md`
+reformulée, `statement` correspondant dans `boundaries.json`, `docs/DECISIONS.md` (D016), dialecte
+fixé dans `schemas/README.md`. La mise en application : extracteur d'imports Rust dans
+`tooling/boundaries/imports.ts`, lecture des manifestes dans `tooling/boundaries/manifests.ts`
+(extrait de `analyze.ts` et étendu à `Cargo.toml`), motifs Rust dans les cinq catalogues, `.rs`
+déclaré analysable, quatre fixtures Rust, `tests/boundaries/extractors.test.ts`,
+`tooling/README.md`. Débordement déclaré : cette entrée de ledger est dans la seconde PR plutôt que
+dans une troisième.
+
+**Tests exécutés.** Même discipline que W0.3, fixtures d'abord. Les quatre fixtures Rust et la
+fixture `clean` augmentée ont d'abord échoué en rendant `boundary-blind-spot` au lieu du verdict
+attendu — c'est-à-dire que la garde disait « je ne sais pas lire ce fichier » et non « rien à
+signaler ». Puis, extracteur écrit : `npm run check` → 45 tests, exit 0. Enfin, quatre violations
+Rust plantées dans l'arborescence réelle : `std::{fs::File, …}` attrapé par la règle 1, `bollard`
+déclaré dans un `Cargo.toml` sans aucun import attrapé par la règle 4, `youki::container` par la
+règle 4, `temporalio_sdk::Worker` par la règle 2 après normalisation en `temporalio-sdk`. Retrait →
+exit 0.
+
+**Décisions prises.** ADR 0011 : Rust pour `locusd`, `locus-execd` et la CLI ; TypeScript pour
+`apps/web`, le SDK client et le worker ; Emacs Lisp pour `apps/emacs`. Le motif décisif n'est pas la
+performance mais l'exhaustivité vérifiée des types somme sur une machine à états épistémique, et le
+constat que le chantier est multi-langage quel que soit le choix — `locus-execd` ne peut pas être en
+TypeScript. Quatre conditions dans l'ADR, dont deux ont un effet immédiat : les JSON Schemas
+s'écrivent en Draft 7 (`typify` ne tient pas 2020-12), et W0.8 est budgété pour deux SDK.
+
+Deux décisions d'outillage suivent. Un manifeste de dépendances est lu comme une source d'imports,
+pour Cargo comme pour npm : une dépendance déclarée est le moment où quelqu'un a décidé, avant même
+la première ligne qui l'utilise. Et les chemins Rust sont normalisés `::` → `/`, pour que
+`boundaries.json` s'écrive dans une seule syntaxe quel que soit le langage.
+
+**Écart avec la spec.** `SPEC_V1.md` §4.5 donnait TypeScript comme technologie de référence ; ADR
+0011 l'amende, selon la convention déjà employée par ADR 0009 et 0010, qui amendent sans réécrire le
+document amendé. La règle 2 de `CLAUDE.md` nommait `@temporalio/*`, un package npm : elle
+présupposait TypeScript dans sa formulation même et désigne maintenant le SDK Temporal
+indépendamment de son écosystème. Go n'a toujours pas d'extracteur et reste un angle mort signalé —
+assumé, puisque le langage retenu n'est pas Go.
+
+**Prochain item.** Inchangé : **W0.4**, `packages/protocol`. Dépendances satisfaites, et la décision
+de langage qui devait tomber avant W1 est désormais prise, donc W0.4 peut être écrit directement
+dans le langage définitif au lieu d'être réécrit.
