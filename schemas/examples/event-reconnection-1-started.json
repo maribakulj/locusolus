@@ -1,0 +1,15 @@
+{
+  "_fixture": {
+    "name": "reconnection-01-attempt-started",
+    "expect": "valid",
+    "pairs_with": "mission-envelope-nominal.json",
+    "note": "Séquence 1. Acquittée par le serveur avant la coupure."
+  },
+  "protocol": "lep/1.0",
+  "event_type": "attempt.started",
+  "sequence": 1,
+  "occurred_at": "2026-08-13T10:00:00.000Z",
+  "idempotency_key": "idem-task-nominal-1",
+  "task_id": "task-nominal",
+  "attempt": 1
+}

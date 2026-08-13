@@ -1,0 +1,18 @@
+{
+  "_fixture": {
+    "name": "reconnection-03-emitted-then-lost",
+    "expect": "valid",
+    "pairs_with": "event-reconnection-2-progress.json",
+    "note": "Séquence 3, émise juste avant la coupure. Jamais acquittée."
+  },
+  "protocol": "lep/1.0",
+  "event_type": "tool.completed",
+  "sequence": 3,
+  "occurred_at": "2026-08-13T10:00:00.000Z",
+  "idempotency_key": "idem-task-nominal-3",
+  "task_id": "task-nominal",
+  "attempt": 1,
+  "payload": {
+    "tool": "lake"
+  }
+}

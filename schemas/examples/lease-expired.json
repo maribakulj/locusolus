@@ -1,0 +1,19 @@
+{
+  "_fixture": {
+    "name": "lease-that-the-late-result-outlived",
+    "expect": "valid",
+    "pairs_with": "attempt-late-result.json",
+    "note": "La lease que le résultat tardif a dépassée : elle expire à 10:00:00, l'attempt rend à 10:07:00. Elle est ici pour que la fixture tardive soit vérifiable et pas seulement affirmée."
+  },
+  "protocol": "lep/1.0",
+  "lease_id": "lease-nominal-1",
+  "task_id": "task-nominal",
+  "attempt": 1,
+  "worker_id": "canterel-vm-linux-01",
+  "issued_at": "2026-08-13T09:00:00.000Z",
+  "expires_at": "2026-08-13T10:00:00.000Z",
+  "ttl_seconds": 3600,
+  "heartbeat_interval_seconds": 600,
+  "renewal_count": 0,
+  "idempotency_key": "idem-lease-nominal-1"
+}

@@ -1,0 +1,23 @@
+{
+  "_fixture": {
+    "name": "a-mute-attestation-is-not-an-attestation",
+    "expect": "invalid",
+    "note": "`host_home_mounted` et `runtime_socket_exposed` sont absents. Un champ absent se lit « je n'ai pas regardé » aussi bien que « non ». À comparer avec `sandbox-attestation.json`, qui répond `false` : c'est la différence entre une attestation et un silence."
+  },
+  "sandbox_id": "sbx-mute",
+  "backend": "lima-podman",
+  "isolation_level": "S3",
+  "network_mode": "deny",
+  "limits": {
+    "cpu": 4,
+    "memory_mb": 8192,
+    "pids": 512,
+    "disk_mb": 12000
+  },
+  "self_tests": {
+    "write_outside_workspace": "blocked",
+    "read_host_home": "blocked",
+    "network_egress": "blocked",
+    "memory_limit": "enforced"
+  }
+}

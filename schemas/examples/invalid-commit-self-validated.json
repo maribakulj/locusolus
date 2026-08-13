@@ -1,0 +1,18 @@
+{
+  "_fixture": {
+    "name": "a-worker-cannot-validate-its-own-commit",
+    "expect": "invalid",
+    "note": "§2.3 et invariant 3. `validated` est un verdict de Locus Solus ; un worker qui l'écrit s'auto-valide. Cette fixture existe pour que la garantie soit vérifiée comme une DONNÉE, pas seulement dans un test unitaire — c'est elle que le harnais de W0.9 rejouera contre une implémentation tierce."
+  },
+  "protocol": "lep/1.0",
+  "task_id": "task-nominal",
+  "attempt": 1,
+  "status": "validated",
+  "produced_at": "2026-08-13T10:00:00.000Z",
+  "claims": [
+    {
+      "statement": "C-184 est réfutée",
+      "confidence": 0.9
+    }
+  ]
+}

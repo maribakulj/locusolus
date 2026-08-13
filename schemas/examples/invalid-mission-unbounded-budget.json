@@ -1,0 +1,40 @@
+{
+  "_fixture": {
+    "name": "one-free-bound-hides-the-overrun",
+    "expect": "invalid",
+    "pairs_with": "attempt-budget-exceeded.json",
+    "note": "`max_output_tokens` manque. Invariant 6 : une seule borne laissée libre suffit à rendre le dépassement impossible à constater, donc la mission n'est pas admissible — elle est mal formée."
+  },
+  "protocol": "lep/1.0",
+  "task_id": "task-unbounded",
+  "attempt_id": "attempt-unbounded",
+  "branch_id": "branch-example",
+  "objective": {
+    "statement": "x",
+    "success_conditions": [
+      "y"
+    ]
+  },
+  "context_view": {
+    "id": "ctx-example",
+    "hash": "sha256:b7a4c0cecbce5b62229f9852844bc84310aed6cd7e144f0b136da542ebbe53cc"
+  },
+  "environment": {
+    "environment_id": "math-formal-v1"
+  },
+  "sandbox": {
+    "minimum_level": "S3",
+    "network": "deny"
+  },
+  "resources": {
+    "cpu": 4,
+    "memory_mb": 8192,
+    "disk_mb": 12000,
+    "wall_time_seconds": 3600
+  },
+  "budget": {
+    "max_model_calls": 30,
+    "max_input_tokens": 300000
+  },
+  "output_contract": "epistemic-commit/1"
+}

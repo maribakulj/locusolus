@@ -15,19 +15,25 @@ const addFormats = ajvFormats.default as unknown as (ajv: Ajv, formats: string[]
 import type { Finding } from "../lib/findings.ts";
 
 /**
- * What a fixture's `_fixture.expect` claims about it.
+ * The outcome vocabulary lives in the registry, not here.
  *
- * `valid`, `accepted` and `refused` are all *schema-valid*: a mission that admission will refuse
- * is still a well-formed mission, and conflating "the scheduler says no" with "this is not a
- * MissionEnvelope" would make the refusal fixture unable to test what it exists to test.
- * `invalid` is reserved for the W0.7 corpus, and is handled here so it does not arrive as a
- * surprise then.
+ * Most outcomes are *semantic* — what admission or the scheduler decides — and all of those are
+ * schema-valid: a mission that admission will refuse is still a well-formed mission, and
+ * conflating "the scheduler says no" with "this is not a MissionEnvelope" would make the refusal
+ * fixture unable to test what it exists to test. Only `invalid` claims the document itself is
+ * malformed.
+ *
+ * Keeping the list as data means adding a scenario outcome is a registry edit that documents what
+ * the word means, rather than a constant nobody explains.
  */
-const SCHEMA_VALID: ReadonlySet<string> = new Set(["valid", "accepted", "refused"]);
-const SCHEMA_INVALID: ReadonlySet<string> = new Set(["invalid"]);
+export type Expectation = {
+  readonly schema: "valid" | "invalid";
+  readonly note: string;
+};
 
 export type Registry = {
   readonly draft: string;
+  readonly expectations: Readonly<Record<string, Expectation>>;
   readonly documents: readonly { readonly schema: string; readonly examples: readonly string[] }[];
   readonly shared: readonly string[];
   readonly pending: readonly {
@@ -126,7 +132,9 @@ export function inspectSchemas(root: string): Finding[] {
     if (!validate) continue;
     for (const example of entry.examples) {
       seen.add(example);
-      findings.push(...checkExample(examplesDir, example, entry.schema, validate));
+      findings.push(
+        ...checkExample(examplesDir, example, entry.schema, validate, registry.expectations),
+      );
     }
   }
   for (const entry of registry.pending) seen.add(entry.example);
@@ -175,6 +183,7 @@ function checkExample(
   example: string,
   schema: string,
   validate: ValidateFunction,
+  expectations: Readonly<Record<string, Expectation>>,
 ): Finding[] {
   const where = `schemas/examples/${example}`;
   let document: unknown;
@@ -193,16 +202,17 @@ function checkExample(
       },
     ];
   }
-  const wantsValid = SCHEMA_VALID.has(expect);
-  if (!wantsValid && !SCHEMA_INVALID.has(expect)) {
+  const expectation = expectations[expect];
+  if (!expectation) {
     return [
       {
         rule: "example-unknown-expect",
         where,
-        message: `\`expect\` vaut ${expect}, attendu l'un de ${[...SCHEMA_VALID, ...SCHEMA_INVALID].join(", ")}`,
+        message: `\`expect\` vaut ${expect}, attendu l'un de ${Object.keys(expectations).sort().join(", ")} — un résultat neuf s'ajoute au registre, avec ce qu'il veut dire`,
       },
     ];
   }
+  const wantsValid = expectation.schema === "valid";
   const ok = validate(body) as boolean;
   if (ok === wantsValid) return [];
   if (wantsValid) {

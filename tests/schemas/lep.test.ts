@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import assert from "node:assert/strict";
@@ -468,3 +468,116 @@ test("un artefact sans provenance n'est pas un artefact", () => {
   // Un état de promotion automatique n'existe pas : la quarantaine se lève par une revue.
   assert.equal(accepts(ARTIFACT, { ...artifact, state: "auto-promoted" }), false);
 });
+
+//
+// W0.7 — le corpus. Les fixtures ne sont pas de la documentation : ce sont les cas que le
+// harnais de conformance (W0.9) rejouera contre une implémentation tierce.
+//
+
+function fixtureOf(name: string): Record<string, unknown> {
+  return JSON.parse(readFileSync(join(schemasDir, "examples", name), "utf8")) as Record<
+    string,
+    unknown
+  >;
+}
+
+test("les cinq scénarios de W0.7 sont dans le corpus", () => {
+  // La roadmap les nomme : nominal, refus d'admission, reconnexion, résultat tardif,
+  // dépassement de budget. Les compter ici évite qu'un scénario disparaisse sans bruit.
+  const scenarios = new Map<string, string[]>([
+    ["nominal", ["capability-manifest-vm-linux.json", "mission-envelope-nominal.json"]],
+    ["refus d'admission", ["capability-manifest.json", "mission-envelope.json"]],
+    [
+      "reconnexion",
+      [
+        "event-reconnection-1-started.json",
+        "event-reconnection-2-progress.json",
+        "event-reconnection-3-tool-completed.json",
+        "event-reconnection-4-replay.json",
+      ],
+    ],
+    ["résultat tardif", ["attempt-late-result.json", "lease-expired.json"]],
+    ["dépassement de budget", ["attempt-budget-exceeded.json"]],
+  ]);
+  for (const [scenario, files] of scenarios) {
+    for (const file of files) {
+      assert.ok(fixtureOf(file), `${scenario} : ${file} manquant`);
+    }
+  }
+});
+
+test("chaque résultat déclaré existe dans le vocabulaire du registre", () => {
+  // Le vocabulaire est une donnée, pas une constante du code : un résultat neuf doit venir
+  // avec ce qu'il veut dire.
+  const files = readdirSyncSorted();
+  for (const file of files) {
+    const raw = fixtureOf(file);
+    const { expect } = stripFixture(raw);
+    assert.ok(expect, `${file} sans \`expect\``);
+    assert.ok(registry.expectations[expect], `${file} : \`${expect}\` absent du registre`);
+    assert.ok(registry.expectations[expect].note.length > 0, `${file} : \`${expect}\` sans note`);
+  }
+});
+
+test("le corpus exerce vraiment `expect: invalid`", () => {
+  // Posé en W0.5 sans usage. Un chemin de code que rien n'emprunte n'est pas testé, et un
+  // corpus qui ne contient que des documents valides ne teste que la moitié d'un schéma.
+  const invalid = readdirSyncSorted().filter(
+    (file) => stripFixture(fixtureOf(file)).expect === "invalid",
+  );
+  assert.ok(invalid.length >= 3, `attendu au moins 3 fixtures invalides, trouvé ${invalid.length}`);
+});
+
+test("le rejeu est le même document que l'original", () => {
+  // C'est toute la propriété : si le rejeu différait, la déduplication par clé d'idempotence
+  // ne prouverait rien.
+  const original = stripFixture(fixtureOf("event-reconnection-3-tool-completed.json")).body;
+  const replay = stripFixture(fixtureOf("event-reconnection-4-replay.json")).body;
+  assert.deepEqual(replay, original);
+});
+
+test("le résultat tardif a bien dépassé sa lease", () => {
+  // Une fixture qui affirmerait « tardif » sans que les dates le montrent ne serait pas une
+  // fixture, seulement une étiquette.
+  const attempt = stripFixture(fixtureOf("attempt-late-result.json")).body as Record<
+    string,
+    unknown
+  >;
+  const lease = stripFixture(fixtureOf("lease-expired.json")).body as Record<string, unknown>;
+  assert.equal(attempt.late, true);
+  assert.equal(attempt.lease_id, lease.lease_id);
+  assert.ok(
+    Date.parse(String(attempt.completed_at)) > Date.parse(String(lease.expires_at)),
+    "la fixture tardive doit se terminer après l'expiration de sa lease",
+  );
+});
+
+test("un dépassement de budget n'est pas réessayable", () => {
+  // Réessayer ne rendrait pas le budget. Une erreur `retryable` ici enverrait le worker
+  // reconsommer ce qu'il vient d'épuiser.
+  const attempt = stripFixture(fixtureOf("attempt-budget-exceeded.json")).body as Record<
+    string,
+    unknown
+  >;
+  assert.equal(attempt.state, "failed");
+  assert.equal((attempt.error as Record<string, unknown>).retryable, false);
+});
+
+test("la paire de refus n'est pas lisible comme un cas nominal", () => {
+  // L'ambiguïté du paquet d'origine, verrouillée : la mission exige S3, le worker apparié
+  // n'offre que S1/S2. Un worker qui l'accepte est en faute.
+  const mission = stripFixture(fixtureOf("mission-envelope.json")).body as Record<string, unknown>;
+  const worker = stripFixture(fixtureOf("capability-manifest.json")).body as Record<
+    string,
+    unknown
+  >;
+  const required = (mission.sandbox as Record<string, unknown>).minimum_level as string;
+  const offered = (worker.sandbox as Record<string, unknown>).levels as string[];
+  assert.ok(!offered.includes(required), `${required} ne doit pas figurer dans ${offered.join()}`);
+});
+
+function readdirSyncSorted(): string[] {
+  return readdirSync(join(schemasDir, "examples"))
+    .filter((name) => name.endsWith(".json"))
+    .sort();
+}
