@@ -19,7 +19,12 @@ npm run check:naming     # aucune occurrence non justifiée du nom retiré
 npm run check:boundaries # les cinq frontières de CLAUDE.md
 npm run typecheck        # tsc --noEmit sur tooling/ et tests/
 npm test                 # tests/**/*.test.ts
+npm run check:rust       # cargo fmt --check, clippy -D warnings, cargo test
 ```
+
+`npm run check` appelle `check:rust` en dernier, donc **demande la toolchain Rust**. C'est voulu :
+la commande annonce « ce que la CI exécute », et une commande qui en sauterait la moitié serait pire
+qu'absente. `rust-toolchain.toml` épingle la version, rustup l'installe seul.
 
 Chaque vérification est aussi un module importable — `check-repo.ts` n'est qu'une entrée CLI
 au-dessus de `layout.ts`. C'est ce qui permet de les tester depuis `tests/` contre des arborescences

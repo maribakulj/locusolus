@@ -216,3 +216,59 @@ assumé, puisque le langage retenu n'est pas Go.
 **Prochain item.** Inchangé : **W0.4**, `packages/protocol`. Dépendances satisfaites, et la décision
 de langage qui devait tomber avant W1 est désormais prise, donc W0.4 peut être écrit directement
 dans le langage définitif au lieu d'être réécrit.
+
+## 2026-08-12 — W0.4 — `packages/protocol`
+
+**Périmètre.** Premier code produit du dépôt. Workspace Cargo (`Cargo.toml`, `rust-toolchain.toml`,
+`target/` ignoré par git et exclu de la garde de frontières), crate `locus-protocol` — `id.rs`,
+`time.rs`, `error.rs`, `version.rs` — et sa suite `tests/canonical_forms.rs`. Débordements déclarés,
+tous induits par l'arrivée d'un second écosystème : job CI `rust`, script `check:rust` appelé par
+`npm run check`, convention de nommage des crates ajoutée à `check:repo` avec ses deux tests, et les
+`README.md` que le tout change.
+
+**Tests exécutés.** Test de sortie de l'item — « unitaires » — : `cargo test` → 27 tests, exit 0.
+Plus les gardes qui les encadrent : `cargo fmt --all --check` et
+`cargo clippy --all-targets --all-features -- -D warnings`, pedantic comprise, sans aucune
+dérogation posée. `npm run check` → 47 tests JS puis la chaîne Rust, exit 0. La garde de frontières
+couvre désormais les cinq fichiers Rust : les règles 2 et 3 passent de 21 à 29 fichiers examinés.
+
+**Décisions prises.** Quatre, toutes contraignantes pour la suite.
+
+Le corps des identifiants est un **ULID**, là où §7.7 laissait le choix entre UUIDv7 et ULID : son
+encodage textuel se trie lexicographiquement dans l'ordre chronologique, propriété dont l'event
+store se servira directement, et c'est la forme que montrent les exemples du §10.1.
+
+**Une seule écriture par valeur.** Horodatage, identifiant et version n'acceptent au décodage que
+leur forme canonique exacte : `2026-07-26T12:00:00Z` est refusé, pas normalisé. §7.7 dit que « les
+hashes portent sur une canonicalisation stable » ; deux pairs qui écriraient différemment le même
+instant calculeraient deux hashes différents, et c'est précisément ce que les fixtures inter-SDK de
+`docs/06` existeront pour attraper.
+
+**Le crate ne lit ni l'heure ni l'aléa.** Composer un identifiant demande un instant et dix octets
+d'entropie, tous deux fournis par l'appelant. Le crate reste pur, donc déterministe en test, et
+l'invariant 1 tient jusque dans les fondations.
+
+**Deux règles de la spec sont rendues indéfaisables plutôt que documentées.** « Une erreur
+`retryable` doit préciser les conditions de retry » : il n'existe aucune façon de construire une
+erreur réessayable sans énoncer sa condition, et un `"retryable": true` nu est refusé au décodage
+JSON. « Ne logge ni jeton, ni clé, ni contenu classifié » : une erreur marquée `security_sensitive`
+expurge message et détails à travers `Display`, qui est le chemin par lequel une erreur finit dans
+un log — l'accès reste ouvert, c'est l'écriture accidentelle qui est fermée.
+
+**Écart avec la spec.** Un seul, isolé dans un module `provisional`. Les specs fixent exactement dix
+préfixes d'identifiant, tous vus littéralement sous la forme `evt_01…`. `error_id` et `mission_id`
+sont nommés sans qu'aucun exemple n'en donne le préfixe ; l'enveloppe d'erreur de cet item en a
+besoin. `err` et `msn` sont donc déclarés provisoires, dans un module à part, et W0.6 — qui définit
+`Attempt` et les événements — les confirmera ou les remplacera. `attempt` est modélisé comme un rang
+numérique et non comme un identifiant, parce que la spec Canterel §11.1 et son §26 l'écrivent sans
+le suffixe `_id` que portent tous ses voisins ; à confirmer au même moment.
+
+Par ailleurs, la taxonomie d'erreurs retenue est celle de la spec Canterel §26 (dix-sept
+catégories), pas celle du `SPEC_V1.md` §22.5 (huit types) : la première décrit LEP, la seconde l'API
+HTTP. Ce sont deux surfaces, pas deux versions d'une même liste, et la seconde viendra avec son API.
+
+**Prochain item.** **W0.5** — JSON Schemas LEP : `CapabilityManifest`, `MissionEnvelope`,
+`ContextView`, `EnvironmentBlueprint`, `SandboxSpec`, `ResourceSpec`. `[M]`, donc plan de rollback
+exigé dans son entrée. Dépendances satisfaites : `packages/protocol` existe, `schemas/examples/` est
+en place depuis W0.1, et le dialecte est fixé à Draft 7 par la condition 1 d'ADR 0011 — c'est l'item
+qui doit l'appliquer.
