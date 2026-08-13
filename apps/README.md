@@ -11,13 +11,17 @@ ADR 0009).
 Cette liste est une annexe indicative. **Aucun de ces répertoires n'existe tant qu'il ne porte pas
 de comportement testé** : un répertoire vide sous `apps/` fait échouer `npm run check:repo`.
 
-## Ce que ce répertoire ne présume pas
+## Langages
 
-Le langage d'implémentation de `locusd` est une décision ouverte (`docs/10_V1_ROADMAP.md`, « État de
-départ »). Le squelette ne la tranche pas : l'outillage de dépôt est en Node/TypeScript parce qu'un
-SDK TypeScript existera de toute façon, mais aucune unité `apps/*` n'est supposée être en
-TypeScript. Les unités qui le sont déclarent un `package.json` et rejoignent le workspace npm ; les
-autres apportent le manifeste de leur écosystème.
+`locusd`, `locus-execd` et `cli` sont en **Rust** (ADR 0011). `web` est en TypeScript, `emacs` en
+Emacs Lisp.
+
+Les unités TypeScript déclarent un `package.json` et rejoignent le workspace npm ; les unités Rust
+apportent leur `Cargo.toml`. La garde de frontières lit les deux — une dépendance déclarée compte
+comme un import, avant même la première ligne qui l'utilise.
+
+L'outillage du dépôt reste en Node/TypeScript : il n'est livré à personne et doit savoir lire tous
+les langages du dépôt sans appartenir à aucun.
 
 ## Frontières
 

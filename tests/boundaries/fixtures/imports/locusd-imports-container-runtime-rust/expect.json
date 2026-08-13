@@ -1,0 +1,4 @@
+{
+  "title": "apps/locusd parle à un runtime de containers, en Rust",
+  "violations": [{ "rule": "locusd-holds-no-runtime-socket", "where": "apps/locusd/src/spawn.rs" }]
+}

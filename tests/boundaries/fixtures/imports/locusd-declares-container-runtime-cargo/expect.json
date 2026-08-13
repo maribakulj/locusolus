@@ -1,0 +1,4 @@
+{
+  "title": "apps/locusd déclare la dépendance dans Cargo.toml sans encore l'importer",
+  "violations": [{ "rule": "locusd-holds-no-runtime-socket", "where": "apps/locusd/Cargo.toml" }]
+}
