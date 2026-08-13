@@ -1,0 +1,36 @@
+{
+  "$comment": "Les features négociées au handshake (docs/06, « feature negotiation au handshake »). Chacune est une capacité que la spec décrit comme FACULTATIVE ou conditionnelle — la liste est sourcée, pas inventée : une feature qu'aucun document ne nomme n'aurait personne pour l'implémenter. `since` est le mineur qui l'introduit, ce qui permet de refuser proprement une feature venue d'un mineur que le pair ne connaît pas.",
+  "protocol": "lep/1.0",
+  "features": [
+    {
+      "name": "late-results",
+      "since": "1.0",
+      "source": "docs/06 « Late results »",
+      "note": "Le worker sait rendre un résultat après l'expiration de sa lease, et le serveur sait le conserver comme late candidate au lieu de l'écraser. Sans elle, un résultat tardif est perdu — ce qui est une perte de travail, pas une erreur de protocole."
+    },
+    {
+      "name": "human-input",
+      "since": "1.0",
+      "source": "docs/06 « Human input », SPEC_V1 §22",
+      "note": "Le worker peut demander une entrée humaine structurée et se suspendre. Facultative parce qu'elle suppose que le backend sache suspendre sans garder un processus coûteux vivant."
+    },
+    {
+      "name": "pull-queue",
+      "since": "1.0",
+      "source": "SPEC_V1 §15.2",
+      "note": "Mode pull/queue au lieu du WebSocket de référence, pour les plateformes serverless qui ne peuvent pas tenir une connexion."
+    },
+    {
+      "name": "artifact-streaming",
+      "since": "1.0",
+      "source": "SPEC_V1 §15.2",
+      "note": "Les artefacts volumineux transitent par HTTP/object storage plutôt que par le canal de contrôle. Un pair qui ne l'annonce pas reçoit les artefacts en ligne, ce qui borne leur taille."
+    },
+    {
+      "name": "signed-events",
+      "since": "1.0",
+      "source": "SPEC_V1 §10.2",
+      "note": "Signature des événements : facultative en local, obligatoire en fédération. La négocier permet à un déploiement local de ne pas la payer sans que le code de fédération ait à la redemander."
+    }
+  ]
+}
