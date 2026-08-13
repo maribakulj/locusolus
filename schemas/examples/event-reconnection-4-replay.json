@@ -1,0 +1,18 @@
+{
+  "_fixture": {
+    "name": "reconnection-04-replay-is-the-same-document",
+    "expect": "replayed",
+    "pairs_with": "event-reconnection-3-tool-completed.json",
+    "note": "Rejoué à la reconnexion, et c'est LE MÊME document que le 3 — même séquence, même clé d'idempotence, même charge. C'est ce qui rend « rien perdu, rien dupliqué » (§12.4) vérifiable : un consommateur qui compte quatre événements a tort. Le fichier est séparé parce qu'un rejeu est un envoi, pas une note de bas de page."
+  },
+  "protocol": "lep/1.0",
+  "event_type": "tool.completed",
+  "sequence": 3,
+  "occurred_at": "2026-08-13T10:00:00.000Z",
+  "idempotency_key": "idem-task-nominal-3",
+  "task_id": "task-nominal",
+  "attempt": 1,
+  "payload": {
+    "tool": "lake"
+  }
+}

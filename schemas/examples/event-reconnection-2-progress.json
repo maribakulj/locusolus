@@ -1,0 +1,18 @@
+{
+  "_fixture": {
+    "name": "reconnection-02-progress",
+    "expect": "valid",
+    "pairs_with": "event-reconnection-1-started.json",
+    "note": "Séquence 2. Dernière acquittée : `acknowledged_through` vaut 2."
+  },
+  "protocol": "lep/1.0",
+  "event_type": "progress",
+  "sequence": 2,
+  "occurred_at": "2026-08-13T10:00:00.000Z",
+  "idempotency_key": "idem-task-nominal-2",
+  "task_id": "task-nominal",
+  "attempt": 1,
+  "payload": {
+    "step": "lake build"
+  }
+}

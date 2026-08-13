@@ -1,6 +1,36 @@
 {
   "$comment": "Quel exemple se valide contre quel schéma. Déclaratif plutôt que déduit d'un nom de fichier : une convention implicite se casse en silence le jour où un exemple s'appelle autrement, et un exemple qu'on ne valide plus ressemble en tout point à un exemple qui passe.",
   "draft": "http://json-schema.org/draft-07/schema#",
+  "expectations": {
+    "valid": {
+      "schema": "valid",
+      "note": "Document bien formé, sans issue sémantique particulière à démontrer."
+    },
+    "accepted": {
+      "schema": "valid",
+      "note": "Bien formé ET admissible : le worker apparié offre ce que la mission exige."
+    },
+    "refused": {
+      "schema": "valid",
+      "note": "Bien formé et REFUSÉ à l'admission. Un refus n'est pas une malformation — confondre les deux rendrait la fixture de refus incapable de tester ce pour quoi elle existe."
+    },
+    "replayed": {
+      "schema": "valid",
+      "note": "Bien formé, et déjà vu : même séquence et même clé d'idempotence qu'un événement antérieur. Le consommateur doit le dédupliquer, pas le compter."
+    },
+    "quarantined": {
+      "schema": "valid",
+      "note": "Bien formé mais arrivé après l'expiration de sa lease (§12.3) : conservé, mis en quarantaine, ne peut committer sans arbitrage."
+    },
+    "budget-exceeded": {
+      "schema": "valid",
+      "note": "Bien formé, et l'attempt s'est arrêté proprement sur son enveloppe de budget (§17). Non réessayable : réessayer ne rendrait pas le budget."
+    },
+    "invalid": {
+      "schema": "invalid",
+      "note": "Le document lui-même est mal formé et DOIT être refusé par son schéma. C'est le seul résultat qui parle de la forme et non du sens."
+    }
+  },
   "documents": [
     {
       "schema": "lep/1.0/capability-manifest.schema.json",
@@ -8,11 +38,36 @@
     },
     {
       "schema": "lep/1.0/mission-envelope.schema.json",
-      "examples": ["mission-envelope.json", "mission-envelope-nominal.json"]
+      "examples": [
+        "mission-envelope.json",
+        "mission-envelope-nominal.json",
+        "invalid-mission-unbounded-budget.json"
+      ]
     },
     {
       "schema": "lep/1.0/sandbox-attestation.schema.json",
-      "examples": ["sandbox-attestation.json"]
+      "examples": ["sandbox-attestation.json", "invalid-attestation-silent.json"]
+    },
+    {
+      "schema": "lep/1.0/event.schema.json",
+      "examples": [
+        "event-reconnection-1-started.json",
+        "event-reconnection-2-progress.json",
+        "event-reconnection-3-tool-completed.json",
+        "event-reconnection-4-replay.json"
+      ]
+    },
+    {
+      "schema": "lep/1.0/attempt.schema.json",
+      "examples": ["attempt-late-result.json", "attempt-budget-exceeded.json"]
+    },
+    {
+      "schema": "lep/1.0/lease.schema.json",
+      "examples": ["lease-expired.json"]
+    },
+    {
+      "schema": "lep/1.0/epistemic-commit.schema.json",
+      "examples": ["invalid-commit-self-validated.json"]
     }
   ],
   "shared": [
@@ -21,10 +76,6 @@
     "lep/1.0/sandbox-spec.schema.json",
     "lep/1.0/context-view.schema.json",
     "environments/1.0/environment-blueprint.schema.json",
-    "lep/1.0/lease.schema.json",
-    "lep/1.0/attempt.schema.json",
-    "lep/1.0/event.schema.json",
-    "lep/1.0/epistemic-commit.schema.json",
     "artifacts/1.0/artifact-manifest.schema.json",
     "artifacts/1.0/run-manifest.schema.json"
   ],

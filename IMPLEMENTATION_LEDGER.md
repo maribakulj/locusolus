@@ -400,3 +400,52 @@ les fixtures réparées.
 résultat tardif, dépassement de budget. Ses dépendances sont satisfaites : les schémas des deux
 moitiés existent, et `expect: invalid` est déjà géré par le validateur, posé en W0.5 pour que
 l'arrivée du corpus ne soit pas une surprise.
+
+## 2026-08-13 — W0.7 `[R]` — corpus de fixtures
+
+**Périmètre.** Neuf fixtures neuves dans `schemas/examples/`, `schemas/registry.json` (vocabulaire
+des résultats), `tooling/schemas/validate.ts` (le vocabulaire quitte le code pour la donnée),
+`schemas/examples/README.md`, sept tests dans `tests/schemas/lep.test.ts`.
+
+**Tests exécutés.** Test de sortie : « chaque fixture valide **ou invalide intentionnellement**,
+selon son `expect` déclaré ». `check:schemas` → ok sur les quinze fixtures, dont trois qui doivent
+échouer et échouent. `npm run check` → 0 : 81 tests JS, 27 tests Rust.
+
+Vérifié par mutation, dans le sens qui compte ici : en rendant `invalid-commit-self-validated.json`
+valide, le validateur lève `example-unexpectedly-valid`. Une fixture invalide qui cesserait de
+l'être serait autrement le genre de régression que rien ne signale.
+
+**Décisions prises.** Trois.
+
+**Le vocabulaire des `expect` passe du code à la donnée.** Il était une constante dans `validate.ts`
+; il est maintenant une table de `schemas/registry.json`, chaque valeur portant une note qui dit ce
+qu'elle signifie. W0.7 en ajoute trois — `replayed`, `quarantined`, `budget-exceeded` — et il
+fallait choisir entre allonger une constante que personne n'explique et tenir une table qui
+s'explique. Un `expect` absent de la table fait échouer la validation.
+
+**Une fixture est un document, pas un scénario enrobé.** La reconnexion a d'abord été écrite comme
+un fichier unique portant `acknowledged_through` et un tableau d'événements — un objet qui n'existe
+nulle part sur le fil et qu'aucun schéma ne décrit. Elle est devenue quatre fichiers, chacun un
+véritable événement LEP. Le quatrième est **byte-identique** au troisième hors bloc `_fixture`, et
+c'est exactement la propriété à démontrer : un rejeu est un envoi, pas une note de bas de page. Un
+test compare les deux corps.
+
+**Le corpus exerce enfin `expect: invalid`.** Le chemin existait depuis W0.5 sans qu'aucune fixture
+ne l'emprunte. Les trois documents invalides ne sont pas des erreurs qu'on aurait oublié de corriger
+: ils portent les garanties les plus fortes de W0.5 et W0.6 — un worker ne valide pas son propre
+commit, une attestation muette n'est pas une attestation, une borne de budget libre rend le
+dépassement inconstatable. Ce sont eux que le harnais de W0.9 rejouera contre une implémentation
+tierce.
+
+Deux fixtures ne se contentent pas de s'étiqueter, elles se prouvent : un test vérifie que le
+résultat tardif se termine réellement après l'expiration de `lease-expired.json`, et un autre que la
+paire de refus est bien inadmissible — S3 exigé, S1/S2 offerts. Une fixture qui affirmerait « tardif
+» sans que ses dates le montrent ne serait qu'une étiquette.
+
+**Écart avec la spec.** Aucun. Les cinq scénarios nommés par `docs/10` sont écrits.
+
+**Prochain item.** W0.8 `[R]` — SDK généré depuis les schémas plus `schema-registry` avec
+négociation de features au handshake. Test de sortie : round-trip sur toutes les fixtures.
+Dépendances satisfaites : les schémas des deux moitiés et le corpus existent. ADR 0011 condition 4
+prévient que W0.8 génère **deux** SDK, TypeScript et Rust, depuis les mêmes schémas — c'est un coût
+budgété, pas à découvrir.

@@ -1,0 +1,27 @@
+{
+  "_fixture": {
+    "name": "budget-exceeded-stops-cleanly",
+    "expect": "budget-exceeded",
+    "pairs_with": "mission-envelope-nominal.json",
+    "note": "Le budget de la mission nominale autorise 30 appels modèle ; l'attempt s'arrête au 31e. §17 : arrêt PROPRE au dépassement — l'état est `failed`, pas `cancelled`, et l'erreur n'est pas réessayable : réessayer ne rendrait pas le budget."
+  },
+  "protocol": "lep/1.0",
+  "task_id": "task-nominal",
+  "attempt": 2,
+  "lease_id": "lease-nominal-2",
+  "worker_id": "canterel-vm-linux-01",
+  "state": "failed",
+  "started_at": "2026-08-13T10:10:00.000Z",
+  "completed_at": "2026-08-13T10:40:00.000Z",
+  "error": {
+    "category": "budget_exhausted",
+    "message": "budget de 30 appels modèle atteint au 31e",
+    "retryable": false
+  },
+  "resources_observed": {
+    "cpu_seconds": 3400.0,
+    "memory_peak_mb": 6800,
+    "disk_peak_mb": 4000,
+    "wall_time_seconds": 1800.0
+  }
+}

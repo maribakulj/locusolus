@@ -1,0 +1,23 @@
+{
+  "_fixture": {
+    "name": "late-result-is-quarantined",
+    "expect": "quarantined",
+    "pairs_with": "mission-envelope-nominal.json",
+    "note": "L'attempt se termine APRÈS l'expiration de sa lease. §12.3 : le résultat est conservé, mis en quarantaine, et ne peut committer sans arbitrage. `late` est déclaré par le worker lui-même — le lui faire deviner reviendrait à comparer des horloges qui ne sont pas les mêmes."
+  },
+  "protocol": "lep/1.0",
+  "task_id": "task-nominal",
+  "attempt": 1,
+  "lease_id": "lease-nominal-1",
+  "worker_id": "canterel-vm-linux-01",
+  "state": "succeeded",
+  "started_at": "2026-08-13T09:00:00.000Z",
+  "completed_at": "2026-08-13T10:07:00.000Z",
+  "late": true,
+  "resources_observed": {
+    "cpu_seconds": 12480.0,
+    "memory_peak_mb": 7100,
+    "disk_peak_mb": 9000,
+    "wall_time_seconds": 4020.0
+  }
+}
