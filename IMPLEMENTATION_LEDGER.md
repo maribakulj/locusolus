@@ -514,3 +514,60 @@ phrase pour satisfaire un lint ajouterait du bruit là où le silence est exact.
 teste contre un worker factice. Dépendances satisfaites : schémas, corpus et SDK existent. Il hérite
 de deux dettes nommées ici — le canonicaliseur, et la règle « heartbeat < TTL/3 » que Draft 7 ne
 sait pas exprimer.
+
+## 2026-08-13 — W0.9 `[R]` — harnais de conformance LEP
+
+**Périmètre.** `packages/testing/` (unité neuve `@locus/testing` : canonicaliseur, port du worker
+sous test, huit vérifications), `tests/testing/harness.test.ts`, `package-lock.json`.
+
+**Tests exécutés.** Test de sortie : « le harnais se teste contre un worker factice ». Dix-huit
+tests, dont un worker conforme qui ne produit aucun constat et **sept workers délibérément fautifs
+que le harnais attrape**. `npm run check` → 0 : 109 tests JS, 33 tests Rust, après un `npm ci`
+depuis un `node_modules` vide.
+
+**Décisions prises.** Quatre.
+
+**Le harnais joue le serveur, et rend un rapport plutôt qu'un verdict.** `docs/10` §W2 en donne la
+raison : écrire le worker contre un faux serveur oblige le protocole à être suffisant avant que
+`locusd` puisse compenser ses lacunes. Chaque vérification rend des `Finding` et jamais une
+exception : un harnais qui s'arrête à la première faute ne dit pas si les suivantes existent. Le
+rapport porte aussi la liste des vérifications exécutées — « rien à signaler » et « rien vérifié »
+ne doivent pas se ressembler, c'est la même règle qu'en W0.3.
+
+**Le port du worker est sans transport.** LEP nomme WebSocket comme référence et autorise un mode
+pull/queue (§15.2) ; un harnais qui imposerait l'un des deux ne testerait pas le protocole mais son
+enrobage. Et les événements sont **consommés** plutôt qu'attendus en temps réel : une conformance
+qui dépendrait d'horloges serait intermittente, et un test intermittent finit désactivé.
+
+**Les deux dettes héritées sont honorées.** Le canonicaliseur (RFC 8785 sur les points qui comptent
+: clés triées, nombres écrits comme ECMAScript les écrit, aucun espace) rend `4` et `4.0` identiques
+— c'est ce que W0.8 avait établi comme nécessaire pour que `payload_hash` ne diverge pas entre pairs
+conformes. Et la règle « heartbeat < TTL/3 », que Draft 7 ne savait pas exprimer, est vérifiée ici.
+
+Le canonicaliseur **s'arrête** sur ce qu'il ne sait pas représenter — `NaN`, l'infini, un entier
+hors de la plage exacte d'un `double`. Rendre quelque chose produirait un hash, et un hash faux
+ressemble en tout point à un hash juste.
+
+**Refuser une mission n'est pas une faute.** La politique locale d'un worker peut être plus
+restrictive que son manifeste (§10.2) ; un worker qui accepte tout est le vrai défaut. Le harnais ne
+signale que l'inverse : accepter au-dessus de ses moyens, ce que la paire de refus du corpus existe
+précisément pour attraper.
+
+**Deux corrections que les tests ont provoquées.** Le harnais lisait `>` là où §12.3 écrit «
+intervalle **inférieur** au tiers du TTL » : un tiers pile n'est pas inférieur à un tiers, et un
+worker qui bat exactement trois fois par TTL n'a aucune marge — le premier battement en retard fait
+expirer la lease. Le test encodait la spec plus strictement que l'implémentation, et c'est lui qui
+avait raison.
+
+Et deux de mes propres fixtures de test omettaient le heartbeat, ce que la vérification a signalé au
+premier passage. Le harnais a donc attrapé son auteur avant d'attraper qui que ce soit d'autre.
+
+**Écart avec la spec.** Aucun. Le rejeu est explicitement toléré — même séquence **et** même clé
+d'idempotence — sans quoi le harnais interdirait la reprise de stream que §12.4 exige. Une même
+séquence avec une autre clé reste une faute : ce sont deux événements qui se disputent une place.
+
+**Prochain item.** W0 est terminé. La suite est W2, « exécutable dès la fin de W0 » et explicitement
+indépendant de W1 : le harnais livré ici joue le serveur contre lequel le worker Canterel s'écrit.
+W2.1 et W2.2 vivent dans `maribakulj/canterel` et ne dépendent que de ce dépôt-ci pour le SDK,
+désormais publié. En parallèle, W1 (domaine et event store) est ouvert côté `locusolus` et n'attend
+rien.

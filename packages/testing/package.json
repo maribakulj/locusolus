@@ -1,0 +1,13 @@
+{
+  "name": "@locus/testing",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Harnais de conformance LEP : il joue le serveur, et le JSON canonique dont les hashes dépendent.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@locus/lep": "*"
+  }
+}
