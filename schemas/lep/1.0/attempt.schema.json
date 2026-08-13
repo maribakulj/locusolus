@@ -1,0 +1,64 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "urn:locus:schema:lep:1.0:attempt",
+  "title": "Attempt",
+  "description": "Une tentative d'exécution d'une tâche (SPEC_V1 §15.5). Un attempt ne produit jamais directement un état canonique : il soumet des artefacts et un EpistemicCommit. `succeeded` veut dire que le worker a rempli son contrat technique — jamais que ses claims sont validés, et les deux mots restent séparés partout ici.",
+  "type": "object",
+  "required": ["protocol", "task_id", "attempt", "worker_id", "state", "started_at"],
+  "properties": {
+    "protocol": { "$ref": "urn:locus:schema:lep:1.0:vocabulary#/definitions/protocol_version" },
+    "task_id": { "type": "string", "minLength": 1 },
+    "attempt": { "type": "integer", "minimum": 1 },
+    "lease_id": { "type": "string", "minLength": 1 },
+    "worker_id": { "type": "string", "minLength": 1 },
+    "agent_id": { "type": "string", "minLength": 1 },
+    "state": {
+      "description": "Sous-ensemble des états de tâche de §5 qu'un attempt peut porter côté worker. `accepted`, `rejected` et `superseded` en sont absents exprès : ce sont des verdicts de Locus Solus sur un attempt terminé, pas des états que le worker s'attribue.",
+      "type": "string",
+      "enum": [
+        "running",
+        "waiting_for_tool",
+        "waiting_for_human",
+        "waiting_for_review",
+        "succeeded",
+        "failed",
+        "cancelled",
+        "timed_out",
+        "orphaned"
+      ]
+    },
+    "started_at": { "type": "string", "format": "date-time" },
+    "completed_at": { "type": "string", "format": "date-time" },
+    "late": {
+      "description": "Vrai quand le résultat arrive après l'expiration de la lease. §12.3 : un résultat tardif est stocké en quarantaine et ne peut committer sans arbitrage. Le champ existe pour que le worker puisse le dire lui-même plutôt que de le laisser deviner.",
+      "type": "boolean"
+    },
+    "error": {
+      "description": "Présente quand l'état est `failed`. La forme suit l'enveloppe d'erreur structurée de `packages/protocol` (W0.4).",
+      "type": "object",
+      "required": ["category", "message"],
+      "properties": {
+        "category": { "type": "string", "minLength": 1 },
+        "message": { "type": "string" },
+        "retryable": { "type": "boolean" },
+        "retry_after_seconds": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "resources_observed": {
+      "description": "Ce qui a réellement été consommé, face à ce que ResourceSpec avait réservé. L'écart est ce que le rapprochement de coûts (§4) exploite.",
+      "type": "object",
+      "properties": {
+        "cpu_seconds": { "type": "number", "minimum": 0 },
+        "memory_peak_mb": { "type": "integer", "minimum": 0 },
+        "disk_peak_mb": { "type": "integer", "minimum": 0 },
+        "wall_time_seconds": { "type": "number", "minimum": 0 }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "state": { "const": "failed" } }, "required": ["state"] },
+      "then": { "required": ["error"] }
+    }
+  ]
+}

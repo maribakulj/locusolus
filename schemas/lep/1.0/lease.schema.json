@@ -1,0 +1,46 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "urn:locus:schema:lep:1.0:lease",
+  "title": "Lease",
+  "description": "Le droit, borné dans le temps, d'exécuter un attempt (SPEC_V1 §12.3). Une lease expire ; c'est ce qui distingue un worker en panne d'un worker lent, et ce qui permet à `task.orphaned` d'exister sans qu'on interroge personne.\n\nUne contrainte de §12.3 n'est PAS exprimable ici : « le worker envoie un heartbeat à intervalle inférieur au tiers du TTL » est une relation entre deux champs, que Draft 7 ne sait pas énoncer. Elle est vérifiée par le harnais de conformance (W0.9), et le dire ici vaut mieux que laisser croire que le schéma la couvre.",
+  "type": "object",
+  "required": [
+    "protocol",
+    "lease_id",
+    "task_id",
+    "attempt",
+    "worker_id",
+    "issued_at",
+    "expires_at",
+    "ttl_seconds",
+    "heartbeat_interval_seconds"
+  ],
+  "properties": {
+    "protocol": { "$ref": "urn:locus:schema:lep:1.0:vocabulary#/definitions/protocol_version" },
+    "lease_id": { "type": "string", "minLength": 1 },
+    "task_id": { "type": "string", "minLength": 1 },
+    "attempt": {
+      "description": "Rang, pas identifiant : une tâche réattribuée conserve son numéro d'attempt (§12.3). Le compter à partir de 1 rend « attempt 0 » impossible à confondre avec « pas encore tenté ».",
+      "type": "integer",
+      "minimum": 1
+    },
+    "worker_id": { "type": "string", "minLength": 1 },
+    "issued_at": { "type": "string", "format": "date-time" },
+    "expires_at": { "type": "string", "format": "date-time" },
+    "ttl_seconds": {
+      "description": "Courte et renouvelable (§12.3). Aucune borne haute ici : c'est une politique de scheduler, pas une propriété du protocole.",
+      "type": "integer",
+      "exclusiveMinimum": 0
+    },
+    "heartbeat_interval_seconds": {
+      "type": "integer",
+      "exclusiveMinimum": 0
+    },
+    "renewal_count": { "type": "integer", "minimum": 0 },
+    "idempotency_key": {
+      "description": "Les side effects utilisent des clés d'idempotence indépendantes de l'attempt (§12.3) : rejouer un attempt ne doit pas rejouer ses effets.",
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}

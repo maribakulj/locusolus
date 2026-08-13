@@ -1,0 +1,67 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "urn:locus:schema:lep:1.0:sandbox-attestation",
+  "title": "SandboxAttestation",
+  "description": "Ce que le worker atteste avoir RÉELLEMENT appliqué, face au plancher qu'une SandboxSpec exigeait (SPEC_V1 §21.6). ADR 0004 fait des self-tests la définition opérationnelle du mot « sandbox » : l'attestation les porte, sans quoi elle n'est qu'une déclaration d'intention.\n\nUne attestation doit pouvoir décrire une MAUVAISE sandbox. `host_home_mounted: true` est un document valide — refusé par l'admission, jamais par le schéma. Interdire de l'écrire ne rendrait pas le montage impossible : ça rendrait seulement le worker incapable de l'avouer, et un worker non conforme mais muet est pire qu'un worker non conforme qui le dit.",
+  "type": "object",
+  "required": [
+    "sandbox_id",
+    "backend",
+    "isolation_level",
+    "network_mode",
+    "host_home_mounted",
+    "runtime_socket_exposed",
+    "limits",
+    "self_tests"
+  ],
+  "properties": {
+    "sandbox_id": { "type": "string", "minLength": 1 },
+    "backend": { "type": "string", "minLength": 1 },
+    "isolation_level": {
+      "$ref": "urn:locus:schema:lep:1.0:vocabulary#/definitions/sandbox_level"
+    },
+    "image_digest": { "$ref": "urn:locus:schema:lep:1.0:vocabulary#/definitions/content_hash" },
+    "rootless": { "type": "boolean" },
+    "read_only_rootfs": { "type": "boolean" },
+    "network_mode": { "$ref": "urn:locus:schema:lep:1.0:vocabulary#/definitions/network_mode" },
+    "host_home_mounted": {
+      "description": "Obligatoire, et obligatoire même quand la réponse est `false`. Un champ absent se lit « je n'ai pas regardé » aussi bien que « non » ; seul l'un des deux est une attestation.",
+      "type": "boolean"
+    },
+    "runtime_socket_exposed": { "type": "boolean" },
+    "limits": {
+      "description": "Invariant 6 : les ressources sont réservées, pas supposées illimitées. Une limite absente est une limite absente.",
+      "type": "object",
+      "required": ["cpu", "memory_mb", "pids", "disk_mb"],
+      "properties": {
+        "cpu": { "type": "number", "exclusiveMinimum": 0 },
+        "memory_mb": { "type": "integer", "exclusiveMinimum": 0 },
+        "pids": { "type": "integer", "exclusiveMinimum": 0 },
+        "disk_mb": { "type": "integer", "exclusiveMinimum": 0 }
+      }
+    },
+    "self_tests": {
+      "description": "Les quatre self-tests d'ADR 0004. Tous obligatoires : un self-test qu'on peut omettre est un self-test qu'on omettra le jour où il échoue. `not-run` existe pour que « je ne l'ai pas exécuté » soit dicible — et distinct de « il a réussi ».",
+      "type": "object",
+      "required": ["write_outside_workspace", "read_host_home", "network_egress", "memory_limit"],
+      "properties": {
+        "write_outside_workspace": { "$ref": "#/definitions/containment_result" },
+        "read_host_home": { "$ref": "#/definitions/containment_result" },
+        "network_egress": { "$ref": "#/definitions/containment_result" },
+        "memory_limit": { "$ref": "#/definitions/limit_result" }
+      }
+    },
+    "attested_at": { "type": "string", "format": "date-time" },
+    "signature": { "type": "string", "minLength": 1 }
+  },
+  "definitions": {
+    "containment_result": {
+      "type": "string",
+      "enum": ["blocked", "allowed", "not-run"]
+    },
+    "limit_result": {
+      "type": "string",
+      "enum": ["enforced", "unenforced", "not-run"]
+    }
+  }
+}

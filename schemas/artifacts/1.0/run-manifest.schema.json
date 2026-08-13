@@ -1,0 +1,127 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "urn:locus:schema:artifacts:1.0:run-manifest",
+  "title": "RunManifest",
+  "description": "Ce qu'un run consigne (SPEC_V1 §19.6) : image digest, toolchains, révision du code, inputs, ressources réservées ET observées, variables pertinentes, commandes, seeds, sorties et attestations de sandbox.\n\nC'est le document qui décide du niveau de reproductibilité atteint (§19.7) : R1 demande inputs et code identifiés, R2 un environnement verrouillé. Les champs obligatoires ici sont exactement ceux sans lesquels on ne dépasse pas R0 — « narration uniquement ».",
+  "type": "object",
+  "required": [
+    "run_id",
+    "task_id",
+    "attempt",
+    "environment",
+    "inputs",
+    "commands",
+    "resources",
+    "started_at"
+  ],
+  "properties": {
+    "run_id": { "type": "string", "minLength": 1 },
+    "task_id": { "type": "string", "minLength": 1 },
+    "attempt": { "type": "integer", "minimum": 1 },
+    "environment": {
+      "type": "object",
+      "required": ["environment_id", "image_digest", "toolchains"],
+      "properties": {
+        "environment_id": { "type": "string", "minLength": 1 },
+        "image_digest": {
+          "$ref": "urn:locus:schema:lep:1.0:vocabulary#/definitions/content_hash"
+        },
+        "toolchains": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "minItems": 1
+        }
+      }
+    },
+    "code_revision": {
+      "type": "object",
+      "properties": {
+        "repository": { "type": "string", "minLength": 1 },
+        "commit": { "type": "string", "pattern": "^[0-9a-f]{40}$|^[0-9a-f]{64}$" },
+        "dirty": {
+          "description": "Vrai quand l'arbre de travail portait des modifications non commitées. Un run dirty ne peut pas prétendre à R1, et cacher le champ ne le rendrait pas reproductible.",
+          "type": "boolean"
+        }
+      }
+    },
+    "inputs": {
+      "description": "Par hash. Nommer un input par son chemin ne dit pas ce qu'il contenait au moment du run.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["content_hash"],
+        "properties": {
+          "artifact_id": { "type": "string", "minLength": 1 },
+          "content_hash": {
+            "$ref": "urn:locus:schema:lep:1.0:vocabulary#/definitions/content_hash"
+          },
+          "role": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "commands": {
+      "description": "Le tableau d'arguments, pas une ligne de shell : une chaîne à réinterpréter par un shell n'est pas reproductible, et c'est aussi par là que passe une injection.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["argv"],
+        "properties": {
+          "argv": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+          "cwd": { "type": "string", "minLength": 1 },
+          "exit_code": { "type": "integer" },
+          "started_at": { "type": "string", "format": "date-time" },
+          "duration_seconds": { "type": "number", "minimum": 0 }
+        }
+      },
+      "minItems": 1
+    },
+    "env": {
+      "description": "Variables pertinentes, NON secrètes. Il n'y a pas de champ pour un secret, et il n'y en aura pas.",
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    },
+    "seeds": {
+      "description": "Sans les seeds, un run stochastique n'est pas reproductible même avec la même image et les mêmes inputs.",
+      "type": "object",
+      "additionalProperties": { "type": "integer" }
+    },
+    "resources": {
+      "description": "Réservé face à observé. C'est l'écart entre les deux que le rapprochement de coûts exploite, et le garder dans un seul document évite d'avoir à le reconstituer.",
+      "type": "object",
+      "required": ["reserved"],
+      "properties": {
+        "reserved": { "$ref": "urn:locus:schema:lep:1.0:resource-spec" },
+        "observed": {
+          "type": "object",
+          "properties": {
+            "cpu_seconds": { "type": "number", "minimum": 0 },
+            "memory_peak_mb": { "type": "integer", "minimum": 0 },
+            "disk_peak_mb": { "type": "integer", "minimum": 0 },
+            "wall_time_seconds": { "type": "number", "minimum": 0 }
+          }
+        }
+      }
+    },
+    "outputs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["artifact_id", "content_hash"],
+        "properties": {
+          "artifact_id": { "type": "string", "minLength": 1 },
+          "content_hash": {
+            "$ref": "urn:locus:schema:lep:1.0:vocabulary#/definitions/content_hash"
+          }
+        }
+      }
+    },
+    "sandbox_attestation": { "$ref": "urn:locus:schema:lep:1.0:sandbox-attestation" },
+    "reproducibility_level": {
+      "description": "§19.7. Déclaré par le producteur et vérifiable depuis le reste du manifeste — c'est précisément ce qui le rend contestable.",
+      "type": "string",
+      "enum": ["R0", "R1", "R2", "R3", "R4"]
+    },
+    "started_at": { "type": "string", "format": "date-time" },
+    "completed_at": { "type": "string", "format": "date-time" }
+  }
+}

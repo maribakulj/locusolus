@@ -338,3 +338,65 @@ vocabulaire et un test à changer.
 **Prochain item.** W0.6, `[M]` lui aussi, qui complète les schémas et débloque W0.7 (corpus de
 fixtures) puis W0.8 (SDK généré). Sa dépendance — les schémas de W0.5 — est satisfaite par cette PR,
 donc par sa fusion.
+
+## 2026-08-13 — W0.6 `[M]` — JSON Schemas LEP, seconde moitié
+
+Premier sprint sous la règle révisée : CI verte → item suivant, sans attendre d'arbitrage pour ce
+qui ne dévie pas du cadre. La porte `[M]` de W0.5 et W0.6 tombe ; ce qui la remplace est ce plan de
+rollback, écrit et vérifié.
+
+**Périmètre.** Sept schémas — `lep/1.0/{lease,attempt,event,sandbox-attestation,epistemic-commit}`,
+`artifacts/1.0/{artifact-manifest,run-manifest}` —, `schemas/registry.json`, `schemas/README.md`,
+onze tests dans `tests/schemas/lep.test.ts`, et deux retouches à la fixture
+`sandbox-attestation.json` : débordement déclaré ci-dessous.
+
+**Tests exécutés.** Test de sortie de l'item : « validation ». `npm run check:schemas` → ok, cinq
+exemples validés, **plus aucun `pending`** — le registre est désormais exhaustif. `npm run check`
+complet → 0 : 74 tests JS, 27 tests Rust, 0 échec.
+
+**Décisions prises.** Trois contraignent la suite.
+
+**Un commit ne peut pas se valider lui-même.** `EpistemicCommit.status` n'accepte que `draft` ou
+`staged`. Le reste du cycle de vie de §7.4 existe, mais ce sont des verdicts que l'institution
+prononce. §2.3 l'écrivait en prose ; c'est maintenant un document littéralement invalide, ce qui est
+la seule forme d'interdiction qu'un worker ne peut pas contourner par inattention.
+
+**Une attestation a le droit de décrire une mauvaise sandbox.** `host_home_mounted: true` est un
+document **valide**. Refuser au niveau du schéma ne rendrait pas le montage impossible : ça rendrait
+le worker non conforme incapable de l'avouer, et un worker qui ment par construction est pire qu'un
+worker qui déclare une mauvaise isolation. Le refus appartient à l'admission. En revanche une
+attestation **muette** est invalide — le champ est obligatoire même quand la réponse est `false`,
+parce qu'un champ absent se lit « je n'ai pas regardé » aussi bien que « non ».
+
+**Les types d'événements sont fermés, contrairement aux documents.** W0.5 avait laissé les documents
+ouverts pour que le mineur reste compatible. L'inverse vaut pour `event_type` : un champ inconnu
+s'ignore, un **type** inconnu ne s'ignore pas — le consommateur ne saura ni quoi en faire ni s'il
+vient de rater quelque chose. Un nouveau type est un ajout mineur qui met cette liste à jour.
+
+**Ce qu'un schéma ne peut pas dire, écrit dans le schéma.** §12.3 exige un heartbeat inférieur au
+tiers du TTL. C'est une relation entre deux champs, que Draft 7 n'exprime pas. La contrainte est
+donc renvoyée au harnais de conformance (W0.9) et la limite est écrite dans la description de
+`Lease` : croire qu'une garantie existe est pire que savoir qu'elle manque.
+
+**Débordement déclaré.** `sandbox-attestation.json` portait le même placeholder `sha256:...` que les
+deux fixtures de W0.5, réparé de la même façon (`sha256("sbx-example")`), et ne portait **aucun**
+bloc `_fixture` alors que `schemas/examples/README.md` déclarait son `expect` en prose. Le bloc est
+ajouté pour que la machine lise ce que l'œil lisait déjà — les quatre autres fixtures le portent.
+
+**Écart avec la spec.** Un, nommé : l'enveloppe du journal institutionnel (§10.1) n'est pas écrite
+ici. Elle vit sous `schemas/events/` et appartient à W1. Un worker ne modifie jamais directement la
+base canonique (invariant 3) : ce qui traverse le fil et ce qui est écrit dans l'event store ne
+peuvent pas être le même objet.
+
+**Plan de rollback (`[M]`).** Additif comme W0.5, et cette fois sans même de dépendance nouvelle :
+aucun paquet ajouté, aucun consommateur des schémas. `git revert` du merge commit, sans étape de
+données. Le seul effet non neutre du revert est que les trois placeholders réparés reviendraient —
+`schemas/examples/` retrouverait des digests `...` que les schémas de W0.5, eux, resteraient à
+refuser, donc un revert de W0.6 seul laisserait `check:schemas` **rouge** sur
+`sandbox-attestation.json`. Le revert correct est celui de W0.5 et W0.6 ensemble, ou bien conserver
+les fixtures réparées.
+
+**Prochain item.** W0.7 `[R]` — corpus de fixtures : nominal, refus d'admission, reconnexion,
+résultat tardif, dépassement de budget. Ses dépendances sont satisfaites : les schémas des deux
+moitiés existent, et `expect: invalid` est déjà géré par le validateur, posé en W0.5 pour que
+l'arrivée du corpus ne soit pas une surprise.

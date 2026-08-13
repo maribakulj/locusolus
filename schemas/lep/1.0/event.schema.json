@@ -1,0 +1,80 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "urn:locus:schema:lep:1.0:event",
+  "title": "Événement LEP",
+  "description": "L'enveloppe que porte tout événement worker → serveur (SPEC_V1 §15.2 : « toutes les enveloppes portent version de protocole, sequence, correlation IDs et idempotency key »). Les types minimaux sont ceux de §15.6.\n\nÀ ne pas confondre avec l'enveloppe du journal institutionnel de §10.1, qui vit sous `schemas/events/` et appartient à W1 : celle-ci traverse le fil, celle-là est écrite dans l'event store. Un worker ne modifie jamais directement la base canonique (invariant 3), donc les deux ne peuvent pas être le même objet.",
+  "type": "object",
+  "required": ["protocol", "event_type", "sequence", "occurred_at", "idempotency_key"],
+  "properties": {
+    "protocol": { "$ref": "urn:locus:schema:lep:1.0:vocabulary#/definitions/protocol_version" },
+    "event_type": {
+      "description": "Fermé exprès, contrairement aux documents. Un type d'événement inconnu n'est pas un champ qu'on peut ignorer : le consommateur ne saura ni quoi en faire ni s'il vient de rater quelque chose. Un nouveau type est un ajout mineur qui met à jour cette liste.",
+      "type": "string",
+      "enum": [
+        "worker.registered",
+        "task.offered",
+        "task.accepted",
+        "attempt.started",
+        "heartbeat",
+        "progress",
+        "tool.started",
+        "tool.completed",
+        "artifact.declared",
+        "artifact.uploaded",
+        "resource.sampled",
+        "human.input.requested",
+        "attempt.completed",
+        "attempt.failed",
+        "attempt.orphaned",
+        "epistemic_commit.submitted"
+      ]
+    },
+    "sequence": {
+      "description": "Monotone par connexion. C'est ce qui permet l'acquittement et la reprise de stream (§12.4) : sans lui, « rien perdu, rien dupliqué » n'est pas vérifiable.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "occurred_at": { "type": "string", "format": "date-time" },
+    "idempotency_key": {
+      "description": "Un événement rejoué après reconnexion porte la même clé. C'est ce qui rend la reprise sûre plutôt que dupliquante.",
+      "type": "string",
+      "minLength": 1
+    },
+    "task_id": { "type": "string", "minLength": 1 },
+    "attempt": { "type": "integer", "minimum": 1 },
+    "lease_id": { "type": "string", "minLength": 1 },
+    "worker_id": { "type": "string", "minLength": 1 },
+    "correlation_id": { "type": "string", "minLength": 1 },
+    "causation_id": { "type": "string", "minLength": 1 },
+    "payload": { "type": "object" },
+    "payload_hash": { "$ref": "urn:locus:schema:lep:1.0:vocabulary#/definitions/content_hash" }
+  },
+  "allOf": [
+    {
+      "$comment": "Tout ce qui concerne un attempt doit dire lequel : un heartbeat orphelin ne renouvelle rien, et un progrès sans tâche n'est pas rattachable.",
+      "if": {
+        "properties": {
+          "event_type": {
+            "enum": [
+              "attempt.started",
+              "heartbeat",
+              "progress",
+              "tool.started",
+              "tool.completed",
+              "artifact.declared",
+              "artifact.uploaded",
+              "resource.sampled",
+              "human.input.requested",
+              "attempt.completed",
+              "attempt.failed",
+              "attempt.orphaned",
+              "epistemic_commit.submitted"
+            ]
+          }
+        },
+        "required": ["event_type"]
+      },
+      "then": { "required": ["task_id", "attempt"] }
+    }
+  ]
+}
