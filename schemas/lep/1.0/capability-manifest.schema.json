@@ -1,0 +1,116 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "urn:locus:schema:lep:1.0:capability-manifest",
+  "title": "CapabilityManifest",
+  "description": "Ce qu'un worker ANNONCE au handshake (SPEC_V1 §15.3). C'est un inventaire, pas une demande : les formes ne sont volontairement pas partagées avec MissionEnvelope. Un worker annonce les niveaux de sandbox qu'il sait réellement appliquer — jamais ceux qu'il aimerait offrir.",
+  "type": "object",
+  "required": [
+    "protocol",
+    "worker_id",
+    "worker_kind",
+    "platform",
+    "toolchains",
+    "resources",
+    "sandbox",
+    "data_classes"
+  ],
+  "properties": {
+    "protocol": { "$ref": "urn:locus:schema:lep:1.0:vocabulary#/definitions/protocol_version" },
+    "worker_id": { "type": "string", "minLength": 1 },
+    "worker_kind": {
+      "description": "Ouvert exprès : LEP est un protocole d'exécution générique (docs/00), et un worker qui n'est pas Canterel doit pouvoir parler la même langue.",
+      "type": "string",
+      "minLength": 1
+    },
+    "platform": {
+      "type": "object",
+      "required": ["os", "arch"],
+      "properties": {
+        "os": { "$ref": "urn:locus:schema:lep:1.0:vocabulary#/definitions/os" },
+        "arch": { "$ref": "urn:locus:schema:lep:1.0:vocabulary#/definitions/arch" },
+        "release": { "type": "string" }
+      }
+    },
+    "models": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["provider", "auth"],
+        "properties": {
+          "provider": { "type": "string", "minLength": 1 },
+          "auth": {
+            "description": "`oauth-local` n'est admissible que sur un worker local de confiance (docs/08) ; le schéma ne peut pas le vérifier, l'admission le peut.",
+            "type": "string",
+            "enum": ["oauth-local", "service-credential", "none"]
+          },
+          "remote_inference": {
+            "description": "Vrai quand les prompts quittent la machine. C'est ce qui décide si une classe de données peut être traitée par ce modèle.",
+            "type": "boolean"
+          },
+          "models": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+        }
+      }
+    },
+    "toolchains": {
+      "description": "Profils de docs/SPEC_V1 §19.4. Ouvert : la liste des profils évolue plus vite que le protocole.",
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "resources": {
+      "description": "Inventaire, pas réservation — d'où `cpu_cores` et `disk_free_mb` plutôt que le `cpu`/`disk_mb` de ResourceSpec. Deux noms différents pour deux grandeurs différentes valent mieux qu'un nom commun qui invite à les soustraire l'une de l'autre sans y penser.",
+      "type": "object",
+      "required": ["cpu_cores", "memory_mb", "disk_free_mb"],
+      "properties": {
+        "cpu_cores": { "type": "integer", "exclusiveMinimum": 0 },
+        "memory_mb": { "type": "integer", "exclusiveMinimum": 0 },
+        "disk_free_mb": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "accelerators": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["type", "count"],
+        "properties": {
+          "type": { "$ref": "urn:locus:schema:lep:1.0:vocabulary#/definitions/accelerator_type" },
+          "count": { "type": "integer", "minimum": 0 },
+          "memory_mb": { "type": "integer", "exclusiveMinimum": 0 }
+        }
+      }
+    },
+    "sandbox": {
+      "description": "L'offre d'isolation. `levels` énumère ce qui est réellement applicable ; un worker macOS sous Seatbelt annonce S1/S2 et jamais S3.",
+      "type": "object",
+      "required": ["levels", "network_modes"],
+      "properties": {
+        "levels": {
+          "type": "array",
+          "items": { "$ref": "urn:locus:schema:lep:1.0:vocabulary#/definitions/sandbox_level" },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "network_modes": {
+          "type": "array",
+          "items": { "$ref": "urn:locus:schema:lep:1.0:vocabulary#/definitions/network_mode" },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "backend": { "type": "string", "minLength": 1 },
+        "attestation": {
+          "description": "Vrai quand le worker sait produire une SandboxAttestation (W0.6) et non une simple déclaration.",
+          "type": "boolean"
+        }
+      }
+    },
+    "data_classes": {
+      "description": "Classes que ce worker est autorisé à traiter. Le plafond d'une mission ne peut pas les dépasser.",
+      "type": "array",
+      "items": { "$ref": "urn:locus:schema:lep:1.0:vocabulary#/definitions/data_class" },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "max_concurrency": { "type": "integer", "exclusiveMinimum": 0 },
+    "mission_kinds": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "trust_level": { "type": "string", "minLength": 1 }
+  }
+}

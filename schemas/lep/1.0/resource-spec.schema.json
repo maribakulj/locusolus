@@ -1,0 +1,38 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "urn:locus:schema:lep:1.0:resource-spec",
+  "title": "ResourceSpec",
+  "description": "Ce qu'une mission réserve avant de s'exécuter. C'est une demande, pas un inventaire : voir la note dans schemas/README.md sur la raison de ne pas partager cette forme avec les ressources annoncées par un worker. Invariant 6 : les ressources sont réservées avant exécution, elles ne sont pas supposées illimitées — chaque borne est donc obligatoire, aucune n'a de défaut implicite.",
+  "type": "object",
+  "required": ["cpu", "memory_mb", "disk_mb", "wall_time_seconds"],
+  "properties": {
+    "cpu": {
+      "description": "Cœurs réservés. Fractionnaire parce qu'un ordonnanceur de conteneurs sait allouer moins d'un cœur.",
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "memory_mb": {
+      "type": "integer",
+      "exclusiveMinimum": 0
+    },
+    "disk_mb": {
+      "type": "integer",
+      "exclusiveMinimum": 0
+    },
+    "wall_time_seconds": {
+      "description": "Borne de temps réel. Un attempt qui la dépasse est arrêté, pas prolongé.",
+      "type": "integer",
+      "exclusiveMinimum": 0
+    },
+    "accelerator": {
+      "description": "Le GPU est une capability, pas une dépendance globale (invariant 8) : absent veut dire « aucun n'est requis », jamais « n'importe lequel fera l'affaire ».",
+      "type": "object",
+      "required": ["type", "count"],
+      "properties": {
+        "type": { "$ref": "urn:locus:schema:lep:1.0:vocabulary#/definitions/accelerator_type" },
+        "count": { "type": "integer", "exclusiveMinimum": 0 },
+        "memory_mb": { "type": "integer", "exclusiveMinimum": 0 }
+      }
+    }
+  }
+}
