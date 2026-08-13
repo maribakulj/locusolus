@@ -1,0 +1,95 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "urn:locus:schema:environments:1.0:environment-blueprint",
+  "title": "EnvironmentBlueprint",
+  "description": "Ce qu'un environnement déclare (SPEC_V1 §19.3) : OS/arch, profils de toolchain, images par digest, lockfiles, variables non secrètes, ressources, réseau, mounts, health checks et exigences d'accélérateur. Il vit sous `environments/` et non `lep/` parce qu'une mission le référence par identifiant : c'est un contrat de reproductibilité, pas une trame de fil.",
+  "type": "object",
+  "required": ["environment_id", "version", "platform", "toolchains", "image", "resources"],
+  "properties": {
+    "environment_id": { "type": "string", "minLength": 1 },
+    "version": {
+      "description": "Deux blueprints qui diffèrent portent des versions différentes. Le niveau R2 de reproductibilité (§19.7) est « environnement verrouillé » : il ne l'est que si l'identifiant l'est aussi.",
+      "type": "string",
+      "minLength": 1
+    },
+    "platform": {
+      "type": "object",
+      "required": ["os", "arch"],
+      "properties": {
+        "os": { "$ref": "urn:locus:schema:lep:1.0:vocabulary#/definitions/os" },
+        "arch": { "$ref": "urn:locus:schema:lep:1.0:vocabulary#/definitions/arch" }
+      }
+    },
+    "toolchains": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "minItems": 1
+    },
+    "image": {
+      "description": "Par digest, jamais par tag (§21.8). Un tag est mutable, et un environnement dont l'image peut changer sous lui n'est pas verrouillé.",
+      "type": "object",
+      "required": ["digest"],
+      "properties": {
+        "reference": { "type": "string", "minLength": 1 },
+        "digest": { "$ref": "urn:locus:schema:lep:1.0:vocabulary#/definitions/content_hash" }
+      }
+    },
+    "lockfiles": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["path", "hash"],
+        "properties": {
+          "path": { "type": "string", "minLength": 1 },
+          "hash": { "$ref": "urn:locus:schema:lep:1.0:vocabulary#/definitions/content_hash" }
+        }
+      }
+    },
+    "env": {
+      "description": "Variables NON secrètes. Le schéma ne peut pas empêcher d'y mettre un token, mais il peut refuser de prévoir une place pour en mettre un : il n'y a pas de champ `secrets`, et il n'y en aura pas.",
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    },
+    "resources": {
+      "type": "object",
+      "required": ["minimum"],
+      "properties": {
+        "minimum": { "$ref": "urn:locus:schema:lep:1.0:resource-spec" },
+        "preferred": { "$ref": "urn:locus:schema:lep:1.0:resource-spec" }
+      }
+    },
+    "network": { "$ref": "urn:locus:schema:lep:1.0:vocabulary#/definitions/network_mode" },
+    "mounts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["source", "target", "mode"],
+        "properties": {
+          "source": { "type": "string", "minLength": 1 },
+          "target": { "type": "string", "minLength": 1 },
+          "mode": { "type": "string", "enum": ["ro", "rw"] }
+        }
+      }
+    },
+    "health_checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "command"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "command": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+          "timeout_seconds": { "type": "integer", "exclusiveMinimum": 0 }
+        }
+      }
+    },
+    "accelerator": {
+      "type": "object",
+      "required": ["type"],
+      "properties": {
+        "type": { "$ref": "urn:locus:schema:lep:1.0:vocabulary#/definitions/accelerator_type" },
+        "minimum_memory_mb": { "type": "integer", "exclusiveMinimum": 0 }
+      }
+    }
+  }
+}

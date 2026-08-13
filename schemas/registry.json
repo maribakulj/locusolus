@@ -1,0 +1,28 @@
+{
+  "$comment": "Quel exemple se valide contre quel schéma. Déclaratif plutôt que déduit d'un nom de fichier : une convention implicite se casse en silence le jour où un exemple s'appelle autrement, et un exemple qu'on ne valide plus ressemble en tout point à un exemple qui passe.",
+  "draft": "http://json-schema.org/draft-07/schema#",
+  "documents": [
+    {
+      "schema": "lep/1.0/capability-manifest.schema.json",
+      "examples": ["capability-manifest.json", "capability-manifest-vm-linux.json"]
+    },
+    {
+      "schema": "lep/1.0/mission-envelope.schema.json",
+      "examples": ["mission-envelope.json", "mission-envelope-nominal.json"]
+    }
+  ],
+  "shared": [
+    "lep/1.0/vocabulary.schema.json",
+    "lep/1.0/resource-spec.schema.json",
+    "lep/1.0/sandbox-spec.schema.json",
+    "lep/1.0/context-view.schema.json",
+    "environments/1.0/environment-blueprint.schema.json"
+  ],
+  "pending": [
+    {
+      "example": "sandbox-attestation.json",
+      "covered_by": "W0.6",
+      "reason": "SandboxAttestation appartient à la seconde moitié des schémas LEP."
+    }
+  ]
+}

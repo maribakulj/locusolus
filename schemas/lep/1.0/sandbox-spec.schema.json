@@ -1,0 +1,58 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "urn:locus:schema:lep:1.0:sandbox-spec",
+  "title": "SandboxSpec",
+  "description": "L'isolation qu'une mission EXIGE. Ce n'est pas ce qu'un worker offre, et les deux formes restent distinctes exprès : une exigence porte un plancher (`minimum_level`), une offre porte une liste (`levels`). Les confondre est la façon dont un ordonnanceur finit par comparer un plancher à un inventaire et par accorder S1 à une mission qui demandait S3.",
+  "type": "object",
+  "required": ["minimum_level", "network"],
+  "properties": {
+    "minimum_level": {
+      "description": "Plancher, jamais un souhait. Le worker atteste le niveau réellement appliqué et un downgrade est interdit sauf approbation explicite et événement de sécurité (SPEC_V1 §21.6).",
+      "$ref": "urn:locus:schema:lep:1.0:vocabulary#/definitions/sandbox_level"
+    },
+    "network": {
+      "$ref": "urn:locus:schema:lep:1.0:vocabulary#/definitions/network_mode"
+    },
+    "network_allowlist": {
+      "description": "Domaines joignables quand `network` vaut `allowlist`. Le schéma impose sa présence dans ce cas : une allowlist implicite est une autorisation totale qui n'ose pas dire son nom.",
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "minItems": 1
+    },
+    "profile": {
+      "description": "Profil V1 (SPEC_V1 §21.6). Il nomme une intention ; c'est `minimum_level` qui engage.",
+      "type": "string",
+      "enum": [
+        "interactive-local",
+        "readonly-review",
+        "network-allowlisted",
+        "math-compute",
+        "dh-corpus",
+        "untrusted-repository",
+        "microvm-high-risk"
+      ]
+    },
+    "attestation_required": {
+      "description": "Exige du worker une SandboxAttestation (W0.6) plutôt qu'une déclaration.",
+      "type": "boolean"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "network": { "const": "allowlist" } },
+        "required": ["network"]
+      },
+      "then": { "required": ["network_allowlist"] }
+    },
+    {
+      "if": {
+        "properties": { "network": { "enum": ["deny", "full"] } },
+        "required": ["network"]
+      },
+      "then": {
+        "not": { "required": ["network_allowlist"] }
+      }
+    }
+  ]
+}

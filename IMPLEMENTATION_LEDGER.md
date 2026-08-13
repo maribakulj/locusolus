@@ -272,3 +272,69 @@ HTTP. Ce sont deux surfaces, pas deux versions d'une même liste, et la seconde 
 exigé dans son entrée. Dépendances satisfaites : `packages/protocol` existe, `schemas/examples/` est
 en place depuis W0.1, et le dialecte est fixé à Draft 7 par la condition 1 d'ADR 0011 — c'est l'item
 qui doit l'appliquer.
+
+## 2026-08-13 — W0.5 `[M]` — JSON Schemas LEP, première moitié
+
+Item repris après un arrêt de ma part qui n'avait pas lieu d'être : j'avais traité `[M]` comme une
+porte à l'ouvrage alors que c'est une porte à la **fusion**. La PR est donc ouverte et **non
+fusionnée** — elle attend l'arbitrage, comme la règle le demande.
+
+Deuxième erreur corrigée en chemin : je croyais W0.5 bloqué par ADR 0011. `schemas/README.md`, sur
+`main` depuis W0.1, dit le contraire en toutes lettres — « les schémas sont communs aux deux options
+: ils fixent le protocole avant qu'un choix de langage puisse l'infléchir ». La réponse était dans
+le dépôt.
+
+**Périmètre.** `schemas/lep/1.0/` (six schémas dont le vocabulaire partagé),
+`schemas/environments/1.0/environment-blueprint.schema.json`, `schemas/registry.json`,
+`schemas/README.md`, `tooling/schemas/` (validateur et CLI), `tests/schemas/lep.test.ts`,
+`package.json` (`check:schemas` dans la chaîne, `ajv` et `ajv-formats` en devDependencies), et deux
+fixtures reçues — débordement déclaré ci-dessous.
+
+**Tests exécutés.** Test de sortie de l'item : « les exemples de `schemas/examples/` valident ».
+`npm run check:schemas` → ok, quatre exemples validés, un déclaré `pending` (W0.6). `npm run check`
+complet → 0, 47 tests, 0 échec.
+
+Les seize tests neufs ne vérifient pas que les schémas acceptent — les fixtures s'en chargent — mais
+qu'ils **refusent** : chaque champ obligatoire retiré un par un, `lep/2.0`, un hash tronqué, une
+réservation à zéro, un niveau `S6`, une allowlist sans liste, un `deny` qui en porte une, une classe
+de données inventée, une date mal formée. Un schéma qui accepte tout passe toutes les fixtures.
+
+**Décisions prises.** Les six qui contraignent la suite sont écrites dans `schemas/README.md` plutôt
+qu'ici, parce que c'est là qu'on les lira. En résumé : Draft 7 (le plus outillé hors JavaScript, et
+le langage de `locusd` n'est pas tranché), identifiants en URN (stables, versionnés, sans promesse
+d'être récupérables), documents **ouverts** (`docs/06` fait du mineur un ajout compatible : fermer
+les documents transformerait chaque ajout mineur en rupture), et une demande n'est pas une offre —
+`MissionEnvelope.resources` et `CapabilityManifest.resources` gardent des noms de champs différents
+pour que personne ne les soustraie l'un de l'autre sans y penser.
+
+**Une ambiguïté de spec tranchée, et signalée.** `SPEC_V1.md` §21.7 écrit `connector_only` ; les
+fixtures reçues et toutes les autres valeurs d'énumération du protocole sont en kebab-case
+(`oauth-local`, `rootless-oci`, `service-credential`). J'ai retenu `connector-only` — les noms de
+champs en `snake_case`, les valeurs en kebab — et un test fixe la graphie pour que la renverser soit
+un changement visible. La PR étant de toute façon soumise à arbitrage, c'est là qu'il faut me
+contredire si le texte de la spec doit primer.
+
+**Débordement de périmètre, déclaré.** Deux fixtures reçues portaient `"hash": "sha256:..."`, un
+placeholder. Trois issues : accepter les points dans le motif — un schéma qui valide `...` comme
+digest ment ; laisser l'exemple échouer — le test de sortie de l'item n'est plus tenu ; ou réparer
+la fixture. J'ai réparé, avec `sha256("ctx-example")`, reproductible. Un fichier dont la valeur est
+`...` est une esquisse, pas une fixture.
+
+**Écart avec la spec.** Aucun sur le périmètre de l'item. W0.6 porte la seconde moitié (`Lease`,
+`Attempt`, événements, `ArtifactManifest`, `RunManifest`, `SandboxAttestation`, `EpistemicCommit`) ;
+`sandbox-attestation.json` est déclaré `pending` dans le registre plutôt qu'ignoré, et le validateur
+échoue sur tout exemple qui ne serait ni validé ni déclaré — un exemple que plus personne ne vérifie
+ressemble en tout point à un exemple qui passe.
+
+**Plan de rollback (`[M]`).** La migration est additive : aucun schéma n'existait avant, aucun
+consommateur n'en dépend, `packages/protocol` (W0.4) n'est pas fusionné. Revenir en arrière est un
+`git revert` du merge commit, sans étape de données ni de migration inverse. Les deux points à
+vérifier après un revert : `package.json` retrouve sa chaîne `check` sans `check:schemas`, et les
+deux fixtures retrouvent leur placeholder — ce dernier point étant le seul qu'un revert restaure
+alors qu'il valait mieux le garder. Si le revert vise seulement une décision (la graphie de
+`connector-only`, le choix du Draft), il ne demande pas de revert du tout : un seul fichier de
+vocabulaire et un test à changer.
+
+**Prochain item.** W0.6, `[M]` lui aussi, qui complète les schémas et débloque W0.7 (corpus de
+fixtures) puis W0.8 (SDK généré). Sa dépendance — les schémas de W0.5 — est satisfaite par cette PR,
+donc par sa fusion.

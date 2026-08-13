@@ -1,0 +1,96 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "urn:locus:schema:lep:1.0:mission-envelope",
+  "title": "MissionEnvelope",
+  "description": "Ce qu'une mission DEMANDE (SPEC_V1 §15.4). Rien ici n'est optionnel par commodité : objectif, contexte, sandbox, ressources, budget et contrat de sortie sont ce qui rend une mission admissible ou refusable, et une mission qui en omet un ne peut pas être jugée — elle serait acceptée par défaut, ce qui est exactement le contraire de l'admission.",
+  "type": "object",
+  "required": [
+    "protocol",
+    "task_id",
+    "attempt_id",
+    "branch_id",
+    "objective",
+    "context_view",
+    "environment",
+    "sandbox",
+    "resources",
+    "budget",
+    "output_contract"
+  ],
+  "properties": {
+    "protocol": { "$ref": "urn:locus:schema:lep:1.0:vocabulary#/definitions/protocol_version" },
+    "task_id": { "type": "string", "minLength": 1 },
+    "attempt_id": {
+      "description": "Une tâche durable connaît plusieurs attempts (§15.5). L'identifiant d'attempt est ce qui distingue un résultat tardif d'un doublon.",
+      "type": "string",
+      "minLength": 1
+    },
+    "branch_id": { "type": "string", "minLength": 1 },
+    "objective": {
+      "type": "object",
+      "required": ["statement", "success_conditions"],
+      "properties": {
+        "statement": { "type": "string", "minLength": 1 },
+        "success_conditions": {
+          "description": "Au moins une, et énoncée avant l'exécution. Un critère de succès écrit après coup ne prouve rien.",
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "minItems": 1
+        },
+        "failure_conditions": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "context_view": {
+      "description": "Référence, pas contenu : la mission porte l'identité et le hash de la vue, le worker la matérialise. Le hash est obligatoire — sans lui, « ce que l'agent pouvait connaître » n'est plus vérifiable.",
+      "type": "object",
+      "required": ["id", "hash"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "hash": { "$ref": "urn:locus:schema:lep:1.0:vocabulary#/definitions/content_hash" }
+      }
+    },
+    "environment": {
+      "type": "object",
+      "required": ["environment_id"],
+      "properties": {
+        "environment_id": { "type": "string", "minLength": 1 },
+        "image_digest": { "$ref": "urn:locus:schema:lep:1.0:vocabulary#/definitions/content_hash" },
+        "toolchains": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+      }
+    },
+    "sandbox": { "$ref": "urn:locus:schema:lep:1.0:sandbox-spec" },
+    "resources": { "$ref": "urn:locus:schema:lep:1.0:resource-spec" },
+    "budget": {
+      "description": "Invariant 6 appliqué au coût du modèle. Les trois bornes sont obligatoires : une seule d'entre elles laissée libre suffit à rendre le dépassement impossible à constater.",
+      "type": "object",
+      "required": ["max_model_calls", "max_input_tokens", "max_output_tokens"],
+      "properties": {
+        "max_model_calls": { "type": "integer", "exclusiveMinimum": 0 },
+        "max_input_tokens": { "type": "integer", "exclusiveMinimum": 0 },
+        "max_output_tokens": { "type": "integer", "exclusiveMinimum": 0 },
+        "max_cost_micros": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "required_capabilities": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "confidentiality_ceiling": {
+      "$ref": "urn:locus:schema:lep:1.0:vocabulary#/definitions/data_class"
+    },
+    "review_policy": {
+      "description": "Invariant 11 : un reviewer indépendant ne reçoit pas le raisonnement privé du générateur. `independent` est ce qui l'engage.",
+      "type": "string",
+      "enum": ["none", "self", "independent", "independent-blind"]
+    },
+    "output_contract": {
+      "description": "Ce que l'attempt doit rendre. `epistemic-commit/1` n'a aucune autorité de validation avant traitement par Locus Solus (§15.7).",
+      "type": "string",
+      "minLength": 1
+    },
+    "deadline": { "type": "string", "format": "date-time" }
+  }
+}

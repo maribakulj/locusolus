@@ -1,0 +1,67 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "urn:locus:schema:lep:1.0:context-view",
+  "title": "ContextView",
+  "description": "Ce que l'agent pouvait connaître, arrêté et adressé par hash (SPEC_V1 §16.2). Immuable : `content_hash` et `source_event_watermark` sont obligatoires parce qu'une vue de contexte sans eux ne permet plus de répondre à la question qui la justifie — que savait-on, et à quel instant du journal.",
+  "type": "object",
+  "required": [
+    "id",
+    "content_hash",
+    "source_event_watermark",
+    "generated_at",
+    "confidentiality_ceiling"
+  ],
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "query": { "type": "string" },
+    "root_ids": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "included_types": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "included_relations": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "max_depth": { "type": "integer", "minimum": 0 },
+    "time_range": {
+      "type": "object",
+      "properties": {
+        "from": { "type": "string", "format": "date-time" },
+        "to": { "type": "string", "format": "date-time" }
+      }
+    },
+    "branch_scope": {
+      "description": "Invariant 11 et §12.4 : l'isolation informationnelle se décide ici. Une vue construite pour la branche A ne doit jamais atteindre une mission de la branche B.",
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "validation_levels": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "confidentiality_ceiling": {
+      "$ref": "urn:locus:schema:lep:1.0:vocabulary#/definitions/data_class"
+    },
+    "artifact_policy": { "type": "string" },
+    "negative_result_policy": {
+      "description": "Invariant 12 : les résultats négatifs ne sont jamais supprimés pour rendre le graphe propre. Une vue peut les cadrer, pas les effacer — d'où `include` par défaut et l'absence de toute valeur signifiant « supprimer ».",
+      "type": "string",
+      "enum": ["include", "include-weighted", "summarize"]
+    },
+    "diversity_policy": { "type": "string" },
+    "token_budget": { "type": "integer", "exclusiveMinimum": 0 },
+    "redactions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["target", "reason"],
+        "properties": {
+          "target": { "type": "string", "minLength": 1 },
+          "reason": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "source_event_watermark": {
+      "description": "Position dans le journal jusqu'à laquelle la vue a été construite. C'est ce qui rend « ce que l'agent pouvait connaître » vérifiable après coup.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "content_hash": { "$ref": "urn:locus:schema:lep:1.0:vocabulary#/definitions/content_hash" },
+    "generated_at": { "type": "string", "format": "date-time" }
+  }
+}

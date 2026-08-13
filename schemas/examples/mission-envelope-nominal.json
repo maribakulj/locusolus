@@ -17,7 +17,7 @@
   },
   "context_view": {
     "id": "ctx-example",
-    "hash": "sha256:..."
+    "hash": "sha256:b7a4c0cecbce5b62229f9852844bc84310aed6cd7e144f0b136da542ebbe53cc"
   },
   "environment": {
     "environment_id": "math-formal-v1"

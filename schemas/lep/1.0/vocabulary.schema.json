@@ -1,0 +1,49 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "urn:locus:schema:lep:1.0:vocabulary",
+  "title": "Vocabulaire LEP 1.0",
+  "description": "Les énumérations partagées par plusieurs documents. Elles vivent ici plutôt que dupliquées : « pas de duplication cross-repo des contrats » vaut d'abord à l'intérieur du dépôt, et deux copies d'une liste de niveaux de sandbox finissent par diverger sur celui qui compte.",
+  "definitions": {
+    "protocol_version": {
+      "description": "Version du protocole portée par chaque enveloppe. Le motif accepte toute la ligne 1.x, pas seulement 1.0 : docs/06 fait du mineur un ajout de champs optionnels compatibles, donc un consommateur 1.0 doit accepter un document 1.1 et ignorer ce qu'il ne connaît pas. Un `const` ici transformerait chaque ajout mineur en rupture.",
+      "type": "string",
+      "pattern": "^lep/1\\.[0-9]+$"
+    },
+    "sandbox_level": {
+      "description": "SPEC_V1 §21.6. L'ordre est significatif : S0 < S1 < ... < S5. Un downgrade est interdit sauf approbation explicite et événement de sécurité.",
+      "type": "string",
+      "enum": ["S0", "S1", "S2", "S3", "S4", "S5"]
+    },
+    "network_mode": {
+      "description": "SPEC_V1 §21.7. `deny` par défaut pour du code non fiable. Voir schemas/README.md pour la graphie de `connector-only`, qui diffère de celle du texte de la spec.",
+      "type": "string",
+      "enum": ["deny", "connector-only", "allowlist", "full"]
+    },
+    "accelerator_type": {
+      "type": "string",
+      "enum": ["cuda", "rocm", "mps", "tpu", "none"]
+    },
+    "os": {
+      "type": "string",
+      "enum": ["linux", "macos", "windows"]
+    },
+    "arch": {
+      "type": "string",
+      "enum": ["x86_64", "arm64"]
+    },
+    "data_class": {
+      "description": "Classification. Les missions ne peuvent pas l'abaisser (SPEC_V1 §21.9) ; l'ordre est croissant en sensibilité.",
+      "type": "string",
+      "enum": ["public", "internal", "confidential", "restricted"]
+    },
+    "content_hash": {
+      "description": "Hash adressant un contenu immuable, préfixé par son algorithme. Le préfixe est obligatoire : un hash nu ne dit pas comment le recalculer, et une vérification d'intégrité qui devine son algorithme n'en est pas une. La longueur est vérifiée par algorithme plutôt que par une borne commode — un digest tronqué est la forme que prend une intégrité cassée.",
+      "type": "string",
+      "oneOf": [
+        { "pattern": "^sha256:[0-9a-f]{64}$" },
+        { "pattern": "^sha512:[0-9a-f]{128}$" },
+        { "pattern": "^blake3:[0-9a-f]{64}$" }
+      ]
+    }
+  }
+}
