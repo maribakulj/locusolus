@@ -1,0 +1,10 @@
+{
+  "name": "@locus/lep",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "SDK LEP généré depuis schemas/, et la négociation de features du handshake.",
+  "exports": {
+    ".": "./src/index.ts"
+  }
+}

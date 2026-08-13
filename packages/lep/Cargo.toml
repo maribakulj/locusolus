@@ -1,0 +1,15 @@
+[package]
+name = "locus-lep"
+description = "SDK LEP généré depuis schemas/, et la négociation de features du handshake."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }

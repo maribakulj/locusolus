@@ -449,3 +449,68 @@ négociation de features au handshake. Test de sortie : round-trip sur toutes le
 Dépendances satisfaites : les schémas des deux moitiés et le corpus existent. ADR 0011 condition 4
 prévient que W0.8 génère **deux** SDK, TypeScript et Rust, depuis les mêmes schémas — c'est un coût
 budgété, pas à découvrir.
+
+## 2026-08-13 — W0.8 `[R]` — SDK généré et négociation de features
+
+**Périmètre.** `tooling/sdk/` (IR partagée, deux émetteurs, CLI avec `--check`), `packages/lep/`
+(unité neuve : `@locus/lep` et le crate `locus-lep`, code généré plus la négociation),
+`schemas/lep/1.0/features.json`, `Cargo.toml` (membre), `package.json` (`sdk` et `check:generated`
+dans la chaîne), `tests/sdk/lep.test.ts` et `packages/lep/tests/round_trip.rs`.
+
+**Tests exécutés.** Test de sortie : « round-trip sur toutes les fixtures ». Côté Rust, six tests
+décodent puis ré-encodent les onze fixtures valides et comparent ; côté TypeScript, dix tests dont
+un qui vérifie que les types **couvrent tous les champs** de chaque fixture. `npm run check` → 0 :
+91 tests JS, 33 tests Rust.
+
+Vérification par mutation de la garde anti-dérive : une ligne ajoutée à la main dans `generated.ts`
+fait sortir `generated-stale`.
+
+**Décisions prises.** Quatre.
+
+**Une seule lecture des schémas, deux émetteurs.** L'IR existe pour ça. Deux lecteurs divergeraient,
+et la divergence se manifesterait comme un client TypeScript et un serveur Rust en désaccord sur le
+fil — précisément le défaut pour lequel `docs/06` invente des fixtures inter-SDK.
+
+**Le code généré est committé, pas construit.** `packages/protocol` est un crate Rust et `tooling/`
+est du Node : une étape de génération à exécuter avant que l'un ou l'autre compile ferait attendre
+chaque écosystème sur l'autre. Le prix est la dérive, et `--check` est ce qui la rend impossible
+plutôt que seulement improbable. Le générateur passe sa sortie TypeScript par prettier, sans quoi
+`check:format` et `check:generated` se contrediraient — l'un exigeant un reformatage que l'autre
+signalerait comme une dérive.
+
+**Ce que le générateur ne sait pas modéliser est un `finding`, jamais un silence.** Un générateur
+qui saute ce qu'il ne comprend pas produit des types qui ont l'air complets et ne le sont pas, et le
+premier à s'en apercevoir est celui qui débogue un champ disparu. Six règles couvrent les cas :
+`oneOf` non réductible à un motif, énumération non textuelle, tableau sans `items`, objet imbriqué
+sans nom dérivable, document sans `properties`, et définitions homonymes venues de deux fichiers.
+
+**`schema-registry` est un module de `packages/lep`, pas une unité à part.** Le registre est celui
+des schémas que le SDK porte ; l'en séparer créerait un paquet dont tout le contenu serait une table
+de ce que contient l'autre. La liste des features vit dans `schemas/lep/1.0/features.json` et se
+génère dans les deux SDK, comme le reste. Les cinq features sont **sourcées** — chacune est une
+capacité que la spec décrit comme facultative ou conditionnelle, avec sa référence. Une feature
+qu'aucun document ne nomme n'aurait personne pour l'implémenter.
+
+La négociation distingue **trois** issues et non deux : accordée, refusée, inconnue. Les fondre en
+un seul « non » rendrait un pair venu d'un mineur ultérieur indiscernable d'un pair qui a mal
+orthographié son besoin — le premier appelle un repli, le second un rapport d'erreur.
+
+**Ce que le round-trip a trouvé, et qui dépasse W0.8.** La fixture écrit `"cpu": 4` ; le schéma dit
+`number` — pour les cœurs fractionnaires — donc le SDK Rust type `f64` et ré-encode `4.0`. JSON ne
+distingue pas les deux, et aucun lecteur conforme ne rapporte lequel a été écrit. La conséquence
+n'est pas dans le test : **le `payload_hash` d'un événement ne peut pas être calculé sur la sortie
+d'un sérialiseur.** Deux pairs conformes émettraient des octets différents pour la même donnée et
+leurs hashes divergeraient sur rien. §7.7 exige « une canonicalisation stable » : c'est elle qui
+doit produire les octets à hasher, ni `serde_json::to_string` ni `JSON.stringify`. Le canonicaliseur
+appartient à W0.9 ; la note est dans le test pour qu'il ne soit pas oublié.
+
+**Écart avec la spec.** Aucun. La dérogation `missing_docs` du fichier Rust généré est écrite dans
+son en-tête : la documentation de ces types EST la description de leur schéma, et inventer une
+phrase pour satisfaire un lint ajouterait du bruit là où le silence est exact. Ce qui manque doit
+être ajouté au schéma, pas au générateur.
+
+**Prochain item.** W0.9 `[R]` — `packages/testing` : harnais de conformance LEP côté serveur
+(handshake, offre, lease, heartbeat, expiration, acquittements). Test de sortie : le harnais se
+teste contre un worker factice. Dépendances satisfaites : schémas, corpus et SDK existent. Il hérite
+de deux dettes nommées ici — le canonicaliseur, et la règle « heartbeat < TTL/3 » que Draft 7 ne
+sait pas exprimer.
