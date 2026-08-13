@@ -1,0 +1,110 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "urn:locus:schema:lep:1.0:epistemic-commit",
+  "title": "EpistemicCommit",
+  "description": "Ce qu'un attempt PROPOSE (SPEC_V1 §15.7) : claims, objections, inférences, décisions locales, résultats négatifs, limitations, références d'artefacts et prochaines actions.\n\nIl n'a AUCUNE autorité de validation avant traitement par Locus Solus, et le schéma le rend indéfaisable plutôt que de le répéter : `status` ne peut valoir que `draft` ou `staged`. `validated`, `under_review` et le reste du cycle de vie de §7.4 existent, mais ce sont des verdicts que l'institution prononce — un worker qui les écrirait s'auto-validerait, ce qui est exactement l'invariant 3.\n\nUn commit ne peut pas contenir de secret (§21.8). Le schéma n'a aucun champ pour en loger un ; le scan, lui, appartient à l'admission.",
+  "type": "object",
+  "required": ["protocol", "task_id", "attempt", "status", "produced_at"],
+  "properties": {
+    "protocol": { "$ref": "urn:locus:schema:lep:1.0:vocabulary#/definitions/protocol_version" },
+    "task_id": { "type": "string", "minLength": 1 },
+    "attempt": { "type": "integer", "minimum": 1 },
+    "branch_id": { "type": "string", "minLength": 1 },
+    "status": {
+      "description": "Jamais au-delà de `staged` (§2.3). C'est la garantie la plus forte de ce schéma, et la seule que sa violation rende un document littéralement invalide.",
+      "type": "string",
+      "enum": ["draft", "staged"]
+    },
+    "claims": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["statement", "confidence"],
+        "properties": {
+          "statement": { "type": "string", "minLength": 1 },
+          "confidence": {
+            "description": "Une claim sans confiance déclarée se lit comme certaine. Obligatoire, donc, et bornée.",
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "evidence_refs": { "$ref": "#/definitions/refs" },
+          "assumptions": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+        }
+      }
+    },
+    "objections": {
+      "description": "Invariant 12 : les conflits ne sont jamais supprimés pour rendre le graphe propre. Une objection est un contenu de premier plan, pas une note de bas de page.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["statement"],
+        "properties": {
+          "statement": { "type": "string", "minLength": 1 },
+          "targets": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+          "evidence_refs": { "$ref": "#/definitions/refs" }
+        }
+      }
+    },
+    "inferences": {
+      "description": "Une inférence est un nœud explicite (§7.6), avec ses prémisses et ses hypothèses — pas une flèche implicite entre deux claims.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["rule", "premise_refs", "conclusion_refs"],
+        "properties": {
+          "rule": { "type": "string", "minLength": 1 },
+          "inference_kind": { "type": "string", "minLength": 1 },
+          "premise_refs": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+          "conclusion_refs": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+          "assumption_refs": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+        }
+      }
+    },
+    "local_decisions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["decision", "rationale"],
+        "properties": {
+          "decision": { "type": "string", "minLength": 1 },
+          "rationale": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "negative_results": {
+      "description": "Invariant 12, encore : un résultat négatif est un résultat. Le champ existe pour qu'il ait un endroit où aller, sans quoi il finit dans un commentaire libre et disparaît.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["statement"],
+        "properties": {
+          "statement": { "type": "string", "minLength": 1 },
+          "attempted": { "type": "string", "minLength": 1 },
+          "evidence_refs": { "$ref": "#/definitions/refs" }
+        }
+      }
+    },
+    "limitations": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "artifact_refs": { "$ref": "#/definitions/refs" },
+    "next_actions": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "produced_at": { "type": "string", "format": "date-time" }
+  },
+  "definitions": {
+    "refs": {
+      "description": "Références à des artefacts, par identifiant et hash — la provenance passe par le contenu, pas par le nom.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["artifact_id"],
+        "properties": {
+          "artifact_id": { "type": "string", "minLength": 1 },
+          "content_hash": {
+            "$ref": "urn:locus:schema:lep:1.0:vocabulary#/definitions/content_hash"
+          },
+          "note": { "type": "string" }
+        }
+      }
+    }
+  }
+}

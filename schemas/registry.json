@@ -9,6 +9,10 @@
     {
       "schema": "lep/1.0/mission-envelope.schema.json",
       "examples": ["mission-envelope.json", "mission-envelope-nominal.json"]
+    },
+    {
+      "schema": "lep/1.0/sandbox-attestation.schema.json",
+      "examples": ["sandbox-attestation.json"]
     }
   ],
   "shared": [
@@ -16,13 +20,13 @@
     "lep/1.0/resource-spec.schema.json",
     "lep/1.0/sandbox-spec.schema.json",
     "lep/1.0/context-view.schema.json",
-    "environments/1.0/environment-blueprint.schema.json"
+    "environments/1.0/environment-blueprint.schema.json",
+    "lep/1.0/lease.schema.json",
+    "lep/1.0/attempt.schema.json",
+    "lep/1.0/event.schema.json",
+    "lep/1.0/epistemic-commit.schema.json",
+    "artifacts/1.0/artifact-manifest.schema.json",
+    "artifacts/1.0/run-manifest.schema.json"
   ],
-  "pending": [
-    {
-      "example": "sandbox-attestation.json",
-      "covered_by": "W0.6",
-      "reason": "SandboxAttestation appartient à la seconde moitié des schémas LEP."
-    }
-  ]
+  "pending": []
 }

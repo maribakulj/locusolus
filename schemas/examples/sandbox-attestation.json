@@ -1,8 +1,13 @@
 {
+  "_fixture": {
+    "name": "sandbox-attestation-s3-rootless",
+    "expect": "valid",
+    "note": "Forme d'une attestation S3 conforme : home non monté, socket runtime non exposé, quatre self-tests d'ADR 0004 passés."
+  },
   "sandbox_id": "sbx-example",
   "backend": "lima-podman",
   "isolation_level": "S3",
-  "image_digest": "sha256:...",
+  "image_digest": "sha256:5f4132a2e7060b32e80dce83174080a957e1a7842dc92d83d5b0ac621d974127",
   "rootless": true,
   "read_only_rootfs": true,
   "network_mode": "deny",

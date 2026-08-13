@@ -32,7 +32,7 @@ Les exemples et les fixtures ne sont pas de la documentation : chaque fichier de
 doit valider — ou invalider intentionnellement, selon son `expect` déclaré — contre le schéma qu'il
 illustre.
 
-## Ce qui est écrit (W0.5)
+## Ce qui est écrit (W0.5 et W0.6)
 
 | Schéma                 | Emplacement                                          |
 | ---------------------- | ---------------------------------------------------- |
@@ -42,6 +42,13 @@ illustre.
 | `SandboxSpec`          | `lep/1.0/sandbox-spec.schema.json`                   |
 | `ResourceSpec`         | `lep/1.0/resource-spec.schema.json`                  |
 | `EnvironmentBlueprint` | `environments/1.0/environment-blueprint.schema.json` |
+| `Lease`                | `lep/1.0/lease.schema.json`                          |
+| `Attempt`              | `lep/1.0/attempt.schema.json`                        |
+| Événement LEP          | `lep/1.0/event.schema.json`                          |
+| `SandboxAttestation`   | `lep/1.0/sandbox-attestation.schema.json`            |
+| `EpistemicCommit`      | `lep/1.0/epistemic-commit.schema.json`               |
+| `ArtifactManifest`     | `artifacts/1.0/artifact-manifest.schema.json`        |
+| `RunManifest`          | `artifacts/1.0/run-manifest.schema.json`             |
 
 `lep/1.0/vocabulary.schema.json` porte les énumérations partagées — niveaux de sandbox, modes
 réseau, classes de données, forme d'un hash. Elles vivent en un seul endroit parce que deux copies
@@ -89,3 +96,27 @@ soit un changement visible.
 exige 128. Un digest tronqué est la forme que prend une intégrité cassée, et un motif permissif
 laisserait passer le placeholder `sha256:...` que portaient deux fixtures — remplacé ici par un
 digest réel, `sha256("ctx-example")`.
+
+## Deux frontières que ces schémas ne franchissent pas
+
+**L'enveloppe du journal institutionnel (§10.1) n'est pas ici.** Elle vit sous `schemas/events/` et
+appartient à W1. Un worker ne modifie jamais directement la base canonique (invariant 3) : ce qui
+traverse le fil et ce qui est écrit dans l'event store ne peuvent pas être le même objet, et les
+confondre ferait du worker un écrivain de l'histoire.
+
+**Ce qu'un schéma ne peut pas dire.** Draft 7 n'exprime pas de relation arithmétique entre deux
+champs, donc « le heartbeat est inférieur au tiers du TTL » (§12.3) n'est pas dans `Lease`. La règle
+est vérifiée par le harnais de conformance (W0.9). C'est écrit dans le schéma plutôt que passé sous
+silence : croire qu'une garantie existe est pire que savoir qu'elle manque.
+
+## Ce qu'une attestation a le droit de dire
+
+`SandboxAttestation` accepte `host_home_mounted: true`. C'est délibéré. Refuser au niveau du schéma
+ne rendrait pas le montage impossible — ça rendrait le worker non conforme **incapable de
+l'avouer**, et un worker qui ment par construction est pire qu'un worker qui déclare une mauvaise
+isolation. Le refus appartient à l'admission, qui compare l'attestation au plancher de la
+`SandboxSpec`.
+
+En revanche, une attestation **muette** est invalide : `host_home_mounted` est obligatoire même
+quand la réponse est `false`, parce qu'un champ absent se lit « je n'ai pas regardé » aussi bien que
+« non », et qu'un seul des deux est une attestation.

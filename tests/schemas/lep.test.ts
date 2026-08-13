@@ -233,3 +233,238 @@ test("unknown fields are tolerated, which is what makes a minor version compatib
   forward.some_field_added_in_1_1 = { anything: true };
   assert.equal(accepts(MISSION, forward), true);
 });
+
+//
+// W0.6 — la seconde moitié. Mêmes règles : ce qui est testé, c'est ce que les schémas refusent.
+//
+
+const ATTESTATION = "urn:locus:schema:lep:1.0:sandbox-attestation";
+const COMMIT = "urn:locus:schema:lep:1.0:epistemic-commit";
+const EVENT = "urn:locus:schema:lep:1.0:event";
+const LEASE = "urn:locus:schema:lep:1.0:lease";
+const ATTEMPT = "urn:locus:schema:lep:1.0:attempt";
+
+function commit(): Record<string, unknown> {
+  return {
+    protocol: "lep/1.0",
+    task_id: "task-nominal",
+    attempt: 1,
+    status: "staged",
+    produced_at: "2026-08-13T09:00:00.000Z",
+  };
+}
+
+function event(type: string): Record<string, unknown> {
+  return {
+    protocol: "lep/1.0",
+    event_type: type,
+    sequence: 7,
+    occurred_at: "2026-08-13T09:00:00.000Z",
+    idempotency_key: "idem-7",
+    task_id: "task-nominal",
+    attempt: 1,
+  };
+}
+
+test("un commit ne peut pas se valider lui-même", () => {
+  // §2.3 : jamais au-delà de `staged`. C'est la garantie la plus forte du lot, et la seule
+  // dont la violation rend le document littéralement invalide plutôt que seulement suspect.
+  for (const status of ["draft", "staged"]) {
+    assert.equal(accepts(COMMIT, { ...commit(), status }), true, status);
+  }
+  for (const status of ["validated", "under_review", "accepted", "contested"]) {
+    assert.equal(accepts(COMMIT, { ...commit(), status }), false, status);
+  }
+});
+
+test("une claim sans confiance déclarée se lirait comme certaine", () => {
+  const withConfidence = commit();
+  withConfidence.claims = [{ statement: "C-184 est réfutable", confidence: 0.6 }];
+  assert.equal(accepts(COMMIT, withConfidence), true);
+
+  const bare = commit();
+  bare.claims = [{ statement: "C-184 est réfutable" }];
+  assert.equal(accepts(COMMIT, bare), false);
+
+  for (const confidence of [-0.1, 1.5]) {
+    const broken = commit();
+    broken.claims = [{ statement: "x", confidence }];
+    assert.equal(accepts(COMMIT, broken), false, String(confidence));
+  }
+});
+
+test("un type d'événement inconnu est refusé, contrairement à un champ inconnu", () => {
+  assert.equal(accepts(EVENT, event("heartbeat")), true);
+  assert.equal(accepts(EVENT, event("attempt.exploded")), false);
+  // Un champ inconnu reste toléré : c'est la compatibilité mineure de docs/06.
+  assert.equal(accepts(EVENT, { ...event("heartbeat"), nouveau_champ: 1 }), true);
+});
+
+test("un événement d'attempt dit toujours de quel attempt il parle", () => {
+  const orphan = event("heartbeat");
+  delete orphan.task_id;
+  assert.equal(accepts(EVENT, orphan), false);
+
+  const noAttempt = event("progress");
+  delete noAttempt.attempt;
+  assert.equal(accepts(EVENT, noAttempt), false);
+
+  // `worker.registered` précède toute tâche : lui exiger un task_id serait une faute.
+  const registration = event("worker.registered");
+  delete registration.task_id;
+  delete registration.attempt;
+  assert.equal(accepts(EVENT, registration), true);
+});
+
+test("une reprise de stream a besoin de sa séquence et de sa clé d'idempotence", () => {
+  for (const field of ["sequence", "idempotency_key"]) {
+    const broken = event("progress");
+    delete broken[field];
+    assert.equal(accepts(EVENT, broken), false, field);
+  }
+});
+
+test("une attestation peut décrire une mauvaise sandbox", () => {
+  // Le point de conception : refuser au niveau du schéma rendrait le worker non conforme
+  // incapable de l'avouer. Le refus appartient à l'admission.
+  const base = {
+    sandbox_id: "sbx-1",
+    backend: "lima-podman",
+    isolation_level: "S3",
+    network_mode: "deny",
+    host_home_mounted: true,
+    runtime_socket_exposed: true,
+    limits: { cpu: 4, memory_mb: 8192, pids: 512, disk_mb: 12000 },
+    self_tests: {
+      write_outside_workspace: "allowed",
+      read_host_home: "allowed",
+      network_egress: "allowed",
+      memory_limit: "unenforced",
+    },
+  };
+  assert.equal(accepts(ATTESTATION, base), true);
+
+  // En revanche une attestation MUETTE est invalide : un champ absent se lit « je n'ai pas
+  // regardé » aussi bien que « non ».
+  for (const field of ["host_home_mounted", "runtime_socket_exposed", "limits", "self_tests"]) {
+    const silent: Record<string, unknown> = { ...base };
+    delete silent[field];
+    assert.equal(accepts(ATTESTATION, silent), false, field);
+  }
+});
+
+test("les quatre self-tests d'ADR 0004 sont tous obligatoires", () => {
+  const raw = JSON.parse(
+    readFileSync(join(schemasDir, "examples/sandbox-attestation.json"), "utf8"),
+  );
+  const attestation = stripFixture(raw).body as Record<string, unknown>;
+  assert.equal(accepts(ATTESTATION, attestation), true);
+
+  for (const probe of [
+    "write_outside_workspace",
+    "read_host_home",
+    "network_egress",
+    "memory_limit",
+  ]) {
+    const partial = JSON.parse(JSON.stringify(attestation)) as Record<string, unknown>;
+    delete (partial.self_tests as Record<string, unknown>)[probe];
+    assert.equal(accepts(ATTESTATION, partial), false, probe);
+  }
+});
+
+test("une lease sans borne n'est pas une lease", () => {
+  const lease = {
+    protocol: "lep/1.0",
+    lease_id: "lease-1",
+    task_id: "task-nominal",
+    attempt: 1,
+    worker_id: "w-1",
+    issued_at: "2026-08-13T09:00:00.000Z",
+    expires_at: "2026-08-13T09:05:00.000Z",
+    ttl_seconds: 300,
+    heartbeat_interval_seconds: 60,
+  };
+  assert.equal(accepts(LEASE, lease), true);
+
+  for (const field of ["expires_at", "ttl_seconds", "heartbeat_interval_seconds"]) {
+    const broken: Record<string, unknown> = { ...lease };
+    delete broken[field];
+    assert.equal(accepts(LEASE, broken), false, field);
+  }
+  // Le rang d'attempt commence à 1 : « attempt 0 » se confondrait avec « pas encore tenté ».
+  assert.equal(accepts(LEASE, { ...lease, attempt: 0 }), false);
+});
+
+test("un attempt échoué porte son erreur", () => {
+  const base = {
+    protocol: "lep/1.0",
+    task_id: "task-nominal",
+    attempt: 1,
+    worker_id: "w-1",
+    state: "running",
+    started_at: "2026-08-13T09:00:00.000Z",
+  };
+  assert.equal(accepts(ATTEMPT, base), true);
+
+  const failedBare = { ...base, state: "failed" };
+  assert.equal(accepts(ATTEMPT, failedBare), false);
+
+  const failed = { ...base, state: "failed", error: { category: "tool", message: "boom" } };
+  assert.equal(accepts(ATTEMPT, failed), true);
+
+  // Les verdicts de l'institution ne sont pas des états que le worker s'attribue.
+  for (const state of ["accepted", "rejected", "superseded", "validated"]) {
+    assert.equal(accepts(ATTEMPT, { ...base, state }), false, state);
+  }
+});
+
+test("un run consigne ce qu'il a réservé, et une commande n'est pas une ligne de shell", () => {
+  const RUN = "urn:locus:schema:artifacts:1.0:run-manifest";
+  const run = {
+    run_id: "run-1",
+    task_id: "task-nominal",
+    attempt: 1,
+    environment: {
+      environment_id: "math-formal-v1",
+      image_digest: `sha256:${"a".repeat(64)}`,
+      toolchains: ["math-formal"],
+    },
+    inputs: [{ content_hash: `sha256:${"b".repeat(64)}` }],
+    commands: [{ argv: ["lake", "build"] }],
+    resources: { reserved: { cpu: 4, memory_mb: 8192, disk_mb: 12000, wall_time_seconds: 3600 } },
+    started_at: "2026-08-13T09:00:00.000Z",
+  };
+  assert.equal(accepts(RUN, run), true);
+
+  // Une image par tag plutôt que par digest : §21.8 l'interdit, le motif le refuse.
+  const tagged = JSON.parse(JSON.stringify(run)) as typeof run;
+  (tagged.environment as Record<string, unknown>).image_digest = "python:3.12";
+  assert.equal(accepts(RUN, tagged), false);
+
+  // argv vide, ou une chaîne au lieu d'un tableau.
+  const shellish = JSON.parse(JSON.stringify(run)) as Record<string, unknown>;
+  shellish.commands = [{ argv: "lake build && rm -rf /" }];
+  assert.equal(accepts(RUN, shellish), false);
+});
+
+test("un artefact sans provenance n'est pas un artefact", () => {
+  const ARTIFACT = "urn:locus:schema:artifacts:1.0:artifact-manifest";
+  const artifact = {
+    artifact_id: "art-1",
+    content_hash: `sha256:${"c".repeat(64)}`,
+    media_type: "application/pdf",
+    size_bytes: 1024,
+    produced_by: { task_id: "task-nominal", attempt: 1 },
+    classification: "internal",
+    state: "declared",
+  };
+  assert.equal(accepts(ARTIFACT, artifact), true);
+
+  for (const field of ["content_hash", "media_type", "size_bytes", "produced_by", "state"]) {
+    const broken: Record<string, unknown> = { ...artifact };
+    delete broken[field];
+    assert.equal(accepts(ARTIFACT, broken), false, field);
+  }
+  // Un état de promotion automatique n'existe pas : la quarantaine se lève par une revue.
+  assert.equal(accepts(ARTIFACT, { ...artifact, state: "auto-promoted" }), false);
+});

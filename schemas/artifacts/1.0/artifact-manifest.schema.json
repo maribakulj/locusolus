@@ -1,0 +1,92 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "urn:locus:schema:artifacts:1.0:artifact-manifest",
+  "title": "ArtifactManifest",
+  "description": "Ce que porte chaque artefact (SPEC_V1 §19.2) : hash de contenu, media type, taille, créateur/attempt, provenance, classification, droits, relations de dérivation, viewer hints, intégrité et état de quarantaine.\n\nInvariant 4 : tout résultat scientifique majeur est artifact-first et provenance-first. Le hash, la taille et le créateur sont donc obligatoires — un artefact dont on ne sait ni ce qu'il contient, ni combien il pèse, ni qui l'a produit n'est pas un artefact, c'est un fichier.\n\n§19.1 : le hash est déclaré AVANT l'upload, et un hash reçu qui diffère du hash déclaré fait rejeter l'envoi. Le même champ sert donc de promesse puis de preuve.",
+  "type": "object",
+  "required": [
+    "artifact_id",
+    "content_hash",
+    "media_type",
+    "size_bytes",
+    "produced_by",
+    "classification",
+    "state"
+  ],
+  "properties": {
+    "artifact_id": { "type": "string", "minLength": 1 },
+    "content_hash": { "$ref": "urn:locus:schema:lep:1.0:vocabulary#/definitions/content_hash" },
+    "media_type": {
+      "description": "Type MIME. Il décide du viewer et du traitement, donc il n'a pas de valeur par défaut : deviner « application/octet-stream » revient à décider de ne rien afficher.",
+      "type": "string",
+      "pattern": "^[a-z]+/[a-zA-Z0-9.+-]+$"
+    },
+    "size_bytes": { "type": "integer", "minimum": 0 },
+    "filename": { "type": "string", "minLength": 1 },
+    "produced_by": {
+      "type": "object",
+      "required": ["task_id", "attempt"],
+      "properties": {
+        "task_id": { "type": "string", "minLength": 1 },
+        "attempt": { "type": "integer", "minimum": 1 },
+        "agent_id": { "type": "string", "minLength": 1 },
+        "worker_id": { "type": "string", "minLength": 1 },
+        "run_id": { "type": "string", "minLength": 1 }
+      }
+    },
+    "classification": {
+      "$ref": "urn:locus:schema:lep:1.0:vocabulary#/definitions/data_class"
+    },
+    "rights": {
+      "type": "object",
+      "properties": {
+        "license": { "type": "string", "minLength": 1 },
+        "holder": { "type": "string", "minLength": 1 },
+        "note": { "type": "string" }
+      }
+    },
+    "derived_from": {
+      "description": "Relations de dérivation, par hash et non par nom : un chemin change, un contenu non.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["artifact_id", "relation"],
+        "properties": {
+          "artifact_id": { "type": "string", "minLength": 1 },
+          "content_hash": {
+            "$ref": "urn:locus:schema:lep:1.0:vocabulary#/definitions/content_hash"
+          },
+          "relation": {
+            "description": "Sous-ensemble des relations typées de §7.5 qui portent une dérivation d'artefact.",
+            "type": "string",
+            "enum": ["derived_from", "produced_by", "consumes", "supersedes", "reproduces"]
+          }
+        }
+      }
+    },
+    "viewer_hints": {
+      "description": "Indications d'affichage. Facultatives par construction : xiiif n'est pas requis par les agents (invariant 10), et un artefact sans hint reste un artefact complet.",
+      "type": "object",
+      "properties": {
+        "kind": { "type": "string", "minLength": 1 },
+        "iiif_manifest_url": { "type": "string", "format": "uri" },
+        "preview_artifact_id": { "type": "string", "minLength": 1 }
+      }
+    },
+    "state": {
+      "description": "§19 : quarantaine et promotion. Un artefact issu de données non fiables entre en `quarantined` et n'en sort que par une revue (§21.7) — d'où l'absence de toute valeur signifiant « promu automatiquement ».",
+      "type": "string",
+      "enum": ["declared", "uploaded", "quarantined", "verified", "promoted", "rejected"]
+    },
+    "integrity": {
+      "type": "object",
+      "properties": {
+        "verified_at": { "type": "string", "format": "date-time" },
+        "verified_hash_matches": { "type": "boolean" },
+        "scanner": { "type": "string", "minLength": 1 }
+      }
+    },
+    "declared_at": { "type": "string", "format": "date-time" },
+    "uploaded_at": { "type": "string", "format": "date-time" }
+  }
+}
