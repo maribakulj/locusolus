@@ -27,11 +27,15 @@ frontières inter-repos.
   elle définit ce que « sandbox » veut dire ici.
 - `packages/protocol` est le goulot du projet entier. Il se fige en `lep/1.0` avant que deux
   consommateurs en dépendent.
+- `locusd`, `locus-execd` et la CLI sont en **Rust** (ADR 0011, qui amende `SPEC_V1.md` §4.5).
+  `apps/web`, le SDK client généré et le worker Canterel restent en TypeScript ; `apps/emacs` en
+  Emacs Lisp. Les JSON Schemas s'écrivent en **Draft 7** tant qu'un prototype `typify` sur
+  2020-12 n'a pas levé la condition 1 de l'ADR.
 
 ## Frontières vérifiées par la CI
 
 1. `packages/domain` n'importe aucun package d'infrastructure.
-2. `@temporalio/*` seulement sous `packages/workflow-backends`.
+2. Le SDK Temporal, quel que soit son écosystème, seulement sous `packages/workflow-backends`.
 3. Aucun client PostgreSQL hors `packages/event-store` et projections.
 4. `apps/locusd` n'importe aucun SDK de runtime de containers.
 5. `apps/emacs` démarre en `emacs -Q` avec sa seule `load-path`.

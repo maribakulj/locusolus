@@ -8,8 +8,9 @@ control plane via LEP, le protocole d'exécution défini ici.
 
 ## État
 
-Squelette documenté. Le dépôt porte le corpus normatif du chantier, son outillage, sa configuration
-de workspace et sa CI ; il ne porte pas encore de code produit.
+Le corpus normatif du chantier, l'outillage, la CI, et le premier package produit :
+`packages/protocol`, qui porte les primitives sur lesquelles LEP sera écrit — identifiants,
+horodatage, enveloppe d'erreur, versionnement.
 
 ## Par où commencer
 
@@ -39,12 +40,12 @@ répertoire vide sous `apps/` ou `packages/` fait échouer la CI.
 
 ## Développement
 
-Node.js LTS, épinglé dans `.nvmrc`. Emacs pour la cinquième frontière ; les autres vérifications
-n'ont aucune dépendance système.
+Rust, épinglé dans `rust-toolchain.toml` — rustup l'installe seul. Node.js LTS pour l'outillage du
+dépôt, épinglé dans `.nvmrc`. Emacs pour la cinquième frontière.
 
 ```bash
 npm ci
-npm run check   # format, structure, frontières, typecheck, tests — ce que la CI exécute
+npm run check   # format, structure, frontières, typecheck, tests JS puis Rust — ce que la CI exécute
 ```
 
 Les cinq frontières architecturales de `CLAUDE.md` sont opposables, pas déclaratives : leur forme

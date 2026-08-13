@@ -9,10 +9,19 @@ et W0.6 de `docs/10_V1_ROADMAP.md`), pas avant.
 
 ## Pourquoi les schémas d'abord
 
-Le langage d'implémentation de `locusd` reste une décision ouverte. Les schémas sont communs aux
-deux options : ils fixent le protocole avant qu'un choix de langage puisse l'infléchir, et ils sont
-la source depuis laquelle les SDK sont générés (W0.8). Une implémentation qui diverge du schéma a
-tort.
+Les schémas sont la source depuis laquelle les SDK sont générés (W0.8), et il y en aura deux :
+TypeScript pour le worker, Rust pour le serveur (ADR 0011). Ils fixent le protocole avant qu'un
+choix de langage puisse l'infléchir. Une implémentation qui diverge du schéma a tort.
+
+## Dialecte : JSON Schema Draft 7
+
+Contrainte d'outillage, pas de goût. `typify` — la voie de référence pour JSON Schema → Rust —
+supporte réellement Draft 7 ; sur 2020-12 il fonctionne parfois et casse souvent, et sa refonte est
+en cours. C'est la condition 1 d'ADR 0011.
+
+Le dialecte est fixé ici parce que ce répertoire est vide : le choix ne coûte rien aujourd'hui et se
+migre mal une fois `lep/1.0` gelé. Un prototype `typify` qui passerait sur 2020-12 lève la condition
+— l'expérience se fait en W0.5, avant le premier schéma, pas après.
 
 ## Règles
 

@@ -19,7 +19,12 @@ npm run check:naming     # aucune occurrence non justifiée du nom retiré
 npm run check:boundaries # les cinq frontières de CLAUDE.md
 npm run typecheck        # tsc --noEmit sur tooling/ et tests/
 npm test                 # tests/**/*.test.ts
+npm run check:rust       # cargo fmt --check, clippy -D warnings, cargo test
 ```
+
+`npm run check` appelle `check:rust` en dernier, donc **demande la toolchain Rust**. C'est voulu :
+la commande annonce « ce que la CI exécute », et une commande qui en sauterait la moitié serait pire
+qu'absente. `rust-toolchain.toml` épingle la version, rustup l'installe seul.
 
 Chaque vérification est aussi un module importable — `check-repo.ts` n'est qu'une entrée CLI
 au-dessus de `layout.ts`. C'est ce qui permet de les tester depuis `tests/` contre des arborescences
@@ -52,15 +57,27 @@ Trois propriétés font la différence entre une garde et une décoration :
   fichiers réellement examinés. Sur un dépôt vide, la plupart annoncent zéro : c'est la différence
   entre « vérifiée » et « il n'y avait rien à vérifier ».
 - **Un langage sans extracteur est un angle mort signalé, pas une dérogation.** Un fichier source
-  dont l'extension n'est ni analysable ni ignorée fait échouer la CI. Le langage de `locusd` n'est
-  pas tranché ; le jour où du code arrive dans un langage sans extracteur, il faut le savoir
-  immédiatement.
+  dont l'extension n'est ni analysable ni ignorée fait échouer la CI. La propriété a servi : les
+  premiers fichiers Rust ont fait échouer la CI avant que leur extracteur existe, au lieu de passer
+  en silence.
 - **Aucune règle n'est admise sans une violation délibérée qui la démontre.** Les fixtures de
   `tests/boundaries/fixtures/` sont des arborescences miniatures qui franchissent une frontière et
   déclarent le verdict attendu ; un test refuse qu'une règle du contrat n'en ait aucune.
 
 Ajouter un langage : un extracteur dans `imports.ts`, son extension dans `boundaries.json` →
-`extensions.analysable`, une fixture qui le met en défaut.
+`extensions.analysable`, une fixture qui le met en défaut. Si le langage a un manifeste de
+dépendances, un lecteur dans `manifests.ts` — une dépendance déclarée compte comme un import, parce
+qu'elle est le moment où quelqu'un a décidé.
+
+Langages couverts : TypeScript/JavaScript (via le scanner TypeScript), Rust (`use`, `extern crate`,
+`Cargo.toml`), Emacs Lisp (`require`). **Go reste un angle mort signalé** — du code `.go` fait
+échouer la CI tant que personne n'a écrit son extracteur.
+
+Les chemins Rust sont normalisés `::` → `/`, pour que les motifs de `boundaries.json` s'écrivent
+dans une seule syntaxe quel que soit le langage : `std::fs::File` devient `std/fs/File`, que le
+motif `std/fs` attrape par la même règle de sous-chemin qui fait que `pg` attrape `pg/lib/pool`. Un
+crate dont le nom porte un tiret est émis sous ses deux orthographes, Cargo l'écrivant
+`tokio-postgres` et le code Rust `tokio_postgres`.
 
 ## Choix technique, et ce qu'il ne décide pas
 
@@ -69,12 +86,10 @@ Node.js LTS + TypeScript, exécuté directement par Node (« type stripping », 
 pas effacer). Pas d'étape de build, pas d'artefact compilé, une seule dépendance de runtime : Node
 lui-même.
 
-Ce choix porte sur **l'outillage du dépôt**, pas sur le produit. `docs/SPEC_V1.md` §4.5 donne
-TypeScript et Node LTS comme technologies de référence, et un SDK TypeScript existera de toute façon
-puisque le worker vit dans un fork TypeScript. Le langage d'implémentation de `locusd` reste une
-décision ouverte (`docs/10_V1_ROADMAP.md`, « État de départ ») : si elle tombe sur un autre langage,
-cet outillage ne change pas, et les unités concernées apportent le manifeste et la chaîne de build
-de leur écosystème.
+Ce choix porte sur **l'outillage du dépôt**, pas sur le produit — et le produit a tranché autrement
+: ADR 0011 met `locusd`, `locus-execd` et la CLI en Rust. L'outillage reste en TypeScript parce
+qu'il n'a aucune raison de changer : il lit des fichiers et rend des `Finding[]`, il n'est livré à
+personne, et il doit savoir lire tous les langages du dépôt sans appartenir à aucun.
 
 ## Ajouter une vérification
 

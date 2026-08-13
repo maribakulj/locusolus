@@ -1,0 +1,6 @@
+{
+  "title": "le SDK Temporal hors de packages/workflow-backends, en Rust",
+  "violations": [
+    { "rule": "temporal-confined-to-workflow-backends", "where": "packages/scheduler/src/run.rs" }
+  ]
+}

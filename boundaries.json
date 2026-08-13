@@ -6,17 +6,28 @@
     "Vérifié par `npm run check:boundaries`, exécuté en CI."
   ],
 
-  "exclude": ["node_modules/**", "**/node_modules/**", "tests/boundaries/fixtures/**"],
+  "$comment-exclude": [
+    "Sorties de build et fixtures. La garde scanne tout ce qui n'est pas listé ici : c'est le",
+    "bon défaut, mais il faut lui dire ce qui n'est pas du code source."
+  ],
+  "exclude": [
+    "node_modules/**",
+    "**/node_modules/**",
+    "target/**",
+    "**/target/**",
+    "tests/boundaries/fixtures/**"
+  ],
 
   "extensions": {
     "$comment": [
       "Un fichier source dont l'extension n'est ni analysable ni ignorée est un angle mort :",
-      "la garde le signale et la CI échoue. C'est délibéré. Le langage d'implémentation de locusd",
-      "n'est pas tranché ; le jour où du code arrive dans un langage sans extracteur d'imports,",
-      "les frontières cessent d'être vérifiables sur ce code et il faut le savoir tout de suite,",
-      "pas six mois plus tard."
+      "la garde le signale et la CI échoue. C'est délibéré, et ça a servi : les premiers fichiers",
+      "Rust ont fait échouer la CI avec `boundary-blind-spot` avant que l'extracteur existe.",
+      "Go n'a toujours pas d'extracteur et reste donc un angle mort signalé.",
+      "Les chemins Rust sont normalisés `::` → `/`, pour que les motifs de ce fichier s'écrivent",
+      "dans une seule syntaxe quel que soit le langage."
     ],
-    "analysable": [".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs", ".el"],
+    "analysable": [".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs", ".el", ".rs"],
     "ignored": [
       ".md",
       ".txt",
@@ -51,7 +62,11 @@
         "temporal-sdk*",
         "go.temporal.io/*",
         "github.com/temporalio/*",
-        "io.temporal.*"
+        "io.temporal.*",
+        "temporalio-sdk",
+        "temporalio-client",
+        "temporal-sdk-core*",
+        "temporal-client"
       ]
     },
 
@@ -84,6 +99,9 @@
         "github.com/jackc/pgx*",
         "tokio-postgres",
         "postgres-types",
+        "deadpool-postgres",
+        "bb8-postgres",
+        "pgvector",
         "diesel",
         "sqlx"
       ]
@@ -114,7 +132,12 @@
         "github.com/opencontainers/*",
         "k8s.io/client-go*",
         "bollard",
-        "shiplift"
+        "shiplift",
+        "oci-spec",
+        "containerd-client",
+        "youki",
+        "kube",
+        "kube-client"
       ]
     },
 
@@ -149,7 +172,12 @@
         "child_process",
         "cluster",
         "worker_threads",
-        "os"
+        "os",
+        "std/fs",
+        "std/net",
+        "std/process",
+        "std/os",
+        "std/env"
       ]
     },
 
@@ -192,7 +220,22 @@
         "socket.io",
         "undici",
         "node-fetch",
-        "axios"
+        "axios",
+        "tokio",
+        "axum",
+        "actix-web",
+        "hyper",
+        "tonic",
+        "reqwest",
+        "tower-http",
+        "tokio-tungstenite",
+        "opentelemetry*",
+        "aws-sdk-*",
+        "object_store",
+        "object-store",
+        "lapin",
+        "rdkafka",
+        "async-nats"
       ]
     }
   },
@@ -210,7 +253,7 @@
     {
       "id": "temporal-confined-to-workflow-backends",
       "claudeMd": 2,
-      "statement": "@temporalio/* seulement sous packages/workflow-backends.",
+      "statement": "Le SDK Temporal, quel que soit son écosystème, seulement sous packages/workflow-backends.",
       "kind": "imports",
       "scope": ["**"],
       "except": ["packages/workflow-backends/**"],
