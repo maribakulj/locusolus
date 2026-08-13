@@ -210,7 +210,7 @@
     {
       "id": "temporal-confined-to-workflow-backends",
       "claudeMd": 2,
-      "statement": "@temporalio/* seulement sous packages/workflow-backends.",
+      "statement": "Le SDK Temporal, quel que soit son écosystème, seulement sous packages/workflow-backends.",
       "kind": "imports",
       "scope": ["**"],
       "except": ["packages/workflow-backends/**"],

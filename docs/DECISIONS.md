@@ -15,3 +15,4 @@
 - D013 : artifact-first ; viewers remplaçables.
 - D014 : GPU/MPS/CUDA = capabilities de workers.
 - D015 : local, Mac mini, VM, cloud et hybrid partagent le même domaine.
+- D016 : **ADR 0011** — `locusd`, `locus-execd` et la CLI en Rust ; web, SDK client et worker en TypeScript. Amende §4.5.
