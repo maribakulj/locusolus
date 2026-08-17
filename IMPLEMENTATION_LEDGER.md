@@ -2709,3 +2709,63 @@ vérifiés ».
 dépendent déjà.
 
 **Prochain item.** **W6.c** — l'object store derrière un port, avec un backend en mémoire.
+
+---
+
+## 2026-08-17 — W6.c — L'object store derrière un port : ce qui entre, et ce qui ne reste pas
+
+**Périmètre.** `packages/artifacts` : `src/store.rs` (le port), `src/memory.rs` (l'implémentation de
+référence), `src/ingest.rs` (l'ordre des appels), `tests/store.rs` (la suite de contract tests),
+tous neufs ; `src/lib.rs` les expose. Aucune dépendance nouvelle.
+
+**La forme est celle de l'ADR 0012, transposée.** Le port, une implémentation en mémoire, et une
+suite écrite **contre le trait** — jamais contre `MemoryObjectStore`. Un driver sur système de
+fichiers ou sur S3 passera cette même suite, et c'est elle qui décidera s'il est conforme, pas sa
+documentation. Aucun fichier n'est ouvert ici.
+
+**Trois temps, parce qu'un artefact peut peser des gigaoctets.** `begin` / `write` / `commit`, et
+non un `put(bytes)`. Une API qui prend le contenu entier oblige à le tenir en mémoire avant de
+savoir s'il est acceptable — l'inverse exact de ce qu'on cherche. La borne de taille mord
+**pendant** l'écriture, au fragment qui la dépasse, et ce fragment n'est pas absorbé : un store qui
+accepterait puis tronquerait aurait déjà lu ce qu'il refuse.
+
+**Le store ne hashe pas.** Choisir une implémentation de hash est une décision d'infrastructure —
+`locus_domain::ContentHash` vérifie la forme et ne calcule rien, et ce paquet fait pareil. Le calcul
+passe par le port `Digest`, fourni par l'appelant ; le double des tests est déterministe et
+**injectif sur ce que les tests emploient**, ce qui suffit : un double qui rendrait toujours la même
+valeur rendrait « ce qui est arrivé n'est pas ce qui avait été promis » intestable.
+
+**L'ordre est la garantie, et il n'appartient à aucune des trois pièces.** Le manifeste sait quel
+hash avait été promis, le `Digest` sait calculer celui du contenu qui arrive, le store sait ranger
+des octets. Ouvrir, écrire en hashant, **confronter, puis seulement** conclure. Confronter après
+avoir conclu rangerait d'abord et vérifierait ensuite — c'est-à-dire ferait entrer le contenu puis
+espérerait pouvoir l'oublier. C'est `ingest` qui tient cet ordre, et deux mutations le visent.
+
+**La garantie la moins évidente et la plus importante.** Un contenu refusé ne doit pas non plus être
+rangé **sous son propre hash**. Sans cela, déclarer un faux hash suffirait à faire entrer un contenu
+arbitraire dans le store, adressable ensuite par qui en connaît le hash : la déclaration préalable
+ne filtrerait plus rien, elle enregistrerait juste un refus. Un `abort` sur ce chemin n'est donc pas
+de l'hygiène, c'est le contrôle d'accès.
+
+**Adressage par contenu, donc déduplication.** Deux artefacts de même contenu partagent leurs
+octets, et reconclure sur un hash déjà présent n'est pas une erreur — le contenu adressé est le même
+par définition, et refuser obligerait à distinguer « déjà là » de « conflit », ce qui n'a pas de
+sens sur un stockage adressé par hash.
+
+**Un jeton conclu est un jeton inconnu.** Rejouer un `commit` réécrirait sous un hash choisi après
+coup : c'est la faille de la contrebande par un autre chemin, et le test la ferme explicitement.
+
+**Six mutations vérifiées rouges** : le contenu refusé conclu sous son propre hash (1 test) ;
+l'ordre inversé, ranger puis vérifier (1) ; n'importe quel état acceptant des octets (1) ; le
+fragment absorbé puis tronqué (3) ; un contenu incomplet conclu quand même (1) ; l'abandon laissant
+les octets en attente (3). Restauration confirmée verte, par copie du scratchpad — voir l'incident
+de méthode de W6.b.
+
+**Ce qui n'est pas là, et qui n'est pas oublié.** Aucun scan de contenu : la quarantaine est un état
+du manifeste (W6.a) et le scanner est un acte d'infrastructure, qui viendra avec le driver. Aucune
+reprise de téléversement interrompu non plus — elle demande une durabilité que l'implémentation de
+référence n'a pas, donc elle appartient au driver et à sa propre suite.
+
+**Écart avec la spec.** Aucun.
+
+**Prochain item.** **W6.d** — `RunManifest` : ce qu'il faut pour rejouer une exécution.

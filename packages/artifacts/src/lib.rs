@@ -3,9 +3,12 @@
 //! # Ce que ce paquet porte
 //!
 //! ADR 0005 : « les résultats durables sont des artefacts et des manifests, jamais seulement des
-//! messages ». Ses conséquences y sont, et rien d'autre : aucun object store n'est branché, aucun
-//! octet n'est écrit. Ce paquet dit ce qu'un artefact **est**, par quels états il passe, et
-//! comment il traverse le fil sans rien perdre ; W6.c branchera le stockage derrière un port.
+//! messages ». Ce paquet dit ce qu'un artefact **est**, par quels états il passe, comment il
+//! traverse le fil sans rien perdre, et — depuis W6.c — sous quel contrat ses octets entrent.
+//!
+//! Aucun stockage réel n'y est branché : [`store`] est un port, [`memory`] son implémentation de
+//! référence, et un driver sur système de fichiers ou sur S3 passera la même suite de contract
+//! tests. C'est la discipline de l'ADR 0012, appliquée aux artefacts.
 //!
 //! # Les deux refus que porte ce paquet
 //!
@@ -25,13 +28,25 @@
 //! rien que le schéma refuserait : la classification est une énumération, la dérivation porte sa
 //! relation typée, le type MIME a la forme que le schéma exige. Voir [`wire`] pour ce que la
 //! traduction refuse dans l'autre sens.
+//!
+//! # Le quatrième, ajouté par W6.c
+//!
+//! **Aucun octet n'entre sans manifeste déclaré, et un contenu refusé ne laisse rien derrière
+//! lui** — ni sous le hash promis, ni sous le sien. Voir [`store`] pour le contrat et [`ingest`]
+//! pour l'ordre des appels, qui est la garantie elle-même.
 
 pub mod derivation;
+pub mod ingest;
 pub mod manifest;
+pub mod memory;
 pub mod state;
+pub mod store;
 pub mod wire;
 
 pub use derivation::{Derivation, DerivationError, DerivationRelation};
+pub use ingest::{IngestError, ingest};
 pub use manifest::{ArtifactManifest, Integrity, ManifestError, ProducedBy, Rights, ViewerHints};
+pub use memory::MemoryObjectStore;
 pub use state::{ArtifactState, ForbiddenTransition, transition};
+pub use store::{Digest, ObjectStore, StoreError, UploadId};
 pub use wire::WireError;
