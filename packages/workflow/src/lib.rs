@@ -32,11 +32,16 @@
 //! Aucune de ces gardes ne voit le **corps** d'un pas : une définition est de la donnée, pas du
 //! code. Ce que le corps fait se vérifie quand un moteur l'exécute, c'est-à-dire en W3.b.
 
+pub mod backend;
 pub mod definition;
 pub mod determinism;
 pub mod kind;
 pub mod versions;
 
+pub use backend::{
+    BackendError, Outcome, WorkflowBackend, WorkflowHandle, WorkflowId, WorkflowSignal,
+    WorkflowState,
+};
 pub use definition::{
     Activity, DefinitionError, Effect, Idempotency, Step, WorkflowDefinition, WorkflowVersion,
 };
