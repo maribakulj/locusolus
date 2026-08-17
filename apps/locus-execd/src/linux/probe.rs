@@ -1,0 +1,346 @@
+//! Ce que l'hôte permet réellement — lu, jamais supposé.
+//!
+//! # Pourquoi lire plutôt que déclarer
+//!
+//! [`crate::admission`] décide sur des capacités **déclarées**, et c'est la bonne forme : un
+//! broker qui apprendrait ses limites en échouant les découvrirait après avoir créé la moitié
+//! d'une sandbox. Reste à savoir d'où vient la déclaration. Si elle vient d'un fichier de
+//! configuration, elle dit ce qu'un opérateur croyait vrai le jour où il l'a écrite.
+//!
+//! Ce module la fait venir du noyau. Il lit les fichiers qui disent si cgroup v2 est monté, quels
+//! contrôleurs sont délégués, si un utilisateur non privilégié peut créer un namespace, et si
+//! seccomp existe — puis il en tire le niveau que cet hôte peut honnêtement soutenir.
+//!
+//! # Le doute ne s'arrondit pas vers le haut
+//!
+//! Un fichier illisible n'est pas un « non » : c'est une question sans réponse. Les deux mènent au
+//! même refus — [`HostFacts::ceiling`] est conservateur — mais ils ne se disent pas pareil, et
+//! [`Missing`] les distingue. Confondre « le noyau refuse » et « je n'ai pas su regarder » ferait
+//! chercher une configuration là où il n'y a qu'un montage manquant.
+
+use std::collections::BTreeSet;
+use std::fmt;
+use std::fs;
+use std::path::{Path, PathBuf};
+
+use locus_execution::SandboxLevel;
+
+use super::plan::BACKEND_CEILING;
+
+/// Les contrôleurs cgroup v2 sans lesquels les quotas de §21.7 ne sont pas applicables.
+///
+/// `cpu`, `memory` et `pids` portent les trois premiers quotas de `ResourceSpec`. Le quatrième,
+/// le disque, ne se borne pas par cgroup — voir `ConfinementPlan::disk_bytes`.
+pub const REQUIRED_CONTROLLERS: [&str; 3] = ["cpu", "memory", "pids"];
+
+/// Ce qu'on a pu établir d'une capacité de l'hôte.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Support {
+    /// L'hôte l'offre.
+    Available,
+    /// L'hôte ne l'offre pas, et voici ce qui le dit.
+    Unavailable {
+        /// Ce qui a été lu, et pourquoi c'est un refus.
+        reason: String,
+    },
+    /// On n'a pas pu savoir.
+    Undetermined {
+        /// Ce qui a empêché de savoir.
+        reason: String,
+    },
+}
+
+impl Support {
+    /// Vrai seulement quand la capacité est établie.
+    #[must_use]
+    pub const fn is_available(&self) -> bool {
+        matches!(self, Self::Available)
+    }
+}
+
+/// Ce que l'hôte a répondu.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HostFacts {
+    cgroup_v2: Support,
+    controllers: BTreeSet<String>,
+    unprivileged_userns: Support,
+    seccomp: Support,
+}
+
+impl HostFacts {
+    /// Lire l'hôte à partir d'une racine.
+    ///
+    /// La racine est un paramètre pour que les tests puissent la remplacer par un arbre de
+    /// fixtures. En production elle vaut `/` — voir [`HostFacts::read_host`].
+    #[must_use]
+    pub fn read(root: &Path) -> Self {
+        let (cgroup_v2, controllers) = cgroup(root);
+        Self {
+            cgroup_v2,
+            controllers,
+            unprivileged_userns: userns(root),
+            seccomp: seccomp(root),
+        }
+    }
+
+    /// Lire l'hôte réel.
+    #[must_use]
+    pub fn read_host() -> Self {
+        Self::read(Path::new("/"))
+    }
+
+    /// L'état de cgroup v2.
+    #[must_use]
+    pub const fn cgroup_v2(&self) -> &Support {
+        &self.cgroup_v2
+    }
+
+    /// Les contrôleurs délégués au cgroup de ce processus.
+    #[must_use]
+    pub const fn controllers(&self) -> &BTreeSet<String> {
+        &self.controllers
+    }
+
+    /// L'état des namespaces utilisateur non privilégiés.
+    #[must_use]
+    pub const fn unprivileged_userns(&self) -> &Support {
+        &self.unprivileged_userns
+    }
+
+    /// L'état de seccomp.
+    #[must_use]
+    pub const fn seccomp(&self) -> &Support {
+        &self.seccomp
+    }
+
+    /// Ce qui manque pour honorer ce niveau, éventuellement rien.
+    ///
+    /// # `S2` et `S3` demandent les mêmes primitives
+    ///
+    /// Et c'est écrit plutôt que corrigé. Un namespace réseau non privilégié s'obtient par le
+    /// namespace utilisateur, exactement comme le namespace de montage : il n'existe aucun fichier
+    /// que l'on pourrait lire pour distinguer les deux. Ce qui les sépare est ce que le **plan**
+    /// applique, pas ce que l'hôte permet. Inventer ici un test qui les distinguerait donnerait une
+    /// fausse précision.
+    #[must_use]
+    pub fn missing_for(&self, level: SandboxLevel) -> Vec<Missing> {
+        let mut missing = Vec::new();
+        if level >= SandboxLevel::S1 {
+            push(
+                &mut missing,
+                "namespace utilisateur",
+                &self.unprivileged_userns,
+            );
+        }
+        if level >= SandboxLevel::S2 {
+            push(&mut missing, "seccomp", &self.seccomp);
+            push(&mut missing, "cgroup v2", &self.cgroup_v2);
+            for controller in REQUIRED_CONTROLLERS {
+                if !self.controllers.contains(controller) {
+                    missing.push(Missing::Unavailable {
+                        what: "contrôleur cgroup",
+                        reason: format!("« {controller} » n'est pas délégué à ce cgroup"),
+                    });
+                }
+            }
+        }
+        if level > BACKEND_CEILING {
+            missing.push(Missing::Unavailable {
+                what: "niveau",
+                reason: format!(
+                    "{} dépasse le plafond {} d'un backend rootless",
+                    level.code(),
+                    BACKEND_CEILING.code()
+                ),
+            });
+        }
+        missing
+    }
+
+    /// Le niveau le plus élevé que cet hôte peut soutenir.
+    ///
+    /// Jamais au-dessus de `BACKEND_CEILING`, et `S0` au pire : ne rien confiner est toujours
+    /// possible, et c'est précisément pourquoi `S0` doit être demandé explicitement.
+    #[must_use]
+    pub fn ceiling(&self) -> SandboxLevel {
+        SandboxLevel::ALL
+            .into_iter()
+            .filter(|level| *level <= BACKEND_CEILING)
+            .rfind(|level| self.missing_for(*level).is_empty())
+            .unwrap_or(SandboxLevel::S0)
+    }
+
+    /// Ce que ces faits valent comme preuve, une ligne par constat.
+    ///
+    /// C'est ce que le backend joindra à son attestation. §21.6 veut un témoignage, pas une
+    /// affirmation : « j'ai appliqué S3 » sans rien qui le montre ne vaut rien.
+    #[must_use]
+    pub fn evidence(&self) -> Vec<String> {
+        let controllers = if self.controllers.is_empty() {
+            "aucun".to_owned()
+        } else {
+            self.controllers
+                .iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        vec![
+            format!("cgroup v2 : {}", describe(&self.cgroup_v2)),
+            format!("contrôleurs délégués : {controllers}"),
+            format!(
+                "namespace utilisateur non privilégié : {}",
+                describe(&self.unprivileged_userns)
+            ),
+            format!("seccomp : {}", describe(&self.seccomp)),
+        ]
+    }
+}
+
+fn push(missing: &mut Vec<Missing>, what: &'static str, support: &Support) {
+    match support {
+        Support::Available => {}
+        Support::Unavailable { reason } => missing.push(Missing::Unavailable {
+            what,
+            reason: reason.clone(),
+        }),
+        Support::Undetermined { reason } => missing.push(Missing::Undetermined {
+            what,
+            reason: reason.clone(),
+        }),
+    }
+}
+
+fn describe(support: &Support) -> String {
+    match support {
+        Support::Available => "disponible".to_owned(),
+        Support::Unavailable { reason } => format!("indisponible ({reason})"),
+        Support::Undetermined { reason } => format!("indéterminé ({reason})"),
+    }
+}
+
+/// Ce qui manque, et si c'est un refus ou une question sans réponse.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Missing {
+    /// L'hôte ne l'offre pas.
+    Unavailable {
+        /// La capacité concernée.
+        what: &'static str,
+        /// Ce qui le dit.
+        reason: String,
+    },
+    /// On n'a pas pu l'établir.
+    Undetermined {
+        /// La capacité concernée.
+        what: &'static str,
+        /// Ce qui a empêché de savoir.
+        reason: String,
+    },
+}
+
+impl fmt::Display for Missing {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Unavailable { what, reason } => write!(formatter, "{what} : {reason}"),
+            Self::Undetermined { what, reason } => {
+                write!(formatter, "{what} : indéterminé — {reason}")
+            }
+        }
+    }
+}
+
+/// cgroup v2, et les contrôleurs délégués au cgroup de **ce** processus.
+///
+/// Ce que la racine offre ne dit pas ce que nous avons : `cgroup.subtree_control` d'un parent
+/// décide de ce que ses enfants voient. On lit donc le `cgroup.controllers` de notre propre
+/// répertoire, qui est la seule liste que nous pourrons effectivement écrire.
+fn cgroup(root: &Path) -> (Support, BTreeSet<String>) {
+    let unified = root.join("sys/fs/cgroup/cgroup.controllers");
+    let Some(_) = read(&unified) else {
+        return (
+            Support::Unavailable {
+                reason: "sys/fs/cgroup/cgroup.controllers est absent : pas de hiérarchie unifiée"
+                    .to_owned(),
+            },
+            BTreeSet::new(),
+        );
+    };
+    let Some(own) = own_cgroup_path(root) else {
+        return (
+            Support::Undetermined {
+                reason: "proc/self/cgroup ne porte pas de ligne « 0:: »".to_owned(),
+            },
+            BTreeSet::new(),
+        );
+    };
+    let Some(listed) = read(&own.join("cgroup.controllers")) else {
+        return (
+            Support::Undetermined {
+                reason: format!("{} est illisible", own.display()),
+            },
+            BTreeSet::new(),
+        );
+    };
+    (
+        Support::Available,
+        listed.split_whitespace().map(str::to_owned).collect(),
+    )
+}
+
+fn own_cgroup_path(root: &Path) -> Option<PathBuf> {
+    let content = read(&root.join("proc/self/cgroup"))?;
+    let relative = content
+        .lines()
+        .find_map(|line| line.strip_prefix("0::"))?
+        .trim()
+        .trim_start_matches('/');
+    Some(root.join("sys/fs/cgroup").join(relative))
+}
+
+/// Les namespaces utilisateur non privilégiés.
+///
+/// Deux fichiers, et l'ordre compte. `proc/sys/user/max_user_namespaces` à zéro est un refus net.
+/// `proc/sys/kernel/unprivileged_userns_clone` n'existe que sur les noyaux qui portent le correctif
+/// Debian ; **son absence n'est donc pas un refus**, et la traiter comme tel refuserait S1 sur la
+/// plupart des noyaux amont.
+fn userns(root: &Path) -> Support {
+    let Some(maximum) = read(&root.join("proc/sys/user/max_user_namespaces")) else {
+        return Support::Undetermined {
+            reason: "proc/sys/user/max_user_namespaces est illisible".to_owned(),
+        };
+    };
+    let Ok(allowed) = maximum.trim().parse::<u64>() else {
+        return Support::Undetermined {
+            reason: format!("max_user_namespaces vaut « {} »", maximum.trim()),
+        };
+    };
+    if allowed == 0 {
+        return Support::Unavailable {
+            reason: "max_user_namespaces vaut 0".to_owned(),
+        };
+    }
+    match read(&root.join("proc/sys/kernel/unprivileged_userns_clone")) {
+        Some(toggle) if toggle.trim() == "0" => Support::Unavailable {
+            reason: "unprivileged_userns_clone vaut 0".to_owned(),
+        },
+        _ => Support::Available,
+    }
+}
+
+fn seccomp(root: &Path) -> Support {
+    match read(&root.join("proc/sys/kernel/seccomp/actions_avail")) {
+        Some(actions) if actions.contains("errno") || actions.contains("kill") => {
+            Support::Available
+        }
+        Some(actions) => Support::Unavailable {
+            reason: format!("actions_avail ne porte aucune action de refus : « {actions} »"),
+        },
+        None => Support::Unavailable {
+            reason: "proc/sys/kernel/seccomp/actions_avail est absent".to_owned(),
+        },
+    }
+}
+
+fn read(path: &Path) -> Option<String> {
+    fs::read_to_string(path).ok()
+}
