@@ -2971,3 +2971,84 @@ d'orphelines rendu muet (1, après correction du test). Restauration confirmée 
 
 **Prochain item.** **W13.c** — `packages/coordination` : `AgentTemplate`, `AgentInstance`, `Team`,
 `Decision`, `ApprovalRequest`, et les quatre identifiants dans `packages/protocol`.
+
+---
+
+## 2026-08-17 — W13.c — Les agrégats de coordination, et l'intersection qui n'est pas une union
+
+**Périmètre.** `packages/coordination`, neuf : `src/{capability,agent,team,decision}.rs`,
+`src/lib.rs`, `tests/{capability,aggregates}.rs` ; `packages/protocol/src/id.rs` gagne quatre
+natures d'identifiant ; le `Cargo.toml` de l'espace de travail gagne le membre. Seule dépendance :
+`locus-protocol`.
+
+**La phrase de §14.2, rendue opposable.** « Une instance n'hérite **jamais** tacitement des
+permissions du modèle ou du worker. Les capacités effectives sont l'**intersection** de la mission,
+du template, de la politique locale et de l'attestation du worker. » Sous l'union, une politique
+locale permissive suffirait à rendre un outil accessible à une mission qui ne l'a jamais demandé, et
+l'attestation d'un worker deviendrait une **source de droits** au lieu d'être une borne. C'est cette
+inversion que le test rend impossible.
+
+**Le test parcourt tout l'espace, pas un échantillon.** Quatre capacités, quatre sources, un bit
+d'appartenance chacun : 16⁴ = 65 536 configurations, énumérées **exhaustivement**. Une propriété
+vérifiée partout n'a pas de cas restant où elle serait fausse — là où un tirage aléatoire laisse
+toujours la question de savoir s'il a produit la configuration qui compte. L'attendu est calculé
+indépendamment de l'implémentation : une capacité est effective quand ses quatre bits sont posés.
+
+**Les quatre sources sont un type, pas quatre paramètres.** Quatre `BTreeSet` en arguments se
+permutent silencieusement, et surtout rien n'empêche d'en oublier un. `Sources::effective` itère sur
+`Source::ALL` : une cinquième source entrerait dans le calcul sans qu'on ait à y penser, et en
+retirer une demande d'éditer une liste que le compilateur affiche. Un test tient en outre la place
+de la mutation dans le code du test : il calcule ce que rendrait un calcul incomplet et montre que
+la réponse diffère.
+
+**Le refus nomme sa source.** `withholding` rend les sources qui retiennent une capacité. « Le
+worker ne peut pas le faire » et « la mission ne l'a pas demandée » n'appellent pas la même suite,
+et un refus muet obligerait à interroger quatre politiques à la main.
+
+**L'instance fige la version du template.** §7.1 : « l'identité d'un agent comprend le template,
+**sa version**, le modèle exact… ». Une instance qui ne garderait que `template_id` changerait
+d'identité rétroactivement à chaque révision, et une revue d'il y a six mois cesserait de dire ce
+qu'elle disait. Elle hérite aussi du groupe d'indépendance, sans quoi la vérification de §14.4
+devrait remonter au template — donc à sa version courante, donc à une réponse qui change avec le
+temps.
+
+**`deprecated` n'est pas `disabled`.** §7.1 les distingue ; les confondre arrêterait des campagnes
+en cours au lieu d'en décourager de nouvelles. Un template déprécié reste instanciable.
+
+**Un seul mode retient le partage.** `independent_pool`, et lui seul — c'est l'invariant 11 lu dans
+le mode de coordination, dit une fois plutôt que réécrit à l'envers ailleurs. Et le mode
+`coordinator` exige un coordinateur **membre** : §14.3 en fait la définition du mode, et l'omettre
+laisserait une équipe qui se dit coordonnée sans que personne ne coordonne.
+
+**Une décision approuvée se révoque, une décision rejetée non.** Il n'y a rien à défaire dans un
+rejet. Et une révocation ne ramène pas à `proposed` : la trace de l'approbation reste, invariant 12.
+
+**Une demande d'approbation sans rôle habilité est refusée.** « Suspendre **durablement** » (§7.1)
+suppose que quelqu'un puisse reprendre ; une demande que personne n'est désigné pour trancher ne
+suspend pas, elle enterre.
+
+**Les quatre identifiants sont provisoires, et c'est dit.** §7.1 nomme les agrégats, §10.1 ne montre
+aucun exemple de leurs identifiants — contrairement aux dix natures qui apparaissent littéralement
+sous la forme `evt_01…`. `Task`, `Team`, `Decision` et `Approval` rejoignent donc `provisional`,
+comme `Mission` et `Error` avant eux. Les y mettre plutôt que parmi les fixées est ce qui empêche de
+croire qu'un document les a arbitrés ; W13.e, qui écrira les événements de coordination, le fera.
+
+**La sixième frontière examine enfin du code.** W13.a l'avait écrite contre des fixtures, faute de
+crate à surveiller : `coordination-imports-no-epistemic-graph` annonçait « 0 fichier ». Elle en
+examine maintenant **8**, et une mutation le confirme — un `use locus_graph::Relation` dans
+`team.rs` fait échouer `check:boundaries` en nommant le fichier et l'import. C'est le même moment
+qu'en W1.a pour la règle 1 et qu'en W3.c pour les gardes de workflow : une règle ne vaut que le jour
+où elle a quelque chose à examiner.
+
+**Six mutations vérifiées rouges** : l'intersection devenue union (4 tests) ; l'attestation du
+worker ignorée (4) ; la version du template non figée (1) ; un template désactivé redevenu
+instanciable (1) ; le pool indépendant qui partage (2) ; un rejet devenu révocable (1). Plus la
+mutation de frontière ci-dessus. Restauration confirmée verte.
+
+**Écart avec la spec.** Aucun. Les champs de §7.1 non modélisés — `prompt_overlay_ref`,
+`memory_policy_id`, `budget_envelope_id`, `evidence_refs`, `policy_evaluation_id` — désignent des
+objets qu'aucun consommateur exécutable ne porte encore ; ADR 0016 demande précisément qu'une chose
+n'entre que lorsqu'un consommateur testé existe. Ils viendront avec W7 et W13.e.
+
+**Prochain item.** **W13.d** — complétion de l'agrégat `Task` de §7.1, dont `assigned_agent_id` et
+`assigned_worker_id`, sans toucher la machine à états existante.
