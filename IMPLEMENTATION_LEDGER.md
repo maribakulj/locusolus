@@ -1230,3 +1230,69 @@ chose que prouver que le balayage des sources réelles est branché.
 **Ce que ce paquet ne garantit pas.** Aucune de ses gardes ne voit le corps d'un pas. Une définition
 est de la donnée ; le déterminisme d'une exécution se vérifie en la rejouant. C'est le travail de
 W3.b, et `Rule::enforcement` est là pour que cette limite reste lisible au lieu d'être oubliée.
+
+### W3.b `[R]` — port `WorkflowBackend` et backend déterministe de test (§11.1, ADR 0003)
+
+**Livré.** `packages/workflow/src/backend.rs` : le port des six opérations de §11.1, ses types
+(`WorkflowId`, `WorkflowHandle`, `WorkflowState`, `WorkflowSignal`, `BackendError`).
+`packages/workflow-backends` (crate `locus-workflow-backends`) : `deterministic.rs` (le moteur en
+mémoire), `history.rs` (l'historique et le rejeu), `immediate.rs` (`block_on`). Seize tests dans
+`tests/replay.rs`.
+
+**Test de sortie, arbitré ici.** **« Rejouer l'historique rend exactement l'état, sans qu'un seul
+effet soit réexécuté »** — et pas seulement à l'arrivée : le rejeu est confronté à l'état vivant **à
+chaque pas**. Un rejeu qui ne tomberait juste qu'à la fin serait un rejeu qui devine bien, et la
+différence ne se verrait qu'au premier redémarrage au milieu de quelque chose. C'est la même
+exigence qu'en W1.h, où la migration aller-retour est vérifiée à chaque barreau intermédiaire.
+
+**Décisions prises.**
+
+_Le rejeu est une fonction libre, pas une méthode du moteur._ `replay(definition, history)` ne prend
+rien de vivant : ni le moteur, ni son registre d'activities. Une méthode sur le backend pourrait
+regarder l'état courant au lieu de le reconstruire, et le rejeu tomberait juste **pour la mauvaise
+raison** — en lisant la réponse au lieu de la retrouver. La panne ne se verrait qu'au premier
+redémarrage réel, quand il n'y aurait plus rien à lire. Le test le rend visible en **détruisant le
+moteur** avant de rejouer.
+
+_Le port est asynchrone, et ses futures sont boxées._ §11.1 écrit les six opérations en `Promise`.
+Un port synchrone s'écrirait sans peine tant que le seul backend est en mémoire — puis Temporal
+arriverait, dont le SDK est asynchrone, et l'adaptateur devrait bloquer un thread au milieu d'un
+exécuteur : le domaine s'adaptant au premier backend branché, c'est-à-dire la panne que l'ADR 0003
+nomme. Les futures sont **boxées** plutôt qu'écrites en `async fn` parce qu'un `async fn` de trait
+n'est pas compatible `dyn`, et que §11.1 énumère trois implémentations choisies par profil, donc à
+l'exécution. Aucun exécuteur n'entre pour autant : définir une future n'en demande pas, et
+`packages/workflow` n'a toujours aucune dépendance.
+
+_`block_on` panique sur `Pending`, et c'est l'assertion centrale._ Rendre `Pending` voudrait dire
+attendre **quelque chose** — un réseau, un fichier, un timer — et il n'y a rien à attendre dans un
+moteur déterministe. Un exécuteur complet l'aurait patiemment laissé faire ; celui-ci refuse. Un
+test `should_panic` vérifie que la garde se déclenche, faute de quoi elle serait vide de sens.
+
+_`advance` n'est pas dans le port._ Un moteur durable avance seul : personne ne lui demande le pas
+suivant. Mettre `advance` dans `WorkflowBackend` obligerait Temporal à porter une méthode que rien
+n'appellerait — le port se pliant au backend de test, exactement l'inversion que l'ADR 0003 cherche
+à empêcher.
+
+_Le résultat d'une activity est cherché avant que quoi que ce soit ne soit écrit._ Un refus qui
+aurait déjà poussé `StepEntered` laisserait un historique décrivant un pas abordé et jamais fini :
+un historique **faux produit par une erreur bénigne**. Le test vérifie l'historique octet pour octet
+après un refus, puis qu'il reste rejouable.
+
+_Le rejeu refuse plutôt que de rendre un état plausible._ Version différente, pas renommé, résultat
+sans pas abordé, activity abordée sans résultat, événement après la fin : chacun est une erreur
+nommée. Le cas du **pas renommé** est celui qui compte à l'usage — renommer un pas sans changer de
+version casse le rejeu des exécutions en cours, et rien d'autre ne le dirait.
+
+_Les identifiants viennent d'un compteur._ Ni horloge ni tirage : deux moteurs neufs à qui l'on
+demande les mêmes démarrages rendent les mêmes identifiants. Un test le vérifie en construisant deux
+moteurs. C'est ce qui permet de rejouer un test ligne à ligne, et c'est §11.3 appliqué au moteur
+lui-même.
+
+**Six mutations vérifiées rouges.** Le rejeu qui n'avance pas le curseur sur un pas déterministe ;
+le rejeu qui ignore la suspension ; le rejeu qui accepte un pas renommé ; `advance` qui écrit
+`StepEntered` avant de chercher l'exécutant ; `advance` qui n'enregistre pas le résultat de
+l'activity ; `terminate` qui perd le motif.
+
+**Ce qui reste pour W3.c et W3.e.** Les onze workflows de §11.2 n'ont pas encore de définition
+concrète — c'est W3.c, sur ce moteur. Le crash/restart et la compensation de §11.4 sont W3.e ; le
+`Progress`/`HistoryEvent` d'ici en porte déjà la matière, mais rien n'a été écrit qui les suppose.

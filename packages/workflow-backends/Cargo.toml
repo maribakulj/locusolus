@@ -1,0 +1,18 @@
+[package]
+name = "locus-workflow-backends"
+description = "Implémentations du port WorkflowBackend. Le backend déterministe de test vient en premier (ADR 0003)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+locus-workflow = { path = "../workflow" }
+
+[dev-dependencies]
+locus-domain = { path = "../domain" }
+locus-protocol = { path = "../protocol" }
