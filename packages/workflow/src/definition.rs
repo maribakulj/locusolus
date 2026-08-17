@@ -166,6 +166,7 @@ pub struct Activity {
     name: String,
     effects: BTreeSet<Effect>,
     idempotency: Idempotency,
+    compensated_by: Option<String>,
 }
 
 impl Activity {
@@ -191,7 +192,31 @@ impl Activity {
             name: name.to_owned(),
             effects: effects.into_iter().collect(),
             idempotency,
+            compensated_by: None,
         })
+    }
+
+    /// Déclarer l'activity qui défait celle-ci — §11.4.
+    ///
+    /// Le constructeur s'appelle `compensating` et le lecteur [`Activity::compensated_by`] : deux
+    /// noms parce que Rust ne distingue pas un constructeur d'un accesseur homonyme, et qu'un seul
+    /// nom aurait forcé à choisir lequel des deux se lit mal.
+    ///
+    /// « Les compensations annulent les réservations techniques, leases, fichiers temporaires et
+    /// ressources cloud. Elles ne réécrivent **jamais** l'histoire épistémique. » La compensation
+    /// est donc un pas de plus, pas une rature : ce qui a eu lieu reste dans l'historique, et ce
+    /// qui l'annule s'y ajoute.
+    ///
+    /// # Errors
+    ///
+    /// [`DefinitionError::EmptyName`] ou [`DefinitionError::NameWithWhitespace`] selon le nom. Que
+    /// ce nom désigne bien une activity de la même définition est vérifié par
+    /// [`WorkflowDefinition::new`], qui est le seul endroit à voir les deux.
+    pub fn compensating(mut self, activity: &str) -> Result<Self, DefinitionError> {
+        reject_blank(activity, "nom d'activity compensatrice")?;
+        reject_whitespace(activity)?;
+        self.compensated_by = Some(activity.to_owned());
+        Ok(self)
     }
 
     /// Le nom du pas.
@@ -210,6 +235,12 @@ impl Activity {
     #[must_use]
     pub const fn idempotency(&self) -> &Idempotency {
         &self.idempotency
+    }
+
+    /// L'activity qui défait celle-ci, quand il y en a une.
+    #[must_use]
+    pub fn compensated_by(&self) -> Option<&str> {
+        self.compensated_by.as_deref()
     }
 }
 
@@ -302,6 +333,36 @@ impl WorkflowDefinition {
                 });
             }
         }
+        let activities: BTreeSet<&str> = steps
+            .iter()
+            .filter_map(|step| match step {
+                Step::Activity(activity) => Some(activity.name()),
+                Step::Deterministic { .. } => None,
+            })
+            .collect();
+        for step in &steps {
+            let Step::Activity(activity) = step else {
+                continue;
+            };
+            let Some(target) = activity.compensated_by() else {
+                continue;
+            };
+            // Compenser par un pas déterministe ne défait rien : défaire est un effet. Et compenser
+            // par un nom absent est une intention que rien n'exécutera — la découvrir au moment de
+            // compenser, c'est-à-dire au pire moment, est exactement ce que ce refus évite.
+            if !activities.contains(target) {
+                return Err(DefinitionError::UnknownCompensation {
+                    activity: activity.name().to_owned(),
+                    compensation: target.to_owned(),
+                });
+            }
+            if target == activity.name() {
+                return Err(DefinitionError::SelfCompensation {
+                    activity: activity.name().to_owned(),
+                });
+            }
+        }
+
         Ok(Self {
             kind,
             version,
@@ -365,6 +426,18 @@ pub enum DefinitionError {
     NoSteps,
     /// Une définition sans identifiant métier.
     NoSubject,
+    /// Une compensation qui désigne un pas absent, ou un pas déterministe.
+    UnknownCompensation {
+        /// L'activity compensée.
+        activity: String,
+        /// Le nom introuvable.
+        compensation: String,
+    },
+    /// Une activity qui se compense elle-même.
+    SelfCompensation {
+        /// L'activity.
+        activity: String,
+    },
 }
 
 impl fmt::Display for DefinitionError {
@@ -381,6 +454,17 @@ impl fmt::Display for DefinitionError {
             Self::NoSteps => formatter.write_str("une définition de workflow sans pas"),
             Self::NoSubject => formatter.write_str(
                 "aucun identifiant métier : §11.3 les veut créés avant l'entrée dans le backend",
+            ),
+            Self::UnknownCompensation {
+                activity,
+                compensation,
+            } => write!(
+                formatter,
+                "« {activity} » dit être compensée par « {compensation} », qui n'est pas une activity de cette définition"
+            ),
+            Self::SelfCompensation { activity } => write!(
+                formatter,
+                "« {activity} » se compenserait elle-même : défaire un effet en le refaisant"
             ),
         }
     }

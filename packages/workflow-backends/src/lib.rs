@@ -19,12 +19,14 @@
 //! lieu de la retrouver. La panne ne se verrait qu'au premier redémarrage réel, quand il n'y aurait
 //! plus rien à lire.
 
+pub mod compensation;
 pub mod deterministic;
 pub mod history;
 pub mod immediate;
 pub mod temporal;
 
-pub use deterministic::{DeterministicBackend, Progress};
+pub use compensation::{CompensationPlan, CompensationStep, UncertainStep, plan};
+pub use deterministic::{Compensated, DeterministicBackend, Progress};
 pub use history::{HistoryEvent, ReplayError, Replayed, replay};
 pub use immediate::block_on;
 pub use temporal::{

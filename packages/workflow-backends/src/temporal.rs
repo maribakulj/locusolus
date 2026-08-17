@@ -204,6 +204,13 @@ pub trait TemporalGateway: Send + Sync {
     /// `DescribeWorkflowExecution`.
     fn describe_workflow<'a>(&'a self, execution: &'a ExecutionRef) -> Call<'a, Description>;
 
+    /// `DescribeWorkflowExecution` **sans `run_id`** : le cluster rend la tentative courante.
+    ///
+    /// C'est ce qui rend un redémarrage du control plane possible. Le `workflow_id` est composé,
+    /// donc reconstructible à partir de la définition seule ; le `run_id`, lui, appartient au
+    /// cluster, et c'est à lui qu'on le redemande.
+    fn resolve_execution<'a>(&'a self, workflow_id: &'a str) -> Call<'a, ExecutionRef>;
+
     /// `QueryWorkflow`.
     fn query_workflow<'a>(
         &'a self,
@@ -234,6 +241,54 @@ impl<G: TemporalGateway> TemporalWorkflowBackend<G> {
             executions: BTreeMap::new(),
             started: 0,
         }
+    }
+
+    /// L'identifiant que cette définition aura côté cluster.
+    ///
+    /// Composé et non tiré, donc **reconstructible sans mémoire** : c'est ce qui permet à
+    /// [`TemporalWorkflowBackend::reattach`] de retrouver une exécution après un redémarrage du
+    /// control plane.
+    #[must_use]
+    pub fn workflow_id(definition: &WorkflowDefinition) -> String {
+        format!(
+            "{}/{}/{}",
+            definition.kind().name(),
+            definition.version().number(),
+            definition
+                .subject()
+                .first()
+                .map_or_else(String::new, ToString::to_string)
+        )
+    }
+
+    /// Retrouver une exécution après un redémarrage du control plane — W3.e.
+    ///
+    /// Un adaptateur neuf n'a plus sa table : c'est **tout** ce qu'il perd, parce que c'est tout ce
+    /// qu'il avait. L'exécution, elle, n'a rien perdu — elle vit dans le cluster, qui n'a pas
+    /// redémarré. Le rattachement recompose le `workflow_id` depuis la définition et redemande le
+    /// `run_id` courant.
+    ///
+    /// C'est la contrepartie exacte de `resume_from` côté déterministe, et les deux disent la même
+    /// chose sur des vérités différentes : ce qui survit à un crash est ce qui n'était pas dans le
+    /// processus qui a crashé.
+    ///
+    /// # Errors
+    ///
+    /// [`BackendError::Unknown`] si le cluster ne connaît pas cette exécution.
+    pub fn reattach(&mut self, definition: &WorkflowDefinition) -> Outcome<'_, WorkflowHandle> {
+        let workflow_id = Self::workflow_id(definition);
+        let kind = definition.kind();
+        let version = definition.version();
+        Box::pin(async move {
+            let id = WorkflowId::new(&workflow_id)?;
+            let execution = self
+                .gateway
+                .resolve_execution(&workflow_id)
+                .await
+                .map_err(|error| lift(&error, &id))?;
+            self.executions.insert(id.as_str().to_owned(), execution);
+            Ok(WorkflowHandle { id, kind, version })
+        })
     }
 
     /// La référence cluster d'un identifiant du port.
@@ -316,15 +371,7 @@ impl<G: TemporalGateway> WorkflowBackend for TemporalWorkflowBackend<G> {
             self.started += 1;
             // L'identifiant métier est composé, pas tiré : Temporal s'en sert pour dédoublonner les
             // démarrages, et un identifiant aléatoire ferait de chaque reprise un second workflow.
-            let workflow_id = format!(
-                "{}/{}/{}",
-                definition.kind().name(),
-                definition.version().number(),
-                definition
-                    .subject()
-                    .first()
-                    .map_or_else(String::new, ToString::to_string)
-            );
+            let workflow_id = Self::workflow_id(definition);
             let id = WorkflowId::new(&workflow_id)?;
             let request = StartRequest {
                 namespace: self.config.namespace.clone(),

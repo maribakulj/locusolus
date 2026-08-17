@@ -188,6 +188,24 @@ impl TemporalGateway for FakeCluster {
         })
     }
 
+    fn resolve_execution<'a>(&'a self, workflow_id: &'a str) -> Call<'a, ExecutionRef> {
+        Box::pin(async move {
+            let state = self.state.lock().expect("verrou");
+            let Some(target) = state.executions.get(workflow_id) else {
+                return Err(GatewayError::NotFound {
+                    execution: ExecutionRef {
+                        workflow_id: workflow_id.to_owned(),
+                        run_id: String::new(),
+                    },
+                });
+            };
+            Ok(ExecutionRef {
+                workflow_id: workflow_id.to_owned(),
+                run_id: target.run_id.clone(),
+            })
+        })
+    }
+
     fn query_workflow<'a>(
         &'a self,
         execution: &'a ExecutionRef,
