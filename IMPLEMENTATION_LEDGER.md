@@ -2137,3 +2137,56 @@ AppArmor et SELinux restent ouverts derrière la même configuration.
 **Prochain item.** **W4.e** — backend macOS : VM Linux légère et containers rootless par mission.
 Ses dépendances sont satisfaites : le port existe, la suite existe, et le backend Linux donne la
 forme.
+
+---
+
+## 2026-08-17 — W4.e.1 — La machine macOS : lire le noyau qui confine, et ne pas prendre une VM pour une micro-VM
+
+**Périmètre.** `apps/locus-execd/src/macos/{mod,machine}.rs`, neufs ; `linux/probe.rs` gagne un port
+de lecture ; `src/lib.rs` ; `tests/macos.rs`, neuf ; `docs/10` gagne W4.e.1 et la raison pour
+laquelle W4.e n'ouvre pas `S4`.
+
+**Ce que macOS ne change pas.** Le confinement. `docs/03` fixe le profil — « host macOS + VM Linux
+légère + containers rootless par mission » — et le conteneur tourne dans un noyau Linux : le plan de
+W4.d.1 s'applique tel quel. Écrire un second traducteur aurait produit deux façons de dire la même
+chose, et le jour où elles auraient divergé, rien n'aurait dit laquelle était appliquée.
+
+**Ce que macOS change : où on regarde.** Le noyau qui confine n'est pas celui du processus. Lire
+`/sys/fs/cgroup` sur macOS répond « rien » pour une machine parfaitement capable, et un backend qui
+s'y fierait refuserait tout. `HostFacts` prend donc un port de lecture — `Reader` — au lieu d'une
+racine : `LocalReader` lit un système de fichiers monté, `MachineReader` lit à travers
+`podman machine ssh`. La déduction est partagée, pas dupliquée ; seule la façon d'obtenir les
+fichiers diffère. C'est un élargissement de W4.d.1, pas une reprise : `HostFacts::read(root)` reste,
+et tous ses tests aussi.
+
+**La règle qui décide de ce commit : une VM partagée n'est pas une micro-VM par mission.** `S4`
+s'appelle `microvm-high-risk` et sa promesse est qu'une mission à haut risque ait **son propre**
+noyau. Un déploiement macOS ordinaire fait tourner toutes ses missions dans la même VM, où le voisin
+d'une mission est un conteneur et non une machine. Le plafond reste `S3`, et le refus le dit : «
+`S4` exige une VM par mission ; celle-ci est partagée ». C'est le genre de plafond qu'on relève par
+inadvertance, parce que l'existence d'une VM est exactement l'argument qui donne envie de le faire.
+
+**Trois états de machine, et le troisième est celui qu'on oublie.** Une machine **arrêtée** existe :
+elle apparaît dans les listes, elle a une configuration, un opérateur la croit là. Elle ne confine
+rien. Le refus distingue donc « service à démarrer » de « noyau incapable » — sans quoi on cherche
+un problème de cgroups là où il suffit de démarrer la machine. Et l'invité n'est pas interrogé quand
+la machine ne tourne pas : les lectures seraient vides, donc lues comme des indéterminations,
+c'est-à-dire un diagnostic exact sur une question qui n'avait pas lieu d'être posée.
+
+**Cinq mutations vérifiées rouges**, motif vérifié présent avant chaque substitution : une VM
+suffisant à revendiquer `S4` (1 test) ; le plafond ignorant ce que l'invité permet (4) ; une machine
+arrêtée traitée comme une machine qui tourne (3) ; un provider en échec devenant une absence (1) ;
+l'état ignorant la colonne `Running` (4).
+
+**Une mutation n'a pas trouvé son motif, et le vert qui a suivi ne prouvait rien.** La première
+version de la quatrième mutation visait une branche que le test n'exerce pas — le cas où le
+lancement échoue, alors que le test simule un code de sortie non nul. Le fichier est resté intact et
+la suite est passée. Reprise sur la bonne branche, elle rougit. C'est la même leçon qu'en W4.b, sous
+une autre forme : une mutation qui ne s'applique pas ressemble trait pour trait à une garde qui
+tient.
+
+**Écart avec la spec.** Aucun. `docs/03` mentionne aussi un worker macOS de confiance annonçant
+`mps` : c'est W4.f, et il ne dépend pas de celui-ci.
+
+**Prochain item.** **W4.f** — worker macOS de confiance annonçant la capability `mps`, qui ne reçoit
+que les tâches compatibles.

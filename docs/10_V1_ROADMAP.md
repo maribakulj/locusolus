@@ -165,7 +165,18 @@ de travers en silence.
 | W4.d.4 `[R]` | la vérification du profil seccomp restreint apporté par le déploiement | un profil qui ne refuse pas ce que la posture promet est refusé, et le refus nomme **tous** les appels manquants |
 
 Le plafond de ce backend est `S3` et c'est une constante, pas une ambition : `S4` est une micro-VM
-et `S5` une enclave distante. W4.e les ouvre sur macOS.
+et `S5` une enclave distante.
+
+**W4.e n'ouvre pas `S4`.** `docs/03` recommande sur macOS « host macOS + VM Linux légère + containers
+rootless par mission » : le conteneur tourne dans un noyau Linux, donc le plan de confinement est
+celui de W4.d.1, et ce qui change est **où on lit les faits** — dans l'invité, pas sur l'hôte. Une VM
+partagée entre les missions ne tient pas la promesse de `S4 microvm-high-risk`, qui est qu'une mission
+à haut risque ait **son propre** noyau. Le jour où un déploiement créera une VM par mission, ce sera
+un autre backend, avec son propre plafond et sa propre suite.
+
+| # | Commit | Test de sortie |
+|---|---|---|
+| W4.e.1 `[R]` | la machine macOS : son état, la lecture des faits **dans l'invité**, et le plafond qui en découle | les faits viennent du noyau qui confine et non de celui qui appelle ; une machine arrêtée se distingue d'un noyau incapable ; une VM partagée ne fait jamais franchir `S3` |
 
 La posture seccomp **restreinte** promet le refus, depuis l'intérieur, de la création de namespaces
 et du chargement de code noyau. Ce dépôt ne **fournit pas** ce profil : un profil par défaut-refus

@@ -14,10 +14,11 @@
 //! # Ce que ce paquet contient aujourd'hui
 //!
 //! - [`runtime::RuntimePort`] : la seule description, dans tout le dépôt, de ce qu'on demande à un
-//!   runtime de containers. Le driver macOS arrive en W4.e ;
+//!   runtime de containers ;
 //! - [`admission`] : la décision **avant** exécution, sur des capacités déclarées ;
 //! - [`linux`] : le backend Linux rootless — la traduction, la lecture de ce que l'hôte permet,
-//!   et le driver Podman (W4.d).
+//!   et le driver Podman (W4.d) ;
+//! - [`macos`] : la machine qui porte l'invité Linux, et le plafond qui en découle (W4.e).
 //!
 //! Depuis W4.d.2, ce paquet **lance** un runtime : [`linux::SystemRunner`] est la seule fonction du
 //! dépôt qui exécute `podman`. C'est précisément ce que la séparation autorise ici et nulle part
@@ -25,8 +26,11 @@
 
 pub mod admission;
 pub mod linux;
+pub mod macos;
 pub mod runtime;
 
 pub use admission::{Admission, HostCapabilities, RefusalReason, admit};
+pub use linux::Missing;
 pub use linux::{ConfinementPlan, HostFacts, PlanError, PodmanBackend, Workload, plan};
+pub use macos::{MachineFacts, MachineState};
 pub use runtime::{RuntimeError, RuntimePort, SandboxId};
