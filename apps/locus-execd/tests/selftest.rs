@@ -12,7 +12,8 @@ use std::sync::Mutex;
 
 use locus_execd::linux::{
     Execution, PROBE_COMMANDS, PodmanBackend, RestrictedProfile, Runner, SeccompProfiles,
-    UNREACHABLE_RUNTIME, Workload, assess, certify, exec_arguments, probe_command, run_suite,
+    UNREACHABLE_RUNTIME, UNRUNNABLE_EXIT_CODES, Workload, assess, certify, exec_arguments,
+    probe_command, run_suite, unrunnable,
 };
 use locus_execd::{RuntimeError, RuntimePort, SandboxId};
 use locus_execution::{
@@ -360,5 +361,151 @@ fn certify_refuse_un_niveau_que_le_backend_ne_sait_pas_tenir() {
     assert!(
         matches!(refused, Err(RuntimeError::Unsupported { .. })),
         "rendre un Standing sur une sandbox qui n'existe pas serait un verdict sur rien : {refused:?}"
+    );
+}
+
+// ---------------------------------------------------------------------------------------------
+// W5.c — la sonde absente n'est pas une sonde bloquée
+// ---------------------------------------------------------------------------------------------
+
+/// Rend le code donné pour chaque sonde nommée, et `1` — un blocage franc — pour les autres.
+struct BrokenImage {
+    missing: Vec<&'static str>,
+    code: i32,
+}
+
+impl Runner for BrokenImage {
+    fn run(&self, arguments: &[String]) -> Result<Execution, RuntimeError> {
+        // Le cycle de vie réussit : ce qu'on met à l'épreuve est la lecture des codes de sortie
+        // des sondes, pas la création du conteneur.
+        if arguments.first().map(String::as_str) != Some("exec") {
+            return Ok(Execution {
+                code: 0,
+                stdout: String::new(),
+                stderr: String::new(),
+            });
+        }
+        let joined = arguments.join(" ");
+        let absent = self.missing.iter().any(|name| {
+            probe_command(name).is_some_and(|command| joined.ends_with(&command.join(" ")))
+        });
+        Ok(Execution {
+            code: if absent { self.code } else { 1 },
+            stdout: String::new(),
+            stderr: String::new(),
+        })
+    }
+}
+
+/// Le test qui corrige W4.d.3. Ce commit-là lisait **tout** code non nul comme `Blocked`, et
+/// déclarait au ledger que six sondes visant des binaires absents « se lisent comme des blocages ».
+/// La dette était réelle, mais dans le mauvais sens : une image incomplète rendait le backend
+/// **plus** digne de confiance, puisque `Blocked` est exactement ce qu'un niveau promet.
+#[test]
+fn une_sonde_absente_de_l_image_ne_prouve_pas_l_isolation() {
+    let runner = BrokenImage {
+        missing: vec!["exceed_cpu_quota", "open_outbound_connection"],
+        code: 127,
+    };
+    let mut execd = backend(runner);
+    let id = execd.create(&mission(SandboxLevel::S3)).expect("création");
+
+    let results = run_suite(&execd, &id);
+    let absent: Vec<&Observed> = results
+        .iter()
+        .filter(|(name, _)| *name == "exceed_cpu_quota" || *name == "open_outbound_connection")
+        .map(|(_, observed)| observed)
+        .collect();
+    assert_eq!(absent.len(), 2);
+    assert!(
+        absent
+            .iter()
+            .all(|observed| matches!(observed, Observed::NotRun { .. })),
+        "127 dit « la sonde est absente », pas « la sonde a été contenue » : {absent:?}"
+    );
+
+    match assess(&execd, &id, SandboxLevel::S3) {
+        Standing::NotTrusted { blocking, .. } => {
+            assert_eq!(
+                blocking.len(),
+                2,
+                "les deux sondes absentes empêchent la confiance, les quatorze autres tiennent"
+            );
+            assert!(
+                blocking
+                    .iter()
+                    .all(|verdict| matches!(verdict, Verdict::Inconclusive { .. }))
+            );
+        }
+        Standing::Trusted { .. } => {
+            panic!("une image incomplète ne rend pas un backend plus digne de confiance")
+        }
+    }
+}
+
+#[test]
+fn les_trois_codes_reserves_disent_chacun_ce_qui_manque() {
+    for (code, expected) in UNRUNNABLE_EXIT_CODES {
+        assert_eq!(unrunnable(code), Some(expected));
+        let mut execd = backend(BrokenImage {
+            missing: vec!["escalate_to_root"],
+            code,
+        });
+        let id = execd.create(&mission(SandboxLevel::S3)).expect("création");
+        let results = run_suite(&execd, &id);
+        let observed = results
+            .iter()
+            .find(|(name, _)| *name == "escalate_to_root")
+            .map(|(_, observed)| observed)
+            .expect("la sonde est au rapport");
+        assert_eq!(
+            observed,
+            &Observed::NotRun { reason: expected },
+            "le code {code} doit dire ce qui manque"
+        );
+    }
+}
+
+#[test]
+fn un_blocage_franc_reste_un_blocage() {
+    for code in [1, 2, 13, 137] {
+        assert_eq!(
+            unrunnable(code),
+            None,
+            "le code {code} est un refus du noyau, pas une sonde manquante"
+        );
+    }
+    let mut execd = backend(BrokenImage {
+        missing: Vec::new(),
+        code: 1,
+    });
+    let id = execd.create(&mission(SandboxLevel::S3)).expect("création");
+    assert_eq!(
+        assess(&execd, &id, SandboxLevel::S3),
+        Standing::Trusted {
+            level: SandboxLevel::S3
+        },
+        "un backend qui contient tout franchement reste trusted"
+    );
+}
+
+/// La table elle-même, épinglée par son contenu — la leçon de W4.d.4 appliquée ici. Le test qui
+/// itère sur `UNRUNNABLE_EXIT_CODES` reste vrai quelle que soit la table : il vérifie la mécanique,
+/// pas ce qu'elle couvre. Celui-ci nomme les trois codes et dit pourquoi chacun est réservé.
+#[test]
+fn la_table_couvre_les_trois_codes_que_posix_et_podman_reservent() {
+    let codes: Vec<i32> = UNRUNNABLE_EXIT_CODES
+        .into_iter()
+        .map(|(code, _)| code)
+        .collect();
+    assert_eq!(
+        codes,
+        vec![
+            // Podman : le runtime n'a pas su démarrer la commande.
+            125, // POSIX : la commande existe mais n'est pas exécutable.
+            126, // POSIX : la commande est introuvable.
+            127,
+        ],
+        "en retirer un ferait relire ce code comme un blocage, donc comme une preuve d'isolation"
     );
 }

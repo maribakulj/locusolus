@@ -2450,3 +2450,46 @@ signature.
 
 **Prochain item.** **W5.c** — le driver de build derrière un port, sur la forme de W4.d.2, et les
 six sondes compilées que W4.d.3 attend dans l'image de base.
+
+---
+
+## 2026-08-17 — W5.c — Une sonde absente n'est pas une sonde bloquée : correction de W4.d.3
+
+**Périmètre.** `apps/locus-execd/src/linux/selftest.rs` — trois codes de sortie lus autrement, une
+table et une fonction ; `linux/mod.rs` ; `tests/selftest.rs` gagne quatre tests ; `docs/10` §W4.d
+gagne W5.c et repousse le driver de build en W5.d.
+
+**La dette de W4.d.3 était réelle, mais je l'avais écrite dans le mauvais sens.** Son entrée de
+ledger dit : « six sondes visent des sondes compilées que l'image de base devra porter … tant que
+l'image ne les porte pas, ces commandes échouent en 127 et la sonde est lue comme `Blocked` —
+c'est-à-dire exactement le piège que la convention de sortie évitait ailleurs ». Le constat était
+juste et la conclusion fausse : j'en avais fait une dépendance de W5, à régler en construisant
+l'image. Or `Blocked` est exactement ce qu'un niveau **promet**. Une image incomplète rendait donc
+le backend **plus** digne de confiance, et une campagne contre elle produisait un `Trusted` que
+personne n'avait mérité. Ce n'était pas une dette d'ordonnancement, c'était un défaut, et il allait
+dans le sens dangereux.
+
+**Ce que ce commit change.** Trois codes ne sont pas des verdicts sur le confinement : 127, que
+POSIX réserve à la commande introuvable ; 126, à la commande non exécutable ; 125, que Podman
+réserve à son propre échec de démarrage. Ils deviennent `Observed::NotRun` avec, chacun, ce qui
+manque. Tout autre code non nul reste un blocage franc — un refus du noyau est un verdict, et le
+lire comme une absence serait l'erreur symétrique.
+
+**Quatre mutations vérifiées rouges** : le retour au comportement de W4.d.3, tout code non nul étant
+un blocage (2 tests) ; tout code non nul devenant une absence (7) ; la table perdant le 127 (2) ; et
+la version muette de cette dernière, reprise après correction.
+
+**La table était épinglée par un test tautologique, et c'est la leçon de W4.d.4 qui a resservi.**
+`les_trois_codes_reserves_disent_chacun_ce_qui_manque` itère sur `UNRUNNABLE_EXIT_CODES` : il reste
+vrai quelle que soit la table. Retirer le 127 n'a d'abord pas compilé — la longueur du tableau est
+déclarée — puis, la longueur ajustée, seul un autre test rougissait. Un test nomme désormais les
+trois codes un par un, avec la raison de chaque réservation.
+
+**Écart avec la spec.** Aucun. §32.3 et ADR 0004 exigent qu'un test critique non passé interdise
+`trusted` ; ce commit rend cette exigence vraie pour la façon dont l'échec se présente le plus
+souvent.
+
+**Prochain item.** **W5.d** — le driver de build derrière un port, sur la forme de W4.d.2, et les
+cinq sondes compilées que la suite attend dans l'image de base. Elles restent nécessaires : leur
+absence est maintenant **visible** au lieu d'être flatteuse, ce qui est la bonne façon d'avoir une
+dette.

@@ -13,9 +13,22 @@
 //! # La convention de sortie, et pourquoi elle est dans ce sens
 //!
 //! Chaque commande **réussit quand la sonde réussit**, c'est-à-dire quand le confinement n'a pas
-//! tenu. Code 0 devient [`Observed::Succeeded`], code non nul devient [`Observed::Blocked`]. Le
-//! sens inverse aurait fait d'une commande absente de l'image — `sh` introuvable, code 127 — une
-//! preuve d'isolation.
+//! tenu. Code 0 devient [`Observed::Succeeded`]. Le sens inverse aurait fait d'une commande qui
+//! échoue une preuve d'isolation.
+//!
+//! # Le code non nul ne suffit pas, et W4.d.3 s'était trompé
+//!
+//! W4.d.3 lisait **tout** code non nul comme [`Observed::Blocked`], et déclarait au ledger que six
+//! sondes visant des binaires absents de l'image « échouent en 127 et se lisent comme des
+//! blocages ». C'était noté comme une dette. C'en était une, mais dans le mauvais sens : une sonde
+//! absente rendait le backend **plus** digne de confiance, puisque `Blocked` est exactement ce
+//! qu'un niveau promet. Une image incomplète produisait un `Trusted` que personne n'avait mérité.
+//!
+//! Les codes que le shell et le runtime réservent à « je n'ai pas pu lancer » sont donc lus comme
+//! [`Observed::NotRun`] : 127 pour une commande introuvable, 126 pour une commande non exécutable,
+//! 125 pour un runtime qui n'a pas su démarrer le conteneur. Ce sont les trois seuls codes que
+//! POSIX et Podman réservent, et les distinguer est exactement la différence entre « la sonde a été
+//! contenue » et « la sonde n'existe pas ».
 //!
 //! # Ce qui n'a pas pu être lancé n'a rien prouvé
 //!
@@ -103,6 +116,29 @@ pub const PROBE_COMMANDS: [(&str, &[&str]); 16] = [
     ),
 ];
 
+/// Les codes de sortie qui disent « je n'ai pas pu lancer », et ce qu'ils disent.
+///
+/// POSIX réserve 126 et 127 au shell, Podman réserve 125 à son propre échec. Aucun des trois n'est
+/// un verdict sur le confinement, et les lire comme tel ferait d'une image incomplète une preuve
+/// d'isolation.
+pub const UNRUNNABLE_EXIT_CODES: [(i32, &str); 3] = [
+    (
+        125,
+        "le runtime n'a pas su démarrer la commande dans la sandbox",
+    ),
+    (126, "la sonde existe mais n'est pas exécutable"),
+    (127, "la sonde est absente de l'image"),
+];
+
+/// La raison qu'un code de sortie porte, quand il dit que rien n'a été lancé.
+#[must_use]
+pub fn unrunnable(code: i32) -> Option<&'static str> {
+    UNRUNNABLE_EXIT_CODES
+        .into_iter()
+        .find(|(reserved, _)| *reserved == code)
+        .map(|(_, reason)| reason)
+}
+
 /// La raison inscrite quand le runtime n'a pas répondu.
 ///
 /// `Observed::NotRun` porte un `&'static str` : la raison est donc une constante et non le message
@@ -149,7 +185,8 @@ fn attempt<R: Runner>(backend: &PodmanBackend<R>, id: &SandboxId, name: &str) ->
     };
     match backend.runner().run(&exec_arguments(id, command)) {
         Ok(execution) if execution.code == 0 => Observed::Succeeded,
-        Ok(_) => Observed::Blocked,
+        Ok(execution) => unrunnable(execution.code)
+            .map_or(Observed::Blocked, |reason| Observed::NotRun { reason }),
         Err(_) => Observed::NotRun {
             reason: UNREACHABLE_RUNTIME,
         },
