@@ -2493,3 +2493,45 @@ souvent.
 cinq sondes compilées que la suite attend dans l'image de base. Elles restent nécessaires : leur
 absence est maintenant **visible** au lieu d'être flatteuse, ce qui est la bonne façon d'avoir une
 dette.
+
+---
+
+## 2026-08-17 — W5.d — Les sondes voyagent avec le harnais, pas avec l'image
+
+**Périmètre.** `apps/locus-execd/src/linux/selftest.rs` — cinq sondes réécrites en shell embarqué,
+un code de sortie réservé de plus ; `linux/mod.rs` ; `tests/selftest.rs` gagne trois tests ;
+`docs/10` §W4.d gagne W5.d, W5.e et W5.f.
+
+**Ce que ce commit supprime.** La dépendance elle-même. W4.d.3 visait cinq binaires à
+`/usr/libexec/locus/probe-*`, W5.c a rendu leur absence **visible**, celui-ci la rend **impossible**
+: les scripts sont dans le harnais. Une sonde embarquée est en outre versionnée avec le code qui la
+juge — une image construite il y a six mois est éprouvée par la suite d'aujourd'hui, ce qui est le
+bon sens de la dépendance. L'item « cinq sondes compilées » de la roadmap disparaît.
+
+**Un troisième code réservé, pour le même refus une couche plus bas.** Une sonde lit parfois quelque
+chose qui n'est pas là — `cpu.stat` absent, `curl` introuvable. Sans code réservé, elle rendrait un
+code non nul ordinaire, lu comme un blocage, donc comme une preuve d'isolation. C'est exactement le
+piège du 127 de W5.c, sauf que cette fois ce n'est pas la sonde qui manque, c'est ce dont la sonde
+avait besoin. `INCONCLUSIVE_EXIT_CODE` vaut 120, hors des plages que POSIX, les signaux et Podman
+réservent.
+
+**Trois mutations vérifiées rouges** : une boucle qui perd son `done` (1 test) ; une sonde qui
+redevient un binaire de l'image (1) ; l'inconclusion relue comme un blocage (1).
+
+**Une mutation est passée verte, et elle a corrigé ce que le test prétendait.** La première version
+retirait le crochet fermant d'un `[ … ]` ; les tests sont restés verts. `sh -n` analyse le
+**langage** : il attrape un `do` sans `done`, un guillemet non fermé, une substitution non terminée.
+Il n'attrape pas la mauvaise utilisation d'une **commande** — `[` est un programme, et son crochet
+manquant échoue à l'exécution, pas à l'analyse. Le commentaire du test survendait la garde ; il dit
+maintenant précisément ce qu'elle couvre, et la mutation a été reprise sur un cas que `sh -n` voit
+réellement. Une garde dont on croit qu'elle couvre plus qu'elle ne couvre est pire qu'une garde
+absente : on cesse de chercher.
+
+**Ce qui n'est pas vérifié, et qui devient un item.** La **sémantique** des sondes. Rien ici ne
+prouve que `nr_throttled` bouge quand `cpu.max` mord, ni que `pids.max` refuse le fork au bon rang.
+Ni `sh -n` ni un double de runtime ne peuvent le dire : il faut un hôte capable de `S2`. C'est W5.f,
+inscrit avec son test de sortie, et c'est le premier travail à faire sur une machine qui le permet.
+
+**Écart avec la spec.** Aucun.
+
+**Prochain item.** **W5.e** — le driver de build derrière un port, sur la forme de W4.d.2.

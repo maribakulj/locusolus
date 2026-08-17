@@ -11,9 +11,9 @@
 use std::sync::Mutex;
 
 use locus_execd::linux::{
-    Execution, PROBE_COMMANDS, PodmanBackend, RestrictedProfile, Runner, SeccompProfiles,
-    UNREACHABLE_RUNTIME, UNRUNNABLE_EXIT_CODES, Workload, assess, certify, exec_arguments,
-    probe_command, run_suite, unrunnable,
+    Execution, INCONCLUSIVE_EXIT_CODE, PROBE_COMMANDS, PodmanBackend, RestrictedProfile, Runner,
+    SeccompProfiles, UNREACHABLE_RUNTIME, UNRUNNABLE_EXIT_CODES, Workload, assess, certify,
+    exec_arguments, probe_command, run_suite, unrunnable,
 };
 use locus_execd::{RuntimeError, RuntimePort, SandboxId};
 use locus_execution::{
@@ -508,4 +508,90 @@ fn la_table_couvre_les_trois_codes_que_posix_et_podman_reservent() {
         ],
         "en retirer un ferait relire ce code comme un blocage, donc comme une preuve d'isolation"
     );
+}
+
+// ---------------------------------------------------------------------------------------------
+// W5.d — les sondes voyagent avec le harnais
+// ---------------------------------------------------------------------------------------------
+
+/// Aucune sonde ne dépend d'un binaire que l'image devrait porter. C'est une garantie **par
+/// absence** : le chemin qui les hébergeait autrefois ne doit plus apparaître nulle part.
+#[test]
+fn aucune_sonde_n_attend_un_binaire_de_l_image() {
+    for (name, command) in PROBE_COMMANDS {
+        let joined = command.join(" ");
+        assert!(
+            !joined.contains("/usr/libexec"),
+            "« {name} » attend encore un binaire de l'image : {joined}"
+        );
+    }
+}
+
+/// Le trou que ce test ferme est celui de W5.c, une couche plus bas : une erreur d'analyse dans un
+/// script rend le code 2, que le harnais lit comme un blocage, donc comme une preuve d'isolation.
+/// `sh -n` analyse sans exécuter, et il tourne ici, sur cette machine, sans conteneur.
+///
+/// # Ce que `sh -n` attrape, et ce qu'il n'attrape pas
+///
+/// Il attrape ce que le **shell** ne sait pas analyser : un `do` sans `done`, un guillemet non
+/// fermé, une substitution non terminée. Il n'attrape pas la mauvaise utilisation d'une
+/// **commande** — un `[` sans `]` passe l'analyse et échoue à l'exécution, parce que `[` est un
+/// programme et non une construction du langage. Une mutation l'a montré : le crochet retiré, ce
+/// test restait vert. La borne est donc écrite plutôt que supposée, et ce qui reste à couvrir
+/// demande une sandbox réelle — c'est la dette nommée au ledger.
+#[test]
+fn chaque_sonde_est_du_shell_syntaxiquement_valide() {
+    let mut checked = 0;
+    for (name, command) in PROBE_COMMANDS {
+        assert_eq!(command.first().copied(), Some("sh"), "« {name} »");
+        assert_eq!(command.get(1).copied(), Some("-c"), "« {name} »");
+        let script = command.get(2).copied().expect("un script");
+        assert!(!script.trim().is_empty(), "« {name} » a un script vide");
+
+        let checked_syntax = std::process::Command::new("sh")
+            .arg("-n")
+            .arg("-c")
+            .arg(script)
+            .output()
+            .expect("sh est disponible sur la machine de test");
+        assert!(
+            checked_syntax.status.success(),
+            "« {name} » n'est pas du shell valide : {}\n{script}",
+            String::from_utf8_lossy(&checked_syntax.stderr)
+        );
+        checked += 1;
+    }
+    assert_eq!(
+        checked,
+        SUITE.len(),
+        "les seize sondes doivent être analysées, pas seulement celles qui se laissent lire"
+    );
+}
+
+/// Une sonde qui n'a pas pu conclure ne dit pas « contenu ». Troisième instance du même refus,
+/// après le 127 de W5.c et le `NotRun` de W4.b : cette fois ce n'est pas la sonde qui manque, c'est
+/// ce dont la sonde avait besoin.
+#[test]
+fn une_sonde_qui_n_a_pas_pu_conclure_est_notrun() {
+    assert!(unrunnable(INCONCLUSIVE_EXIT_CODE).is_some());
+
+    let mut execd = backend(BrokenImage {
+        missing: vec!["exceed_memory_quota"],
+        code: INCONCLUSIVE_EXIT_CODE,
+    });
+    let id = execd.create(&mission(SandboxLevel::S3)).expect("création");
+    let results = run_suite(&execd, &id);
+    let observed = results
+        .iter()
+        .find(|(name, _)| *name == "exceed_memory_quota")
+        .map(|(_, observed)| observed)
+        .expect("la sonde est au rapport");
+    assert!(
+        matches!(observed, Observed::NotRun { .. }),
+        "« ce que je devais lire n'était pas là » n'est pas « j'ai été contenue » : {observed:?}"
+    );
+    assert!(matches!(
+        assess(&execd, &id, SandboxLevel::S3),
+        Standing::NotTrusted { .. }
+    ));
 }

@@ -205,7 +205,9 @@ porte `version:` ni `image:`, tous deux obligatoires au schéma, et `ml-mps.yaml
 | W5.a `[R]` | `packages/environments` : `ToolchainProfile` et `EnvironmentBlueprint`, avec les invariants que le schéma de W0.5 ne peut pas exprimer | un profil répété, un préféré inférieur au minimum, une variable dont le nom annonce un secret et une image par tag sont refusés, chacun par son nom |
 | W5.b `[R]` | la chaîne : lockfile → build → SBOM → scan → tests → signature → digest, comme suite de types | aucun chemin ne signe une image non scannée ni ne publie un digest dont les tests n'ont pas tourné — vérifié par un `compile_fail`, pas seulement par un test |
 | W5.c `[R]` | **correction de W4.d.3** : une sonde absente de l'image n'est pas une sonde bloquée | les codes 125, 126 et 127 sont lus comme `NotRun` et non comme `Blocked` ; une image incomplète ne rend jamais un backend `Trusted` |
-| W5.d `[R]` | le driver de build : buildah/podman derrière un port, et les cinq sondes compilées que la suite attend dans l'image de base | à écrire quand W5.c est mergé |
+| W5.d `[R]` | les sondes voyagent avec le harnais : plus aucun binaire attendu dans l'image | aucune sonde ne nomme un chemin de l'image, chacune est du shell que `sh -n` accepte, et une sonde qui n'a pas pu conclure est `NotRun` |
+| W5.e `[R]` | le driver de build : buildah/podman derrière un port | à écrire quand W5.d est mergé |
+| W5.f `[R]` | validation **sémantique** des sondes contre une sandbox réelle | sur un hôte capable de `S2`, chaque sonde produit le verdict que son `contained_from` annonce — c'est la seule chose que ni `sh -n` ni un double ne peuvent dire |
 
 ## W6 — Artifact / reproductibilité
 
