@@ -1520,3 +1520,39 @@ prendre, pas un détail d'implémentation.**
 **Prochain chantier.** W4 — Execution Fabric. ADR 0004 en fixe l'ordre : la suite de self-tests de
 sandbox (W4.b) s'écrit **avant** le premier backend d'exécution (W4.c), parce que c'est elle qui
 définit ce que « sandbox » veut dire dans ce projet.
+
+### Correction — ADR 0015 amendé : deux constats de W3.d étaient faux
+
+Le ledger est append-only ; cette entrée corrige l'entrée W3.d ci-dessus sans la modifier.
+
+**Ce qui était écrit :** que `temporal-sdk-core-api` « ne se construit pas ici », et que le SDK Rust
+est « en `0.1.0-alpha.1` ». Les deux ont été réexaminés après la clôture de W3.
+
+**Ce qui est vrai.** L'échec de build venait de `prost-wkt-types 0.6.1`, dont le script de build ne
+trouvait pas `protoc` ; avec `protobuf-compiler` installé, le crate compile en une vingtaine de
+secondes. Et « le SDK » n'est pas un bloc : `temporal-sdk-core-protos` est en **0.1.0**, non alpha,
+contient les protos vendorés et les clients gRPC `tonic` générés — dont
+`workflow_service_client::WorkflowServiceClient` et les cinq requêtes exactes de `TemporalGateway`.
+Seul `temporal-sdk-core`, qui est le runtime de **worker**, est en alpha. Vérifié en construisant et
+en exécutant un binaire qui les instancie. Le crate `temporal-client` cité en W3.d n'existe pas sur
+crates.io.
+
+**Pourquoi ça change la décision.** Ce que `locusd` consomme de Temporal, c'est le **client**, et il
+est officiel et stable. Ce qui est en alpha est le runtime de worker — un rôle que le SDK TypeScript
+tient en GA et que l'ADR 0011 place déjà dans le périmètre TypeScript du dépôt. La question n'était
+donc pas « quel crate » mais **qui exécute les corps de workflow**.
+
+**Décision prise** (ADR 0015, décision 5) : client gRPC officiel `temporal-sdk-core-protos` +
+`tonic`, worker en TypeScript, `protoc` ajouté à la CI et vérifié par `locus doctor`. **Différé à
+W7**, avec `locusd` : la liaison exige un runtime asynchrone dans un binaire qui n'existe pas
+encore, et l'écrire maintenant ferait choisir ce runtime depuis une dépendance au lieu du besoin.
+
+**Ce que la V1 ne peut pas promettre en attendant** : le profil `cloud-platform` de §27.1 exige des
+« durable workflows », et §32 en fait un critère d'acceptation. Jusqu'à W7, seul le mode dégradé de
+§11.5 est tenable — et §11.5 exige qu'il ne soit jamais présenté comme équivalent à la production.
+Dette datée, pas zone grise.
+
+**Ce que cette correction dit de la méthode.** Un `cargo build` rouge avait été lu comme un verdict
+sur un écosystème. Il disait seulement qu'un outil manquait. La leçon est la même que pour les
+mutations : un signal rouge doit être **ouvert** avant d'être conclu, et les trois trous trouvés
+cette étape l'ont été en refusant de s'arrêter au premier constat plausible.
