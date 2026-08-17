@@ -845,3 +845,74 @@ Aucune donnée n'est en jeu : les projections sont reconstructibles par construc
 les inférences multi-prémisses (§7.6). Test de sortie : « une inférence à 3 prémisses n'est pas 3
 liens ». Ses dépendances sont satisfaites : les objets de §7.3 sont typés depuis W1.b, et le port de
 projection livré ici est ce sur quoi les graphes de §9.3 se construiront.
+
+## 2026-08-17 — W1.e — `packages/graph` : relations typées et hyperarêtes (§7.5, §7.6)
+
+**Périmètre.** Un crate neuf : `packages/graph` — `relation.rs`, `inference.rs`, `graph.rs`, plus
+`tests/hyperedges.rs`. Ajouté aux membres du workspace. Aucun fichier existant modifié en dehors de
+cette ligne.
+
+**Tests exécutés.** `cargo test --all-features` : 12 tests neufs, 95 au total sur le workspace, 0
+échec. `npm run check` : les neuf portes vertes.
+
+Le test de sortie de W1.e — « une inférence à 3 prémisses n'est pas 3 liens » — passe. Vérifié par
+mutation, trois fois : aplatir les prémisses en ensembles d'une, laisser une relation à sens unique
+se retourner, ou retirer à la règle et au scope leur cible d'objection font rougir six tests au
+total.
+
+**Comment le test de sortie s'y prend.** Il construit **les deux graphes** — l'hyperarête et la
+réduction interdite en trois `supports` — et montre en cinq points ce que le second perd :
+
+1. le compte : une hyperarête contre trois arêtes ;
+2. ce qui étaye la conclusion : **un** support portant les trois prémisses, contre trois soutiens ;
+3. les prémisses minimales (§9.4) : un ensemble de trois, contre trois ensembles d'un — c'est-à-dire
+   « il faut ces trois faits » contre « il suffit d'un des trois », qui ne sont pas la même
+   affirmation scientifique ;
+4. réfuter **une** prémisse casse l'inférence entière, là où le graphe aplati laisse deux `supports`
+   debout et la conclusion « encore soutenue aux deux tiers » ;
+5. la règle et le scope ont un endroit où être contestés — sur trois arêtes, ils n'existent pas, et
+   l'objection « le raisonnement ne tient pas même si tous les faits sont vrais » n'aurait aucune
+   cible.
+
+**Décisions prises.** Quatre.
+
+_Le graphe range relations et inférences séparément, sans passerelle._ Ni `flatten`, ni `decompose`,
+ni `as_edges`, ni `impl From<Inference>`. Un test verrouille ces absences, parce que c'est
+exactement la fonction de commodité que quelqu'un finira par vouloir écrire — et §7.6 dit « NE DOIT
+PAS » en majuscules.
+
+_`Support` est une énumération, pas une liste d'arêtes._ Un appelant qui ne traiterait que le cas
+binaire ne compile pas. Le type interdit de confondre une inférence avec une relation, là où une
+liste homogène les aurait fondues à la première itération.
+
+_Chaque relation déclare sa direction._ §7.5 : « les relations non symétriques ne doivent pas être
+inférées en sens inverse ». `traversable_backwards` refuse **vingt-deux relations sur vingt-huit** :
+deux sont symétriques (`contradicts`, `analogous_to`), quatre forment deux paires de réciproques
+nommées (`generalizes`/`specializes`, `forked_from`/`merged_into`). `supports` n'est pas symétrique
+— deux thèses qui s'étayent mutuellement sont deux relations écrites, pas une relation lue deux
+fois. Lu à l'envers, `A supports B` ferait de la preuve une thèse ; `cites` ferait citer un article
+de 2026 par un article de 1890.
+
+_`None` ne veut pas dire « la réciproque est fausse »._ Il veut dire qu'elle **n'est pas
+déductible**, et qu'affirmer quoi que ce soit dans ce sens demanderait de l'écrire comme une
+relation à part entière. `incoming()` reste disponible : lire les arêtes entrantes est une lecture,
+pas une déduction.
+
+**Une distinction que §7.6 fait et qu'on aurait pu manquer.** Les hypothèses (`assumption_ids`) ne
+sont pas des prémisses. Une prémisse est **affirmée**, une hypothèse est **admise** ; les confondre
+ferait passer pour établi ce qui a seulement été supposé. Les prémisses minimales ne contiennent
+donc pas les hypothèses, et réfuter une hypothèse ne casse pas l'inférence par le même chemin.
+
+**Écart avec la spec.** Une note. `inference_kind` et `review_status` restent des chaînes ouvertes :
+§7.6 ne donne aucune liste fermée pour l'un ni l'autre, et en fermer une interdirait un genre
+d'inférence que les packs disciplinaires ont le droit d'ajouter. La `formalization_status`, elle,
+est fermée à quatre valeurs — c'est une échelle de vérification, pas un vocabulaire disciplinaire.
+
+**Une erreur d'arithmétique attrapée par le test.** J'avais écrit « vingt-quatre relations refusent
+l'inversion » dans trois commentaires et une assertion ; c'est vingt-deux — 28 moins 2 symétriques
+moins 4 en paires. Le test a rougi au premier passage et le compte est corrigé partout.
+
+**Prochain item.** W1.f `[R]` — validation épistémique (§8) et propagation de l'invalidation (§8.3).
+Test de sortie : « invalider une prémisse propage correctement ». Ses dépendances sont satisfaites :
+`inferences_broken_by` livré ici est exactement le premier pas de la propagation, et les sept
+niveaux de §8.1 sont typés depuis W1.a.
