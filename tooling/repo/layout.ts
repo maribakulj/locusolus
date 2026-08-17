@@ -148,7 +148,7 @@ async function checkCrateManifest(
   const manifestPath = `${where}/Cargo.toml`;
   const source = await readTextFile(join(root, manifestPath));
   if (source === null) return;
-  const expected = `${cratePrefix}-${dirname}`;
+  const expected = expectedCrateName(dirname);
   const name = crateName(source);
   if (name !== expected) {
     findings.push({
@@ -167,6 +167,23 @@ async function checkCrateManifest(
     });
   }
   seen.set(name, manifestPath);
+}
+
+/**
+ * The crate name a directory must declare.
+ *
+ * The prefix exists so crates are namespaced: `packages/domain` is `locus-domain`. A directory
+ * that already carries the product's name is already namespaced, and `docs/SPEC_V1.md` §5 fixes
+ * those names — `apps/locusd/`, `apps/locus-execd/`. Applying the prefix blindly would demand
+ * `locus-locusd`, which is nobody's idea of a crate name and which §5 does not say.
+ *
+ * So: a directory whose name already starts with the prefix declares itself; every other one is
+ * prefixed. The rule bites exactly where it should, and stops where the spec has already spoken.
+ */
+export function expectedCrateName(dirname: string): string {
+  return dirname === cratePrefix || dirname.startsWith(cratePrefix)
+    ? dirname
+    : `${cratePrefix}-${dirname}`;
 }
 
 /** The `name` of the `[package]` table, or `null` when absent. */

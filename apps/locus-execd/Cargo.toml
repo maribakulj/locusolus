@@ -1,0 +1,22 @@
+[package]
+name = "locus-execd"
+description = "Broker d'exécution privilégié : seul détenteur du socket de runtime (ADR 0004)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "locus-execd"
+path = "src/main.rs"
+
+[lib]
+name = "locus_execd"
+path = "src/lib.rs"
+
+[dependencies]
+locus-execution = { path = "../../packages/execution" }

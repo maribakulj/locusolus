@@ -1,6 +1,7 @@
 [workspace]
 resolver = "3"
 members = [
+    "apps/locus-execd",
     "packages/domain",
     "packages/event-store",
     "packages/execution",

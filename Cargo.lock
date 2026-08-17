@@ -28,6 +28,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "locus-execd"
+version = "0.0.0"
+dependencies = [
+ "locus-execution",
+]
+
+[[package]]
 name = "locus-execution"
 version = "0.0.0"
 
