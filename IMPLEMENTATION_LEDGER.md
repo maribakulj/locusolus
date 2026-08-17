@@ -2290,3 +2290,49 @@ avec leurs producteurs.
 
 **Prochain item.** **W4.g.2** — le reroutage : une mission dont l'hôte tombe en cours de route, une
 mission refusée partout. Il dépend de la lease (§12.3), déjà écrite côté worker en W2.9.
+
+---
+
+## 2026-08-17 — W4.g.2 — Le reroutage : la même tentative, déplacée
+
+**Périmètre.** `apps/locus-execd/src/reroute.rs`, neuf ; `src/lib.rs` ; `tests/reroute.rs`, neuf ;
+`docs/10` complète la ligne W4.g.2. **W4 est terminé.**
+
+**La clause de §12.3 que ce commit met en œuvre, mot pour mot :** « une tâche réattribuée conserve
+le numéro d'attempt ». C'est la moins intuitive et la plus structurante. Un reroutage n'est pas une
+nouvelle tentative, c'est la **même**, déplacée. Incrémenter le numéro ferait croire au budget
+qu'une seconde exécution a été demandée, compterait deux échecs là où il y en a un, et casserait
+l'idempotence que `attempt.schema.json` construit autour de ce numéro. `Rerouting::attempt()` est le
+seul chemin de lecture, des deux côtés du verdict : l'invariant est difficile à casser sans le voir.
+
+**L'exclusion précède le choix, et l'ordre n'est pas indifférent.** Un hôte dont la lease a expiré
+reste candidat au sens du placement : il annonce toujours, il a toujours ses preuves, rien dans ses
+capacités ne dit qu'il vient de tomber. L'écarter **après** avoir choisi rendrait le verdict
+dépendant de l'ordre des candidats — un hôte perdu mais mieux classé aurait été choisi, rejeté, et
+le suivant jamais essayé. Un test le fixe en donnant au perdu le meilleur classement.
+
+**L'épuisement porte deux listes qui ne se fondent pas.** `already_lost` nomme les hôtes qui ont
+essayé et perdu ; `shortfalls` nomme ceux qui restaient et ce qui leur manquait. Première liste
+pleine et seconde vide : panne d'infrastructure. L'inverse : mission mal dimensionnée. Les deux
+vides : on ne m'a proposé personne, ce qui est encore une information. Les fondre ferait perdre la
+question à poser, et la mutation qui les fond fait rougir deux tests.
+
+**L'urgence n'est pas une preuve.** Un test vérifie qu'un hôte non attesté ne devient pas acceptable
+parce qu'il ne reste que lui. C'est la garantie de W4.g.1 mise à l'épreuve dans la situation où on
+serait le plus tenté de la relâcher.
+
+**Quatre mutations vérifiées rouges** : le numéro incrémenté au reroutage (2 tests) ; l'hôte tombé
+resté candidat (7) ; les deux listes d'épuisement fondues (2) ; le numéro zéro accepté (1).
+
+**Ce que ce module ne fait pas, et pourquoi.** La quarantaine des résultats tardifs — le troisième
+membre de §12.3. Elle appartient au control plane : c'est `locusd` qui décide qu'un résultat arrivé
+après réattribution ne committe pas sans arbitrage. Le broker ne voit que le placement, et lui
+donner ce pouvoir aurait fait du chemin d'exécution un second chemin d'écriture, ce qu'interdit
+l'invariant 3.
+
+**Écart avec la spec.** Aucun.
+
+**Prochain item.** **W5** — Toolchains : `EnvironmentBlueprint`/Builder, chaîne lockfile → build OCI
+→ SBOM → scan → health checks. Ses dépendances sont satisfaites, et W4.d.3 lui a laissé une dette
+nommée : six sondes de la suite visent des binaires que l'image de base devra porter, sans quoi
+elles échouent en 127 et se lisent comme des blocages.
