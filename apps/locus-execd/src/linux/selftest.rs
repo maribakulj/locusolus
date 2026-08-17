@@ -82,34 +82,12 @@ pub const PROBE_COMMANDS: [(&str, &[&str]); 16] = [
         "observe_host_processes",
         &["sh", "-c", "test \"$(ls /proc | grep -c '^[0-9]')\" -gt 50"],
     ),
-    (
-        "exceed_cpu_quota",
-        &["sh", "-c", "exec /usr/libexec/locus/probe-cpu"],
-    ),
-    (
-        "exceed_memory_quota",
-        &["sh", "-c", "exec /usr/libexec/locus/probe-memory"],
-    ),
-    (
-        "exceed_pid_quota",
-        &["sh", "-c", "exec /usr/libexec/locus/probe-pids"],
-    ),
-    (
-        "exceed_disk_quota",
-        &["sh", "-c", "exec /usr/libexec/locus/probe-disk"],
-    ),
-    (
-        "open_outbound_connection",
-        &["sh", "-c", "exec /usr/libexec/locus/probe-egress"],
-    ),
-    (
-        "reach_cloud_metadata_service",
-        &[
-            "sh",
-            "-c",
-            "exec /usr/libexec/locus/probe-egress 169.254.169.254",
-        ],
-    ),
+    ("exceed_cpu_quota", &["sh", "-c", CPU_QUOTA]),
+    ("exceed_memory_quota", &["sh", "-c", MEMORY_QUOTA]),
+    ("exceed_pid_quota", &["sh", "-c", PID_QUOTA]),
+    ("exceed_disk_quota", &["sh", "-c", DISK_QUOTA]),
+    ("open_outbound_connection", &["sh", "-c", EGRESS]),
+    ("reach_cloud_metadata_service", &["sh", "-c", METADATA]),
     (
         "reach_host_kernel_interfaces",
         &["sh", "-c", "head -c 1 /sys/kernel/vmcoreinfo"],
@@ -130,14 +108,86 @@ pub const UNRUNNABLE_EXIT_CODES: [(i32, &str); 3] = [
     (127, "la sonde est absente de l'image"),
 ];
 
+/// Le code qu'une sonde rend quand elle n'a pas pu conclure.
+///
+/// # Pourquoi une sonde a besoin de le dire
+///
+/// Une sonde lit parfois quelque chose qui n'est pas là — `cpu.stat` absent, `/dev/zero`
+/// illisible. Sans code réservé, elle rendrait un code non nul ordinaire, que le harnais lirait
+/// comme un blocage, c'est-à-dire comme une preuve d'isolation. C'est le même piège que le 127 de
+/// W5.c, une couche plus bas : cette fois ce n'est pas la sonde qui manque, c'est ce dont la sonde
+/// avait besoin.
+///
+/// 120 est hors des plages que POSIX (126, 127), les signaux (128+) et Podman (125) réservent.
+pub const INCONCLUSIVE_EXIT_CODE: i32 = 120;
+
 /// La raison qu'un code de sortie porte, quand il dit que rien n'a été lancé.
 #[must_use]
 pub fn unrunnable(code: i32) -> Option<&'static str> {
+    if code == INCONCLUSIVE_EXIT_CODE {
+        return Some("la sonde n'a pas pu conclure : ce qu'elle devait lire n'était pas là");
+    }
     UNRUNNABLE_EXIT_CODES
         .into_iter()
         .find(|(reserved, _)| *reserved == code)
         .map(|(_, reason)| reason)
 }
+
+/// Les cinq sondes que la version précédente confiait à des binaires de l'image.
+///
+/// # Pourquoi elles voyagent avec le harnais
+///
+/// W4.d.3 les visait à `/usr/libexec/locus/probe-*`, et W5.c a montré ce que coûtait leur absence :
+/// un code 127 lu comme un blocage, donc une image incomplète plus flatteuse qu'une image
+/// complète. Le correctif de W5.c rendait l'absence **visible** ; celui-ci la rend **impossible**.
+/// Une sonde embarquée dans le harnais est en outre versionnée avec le code qui la juge : une image
+/// construite il y a six mois est éprouvée par la suite d'aujourd'hui, ce qui est le bon sens de la
+/// dépendance.
+///
+/// Chacune rend `0` quand la sonde **réussit**, c'est-à-dire quand le confinement n'a pas tenu, et
+/// [`INCONCLUSIVE_EXIT_CODE`] quand ce qu'elle devait lire n'était pas là.
+///
+/// # Ce que ces scripts n'ont pas encore
+///
+/// Une validation contre une sandbox réelle. Leur syntaxe est vérifiée — un `sh -n` par sonde, dans
+/// les tests — mais leur **sémantique** ne l'est pas : rien ici ne prouve que `nr_throttled` bouge
+/// quand `cpu.max` mord. C'est écrit au ledger comme dette nommée, et c'est le premier travail d'un
+/// hôte capable de S2.
+const CPU_QUOTA: &str = concat!(
+    "s=/sys/fs/cgroup/cpu.stat; [ -r \"$s\" ] || exit 120; ",
+    "before=$(awk '/nr_throttled/{print $2}' \"$s\"); ",
+    "end=$(( $(date +%s) + 2 )); while [ \"$(date +%s)\" -lt \"$end\" ]; do :; done; ",
+    "after=$(awk '/nr_throttled/{print $2}' \"$s\"); ",
+    "[ \"${after:-0}\" -eq \"${before:-0}\" ]",
+);
+
+const MEMORY_QUOTA: &str = concat!(
+    "s=/sys/fs/cgroup/memory.max; [ -r \"$s\" ] || exit 120; ",
+    "limit=$(cat \"$s\"); [ \"$limit\" = max ] && exit 0; ",
+    "block=$(( limit / 1048576 + 8 )); ",
+    "dd if=/dev/zero of=/dev/shm/locus-probe bs=1M count=\"$block\" 2>/dev/null",
+);
+
+const PID_QUOTA: &str = concat!(
+    "s=/sys/fs/cgroup/pids.max; [ -r \"$s\" ] || exit 120; ",
+    "limit=$(cat \"$s\"); [ \"$limit\" = max ] && exit 0; ",
+    "i=0; while [ \"$i\" -le \"$limit\" ]; do sleep 5 & i=$(( i + 1 )); done",
+);
+
+const DISK_QUOTA: &str = concat!(
+    "dd if=/dev/zero of=/locus-probe-disk bs=1M count=64 2>/dev/null || exit 1; ",
+    "rm -f /locus-probe-disk",
+);
+
+const EGRESS: &str = concat!(
+    "command -v curl >/dev/null || exit 120; ",
+    "curl -sS -m 5 -o /dev/null http://example.org/",
+);
+
+const METADATA: &str = concat!(
+    "command -v curl >/dev/null || exit 120; ",
+    "curl -sS -m 5 -o /dev/null http://169.254.169.254/",
+);
 
 /// La raison inscrite quand le runtime n'a pas répondu.
 ///
