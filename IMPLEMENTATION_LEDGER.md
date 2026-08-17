@@ -3361,3 +3361,54 @@ attendent la `ContextView` de W7.c ; `severity_schema`, qui est une politique et
 **Prochain item.** **W7.b** — la prévention de contamination de §16.6, par **cas adverses**. Cinq
 cas, un par forme nommée, et chacun doit échouer **avant** son correctif : c'est la mise en garde de
 `docs/10` prise au mot.
+
+---
+
+## 2026-08-17 — W7.b — La contamination, par cinq cas adverses
+
+**Périmètre.** `packages/review/src/contamination.rs` et `tests/contamination.rs`, neufs ;
+`src/lib.rs` les expose. Aucune dépendance nouvelle.
+
+**« Pas seulement par construction », pris au mot.** `docs/10` signale ce point comme facile à rater
+et coûteux à réparer. La différence entre les deux façons de le traiter est celle entre « je ne vois
+pas comment ça arriverait » et « voici comment on le fait arriver, et voici pourquoi ça échoue ».
+Chaque cas de `tests/contamination.rs` **construit** la contamination, puis exige qu'elle soit vue.
+Un test qui vérifierait qu'un contexte propre reste propre ne dirait rien : c'est le cas facile, et
+c'est celui qu'on obtient sans y penser.
+
+**Les cinq formes de §16.6, une par une.**
+
+1. **Le transcript du générateur dans le contexte d'un relecteur aveugle** — l'invariant 11 pris de
+   face. C'est la forme la plus banale, parce qu'elle ressemble à « donner du contexte utile ».
+2. **Un claim réfuté servi par défaut.** Il n'est pas effacé du graphe — l'invariant 12 l'interdit —
+   mais le garder et le **servir** sont deux choses différentes.
+3. **Une donnée confidentielle sur un worker non habilité.** §16.2 parle de **plafond**, donc d'un
+   ordre : la comparaison est décidable sans énumérer les combinaisons. Un test vérifie que le
+   plafond laisse passer ce qui est en dessous, sinon ce serait une égalité stricte.
+4. **Le consensus circulaire.** Un cycle de citations dont **aucun** membre ne cite de source
+   externe. Deux agents qui se citent **et** citent le monde extérieur ne sont pas circulaires : ils
+   s'appuient sur quelque chose. Sans cette nuance, la détection interdirait toute citation
+   mutuelle, c'est-à-dire la discussion. Un cas à trois membres vérifie que la détection n'est pas «
+   A cite B qui cite A » écrit en dur.
+5. **La contradiction perdue à la synthèse.** La plus difficile à voir, parce qu'une synthèse
+   amputée est **plus lisible** que celle qui garde la contradiction — elle a l'air meilleure.
+
+**Un contexte contaminé de trois façons produit trois constats.** S'arrêter au premier ferait
+réparer une fuite en laissant les suivantes, et le rapport donnerait l'impression du contraire. Une
+mutation qui tronque la liste à un élément fait rougir trois tests.
+
+**Ce que ce module est, et ce qu'il n'est pas.** Un ensemble de **constats**, pas un filtre : il
+regarde un contexte déjà constitué et dit ce qui y est contaminé. Un filtre serait préférable — et
+W7.c le fera pour la `ContextView` — mais un filtre non éprouvé est un filtre qu'on croit efficace.
+C'est la raison de l'ordre inscrit en tête de W7 : l'adversaire d'abord, la construction ensuite.
+
+**Sept mutations vérifiées rouges** : la fuite de transcript non vue (2 tests) ; le claim réfuté
+redevenu ordinaire (2) ; le plafond devenu égalité stricte (1) ; l'ordre de sensibilité inversé (3)
+; la source externe cessant de compter dans un cycle (1) ; l'inspection tronquée au premier constat
+(3) ; la contradiction oubliée non signalée (1). Restauration confirmée verte.
+
+**Écart avec la spec.** Aucun.
+
+**Prochain item.** **W7.c** — la `ContextView` de §16.2 : ce qui a été vu, arrêté par hash et par
+watermark. Les cas adverses de ce sprint existent maintenant **avant** elle, ce qui est exactement
+ce que l'ordre de W7 cherchait à obtenir.

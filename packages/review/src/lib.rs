@@ -28,9 +28,11 @@
 //! **par cas adverses** — ADR 0016 et `docs/10` demandent tous deux qu'elle ne soit pas seulement
 //! garantie par construction.
 
+pub mod contamination;
 pub mod dossier;
 pub mod review;
 
+pub use contamination::{Contamination, ContextItem, Recipient, contradictions_dropped, inspect};
 pub use dossier::{Blindness, DossierError, Draft, Frozen, IndependenceRequirement};
 pub use review::{
     Finding, IndependenceAttestation, Party, Review, ReviewError, Severity, Verdict, attest,
