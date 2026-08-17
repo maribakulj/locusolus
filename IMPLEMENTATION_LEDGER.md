@@ -2633,3 +2633,79 @@ W6.b, derrière un port — même ordre qu'en W5 : le vocabulaire et ses refus d
 **Écart avec la spec.** Aucun.
 
 **Prochain item.** **W6.b** — l'object store derrière un port, avec un backend en mémoire.
+
+---
+
+## 2026-08-17 — W6.b — Le manifeste dit ce que le schéma dit
+
+**Périmètre.** `packages/artifacts` : `src/derivation.rs` neuf, `src/wire.rs` neuf,
+`src/manifest.rs` et `src/lib.rs` réécrits, `tests/manifest.rs` migré, `tests/wire.rs` neuf ; le
+`Cargo.toml` du paquet gagne `locus-domain`, `locus-lep`, `locus-protocol` ;
+`packages/domain/src/hash.rs` élargit sa table d'algorithmes et gagne `tests/hash_vocabulary.rs` ;
+deux fixtures dans `schemas/examples/` et leur entrée au registre ; `tooling/schemas/validate.ts`
+déduplique la liste des schémas à enregistrer ; `docs/10` renumérote W6.
+
+**D'où vient cet item.** De la lecture du schéma en préparant l'object store. W6.a avait été écrit
+depuis ADR 0005 et §19.2 — le texte — sans confronter le type à `artifact-manifest.schema.json`.
+Quatre écarts en sont sortis, tous du même genre : le type et le contrat disent presque la même
+chose, et « presque » ne se voit pas.
+
+1. **`classification` était une `String` libre**, l'énumération du schéma en a quatre valeurs.
+   `"publique"` passait, et un artefact restreint mal orthographié n'aurait été refusé par personne.
+2. **`derived_from` n'était qu'une liste de hashes.** Le schéma exige, pour chaque parent, un
+   `artifact_id` **et** une relation prise dans un sous-ensemble de §7.5. `reproduces` est ce
+   qu'inscrit une reproduction indépendante (§19.7, R4), `supersedes` ce qu'inscrit une correction :
+   une liste de hashes nus les rend indistinguables, et un graphe qui ne sait plus qui reproduit qui
+   ne peut plus dire ce qui est reproduit.
+3. **`ContentHash` était réimplémenté ici**, en plus permissif que celui du domaine : `sha256`
+   seulement, et l'hexadécimal majuscule accepté — donc deux écritures d'un même hash, donc deux
+   formes canoniques d'un même contenu, ce que §7.7 exclut. C'est exactement la duplication de
+   contrat que `CLAUDE.md` interdit, et elle s'est écrite sans qu'aucune règle ne se déclenche.
+4. **Six champs du schéma n'existaient pas** dans le type : `filename`, `rights`, `viewer_hints`,
+   `integrity`, `declared_at`, `uploaded_at`. Un manifeste traversant un service qui n'en connaît
+   que le noyau serait ressorti amputé de sa licence, sans erreur nulle part. Un champ qu'on ne
+   comprend pas se **transporte** ; il ne se laisse pas tomber.
+
+**Le domaine était plus étroit que le contrat, et c'est le plus intéressant des quatre.**
+`locus_domain::ContentHash` connaissait `sha256` et `sha512` ; le vocabulaire LEP en déclare
+**trois**, `blake3` compris. Un manifeste parfaitement conforme, hashé en blake3, était donc refusé
+à la lecture par le seul pair censé le comprendre — et un refus de lecture ressemble en tout point à
+un document invalide, donc personne n'aurait cherché du côté de la table. Le test ajouté
+(`packages/domain/tests/hash_vocabulary.rs`) **lit le schéma**, pas une copie du schéma : une liste
+recopiée dans un test vérifie que le code est d'accord avec le test, ce qui est vrai par
+construction et ne dit rien.
+
+**L'histoire ne traverse pas le fil, et le dire est la décision.** `history` n'est sur aucun schéma.
+Deux issues : l'ajouter au contrat, ou constater qu'elle n'a pas sa place là. C'est la seconde —
+l'historique des transitions vit dans l'event store, qui est la vérité institutionnelle
+(invariant 2) ; le manifeste porte l'**état**, pas le chemin. `from_wire` reconstruit donc une
+histoire à un seul élément, et un test le fixe : rejouer les transitions depuis `declared`
+produirait quatre états inventés indiscernables de quatre états observés.
+
+**Une liste vide s'écrit absente.** `option_vec` rend `None` pour un vecteur vide. Les deux formes
+ont le même sens pour un lecteur et des octets différents pour un hash de document : réémettre `[]`
+là où l'entrée n'avait rien ferait diverger deux pairs sur une donnée que ni l'un ni l'autre n'a
+écrite. C'est le même constat que le `skip_serializing_if` de W0.8, du côté de la traduction.
+
+**Six mutations vérifiées rouges** : les droits qui ne traversent plus (1 test) ; une liste vide
+réécrite `[]` (1) ; une relation inconnue avalée par `derived_from` (1) ; l'histoire rejouée depuis
+`declared` (1) ; le type MIME plus vérifié (1) ; la table d'algorithmes du domaine re-rétrécie (6
+tests dans `locus-artifacts`, 2 dans `locus-domain`). Restauration confirmée verte.
+
+**Un incident de méthode, noté parce qu'il se reproduira.** La boucle de mutation restaurait par
+`git checkout -- packages/…/src`, ce qui rend les fichiers à **HEAD** — donc au sprint précédent,
+puisque le travail en cours n'est pas commité. Les trois premières mutations ont donc laissé un
+arbre incohérent et les trois suivantes n'ont pas trouvé leur motif. Restauration correcte : une
+copie des fichiers **avant** mutation, dans le scratchpad. `git checkout` restaure une référence,
+pas un état de travail.
+
+**`tooling/schemas/validate.ts`.** `artifact-manifest.schema.json` était déclaré dans `shared` ;
+l'ajouter aux `documents` pour que ses exemples soient validés l'enregistrait deux fois, ce qu'Ajv
+refuse. Le doublon est écarté à la compilation plutôt qu'interdit au registre : l'interdire
+obligerait à choisir entre « d'autres schémas peuvent le référencer » et « ses exemples sont
+vérifiés ».
+
+**Écart avec la spec.** Aucun. Le schéma n'a pas bougé — il est le contrat, et deux consommateurs en
+dépendent déjà.
+
+**Prochain item.** **W6.c** — l'object store derrière un port, avec un backend en mémoire.

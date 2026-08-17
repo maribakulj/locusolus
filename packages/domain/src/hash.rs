@@ -5,7 +5,14 @@ use std::fmt;
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _};
 
 /// Les algorithmes acceptés, avec la longueur de digest qui les identifie.
-const ALGORITHMS: [(&str, usize); 2] = [("sha256", 64), ("sha512", 128)];
+///
+/// **Exactement ceux du vocabulaire LEP**, et `packages/artifacts/tests/hash_vocabulary.rs` le
+/// vérifie contre le schéma lui-même plutôt que contre une copie — depuis là-bas, parce que le
+/// domaine ne lit pas de fichiers, pas même en test. Le domaine avait deux entrées et le vocabulaire trois : un manifeste
+/// parfaitement conforme, hashé en `blake3`, était refusé à la lecture par le seul pair qui devait
+/// le comprendre. Une table plus étroite que le contrat ne se voit pas — elle ressemble à un
+/// document invalide.
+const ALGORITHMS: [(&str, usize); 3] = [("sha256", 64), ("sha512", 128), ("blake3", 64)];
 
 /// Un hash de contenu, préfixé par son algorithme.
 ///

@@ -71,7 +71,13 @@ export function compile(
   // date that is not a date is a defect, so it is asserted.
   addFormats(ajv, ["date-time", "uri", "email"]);
   const findings: Finding[] = [];
-  const files = [...registry.shared, ...registry.documents.map((entry) => entry.schema)];
+  // A schema can legitimately be both: referenced by others AND validated against its own
+  // examples. Registering it twice is what Ajv refuses, not declaring it in both lists — so the
+  // duplicate is dropped here rather than forbidden in the registry, where forbidding it would
+  // mean choosing between "other schemas may reference it" and "its examples are checked".
+  const files = [
+    ...new Set([...registry.shared, ...registry.documents.map((entry) => entry.schema)]),
+  ];
   for (const file of files) {
     const where = `schemas/${file}`;
     let schema: AnySchemaObject;

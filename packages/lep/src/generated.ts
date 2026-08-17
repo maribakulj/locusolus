@@ -791,6 +791,7 @@ export type EpistemicCommit = {
  * Les documents qu'un pair peut envoyer ou recevoir, dans l'ordre du registre.
  */
 export const LEP_DOCUMENTS = [
+  "ArtifactManifest",
   "CapabilityManifest",
   "MissionEnvelope",
   "SandboxAttestation",

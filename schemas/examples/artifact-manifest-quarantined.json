@@ -1,0 +1,18 @@
+{
+  "_fixture": {
+    "name": "artifact-manifest-quarantined-minimal",
+    "expect": "valid",
+    "pairs_with": "artifact-manifest-promoted.json",
+    "note": "Le minimum que le schéma exige, dans l'état où entre un contenu venu d'une source non fiable (§19.2). Il n'en sort que par une revue : aucune valeur de `state` ne signifie « promu automatiquement ». Un champ facultatif absent doit rester absent à la réécriture — réémettre `\"derived_from\": []` là où l'entrée n'avait rien ferait diverger deux pairs sur une donnée que ni l'un ni l'autre n'a écrite."
+  },
+  "artifact_id": "artifact-scraped-page",
+  "content_hash": "sha512:abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
+  "media_type": "text/html",
+  "size_bytes": 51200,
+  "produced_by": {
+    "task_id": "task-collect-sources",
+    "attempt": 1
+  },
+  "classification": "restricted",
+  "state": "quarantined"
+}

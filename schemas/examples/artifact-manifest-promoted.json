@@ -1,0 +1,49 @@
+{
+  "_fixture": {
+    "name": "artifact-manifest-promoted-with-every-optional-field",
+    "expect": "valid",
+    "pairs_with": "artifact-manifest-quarantined.json",
+    "note": "Un manifeste promu qui porte TOUS les champs facultatifs du schéma — droits, hints, intégrité, filename, horodatages, dérivations typées. Il existe pour que l'aller-retour du type Rust prouve qu'aucun d'eux ne se perd à la traversée : un manifeste minimal ne prouverait que le noyau, et c'est justement le reste qu'un service amputerait sans le dire."
+  },
+  "artifact_id": "artifact-figure-3",
+  "content_hash": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  "media_type": "image/svg+xml",
+  "size_bytes": 184320,
+  "filename": "figure-3-recall-vs-budget.svg",
+  "produced_by": {
+    "task_id": "task-plot-recall",
+    "attempt": 2,
+    "agent_id": "agent-analysis-01",
+    "worker_id": "canterel-vm-linux-01",
+    "run_id": "run-2026-08-17-0007"
+  },
+  "classification": "internal",
+  "rights": {
+    "license": "CC-BY-4.0",
+    "holder": "Laboratoire Locus Solus",
+    "note": "Figure dérivée d'un jeu de mesures interne."
+  },
+  "derived_from": [
+    {
+      "artifact_id": "artifact-measurements",
+      "content_hash": "blake3:fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210",
+      "relation": "derived_from"
+    },
+    {
+      "artifact_id": "artifact-figure-3-draft",
+      "relation": "supersedes"
+    }
+  ],
+  "viewer_hints": {
+    "kind": "vector-figure",
+    "preview_artifact_id": "artifact-figure-3-thumb"
+  },
+  "state": "promoted",
+  "integrity": {
+    "verified_at": "2026-08-17T11:20:04.000Z",
+    "verified_hash_matches": true,
+    "scanner": "clamav-1.3"
+  },
+  "declared_at": "2026-08-17T11:19:58.000Z",
+  "uploaded_at": "2026-08-17T11:20:02.000Z"
+}

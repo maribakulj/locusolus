@@ -107,8 +107,11 @@ export function buildModel(schemasDir: string): { model: Model; findings: Findin
 }
 
 function schemaFiles(registry: Registry): string[] {
-  // Shared first so the vocabulary aliases exist before anything refers to them.
-  return [...registry.shared, ...registry.documents.map((entry) => entry.schema)];
+  // Shared first so the vocabulary aliases exist before anything refers to them. Deduplicated
+  // because a schema can be both: referenced by others AND validated against its own examples.
+  // Emitting it twice would produce two definitions of the same struct, which does not compile —
+  // a failure loud enough to find, but only after a regeneration nobody expected to break.
+  return [...new Set([...registry.shared, ...registry.documents.map((entry) => entry.schema)])];
 }
 
 function docOf(schema: Record<string, unknown>): string | undefined {
