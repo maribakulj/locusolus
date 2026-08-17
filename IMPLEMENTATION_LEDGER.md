@@ -3181,3 +3181,60 @@ non relâchables. Le reste est W14.
 **Prochain item.** **W13.f** — la projection du graphe d'exécution dans `packages/projections`,
 reconstruite depuis zéro, avec la quarantaine conforme à ADR 0013. W13.b a déjà répondu à la
 question qu'elle posait : le pli tient sur `lep/1.0` inchangé.
+
+---
+
+## 2026-08-17 — W13.f — La projection du graphe d'exécution, et deux gardes muettes
+
+**Périmètre.** `packages/projections/src/execution_graph.rs` et `tests/execution_graph.rs`, neufs ;
+`src/lib.rs` les expose. Aucune dépendance nouvelle. C'est la **troisième** projection du paquet,
+après « état de validation » et « registre des conflits » (ADR 0013, décision 5).
+
+**W13.b avait déjà payé la question.** Le pli avait établi que le graphe d'exécution est dérivable
+de `lep/1.0` **tel quel** ; cette projection le confirme depuis le journal, sans qu'aucun champ ait
+été ajouté au protocole. C'était l'ordre voulu par `docs/10` — « le pli décide si la projection
+s'écrit contre `lep/1.0` inchangé, et le découvrir après aurait coûté la projection ».
+
+**Aucun nœud d'agent, et c'est le sujet de W13.g.** Rien dans l'événement ne dit quel agent a agi.
+La projection ne peut donc pas en fabriquer, et un `worker_id` ne fait pas un agent — confondre la
+machine et le rôle rendrait le graphe organisationnel faux dès sa première jointure.
+
+**Deux mutations sont passées vertes au premier essai, et les deux disaient la même chose.**
+
+1. **Le préfixe de sorte retiré** laissait la suite verte : les tests employaient `node_id` pour
+   composer leurs attentes, donc ils **suivaient** la mutation au lieu de la voir. Un test qui
+   construit son attendu avec la fonction qu'il vérifie compare une valeur à elle-même. Le test
+   ajouté écrit les identifiants en toutes lettres — `task:x`, `run:x`, `attempt:x#1` — et exige
+   qu'une tâche et un run de même clé restent deux nœuds.
+2. **Le résumé rendu constant** laissait la suite verte : `verify` compare le résumé courant à celui
+   de la reconstruction, et deux constantes s'accordent toujours. Un résumé qui ne dépend pas de
+   l'état ferait passer la propriété de reconstruction **pour n'importe quelle projection**. Le test
+   ajouté exige que deux graphes différents aient des résumés différents, et qu'un même état en
+   rende un stable.
+
+C'est la même leçon qu'en W13.b — une garde muette est indiscernable d'un système sain — et c'est la
+quatrième fois de ce chantier. Le motif se précise : **la garde et le test qui l'emploie ne doivent
+pas partager de code**, sans quoi ils bougent ensemble.
+
+**Ce que le test d'orphelines vaut, et comment on le sait.** La propriété tient par construction :
+aucune arête n'est posée sans que ses deux nœuds aient été créés, et `ExecutionGraph` n'expose aucun
+moyen d'en ajouter une autrement. Un test ne peut donc pas fabriquer d'orpheline sans écrire une
+mise en scène — j'en avais commencé une, elle ne construisait rien. Ce qui donne prise au test est
+la **mutation** : poser une arête avant de créer son nœud le fait rougir, ainsi que deux autres.
+
+**La quarantaine est celle d'ADR 0013.** Décision 3 : une projection en défaut **s'arrête**, elle ne
+saute pas — le test vérifie que l'événement suivant n'a pas été consommé, parce que sauter
+présenterait un état amputé comme s'il était complet. Décision 4 : l'écriture canonique continue
+pendant ce temps, et c'est ce qui distingue une projection en défaut d'une panne du système.
+
+**Six mutations vérifiées rouges** : une arête posée avant son nœud (3 tests) ; le préfixe de sorte
+retiré (1, après correction du test) ; l'attempt oubliant sa tâche (1) ; un artefact sans identité
+accepté au lieu de mettre en quarantaine (2) ; `reset` gardant le watermark (1) ; le résumé rendu
+constant (1, après correction du test). Restauration confirmée verte.
+
+**Écart avec la spec.** Aucun. §9.3 liste douze projections ; ce paquet en porte trois, et ADR 0013
+décision 5 dit pourquoi — « ne crée pas 34 stubs vides ». Les neuf autres attendent ce qui leur
+donnera de quoi projeter.
+
+**Prochain item.** **W13.g** — la projection du graphe organisationnel réalisé, par jointure
+`assigned_agent_id` × événements. Ses deux dépendances, W13.b et W13.d, sont mergées.
