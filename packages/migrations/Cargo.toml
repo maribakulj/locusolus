@@ -1,0 +1,19 @@
+[package]
+name = "locus-migrations"
+description = "Migrations de schéma : upcasters, réversibilité déclarée, tests de portabilité."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+locus-event-store = { path = "../event-store" }
+locus-protocol = { path = "../protocol" }

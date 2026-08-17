@@ -5,6 +5,7 @@ members = [
     "packages/event-store",
     "packages/graph",
     "packages/lep",
+    "packages/migrations",
     "packages/projections",
     "packages/protocol",
     "packages/validation",
