@@ -1,0 +1,17 @@
+[package]
+name = "locus-workflow"
+description = "Définitions de workflow indépendantes du backend et règles de déterminisme (§11)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+locus-domain = { path = "../domain" }
+
+[dev-dependencies]
+locus-protocol = { path = "../protocol" }
