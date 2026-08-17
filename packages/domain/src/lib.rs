@@ -27,16 +27,22 @@
 //!    versions, le second une version immuable. Deux types distincts, parce que rien à
 //!    l'exécution ne les distinguerait : ce sont deux ULID de même forme.
 
+pub mod branch;
 pub mod envelope;
 pub mod hash;
 pub mod ids;
 pub mod lineage;
+pub mod objects;
 pub mod status;
+pub mod task;
 pub mod validation;
 
+pub use branch::{Branch, BranchState, Condition, Origin, TransitionError, ValidationWitness};
 pub use envelope::{Confidentiality, Envelope, Ref, Revision};
 pub use hash::{ContentHash, ParseHashError};
 pub use ids::{RevisionId, RevisionKind, StableId, StableKind};
 pub use lineage::Lineage;
+pub use objects::{CoreObjectType, ObjectType, ParseObjectTypeError};
 pub use status::Status;
+pub use task::{ForbiddenTransition, TaskState, implies_validated_claims, transition};
 pub use validation::ValidationLevel;

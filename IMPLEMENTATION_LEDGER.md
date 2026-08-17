@@ -648,3 +648,72 @@ espaces qu'un LCG ne balaie pas honnêtement, la dépendance se justifiera à ce
 **Prochain item.** W1.b `[R]` — agrégats organisationnels (§7.1) et objets épistémiques (§7.3), test
 de sortie « property tests ». Ses dépendances sont satisfaites : l'enveloppe livrée ici est ce que
 §7.3 enveloppe, et §7.1 s'écrit sur les mêmes identifiants typés.
+
+## 2026-08-17 — W1.b — agrégats organisationnels (§7.1) et objets épistémiques (§7.3)
+
+**Périmètre.** Trois modules ajoutés à `packages/domain` : `branch.rs`, `task.rs`, `objects.rs`,
+plus `tests/aggregate_invariants.rs`. Aucun autre fichier touché.
+
+**Tests exécutés.** `cargo test --all-features` : 15 property tests neufs, 25 sur le domaine, 58 au
+total sur le workspace, 0 échec. `npm run check` : les neuf portes vertes.
+
+Le test de sortie de W1.b — « property tests » — passe. Vérifié par mutation, quatre fois : rendre
+`merged` non terminal, faire valoir un témoin vide pour une validation, laisser une extension
+masquer un type core, ou faire sauter une attente au résultat font rougir cinq tests au total.
+
+**Décisions prises.** Cinq.
+
+_Le graphe d'états de `Branch` n'est pas inventé._ §7.1 liste les dix états d'une branche mais **ne
+dessine aucune flèche**, contrairement à `Task`. `transition` refuse donc exactement deux choses —
+sortir de `merged`, atteindre `validated` — parce que ce sont les deux seules que le texte interdit.
+Écrire une table de transitions complète ici interdirait des passages que personne n'a interdits, et
+une table inventée est plus difficile à corriger qu'une table absente : elle a l'air d'une décision.
+
+_`validated` demande un témoin, pas un drapeau._ Les conditions viennent d'une politique
+(`review_policy_id`) que ce crate ne connaît pas, et §8.2 en fait le travail des packs
+disciplinaires. Ce que le domaine peut garantir, c'est qu'**on ne passe pas à `validated` sans avoir
+répondu à la question** : `ValidationWitness` porte les conditions et leur verdict, et le refus les
+nomme. Un témoin vide est refusé — « aucune condition » n'est pas « toutes satisfaites », c'est une
+politique qu'on n'a pas lue.
+
+_`reopen` porte son nom._ §7.1 : « `merged` est terminal **sauf opération explicite `reopen`** ».
+Permettre une transition ordinaire depuis `merged` en aurait fait une réouverture qui ne dit pas son
+nom.
+
+_L'origine d'une branche est une énumération._ Invariant 2 : « un fork référence **exactement** la
+révision d'origine ». `forked_from_branch_id` et `fork_revision` ne se remplissent donc jamais l'un
+sans l'autre : une branche qui saurait de quelle branche elle est issue sans savoir à quelle
+révision aurait un point de départ qui bouge quand l'origine avance. Même geste que `Lineage` en
+W1.a — un couplage rendu vrai par construction plutôt que par un contrôle à réécrire dans chaque
+constructeur.
+
+_Une extension ne peut pas porter le nom d'un type core._ §7.3 : « les extensions ne doivent pas
+modifier la signification des types core ». Un pack qui déclarerait son propre `Claim` ne
+modifierait pas le type core — il le **remplacerait**, silencieusement, et le graphe contiendrait
+deux notions de `Claim` qu'aucune lecture ultérieure ne saurait séparer. `ObjectType::parse` refuse
+donc l'homonymie, ce qui est la seule interprétation de la phrase qui reste vraie une fois le pack
+installé. Le test la vérifie sur les quarante noms.
+
+**Une fonction qui rend toujours `false`.** `implies_validated_claims` existe pour que la phrase de
+§7.1 — « une tâche `succeeded` signifie que le worker a rempli son contrat technique ; elle ne
+signifie pas que ses claims sont validés » — soit **écrite quelque part** plutôt que sous-entendue.
+Le jour où quelqu'un voudra la faire rendre `true` pour un cas particulier, il faudra qu'il
+l'écrive, et le diff le montrera. C'est le même geste que l'absence de `setBalance` en W2.13 ou de
+`promote` en W2.15, pris par l'autre bout.
+
+**Écart avec la spec.** Une note. §7.1 décrit six agrégats organisationnels — `Project`,
+`ResearchProgram`, `Workstream`, `Branch`, `Task`, `AgentTemplate` — et ce sprint en livre deux :
+ceux qui portent des **invariants énoncés** et une machine à états. Les quatre autres sont des
+listes de champs sans contrainte propre à ce stade ; les écrire maintenant produirait des structures
+que rien ne teste, ce que `docs/10` interdit explicitement (« ne crée pas 34 stubs vides : chaque
+commit livre une garantie testée »). Ils viendront avec W1.c, qui leur donnera un event store et
+donc des invariants de persistance.
+
+**Correction de méthode.** L'entrée de W1.a a fait rougir `check:format` en CI : j'avais lancé
+`npm run check` **avant** d'écrire au ledger, donc la porte n'avait rien à voir localement. Corrigé
+en une passe, sans changement de contenu. Sur ce dépôt, la vérification finale vient après
+l'écriture du ledger.
+
+**Prochain item.** W1.c `[M]` — `packages/event-store` : enveloppe de §10.1, append-only logique,
+concurrence optimiste. Test de sortie : « replay complet + conflit de concurrence détecté ». Premier
+item `[M]` de W1 : il demande donc un ADR et un plan de rollback.
