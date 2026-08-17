@@ -3412,3 +3412,47 @@ redevenu ordinaire (2) ; le plafond devenu égalité stricte (1) ; l'ordre de se
 **Prochain item.** **W7.c** — la `ContextView` de §16.2 : ce qui a été vu, arrêté par hash et par
 watermark. Les cas adverses de ce sprint existent maintenant **avant** elle, ce qui est exactement
 ce que l'ordre de W7 cherchait à obtenir.
+
+---
+
+## 2026-08-17 — W7.c — La `ContextView` : ce qu'on savait, et de quand
+
+**Périmètre.** `packages/review/src/context_view.rs` et `tests/context_view.rs`, neufs ;
+`src/lib.rs` les expose. Aucune dépendance nouvelle.
+
+**Deux mots portent tout : immuable, et watermark.** §16.2 : « une `ContextView` est immuable,
+adressée par hash et rattachée à l'exécution. Elle permet de savoir exactement ce que l'agent
+**pouvait** connaître. » Sans immuabilité, la vue dit ce qu'on sait aujourd'hui plutôt que ce qu'on
+savait ; sans watermark, elle ne dit pas de quand date ce « aujourd'hui ».
+
+**Une vue ne contient pas l'avenir.** Un élément venu d'une position postérieure au watermark est
+refusé, et le refus le dit. C'est la faute qu'on ne peut plus détecter après coup si on ne la refuse
+pas à la construction : une vue qui contiendrait un événement plus récent qu'elle-même paraîtrait
+simplement mieux informée.
+
+**La borne est inclusive**, et un test le fixe : le watermark est « jusqu'où on a lu », pas « avant
+où ». La mutation qui la rend exclusive fait rougir.
+
+**Le filtre est celui de W7.b, écrit avant.** C'est l'ordre inscrit en tête de W7 qui paie ici : les
+cas adverses existaient avant cette vue, donc ils n'ont pas pu être écrits pour qu'elle passe. Et si
+W7.b apprend une sixième forme de contamination, la vue s'en protège sans être modifiée.
+
+**Ce qui est écarté est nommé.** §16.2 porte `redactions` : ce qui a été retiré fait partie de ce
+que la vue dit. Une exclusion silencieuse rendrait indiscernables deux vues vides — celle qui
+n'avait rien à écarter et celle qui a tout écarté. Un test compare exactement ces deux-là.
+
+**Une vue ne s'augmente pas.** Aucune méthode n'ajoute d'élément après construction : voir plus
+demande une **autre** vue, avec son propre watermark et son propre hash. C'est la même forme que le
+dossier figé de W7.a, et pour la même raison — ce qui a été vu doit rester ce qui a été vu.
+
+**Six mutations vérifiées rouges** : la vue acceptant l'avenir (1 test) ; la borne rendue exclusive
+(1) ; le filtre de contamination débranché (3) ; la rédaction rendue silencieuse (2) ; `could_know`
+répondant toujours oui (2) ; le plafond de la vue cessant d'être celui du destinataire (1).
+Restauration confirmée verte.
+
+**Écart avec la spec.** Aucun. §16.2 porte dix-huit champs ; six sont modélisés — ceux dont un
+consommateur exécutable existe. `query`, `included_types`, `max_depth`, `diversity_policy`,
+`token_budget` et les autres appartiennent au retrieval hybride de §16.3, qui n'est pas dans W7 tel
+que découpé : ils arriveront avec le moteur qui les lit.
+
+**Prochain item.** **W7.d** — rebuttal et méta-revue (§17.6, §17.7).

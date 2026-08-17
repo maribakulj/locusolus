@@ -29,10 +29,12 @@
 //! garantie par construction.
 
 pub mod contamination;
+pub mod context_view;
 pub mod dossier;
 pub mod review;
 
 pub use contamination::{Contamination, ContextItem, Recipient, contradictions_dropped, inspect};
+pub use context_view::{ContextView, ContextViewError, Redaction};
 pub use dossier::{Blindness, DossierError, Draft, Frozen, IndependenceRequirement};
 pub use review::{
     Finding, IndependenceAttestation, Party, Review, ReviewError, Severity, Verdict, attest,
