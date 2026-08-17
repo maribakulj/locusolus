@@ -3108,3 +3108,76 @@ raison d'ADR 0016 : rien d'exécutable ne les consomme encore. `capability_requi
 `team.modify`, le CAS par `expected_revision`, l'annulation par commit inverse, l'autorité de
 proposition agentique. C'est le premier item où une **relation** entre agents s'écrit, et ADR 0016
 exige qu'elle ait un consommateur exécutable et testé.
+
+---
+
+## 2026-08-17 — W13.e — La proposition de coordination : un seul chemin, quatre bornes
+
+**Périmètre.** `packages/coordination/src/proposal.rs` et `tests/proposal.rs`, neufs ; `src/lib.rs`
+les expose. Aucune dépendance nouvelle.
+
+**Une seule sorte de relation, et c'est la décision 4 appliquée.** `review`, parce qu'elle a un
+consommateur exécutable et testé — l'indépendance de §14.4 et l'invariant 11 s'y appuient.
+`mentors`, `delegates_to`, `supervises` n'en ont pas : les écrire en ferait du vocabulaire que rien
+ne vérifie, et un test refuse explicitement de les relire.
+
+**Le CAS n'invente rien.** La base d'une proposition **est** l'`expected_revision` de §22.2, et
+`Expected` de `packages/event-store` « n'a pas de variante “peu importe” ». Ce module compare, et
+c'est tout : aucun compteur, aucun magasin, aucun bus (décision 5). Le refus **dit quoi faire** —
+`needs_rebase` et le message en toutes lettres — parce qu'un « conflit » sans consigne laisse
+l'appelant réessayer à l'identique jusqu'à ce que quelqu'un lise le code.
+
+**L'annulation est un commit inverse.** Chaque variante de `Change` a son inverse exact, et
+`inverse().inverse()` est l'identité — sans quoi annuler une annulation dériverait. Aucune version
+n'est supprimée : retirer une version rendrait l'histoire fausse, puisqu'on ne pourrait plus dire
+qu'une mission a tourné sous une organisation qui, désormais, n'aurait jamais existé.
+
+**La justification cite une révision, et l'existence est vérifiée par un port.** `EpistemicIndex`
+pose la seule question dont une proposition a besoin — « cette révision existe-t-elle ? » — sans
+traverser quoi que ce soit. C'est exactement ce que le commentaire de `boundaries.json` annonçait :
+« une justification de proposition cite un objet épistémique par son `RevisionId`, obtenu de
+`locus-domain` : elle ne traverse jamais le graphe. » Par **révision** et non par concept : citer un
+`stable_id` désignerait « la dernière version, quelle qu'elle soit », donc une justification qui
+change après coup.
+
+**L'ordre des deux refus est une décision, pas un hasard.** Le mode est vérifié **avant** la
+citation : un agent en `observed` ne doit pas apprendre, par la nature du refus, quelles révisions
+existent. C'est peu, et c'est gratuit à tenir — une mutation qui inverse les deux fait rougir un
+test écrit pour ça.
+
+**Le même chemin pour un agent et pour un humain.** Décision 7 : « une proposition écrite par un
+agent est **le même objet** qu'une proposition humaine et suit le même chemin ». Le test le vérifie
+en faisant parcourir aux deux la même suite d'appels et en comparant ce qui en sort. Ce qui les
+distingue est le **mode**, pas un second circuit.
+
+**Le défaut est `observed`, et c'est §33.** « Rendre toute action autonome sans seuil humain » est
+un non-objectif explicite de la V1 : le mode fermé n'est pas une précaution. `bounded` et `operator`
+n'existent pas ici — ils demandent la classe de risque dérivée et l'anti-gaming, qui sont W14 et
+W16. Un humain, lui, propose sous tout mode : le mode borne ce que les **agents** peuvent faire, pas
+ce que l'institution peut décider d'elle-même.
+
+**`forbid_self_approval` vaut pour tout le monde.** §20.3 le porte déjà, et ADR 0016 en fait une
+borne qui ne se relâche dans aucun mode : c'est ce qui empêche un agent de contrôler les règles
+décidant de son propre remplacement. Le test vérifie aussi le cas humain — ce n'est pas une méfiance
+envers les agents.
+
+**La troisième garantie se prouve par absence, à deux niveaux.** Aucun chemin de code ne modifie une
+`MissionEnvelope` émise ni le hash de sa `ContextView` : d'abord parce que ce crate ne dépend ni de
+`locus-lep` ni de `locus-graph` — il n'a aucun type de mission sous la main — ensuite parce qu'aucun
+fichier source ne nomme la mission ni la vue de contexte, ce qui ferme la manipulation par chaîne.
+Le test lit le `Cargo.toml` et les sources, pas une liste recopiée : c'est ce qui le rend capable de
+voir arriver la dépendance qu'il interdit.
+
+**Sept mutations vérifiées rouges** : le CAS qui ne compare plus (1 test) ; le refus qui cesse de
+dire de rebaser (1) ; la justification non confrontée à l'index (1) ; l'auto-approbation redevenue
+possible (1) ; le mode `observed` laissant proposer (2) ; l'inverse qui n'inverse plus (2) ; l'ordre
+des refus inversé, révélant l'index (1). Restauration confirmée verte.
+
+**Écart avec la spec.** Aucun. Ce que W13.e ne livre pas et que la spec nomme : le moteur de
+politique lui-même (§20), qui « peut accepter, refuser, modifier ou soumettre à approbation ». Ici
+la politique est réduite au mode et à `forbid_self_approval` — les deux bornes qu'ADR 0016 déclare
+non relâchables. Le reste est W14.
+
+**Prochain item.** **W13.f** — la projection du graphe d'exécution dans `packages/projections`,
+reconstruite depuis zéro, avec la quarantaine conforme à ADR 0013. W13.b a déjà répondu à la
+question qu'elle posait : le pli tient sur `lep/1.0` inchangé.
