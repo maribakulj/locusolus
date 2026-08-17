@@ -220,9 +220,10 @@ d'un object store pour être faux.
 | # | Commit | Test de sortie |
 |---|---|---|
 | W6.a `[R]` | `packages/artifacts` : `ArtifactManifest` et la machine à états quarantaine/promotion | un contenu dont le hash n'est pas celui qui avait été déclaré est refusé ; `declared → promoted` n'existe pas ; un artefact promu ne se déprome pas ; l'histoire des états traversés ne s'efface pas |
-| W6.b `[R]` | l'object store derrière un port, avec un backend en mémoire pour les tests | aucun octet n'entre sans manifeste déclaré ; la taille annoncée borne l'upload avant de l'accepter ; un contenu non conforme ne laisse rien derrière lui |
-| W6.c `[R]` | `RunManifest` : ce qu'il faut pour rejouer une exécution | un run dont l'environnement n'est pas identifié par digest n'est pas reproductible, et le manifeste le dit plutôt que de l'omettre |
-| W6.d `[R]` | workflow de reproduction sur le backend déterministe de W3 | rejouer un `RunManifest` produit les mêmes hashes d'artefacts, et une divergence est un résultat rendu, pas une erreur avalée |
+| W6.b `[R]` | **correction de W6.a** : le manifeste dit ce que le schéma dit, et la traduction vers le fil existe | un manifeste portant tous les champs facultatifs fait un aller-retour **exact** par `artifact-manifest.schema.json` ; un état, une relation ou une taille hors bornes sont refusés par leur nom ; le domaine ne construit rien que le schéma refuserait |
+| W6.c `[R]` | l'object store derrière un port, avec un backend en mémoire pour les tests | aucun octet n'entre sans manifeste déclaré ; la taille annoncée borne l'upload avant de l'accepter ; un contenu non conforme ne laisse rien derrière lui |
+| W6.d `[R]` | `RunManifest` : ce qu'il faut pour rejouer une exécution | un run dont l'environnement n'est pas identifié par digest n'est pas reproductible, et le manifeste le dit plutôt que de l'omettre |
+| W6.e `[R]` | workflow de reproduction sur le backend déterministe de W3 | rejouer un `RunManifest` produit les mêmes hashes d'artefacts, et une divergence est un résultat rendu, pas une erreur avalée |
 
 ## W7 — Memory / review / portfolio
 

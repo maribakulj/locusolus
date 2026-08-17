@@ -68,6 +68,10 @@
     {
       "schema": "lep/1.0/epistemic-commit.schema.json",
       "examples": ["invalid-commit-self-validated.json"]
+    },
+    {
+      "schema": "artifacts/1.0/artifact-manifest.schema.json",
+      "examples": ["artifact-manifest-promoted.json", "artifact-manifest-quarantined.json"]
     }
   ],
   "shared": [

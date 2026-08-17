@@ -8,8 +8,10 @@
 //! est arrivé est ce qui est arrivé.
 
 use locus_artifacts::{
-    ArtifactManifest, ArtifactState, ContentHash, ManifestError, ProducedBy, transition,
+    ArtifactManifest, ArtifactState, Derivation, DerivationRelation, ManifestError, ProducedBy,
+    transition,
 };
+use locus_domain::{Confidentiality, ContentHash};
 
 // ---------------------------------------------------------------------------------------------
 // Fixtures
@@ -19,7 +21,7 @@ const PROMISED: &str = "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0
 const OTHER: &str = "sha256:fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210";
 
 fn hash(value: &str) -> ContentHash {
-    ContentHash::new(value).expect("hash bien formé")
+    ContentHash::parse(value).expect("hash bien formé")
 }
 
 fn declared() -> ArtifactManifest {
@@ -28,11 +30,8 @@ fn declared() -> ArtifactManifest {
         hash(PROMISED),
         "image/jp2",
         4_194_304,
-        ProducedBy {
-            task_id: "task-0007".to_owned(),
-            attempt: 2,
-        },
-        "public",
+        ProducedBy::new("task-0007", 2),
+        Confidentiality::Public,
     )
     .expect("manifeste valide")
 }
@@ -47,8 +46,8 @@ fn declared() -> ArtifactManifest {
 fn un_contenu_qui_n_est_pas_celui_promis_est_refuse() {
     match declared().uploaded(&hash(OTHER)) {
         Err(ManifestError::HashMismatch { declared, observed }) => {
-            assert_eq!(declared.as_str(), PROMISED);
-            assert_eq!(observed.as_str(), OTHER);
+            assert_eq!(declared.to_string(), PROMISED);
+            assert_eq!(observed.to_string(), OTHER);
         }
         other => panic!("le hash déclaré doit être confronté, pas remplacé : {other:?}"),
     }
@@ -60,22 +59,23 @@ fn le_contenu_promis_fait_avancer_l_artefact() {
         .uploaded(&hash(PROMISED))
         .expect("le contenu est celui qui avait été déclaré");
     assert_eq!(uploaded.state(), ArtifactState::Uploaded);
-    assert_eq!(uploaded.declared_hash().as_str(), PROMISED);
+    assert_eq!(uploaded.declared_hash().to_string(), PROMISED);
 }
 
 #[test]
 fn un_hash_mal_forme_n_entre_pas_dans_un_manifeste() {
+    // Le type vient du domaine depuis W6.b : ce crate en avait écrit un deuxième, plus permissif
+    // que celui de §7.7 — il acceptait l'hexadécimal majuscule, donc deux écritures d'un même
+    // hash, donc deux formes canoniques d'un même contenu.
     for rejected in [
         "",
         "sha256:court",
         "md5:0123456789abcdef",
         PROMISED.trim_end_matches('f'),
+        &PROMISED.to_uppercase(),
     ] {
         assert!(
-            matches!(
-                ContentHash::new(rejected),
-                Err(ManifestError::MalformedHash { .. })
-            ),
+            ContentHash::parse(rejected).is_err(),
             "« {rejected} » ne désigne pas un contenu"
         );
     }
@@ -88,11 +88,8 @@ fn un_manifeste_sans_identite_ni_taille_est_refuse() {
         hash(PROMISED),
         "image/jp2",
         1,
-        ProducedBy {
-            task_id: "task-0007".to_owned(),
-            attempt: 1,
-        },
-        "public",
+        ProducedBy::new("task-0007", 1),
+        Confidentiality::Public,
     );
     assert_eq!(
         missing,
@@ -106,11 +103,8 @@ fn un_manifeste_sans_identite_ni_taille_est_refuse() {
         hash(PROMISED),
         "image/jp2",
         0,
-        ProducedBy {
-            task_id: "task-0007".to_owned(),
-            attempt: 1,
-        },
-        "public",
+        ProducedBy::new("task-0007", 1),
+        Confidentiality::Public,
     );
     assert_eq!(
         empty,
@@ -251,9 +245,26 @@ fn le_refus_nomme_ce_qui_etait_possible() {
 /// chemin ferait pointer la provenance vers ce qui se trouve aujourd'hui à cet endroit.
 #[test]
 fn la_derivation_se_declare_par_hash() {
-    let derived = declared().derived_from(vec![hash(OTHER)]);
-    assert_eq!(derived.parents().len(), 1);
-    assert_eq!(derived.parents()[0].as_str(), OTHER);
+    let parent = Derivation::new(
+        "artifact-source",
+        DerivationRelation::DerivedFrom,
+        Some(hash(OTHER)),
+    )
+    .expect("un parent identifié");
+    let derived = declared().with_derivations(vec![parent]);
+    assert_eq!(derived.derivations().len(), 1);
+    assert_eq!(
+        derived.derivations()[0]
+            .content_hash()
+            .map(ToString::to_string)
+            .as_deref(),
+        Some(OTHER)
+    );
+}
+
+#[test]
+fn une_derivation_sans_parent_identifie_ne_designe_rien() {
+    assert!(Derivation::new("  ", DerivationRelation::Reproduces, None).is_err());
 }
 
 #[test]
