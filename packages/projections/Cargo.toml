@@ -1,0 +1,18 @@
+[package]
+name = "locus-projections"
+description = "Les projections reconstructibles : watermark, rebuild, quarantaine, checksums."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+locus-domain = { path = "../domain" }
+locus-event-store = { path = "../event-store" }
+locus-protocol = { path = "../protocol" }
+serde = { workspace = true }
+serde_json = { workspace = true }

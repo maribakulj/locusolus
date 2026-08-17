@@ -38,4 +38,4 @@ pub use envelope::{
     StreamId,
 };
 pub use memory::MemoryEventStore;
-pub use store::{Append, AppendError, Appended, EventStore, Expected};
+pub use store::{Append, AppendError, Appended, EventStore, Expected, Sequenced};
