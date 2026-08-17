@@ -195,8 +195,15 @@ apporte.
 ## W5 — Toolchains
 
 `EnvironmentBlueprint`/Builder ; chaîne lockfile → build OCI → SBOM → scan → health checks →
-signature → digest ; profils `base`, `python-science`, `math-formal`, `ml-cpu`, `browser`, `dh` ;
-capabilities MPS/CUDA de worker. Les fichiers de `templates/environment/` sont le point de départ.
+signature → digest ; les treize profils de §19.4 ; capabilities MPS/CUDA de worker. Les fichiers de
+`templates/environment/` sont le point de départ — et ce sont bien des points de départ : aucun ne
+porte `version:` ni `image:`, tous deux obligatoires au schéma, et `ml-mps.yaml` porte un champ
+`trust:` que le schéma ne définit pas.
+
+| # | Commit | Test de sortie |
+|---|---|---|
+| W5.a `[R]` | `packages/environments` : `ToolchainProfile` et `EnvironmentBlueprint`, avec les invariants que le schéma de W0.5 ne peut pas exprimer | un profil répété, un préféré inférieur au minimum, une variable dont le nom annonce un secret et une image par tag sont refusés, chacun par son nom |
+| W5.b `[R]` | le Builder : lockfile → build OCI → SBOM → scan → health checks → signature → digest | à écrire quand W5.a est mergé. Il doit livrer les six sondes compilées que W4.d.3 attend dans l'image de base |
 
 ## W6 — Artifact / reproductibilité
 
