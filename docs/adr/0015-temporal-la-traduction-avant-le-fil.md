@@ -1,8 +1,12 @@
 # ADR 0015 — Temporal : la traduction d'abord, la liaison au fil quand elle sera possible
 
-**Statut :** accepté, avec un point d'arbitrage laissé ouvert et nommé. Met en œuvre
-`docs/SPEC_V1.md` §11.1. Concerne `packages/workflow-backends` (W3.d). Prolonge l'ADR 0003
-(déterministe avant Temporal) et touche l'ADR 0011 (Rust pour `locusd`).
+**Statut :** accepté, puis **amendé** — voir « Amendement : ce que la vérification a corrigé », en
+fin de document. L'arbitrage laissé ouvert par le corps du texte y est tranché, et **deux constats
+du contexte ci-dessous y sont corrigés**. Le corps est conservé tel qu'il a été écrit : un ADR qui
+se réécrirait pour avoir eu raison ne serait plus un enregistrement de décision.
+
+Met en œuvre `docs/SPEC_V1.md` §11.1. Concerne `packages/workflow-backends` (W3.d). Prolonge
+l'ADR 0003 (déterministe avant Temporal) et touche l'ADR 0011 (Rust pour `locusd`).
 
 ---
 
@@ -159,3 +163,80 @@ revenir reviendrait à réintroduire un `step` obligatoire qu'un moteur réel ne
 confusion entre casse et arrêt, et un `Running` là où l'on ne sait pas. Ce sont des corrections, pas
 des choix réversibles ; l'ADR les enregistre pour qu'on sache **pourquoi** elles ont l'air d'un
 détour.
+
+---
+
+## Amendement : ce que la vérification a corrigé
+
+Le corps de cet ADR a été écrit pendant W3.d, sur la foi d'un `cargo build` qui échouait. Après la
+clôture de W3, les crates ont été réexaminées une à une. **Deux constats étaient faux, et la
+correction change la recommandation.** Ils sont consignés ici plutôt que réécrits plus haut : un ADR
+qui se corrigerait en silence pour avoir eu raison ne serait plus un enregistrement de décision.
+
+### Correction 1 — l'échec de build était un prérequis manquant, pas un SDK cassé
+
+L'ADR dit que `temporal-sdk-core-api` « ne se construit pas dans cet environnement ». C'est vrai à
+la lettre et trompeur en substance. Le message exact du script de build fautif, relevé après coup :
+
+```
+failed to run custom build command for `prost-wkt-types v0.6.1`
+  Could not find `protoc`. […] To install it on Debian, run `apt-get install protobuf-compiler`
+```
+
+Une fois `protobuf-compiler` installé, `temporal-sdk-core-api` compile en une vingtaine de secondes.
+L'obstacle est donc **`protoc` comme prérequis de build**, ce qui est un coût réel — une ligne dans
+la CI, un contrôle dans `locus doctor` que §27.2 prévoit déjà — mais un coût borné, pas un mur.
+
+### Correction 2 — le crate dont nous avons besoin n'est pas en alpha
+
+L'ADR raisonne comme si « le SDK Rust » était un bloc en `0.1.0-alpha.1`. Il n'en est rien :
+
+| Crate | Version | Ce que c'est | Ce que Locus en fait |
+| --- | --- | --- | --- |
+| `temporal-sdk-core-protos` | **0.1.0** | protos vendorés + clients gRPC `tonic` générés | **tout ce dont `TemporalGateway` a besoin** |
+| `temporal-sdk-core-api` | 0.1.0 | interfaces cœur/langage | rien |
+| `temporal-sdk-core` | 0.1.0-**alpha.1** | runtime de **worker** | rien, si le worker n'est pas en Rust |
+
+Vérifié en construisant un binaire qui instancie `workflow_service_client::WorkflowServiceClient`
+ainsi que les cinq requêtes de la couture — `StartWorkflowExecution`, `SignalWorkflowExecution`,
+`TerminateWorkflowExecution`, `DescribeWorkflowExecution`, `QueryWorkflow`. Il compile et s'exécute.
+
+Par ailleurs, le crate `temporal-client` cité par le corps de l'ADR **n'existe pas** sur crates.io ;
+seul `squads-temporal-client` porte ce nom, chez le fork.
+
+### Ce que ces deux corrections déplacent
+
+Temporal se consomme par deux bouts, et Locus n'a pas le même besoin des deux :
+
+- **le client** — démarrer, signaler, arrêter, décrire, interroger. C'est exactement
+  [`TemporalGateway`], et c'est du non-alpha officiel ;
+- **le worker** — le processus qui exécute les corps de workflow et les activities. Là, le SDK Rust
+  d'authoring est l'alpha ; les SDK TypeScript, Go, Java et Python sont GA.
+
+La question n'était donc pas « quel crate », mais **qui exécute les corps de workflow**. L'ADR 0011
+a déjà réparti les langages : `apps/web`, le SDK client et Canterel en TypeScript, le contrôle en
+Rust. Un worker TypeScript est donc dans le périmètre existant et n'introduit aucun alpha.
+
+---
+
+## Décision 5 — la liaison se fera par le client gRPC officiel, et pas avant `locusd`
+
+**Retenu :** `temporal-sdk-core-protos` + `tonic` pour le client, dans `packages/workflow-backends` ;
+worker en TypeScript, avec le SDK GA. `protoc` devient un prérequis de build, ajouté à la CI et
+vérifié par `locus doctor`.
+
+**Écarté :** `temporal-sdk-core` alpha, qui ferait entrer un pré-release au cœur durable pour un
+rôle que TypeScript tient en GA. Écarté aussi le fork `squads-temporal-*`, qui ferait dépendre
+l'orchestration de tout le laboratoire de la maintenance d'un tiers. Écarté enfin le renoncement à
+§11.5 : la V1 se réserverait au mode `single-process-dev`, ce qui est une décision de périmètre et
+non un report.
+
+**Différé à W7, avec `locusd`.** La liaison exige un runtime asynchrone dans un binaire qui n'existe
+pas encore. L'écrire maintenant ferait choisir ce runtime depuis une dépendance au lieu du besoin —
+la même inversion que l'ADR 0003 nomme, une couche plus bas. La couture est commune aux cinq
+options : rien de ce qui est livré ne sera perdu, quelle que soit la façon dont on branche.
+
+**Ce que la V1 ne peut pas promettre en attendant.** §27.1 exige un profil `cloud-platform` avec
+« durable workflows », et §32 en fait un critère d'acceptation. Tant que la liaison n'existe pas,
+seul le mode dégradé de §11.5 est tenable — et §11.5 exige qu'il « ne [soit] jamais présenté comme
+équivalent au profil V1 de production ». C'est une dette datée, pas une zone grise.
