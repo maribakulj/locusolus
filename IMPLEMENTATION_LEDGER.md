@@ -1063,3 +1063,87 @@ constante pour être discuté d'un seul endroit, comme `STAGE_THRESHOLDS` en W2.
 migration aller-retour ». **Dernier item de W1**, et le troisième `[M]` : il demande donc un ADR et
 un plan de rollback. Ses dépendances sont satisfaites : §10.4 pose déjà les règles d'évolution, et
 l'enveloppe versionnée de W1.c porte le `schema_version` sur lequel un upcaster s'accroche.
+
+## 2026-08-17 — W1.h `[M]` — migrations de schéma et tests de portabilité (§10.4, §4.1)
+
+**Périmètre.** Un crate neuf : `packages/migrations` — `migration.rs`, `chain.rs`, `portability.rs`,
+plus `tests/round_trip.rs`. Un ADR : `docs/adr/0014-migrations-reversibilite-declaree.md`. Ajouté
+aux membres du workspace.
+
+**Tests exécutés.** `cargo test --all-features` : 10 tests neufs, 127 au total sur le workspace, 0
+échec. `npm run check` : les neuf portes vertes.
+
+Le test de sortie de W1.h — « migration aller-retour » — passe : sur une chaîne réversible, monter
+puis redescendre rend **exactement** le document d'origine, et à chaque palier intermédiaire, pas
+seulement d'un bout à l'autre. Vérifié par mutation, trois fois : faire rendre le document tel quel
+à une étape irréversible, faire sauter une étape en descente, ou faire taire le filet de portabilité
+font rougir trois tests.
+
+**La décision de ce sprint.** Une migration qui monte sait rarement redescendre, et **le prétendre
+est pire que l'admettre**. Une chaîne qui redescendrait à travers une étape destructive rendrait un
+document ancien **qui n'a jamais existé**, et il aurait l'air authentique — sur un journal dont la
+raison d'être est la provenance, c'est le faux dont on ne se remet pas, parce qu'aucune inspection
+ne le distingue d'un vrai.
+
+L'alternative habituelle — une descente « au mieux » qui remplit les manquants par des valeurs par
+défaut — produit exactement ce document. Elle est aussi ce que tout le monde écrit quand rien ne
+l'en empêche, parce qu'elle fait passer les tests de round-trip qu'on avait sous la main.
+
+D'où deux constructeurs et pas de troisième : `reversible` prend une montée **et** une descente,
+`lossy` prend une montée **et** la liste de ce qu'elle perd. Une migration sans descente et sans
+perte déclarée ne se construit pas. L'irréversibilité devient exécutoire plutôt que documentée : un
+commentaire « attention, destructif » n'aurait arrêté personne.
+
+**Décisions prises.** Quatre, argumentées dans l'ADR 0014.
+
+_La chaîne refuse, elle ne saute pas._ Un résultat partiel serait un document d'une version que
+l'appelant n'a pas demandée, sans que rien dans sa forme ne le dise. Le refus se traite :
+`irreversible_between` permet de **demander avant de tenter**. Une migration destructive n'est pas
+une faute — c'est parfois la seule façon d'avancer ; la faute est de le découvrir au moment où l'on
+avait besoin de redescendre.
+
+_Les étapes sont contiguës, et la chaîne panique sinon._ Une chaîne trouée est une erreur de
+programmation, pas une entrée : elle se construit en dur, au démarrage. La rendre récupérable
+inviterait à la rattraper à l'exécution — c'est-à-dire à migrer un document en sautant une forme
+qu'il a réellement eue.
+
+_La montée et la descente ne se confondent pas._ `upcast` avec `to < from` est refusé plutôt que
+réinterprété : appliquer un `up` là où un `down` était voulu produirait un document deux fois monté.
+
+_La portabilité de §4.1 se vérifie sur les noms, pas seulement sur les imports._ `boundaries.json`
+vérifie les dépendances ; il ne voit ni les noms de champ ni les littéraux. Un `Claim` qui porterait
+`s3_bucket` ne violerait aucune règle d'import et rendrait pourtant l'objet indéplaçable, ce que
+§4.1 interdit en toutes lettres. Les commentaires sont exclus du balayage, et un test vérifie que le
+filet **attrape** — même précaution qu'en W2.18 et W1.g, et pour la même raison.
+
+**Plan de rollback.** Dans l'ADR. En résumé : avant qu'un journal persistant existe, revenir coûte
+une suppression et une ligne de `Cargo.toml`. Après, la décision 1 a le rollback le plus
+**dangereux** des quatre — ajouter un constructeur « descente au mieux » est additif, ne casse rien
+visiblement, et fait perdre la garantie sans que personne ne s'en aperçoive. C'est la raison pour
+laquelle elle est prise maintenant.
+
+---
+
+## W1 est terminé
+
+Les huit items de W1 sont faits. Le workspace Rust compte **sept crates** — `protocol`, `lep`,
+`domain`, `event-store`, `projections`, `graph`, `validation`, `migrations` — et **127 tests**, tous
+verts, plus les neuf portes de `npm run check`.
+
+**Trois ADR produits par W1** : 0012 (port event-store avant driver), 0013 (projections
+reconstructibles), 0014 (migrations à réversibilité déclarée). Chacun porte son plan de rollback,
+comme le demande un item `[M]`.
+
+**Une constante de méthode, sur les huit items.** Chaque garantie que la spec énonce en négatif — ne
+pas déduire un niveau d'un statut, ne pas réduire une hyperarête en arêtes, ne pas réfuter
+automatiquement, ne pas supprimer un conflit, ne pas prétendre redescendre — est vérifiée **par
+l'absence de la fonction qui la violerait**, et la vérification est mutée pour prouver qu'elle
+rougit. Deux fois, la mutation a révélé un trou plutôt que de confirmer une garantie :
+`is_conclusive` en W1.g, et le compte des relations à sens unique en W1.e.
+
+**Ce qui reste ouvert pour la suite.** Les trois arbitrages cross-repo relevés pendant W2 —
+`message_id` de §18.2, la permission offline de §24.3, le producteur manquant de
+`data_locality_violation` — attendent toujours une décision côté schémas. Aucun ne bloque W3.
+
+**Prochain chantier.** W3 — abstraction de workflow. ADR 0003 en fixe l'ordre à la lettre : le
+backend déterministe de test s'écrit **avant** le backend Temporal.

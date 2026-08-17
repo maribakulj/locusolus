@@ -46,6 +46,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "locus-migrations"
+version = "0.0.0"
+dependencies = [
+ "locus-event-store",
+ "locus-protocol",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "locus-projections"
 version = "0.0.0"
 dependencies = [
