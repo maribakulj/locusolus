@@ -13,6 +13,7 @@ members = [
     "packages/migrations",
     "packages/projections",
     "packages/protocol",
+    "packages/review",
     "packages/validation",
     "packages/workflow",
     "packages/workflow-backends",

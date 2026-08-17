@@ -236,6 +236,26 @@ automatiques.
 
 **Dépend de W13.c et W13.d** (ADR 0016, décision 13) : la revue indépendante suppose des instances
 d'agent distinctes et une assignation, sans quoi « qui relit qui » n'a pas d'objet où s'écrire.
+**Les deux sont satisfaites depuis la fin de W13.**
+
+L'ordre suit une seule idée : ce qu'un relecteur **ne voit pas** est décidé avant qu'il relise. Le
+dossier se fige avant l'attribution (§17.3), l'indépendance se vérifie avant la remise, et
+l'anti-gaming existe avant que la valeur pilote quoi que ce soit — dans chaque cas, l'inverse
+produit un système qui a l'air de fonctionner.
+
+| # | Commit | Test de sortie |
+|---|---|---|
+| W7.a `[R]` | `packages/review` : `ReviewDossier` figé, `Review`, `Finding`, et l'attestation d'indépendance de §14.4 | un dossier modifié après attribution change de version ou porte un addendum visible ; deux relecteurs du même groupe d'indépendance ne comptent pas comme indépendants ; une revue sans attestation n'est pas une revue indépendante |
+| W7.b `[R]` | prévention de contamination (§16.6), par **cas adverses** | cinq cas, un par forme nommée : transcript du générateur atteignant un relecteur aveugle ; claim réfuté propagé comme contexte par défaut ; donnée confidentielle atteignant un worker non autorisé ; consensus circulaire sans source externe ; contradiction perdue à la synthèse. Chacun échoue **avant** le correctif |
+| W7.c `[R]` | `ContextView` : ce qui a été vu, arrêté par hash et par watermark (§16.2) | deux vues du même instant du journal ont le même hash ; une vue qui aurait vu un événement postérieur à son watermark est refusée |
+| W7.d `[R]` | rebuttal et méta-revue (§17.6, §17.7) | un rebuttal ne s'écrit pas sans finding ; une méta-revue ne relit pas sa propre revue ; le désaccord survit à la synthèse |
+| W7.e `[R]` | budgets : réservation avant exécution, dépassement (§17, invariant 6) | une mission sans borne n'est pas admissible ; une réservation refusée n'exécute rien ; un dépassement arrête proprement et le dit |
+| W7.f `[R]` | portefeuille : indicateurs de §13, et **l'anti-gaming de §13.6 d'abord** | une stratégie qui optimise l'indicateur sans produire de connaissance est détectée par un test qui la met en œuvre ; l'anti-gaming précède la fonction de valeur dans l'ordre des commits, et un test l'atteste |
+| W7.g `[R]` | scheduler qualité-diversité | deux propositions de valeur égale et de diversité inégale ne sont pas départagées au hasard ; le choix est reproductible |
+
+W7.b avant W7.c : un cas adverse écrit contre une `ContextView` déjà là serait écrit pour passer.
+W7.f avant tout usage automatique de la fonction de valeur — c'est la mise en garde de ce
+workstream, transformée en ordre de commits.
 
 ## W8 — Clients
 
