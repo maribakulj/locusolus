@@ -38,6 +38,7 @@ dependencies = [
 name = "locus-execd"
 version = "0.0.0"
 dependencies = [
+ "locus-environments",
  "locus-execution",
  "serde",
  "serde_json",
