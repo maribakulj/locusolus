@@ -1426,3 +1426,97 @@ lieu de le demander au cluster.
 
 **Ce qui reste.** W3.e — crash/restart/replay sur les deux backends, compensation qui n'efface aucun
 fait observé.
+
+### W3.e `[R]` — crash, redémarrage, rejeu sur les deux backends ; compensation (§11.3, §11.4)
+
+**Livré.** `Activity::compensating` / `compensated_by` et leur validation dans
+`WorkflowDefinition::new` ; `packages/workflow-backends/src/compensation.rs` ;
+`HistoryEvent::Compensated` ; `DeterministicBackend::{resume_from, compensate}` ;
+`TemporalWorkflowBackend::{workflow_id, reattach}` et `TemporalGateway::resolve_execution`. Treize
+tests dans `tests/recovery.rs`.
+
+**Test de sortie, arbitré ici.** **« Un redémarrage au milieu ne change pas l'histoire, et compenser
+n'en efface rien. »** La première moitié est vérifiée en coupant l'exécution **à chaque pas
+possible**, en détruisant le moteur, en reprenant depuis le seul historique, et en comparant
+l'histoire finale à celle d'une exécution ininterrompue. La seconde est une propriété de préfixe :
+l'historique d'avant compensation doit être un préfixe exact de celui d'après.
+
+**Décisions prises.**
+
+_« Crash » ne veut pas dire la même chose des deux côtés, et c'est le point._ Le moteur déterministe
+**est** la vérité : le perdre perd tout sauf l'historique. Le cluster Temporal est la vérité :
+perdre l'adaptateur ne perd qu'une table de correspondance. Les deux disent pourtant la même chose —
+ce qui survit à un crash est ce qui n'était pas dans le processus qui a crashé. C'est pour cela que
+`reattach` marche : le `workflow_id` est composé, donc reconstructible sans mémoire, et le `run_id`
+appartient au cluster, à qui on le redemande.
+
+_Compenser ajoute un événement, jamais une rature._ §11.4 : les compensations « annulent les
+réservations techniques […] elles ne réécrivent jamais l'histoire épistémique ». Un historique d'où
+l'on retirerait ce qui a été compensé décrirait une exécution où la réservation n'a jamais eu lieu —
+et une réservation qui n'a jamais eu lieu n'a pas consommé de capacité, ce qui est faux. Un test
+balaie les sources à la recherche d'un retrait appliqué à un historique : garantie tenue par
+l'absence de la fonction qui la violerait, comme en W1.g pour les conflits.
+
+_Le plan se lit dans l'historique, pas dans la définition._ On ne compense que ce qui a réellement
+eu lieu. Une définition dit ce qui était prévu ; l'historique dit ce qui s'est passé, et les deux
+diffèrent exactement quand la compensation devient nécessaire, c'est-à-dire au milieu.
+
+_L'ordre inverse n'est pas une élégance._ La sandbox se ferme avant que ses ressources soient
+rendues : rendre des ressources qu'un processus vivant occupe encore ne les rend pas.
+
+_Une compensation peut arriver après la fin._ Le rejeu l'accepte explicitement. Une exécution
+terminée tient encore ses leases et ses fichiers temporaires jusqu'à ce qu'on les rende ; refuser
+l'événement après `Completed` obligerait à compenser avant de finir, c'est-à-dire à défaire une
+réservation dont on a encore besoin.
+
+_Aucun pas qui enregistre un fait n'a de compensatrice._ Trois compensations dans tout le catalogue,
+toutes techniques : `reserve_resources` → `release_resources`, `reserve_sandbox_resources` →
+`release_sandbox_resources`, `start_sandbox` → `stop_sandbox`. Un test vérifie que les pas
+d'enregistrement n'en déclarent aucune — défaire un fait observé n'est pas une compensation, c'est
+une falsification.
+
+**La mutation qui a trouvé un trou — troisième fois du chantier.** Remplacer `ActivityCompleted` par
+`StepEntered` dans la lecture du plan **est passé au vert**. Raison : le moteur déterministe finit
+ses activities dans le même appel qu'il les aborde, donc les deux événements sont indissociables
+dans tout historique qu'il produit. Le cas où ils diffèrent — un worker qui meurt entre les deux —
+n'était testé nulle part, et c'est précisément le cas ambigu : **on ne sait pas si l'effet a eu
+lieu**.
+
+La correction ne devine pas. `plan` rend désormais deux listes : `steps`, ce qui a eu lieu et se
+défait, et `uncertain`, ce qui a été abordé sans qu'on sache. `compensate` rend les deux ensemble,
+parce qu'un appelant qui ne verrait que la première croirait le ménage fini. Compenser ce qui n'a
+pas eu lieu peut casser un état sain ; ne pas compenser ce qui a eu lieu laisse une réservation que
+personne ne rendra — le moteur n'a aucun moyen de trancher, donc il nomme. Même décision qu'en W2.18
+pour `UNKNOWN` et qu'en W3.d pour `WorkflowState::Unknown`. W4, qui tiendra les leases, saura poser
+la question au bon endroit.
+
+**Six mutations vérifiées rouges.** La compensation qui rature au lieu d'ajouter ; le plan qui lit
+`StepEntered` au lieu d'`ActivityCompleted` (rouge **après** la correction, verte avant — c'est elle
+qui a servi) ; l'ordre de compensation non inversé ; `resume_from` qui repart de zéro au lieu du
+curseur rejoué ; l'incertain rangé sous le certain ; le rattachement Temporal qui invente le
+`run_id`.
+
+---
+
+## W3 est terminé
+
+Les cinq items de W3 sont faits. Le workspace compte **neuf crates** — les sept de W1 plus
+`workflow` et `workflow-backends` — et **191 tests**, tous verts, plus les neuf portes de
+`npm run check`.
+
+**Un ADR produit par W3** : 0015 (Temporal, la traduction avant le fil), avec son plan de rollback
+et un arbitrage explicitement laissé ouvert.
+
+**Ce que W3 a appris.** L'ADR 0003 demande deux backends avant de croire une abstraction ; W3.d a
+montré pourquoi, en corrigeant trois fois `WorkflowState` — un port qui n'a qu'une implémentation
+prend la forme de cette implémentation sans que personne ne le décide. Le coût de la correction a
+été de trois lignes de test, parce qu'elle est arrivée avant le premier consommateur.
+
+**Ce qui reste ouvert, et qui bloque une promesse de la V1.** La liaison au fil de Temporal,
+ADR 0015. Le SDK Rust officiel est en alpha et ne se construit pas sans `protoc` ; les trois voies
+possibles engagent chacune ce que la V1 peut promettre en durabilité. **C'est un arbitrage à
+prendre, pas un détail d'implémentation.**
+
+**Prochain chantier.** W4 — Execution Fabric. ADR 0004 en fixe l'ordre : la suite de self-tests de
+sandbox (W4.b) s'écrit **avant** le premier backend d'exécution (W4.c), parce que c'est elle qui
+définit ce que « sandbox » veut dire dans ce projet.

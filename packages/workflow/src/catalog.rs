@@ -113,7 +113,10 @@ fn branch(anchor: &str) -> Result<Vec<Step>, DefinitionError> {
 fn task(anchor: &str) -> Result<Vec<Step>, DefinitionError> {
     Ok(vec![
         det("verify_prerequisites")?,
-        act("reserve_resources", &[Effect::Network], anchor)?,
+        compensated(
+            act("reserve_resources", &[Effect::Network], anchor)?,
+            "release_resources",
+        )?,
         act(
             "materialize_context",
             &[Effect::Network, Effect::Filesystem],
@@ -216,8 +219,14 @@ fn environment_build(anchor: &str) -> Result<Vec<Step>, DefinitionError> {
 fn sandbox_lifecycle(anchor: &str) -> Result<Vec<Step>, DefinitionError> {
     Ok(vec![
         det("validate_sandbox_spec")?,
-        act("reserve_sandbox_resources", &[Effect::Network], anchor)?,
-        act("start_sandbox", &[Effect::Network], anchor)?,
+        compensated(
+            act("reserve_sandbox_resources", &[Effect::Network], anchor)?,
+            "release_sandbox_resources",
+        )?,
+        compensated(
+            act("start_sandbox", &[Effect::Network], anchor)?,
+            "stop_sandbox",
+        )?,
         act(
             "collect_attestation",
             &[Effect::Network, Effect::Clock],
@@ -258,6 +267,22 @@ fn act(name: &str, effects: &[Effect], anchor: &str) -> Result<Step, DefinitionE
         effects.iter().copied(),
         idempotency,
     )?))
+}
+
+/// Déclarer par quelle activity un pas se défait — §11.4.
+///
+/// Ce qui est compensé ici est **technique** : une réservation, un lease, une sandbox démarrée.
+/// §11.4 le dit en toutes lettres et ajoute que les compensations « ne réécrivent jamais l'histoire
+/// épistémique ». Aucun pas qui enregistre un fait scientifique n'a donc de compensation, et ce
+/// n'est pas un oubli : défaire un fait observé n'est pas une compensation, c'est une falsification.
+fn compensated(step: Step, by: &str) -> Result<Step, DefinitionError> {
+    match step {
+        Step::Activity(activity) => Ok(Step::Activity(activity.compensating(by)?)),
+        Step::Deterministic { name } => Err(DefinitionError::UnknownCompensation {
+            activity: name,
+            compensation: by.to_owned(),
+        }),
+    }
 }
 
 fn natural(name: &str, effects: &[Effect], rationale: &str) -> Result<Step, DefinitionError> {

@@ -50,6 +50,23 @@ pub enum HistoryEvent {
         /// Pourquoi.
         reason: String,
     },
+    /// Une activity a été défaite par sa compensation — §11.4.
+    ///
+    /// Un événement **de plus**, jamais une rature. Le `ActivityCompleted` qu'il défait reste où il
+    /// est : « les compensations annulent les réservations techniques […] elles ne réécrivent
+    /// jamais l'histoire épistémique ». Un historique d'où l'on retirerait ce qui a été compensé
+    /// décrirait une exécution où la réservation n'a jamais eu lieu — et une réservation qui n'a
+    /// jamais eu lieu n'a pas consommé de capacité, ce qui est faux.
+    Compensated {
+        /// L'indice du pas défait.
+        index: usize,
+        /// L'activity défaite.
+        activity: String,
+        /// Celle qui l'a défaite.
+        by: String,
+        /// Ce qu'elle a rendu.
+        result: String,
+    },
     /// Elle est arrivée au bout.
     Completed,
 }
@@ -59,10 +76,14 @@ pub enum HistoryEvent {
 pub struct Replayed {
     /// L'état reconstruit.
     pub state: WorkflowState,
+    /// Le nombre de pas franchis — de quoi reprendre là où l'on s'était arrêté.
+    pub cursor: usize,
     /// Les résultats d'activity, lus dans l'historique.
     pub activity_results: Vec<(String, String)>,
     /// Les signaux reçus, dans l'ordre.
     pub signals: Vec<(String, String)>,
+    /// Les compensations appliquées, dans l'ordre où elles l'ont été.
+    pub compensations: Vec<(String, String)>,
 }
 
 /// Ce qui rend un historique irrejouable.
@@ -201,21 +222,7 @@ pub fn replay(
     definition: &WorkflowDefinition,
     history: &[HistoryEvent],
 ) -> Result<Replayed, ReplayError> {
-    let Some(HistoryEvent::Started { kind, version }) = history.first() else {
-        return Err(ReplayError::NoStart);
-    };
-    if *kind != definition.kind() {
-        return Err(ReplayError::WrongDefinition {
-            recorded: *kind,
-            replayed: definition.kind(),
-        });
-    }
-    if *version != definition.version() {
-        return Err(ReplayError::WrongVersion {
-            recorded: *version,
-            replayed: definition.version(),
-        });
-    }
+    check_header(definition, history)?;
 
     let mut cursor = 0_usize;
     let mut awaiting: Option<usize> = None;
@@ -223,9 +230,15 @@ pub fn replay(
     let mut ended: Option<WorkflowState> = None;
     let mut activity_results = Vec::new();
     let mut signals = Vec::new();
+    let mut compensations = Vec::new();
 
     for event in &history[1..] {
-        if ended.is_some() {
+        // Une compensation a le droit d'arriver **après** la fin, et c'est §11.4 qui l'exige : une
+        // exécution qui s'est terminée tient encore ses leases et ses fichiers temporaires jusqu'à
+        // ce qu'on les rende. Le nettoyage n'est pas un événement d'exécution ; le refuser ici
+        // obligerait à compenser avant de finir, c'est-à-dire à défaire une réservation dont on a
+        // encore besoin.
+        if ended.is_some() && !matches!(event, HistoryEvent::Compensated { .. }) {
             return Err(ReplayError::AfterEnd);
         }
         match event {
@@ -234,27 +247,10 @@ pub fn replay(
                 if let Some(pending) = awaiting {
                     return Err(ReplayError::MissingResult { index: pending });
                 }
-                let step = definition
-                    .steps()
-                    .get(*index)
-                    .ok_or(ReplayError::UnknownStep { index: *index })?;
-                if *index != cursor {
-                    return Err(ReplayError::OutOfOrder {
-                        expected: cursor,
-                        found: *index,
-                    });
-                }
-                if step.name() != name {
-                    return Err(ReplayError::RenamedStep {
-                        index: *index,
-                        recorded: name.clone(),
-                        expected: step.name().to_owned(),
-                    });
-                }
-                match step {
+                match enter_step(definition, *index, name, cursor)? {
                     // Un pas déterministe est fini dès qu'il est abordé : il n'attend personne.
-                    Step::Deterministic { .. } => cursor += 1,
-                    Step::Activity(_) => awaiting = Some(*index),
+                    Entered::Finished => cursor += 1,
+                    Entered::Awaiting => awaiting = Some(*index),
                 }
             }
             HistoryEvent::ActivityCompleted {
@@ -279,6 +275,20 @@ pub fn replay(
             HistoryEvent::SignalReceived { name, payload } => {
                 signals.push((name.clone(), payload.clone()));
             }
+            HistoryEvent::Compensated {
+                index,
+                activity,
+                by,
+                ..
+            } => {
+                // La compensation n'annule pas le pas : elle s'ajoute. Le curseur ne recule pas, et
+                // le résultat de l'activity défaite reste dans `activity_results`. Reculer le
+                // curseur referait le pas au redémarrage suivant.
+                if *index >= cursor {
+                    return Err(ReplayError::ResultWithoutEntry { index: *index });
+                }
+                compensations.push((activity.clone(), by.clone()));
+            }
             HistoryEvent::Suspended => suspended = true,
             HistoryEvent::Resumed => suspended = false,
             HistoryEvent::Terminated { reason } => {
@@ -302,7 +312,70 @@ pub fn replay(
 
     Ok(Replayed {
         state,
+        cursor,
         activity_results,
         signals,
+        compensations,
+    })
+}
+
+/// Ce qu'aborder un pas a produit.
+enum Entered {
+    /// Le pas est fini : c'était de la logique pure.
+    Finished,
+    /// Le pas attend son résultat : c'était une activity.
+    Awaiting,
+}
+
+/// Vérifier que l'historique et la définition parlent bien de la même chose.
+fn check_header(
+    definition: &WorkflowDefinition,
+    history: &[HistoryEvent],
+) -> Result<(), ReplayError> {
+    let Some(HistoryEvent::Started { kind, version }) = history.first() else {
+        return Err(ReplayError::NoStart);
+    };
+    if *kind != definition.kind() {
+        return Err(ReplayError::WrongDefinition {
+            recorded: *kind,
+            replayed: definition.kind(),
+        });
+    }
+    if *version != definition.version() {
+        return Err(ReplayError::WrongVersion {
+            recorded: *version,
+            replayed: definition.version(),
+        });
+    }
+    Ok(())
+}
+
+/// Confronter un pas abordé à la définition d'aujourd'hui.
+fn enter_step(
+    definition: &WorkflowDefinition,
+    index: usize,
+    name: &str,
+    cursor: usize,
+) -> Result<Entered, ReplayError> {
+    let step = definition
+        .steps()
+        .get(index)
+        .ok_or(ReplayError::UnknownStep { index })?;
+    if index != cursor {
+        return Err(ReplayError::OutOfOrder {
+            expected: cursor,
+            found: index,
+        });
+    }
+    if step.name() != name {
+        return Err(ReplayError::RenamedStep {
+            index,
+            recorded: name.to_owned(),
+            expected: step.name().to_owned(),
+        });
+    }
+    Ok(match step {
+        Step::Deterministic { .. } => Entered::Finished,
+        Step::Activity(_) => Entered::Awaiting,
     })
 }

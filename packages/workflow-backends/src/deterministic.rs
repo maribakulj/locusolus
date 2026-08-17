@@ -7,7 +7,7 @@ use locus_workflow::{
     WorkflowSignal, WorkflowState,
 };
 
-use crate::history::HistoryEvent;
+use crate::history::{HistoryEvent, ReplayError, replay};
 
 /// Ce qu'un pas a fait avancer.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -19,6 +19,17 @@ pub enum Progress {
     },
     /// L'exécution est arrivée au bout.
     Completed,
+}
+
+/// Ce qu'une compensation a défait, et ce qu'elle n'a pas su trancher.
+///
+/// Les deux ensemble, parce qu'un appelant qui ne verrait que `undone` croirait le ménage fini.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Compensated {
+    /// Les activities défaites, dans l'ordre où elles l'ont été.
+    pub undone: Vec<String>,
+    /// Les pas abordés dont on ne sait pas si l'effet a eu lieu.
+    pub uncertain: Vec<crate::compensation::UncertainStep>,
 }
 
 /// Une exécution en mémoire.
@@ -173,6 +184,98 @@ impl DeterministicBackend {
                 return Ok(());
             }
         }
+    }
+
+    /// Reprendre une exécution à partir de son seul historique — le redémarrage de W3.e.
+    ///
+    /// Le moteur qui l'avait démarrée n'existe plus : c'est ce que « crash » veut dire ici, et un
+    /// moteur en mémoire le simule mieux qu'un vrai puisqu'il perd réellement tout. Ce qui reste est
+    /// l'historique, et il suffit — c'est la propriété que W3.b avait établie et que ce sprint met à
+    /// l'épreuve.
+    ///
+    /// # Errors
+    ///
+    /// [`ReplayError`] quand l'historique et la définition divergent. Reprendre sur un historique
+    /// qu'on ne sait pas rejouer serait reprendre à un endroit deviné.
+    pub fn resume_from(
+        &mut self,
+        definition: &WorkflowDefinition,
+        history: Vec<HistoryEvent>,
+    ) -> Result<WorkflowId, ReplayError> {
+        let replayed = replay(definition, &history)?;
+        self.started += 1;
+        let id = WorkflowId::new(&format!("wf-{:04}", self.started))
+            .map_err(|_| ReplayError::NoStart)?;
+        self.instances.insert(
+            id.as_str().to_owned(),
+            Instance {
+                definition: definition.clone(),
+                cursor: replayed.cursor,
+                state: replayed.state,
+                history,
+            },
+        );
+        Ok(id)
+    }
+
+    /// Défaire ce qui a été fait, dans l'ordre inverse — §11.4.
+    ///
+    /// Rend ce qui a été défait **et** ce dont on ne sait pas s'il y avait quelque chose à défaire.
+    /// Les deux listes sortent ensemble parce qu'un appelant qui ne verrait que la première croirait
+    /// le ménage fini : un pas abordé dont le résultat n'est jamais revenu peut avoir pris une
+    /// réservation que personne ne rendra, et le moteur n'a aucun moyen de le savoir.
+    ///
+    /// Chaque compensation **ajoute** un événement ; rien n'est retiré de l'historique. Une
+    /// compensation dont l'exécutant n'est pas enregistré fait refuser le moteur, comme n'importe
+    /// quelle activity : une compensation qu'on croirait faite sans qu'elle le soit laisserait une
+    /// réservation vivante et une comptabilité fausse.
+    ///
+    /// # Errors
+    ///
+    /// [`BackendError::Unknown`] pour un identifiant inconnu, [`BackendError::UnregisteredActivity`]
+    /// si une compensation n'a pas d'exécutant.
+    pub fn compensate(&mut self, id: &WorkflowId) -> Result<Compensated, BackendError> {
+        let Self {
+            instances,
+            activities,
+            ..
+        } = self;
+        let instance = instances
+            .get_mut(id.as_str())
+            .ok_or_else(|| BackendError::Unknown { id: id.clone() })?;
+
+        let plan = crate::compensation::plan(&instance.definition, &instance.history);
+
+        // Les exécutants sont tous cherchés **avant** d'écrire quoi que ce soit : une compensation
+        // partielle laisserait la moitié des réservations vivantes et l'historique disant qu'elles
+        // ont été rendues.
+        for step in &plan.steps {
+            if !activities.contains_key(step.by.as_str()) {
+                return Err(BackendError::UnregisteredActivity {
+                    id: id.clone(),
+                    activity: step.by.clone(),
+                });
+            }
+        }
+
+        let mut undone = Vec::new();
+        for step in plan.steps {
+            let result = activities
+                .get(step.by.as_str())
+                .cloned()
+                .unwrap_or_default();
+            instance.history.push(HistoryEvent::Compensated {
+                index: step.index,
+                activity: step.activity.clone(),
+                by: step.by.clone(),
+                result,
+            });
+            undone.push(step.activity);
+        }
+        Ok(Compensated {
+            undone,
+            uncertain: plan.uncertain,
+        })
     }
 
     fn lookup(&self, id: &WorkflowId) -> Result<&Instance, BackendError> {
