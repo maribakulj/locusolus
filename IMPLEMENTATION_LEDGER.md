@@ -1951,3 +1951,68 @@ preuve non vide. Les huit autres tests de détection tournent contre un arbre de
 **Prochain item.** **W4.d.2** — le driver rootless proprement dit : `RuntimePort` implémenté, la
 sandbox créée, l'attestation lue de ce qui tourne. Ses dépendances sont satisfaites : le port existe
 (W4.c), la suite qui le jugera existe (W4.b), et la traduction qu'il appliquera existe désormais.
+
+---
+
+## 2026-08-17 — W4.d.2 — Le driver rootless : demander ce que le plan a décidé, attester ce qu'on observe
+
+**Périmètre.** `apps/locus-execd/src/linux/{invocation,driver}.rs`, neufs ; `linux/mod.rs` et
+`src/lib.rs` (réexports et deux paragraphes de doc) ; `tests/podman.rs`, neuf ; `docs/10` gagne
+W4.d.3. C'est le premier commit du dépôt qui lance un processus de runtime.
+
+**Tests exécutés.** `npm run check` vert. 18 tests dans `tests/podman.rs`, 41 en tout sur
+`locus-execd`. Test de sortie de W4.d.2 : le driver demande au runtime exactement ce que le plan a
+décidé, et il atteste de ce qu'il observe — jamais de ce qu'il a demandé.
+
+**La propriété qui décide de la valeur de ce module.** `runtime.rs` l'écrivait déjà en W4.c : « un
+broker qui composerait l'attestation à partir de ce qu'il avait demandé attesterait de sa propre
+demande ». `attestation` dérive donc le niveau des **observations** rendues par `podman inspect`, et
+un test le met à l'épreuve sur le cas qui compte : le plan demandait `S3`, le runtime a rendu un
+conteneur au réseau de l'hôte, l'attestation dit `S2`, et `locus_execution::conformance` refuse. Un
+driver qui aurait rendu `plan.level()` aurait passé toute la conformité de W4.a en ayant tout raté.
+La mutation correspondante fait rougir trois tests.
+
+**Le lanceur est un port, comme `TemporalGateway` en W3.** `Runner::run` prend `&self` et non
+`&mut self` : lancer un processus ne mute rien du lanceur, et `RuntimePort::attestation` prend
+`&self` — un port mutant aurait forcé l'attestation à pouvoir changer ce dont elle témoigne. Le
+double de test enregistre les arguments et rejoue des sorties, ce qui rend vérifiables la
+construction des arguments, l'analyse des sorties et tous les chemins d'erreur **sans Podman**, donc
+en CI, où aucun runtime rootless n'est garanti. Ce qui reste hors test est `SystemRunner::run` :
+trois lignes qui lancent un processus.
+
+**Trois décisions de forme, chacune contre une facilité.**
+
+_L'image est désignée par digest._ `Workload::new` refuse une étiquette : `docs/03` l'exige au titre
+de l'attestation, §19.3 au titre de la reproductibilité. Une commande vide est refusée aussi — le
+point d'entrée de l'image déciderait, et l'attestation ne dirait pas ce qui a tourné.
+
+_L'horizon n'est pas passé au runtime._ Un test vérifie qu'aucun argument ne le porte. Le passer
+ferait croire qu'un runtime le tient, alors que c'est le broker qui compte et qui annule.
+
+_Un champ d'inspection absent empêche d'attester._ Podman peut renommer un champ ; le traiter comme
+une valeur par défaut ferait attester un confinement sur une lecture qui n'a pas eu lieu. Le refus
+nomme le champ.
+
+**La forme négative des arguments Podman mérite d'être dite.** Ne rien passer ne laisse pas un
+namespace partagé : ça le crée. C'est `--userns=host` qui partage. Un plan qui oublierait un
+argument confinerait donc **plus** que demandé — le sur-confinement de W4.b — et non moins ; le test
+vérifie les deux sens.
+
+**Une capacité manquante, refusée plutôt que revendiquée.** `SeccompPosture::Restricted` promet plus
+que le profil par défaut de Podman : refuser depuis l'intérieur la création de namespaces et le
+chargement de code noyau. Ce refus vit dans un fichier de profil que ce dépôt n'écrit pas encore.
+`create_arguments` refuse donc la posture restreinte quand aucun profil n'est configuré, au lieu de
+la revendiquer avec le profil par défaut. C'est la règle du plafond `S3` appliquée à une capacité
+que l'opérateur apporte, et c'est W4.d.3 qui la lèvera — inscrite à `docs/10` avec son test de
+sortie.
+
+**Cinq mutations vérifiées rouges**, motif vérifié présent avant chaque substitution : le driver
+attestant sa propre demande (3 tests) ; le niveau observé ignorant le réseau (1) ; un champ absent
+toléré (1) ; un namespace partagé ne produisant aucun argument (1) ; le code de sortie ignoré (1).
+
+**Écart avec la spec.** Aucun. `docs/03` fixe « rootless Podman/containerd » ; c'est Podman qui est
+branché, containerd reste ouvert derrière le même port.
+
+**Prochain item.** **W4.d.3** — le profil seccomp restreint, et la suite de self-tests de W4.b
+passée contre ce backend pour qu'il obtienne un `Standing`. Ses dépendances sont satisfaites : la
+suite existe (W4.b), le backend existe désormais.

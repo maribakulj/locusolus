@@ -160,10 +160,17 @@ de travers en silence.
 | # | Commit | Test de sortie |
 |---|---|---|
 | W4.d.1 `[R]` | la traduction `SandboxSpec` → plan de confinement rootless, et la lecture de ce que l'hôte permet | le plan ne concède jamais plus que le niveau exigé — monter d'un niveau ne relâche rien et change quelque chose — il refuse par leur nom la micro-VM, l'enclave et un mode réseau sans namespace pour le porter, et la lecture de l'hôte nomme ce qui manque au lieu de le supposer |
-| W4.d.2 `[R]` | le driver rootless : `RuntimePort` implémenté sur Podman rootless (`docs/03`), la sandbox créée, l'attestation lue de ce qui tourne | la suite de W4.b tourne contre ce backend et rend un `Standing` ; une sonde non exécutée est `NotRun` avec sa raison, jamais un succès |
+| W4.d.2 `[R]` | le driver rootless : `RuntimePort` implémenté sur Podman rootless (`docs/03`), la sandbox créée, l'attestation lue de ce qui tourne | le driver demande au runtime exactement ce que le plan a décidé, et il atteste de ce qu'il **observe** — un confinement plus faible que demandé apparaît dans l'attestation et `conformance` le refuse |
+| W4.d.3 `[R]` | le profil seccomp restreint, et la suite de W4.b passée contre le backend | la suite de W4.b rend un `Standing` pour ce backend ; une sonde non exécutée est `NotRun` avec sa raison, jamais un succès |
 
 Le plafond de ce backend est `S3` et c'est une constante, pas une ambition : `S4` est une micro-VM
 et `S5` une enclave distante. W4.e les ouvre sur macOS.
+
+La posture seccomp **restreinte** promet plus que le profil par défaut de Podman : refuser depuis
+l'intérieur la création de namespaces et le chargement de code noyau. Ce refus vit dans un fichier de
+profil que W4.d.3 écrira. D'ici là le backend **refuse** les niveaux qui en dépendent au lieu de les
+revendiquer avec le profil par défaut — c'est la règle du plafond `S3`, appliquée à une capacité que
+l'opérateur apporte.
 
 ---
 
