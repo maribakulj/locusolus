@@ -1,0 +1,43 @@
+{
+  "_fixture": {
+    "name": "run-manifest-that-cannot-claim-more-than-narration",
+    "expect": "valid",
+    "pairs_with": "run-manifest-reproducible.json",
+    "note": "Bien formé, et pourtant R0 : aucun input identifié par hash, et un arbre de travail sale. Il ne DÉCLARE aucun niveau, ce que le schéma autorise — un producteur qui ne sait pas ne doit pas être poussé à écrire un chiffre. Le calcul de §19.7 rend R0, et c'est en le déclarant plus haut qu'il deviendrait invalide au sens du domaine, pas au sens du schéma : la distinction est le sujet de W6.d."
+  },
+  "run_id": "run-2026-08-17-0008",
+  "task_id": "task-explore",
+  "attempt": 1,
+  "environment": {
+    "environment_id": "env-base",
+    "image_digest": "sha512:abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
+    "toolchains": [
+      "base"
+    ]
+  },
+  "code_revision": {
+    "repository": "https://github.com/maribakulj/locusolus",
+    "commit": "89abcdef0123456789abcdef0123456789abcdef",
+    "dirty": true
+  },
+  "inputs": [],
+  "commands": [
+    {
+      "argv": [
+        "bash",
+        "-lc",
+        "jq . donnees.json | head -20"
+      ],
+      "exit_code": 0
+    }
+  ],
+  "resources": {
+    "reserved": {
+      "cpu": 1,
+      "memory_mb": 1024,
+      "disk_mb": 2048,
+      "wall_time_seconds": 300
+    }
+  },
+  "started_at": "2026-08-17T09:02:11.000Z"
+}

@@ -2769,3 +2769,69 @@ référence n'a pas, donc elle appartient au driver et à sa propre suite.
 **Écart avec la spec.** Aucun.
 
 **Prochain item.** **W6.d** — `RunManifest` : ce qu'il faut pour rejouer une exécution.
+
+---
+
+## 2026-08-17 — W6.d — Un niveau de reproductibilité se calcule, il ne se déclare pas
+
+**Périmètre.** `packages/artifacts` : `src/reproducibility.rs` et `src/run.rs`, neufs ;
+`tests/run.rs`, neuf ; `src/lib.rs` les expose ; deux fixtures `run-manifest-*` et leur entrée au
+registre ; `docs/10` précise le test de sortie de W6.d. Aucune dépendance nouvelle.
+
+**La règle vient du schéma lui-même.** `run-manifest.schema.json` dit du champ
+`reproducibility_level` qu'il est « déclaré par le producteur et **vérifiable depuis le reste du
+manifeste** — c'est précisément ce qui le rend contestable ». Ce sprint est cette vérification. Un
+niveau déclaré au-dessus de ce que le document soutient est refusé, et le refus nomme ce qui manque.
+
+**Troisième occurrence de la même forme, et il faut la nommer.** L'attestation de sandbox (W4.d.2)
+vient de l'observation et non de la demande ; le digest de build (W5.e) se lit sur la sortie du
+runtime et ne se compose pas depuis le blueprint ; un niveau de reproductibilité se calcule depuis
+ce qui est consigné. Un champ qui s'auto-atteste n'atteste rien, et c'est le même défaut à chaque
+fois : la chose à prouver et la chose qui prouve deviennent la même.
+
+**Un lecteur validant, pas un second modèle.** W6.b a montré ce que coûte un type de domaine écrit à
+côté du schéma. Ici le document **est** `locus_lep::RunManifest` ; `RunManifest` le tient et y
+ajoute ce que le schéma ne peut pas dire : les refus et le calcul. Un run relu se réécrit à
+l'identique par construction, et non par une correspondance champ à champ à maintenir.
+
+**Ce que chaque cran demande, et pourquoi R2 est le plafond.**
+
+- **R1** — « inputs et code identifiés » : au moins un input par hash, une révision avec un commit,
+  un arbre propre. Le schéma dit lui-même qu'« un run dirty ne peut pas prétendre à R1 ».
+- **R2** — « environnement verrouillé » : image par digest et toolchains, que le schéma exige de
+  **tout** manifeste. Donc tout run qui atteint R1 atteint R2. Ce n'est pas une simplification :
+  c'est ce que le contrat garantit déjà, et prétendre le revérifier ferait croire à une garde là où
+  il n'y a qu'une conséquence.
+- **R3 et R4** ne sont pas atteignables depuis un document. « Reproduction automatisée sur backend
+  compatible » et « reproduction indépendante sur worker distinct » sont des **événements** : ils se
+  constatent en rejouant, pas en lisant. `Level::FROM_A_MANIFEST_ALONE` vaut donc `R2`, et
+  `Missing::ReproductionNotEvidenced` reste dans le verdict **même quand tout le reste est en
+  ordre** — ce qui sépare de R3 doit rester visible plutôt que de disparaître parce que le reste va
+  bien. W6.e produira la trace qui les porte.
+
+**Un caveat plutôt qu'un silence ou un refus.** Rien dans le manifeste ne dit si un run est
+stochastique, et rien ne peut le dire — ce n'est pas une propriété du document. Sans seeds, le
+niveau calculé est donc optimiste, et `Caveat::NoSeeds` le garde auprès du verdict. Même forme que
+`Support::Undetermined` de W4.d.1 : ce qu'on sait ne pas savoir voyage, au lieu d'être arrondi dans
+un sens ou dans l'autre.
+
+**Le test de niveau défait les conditions une à une.** Un calcul qui ne regarderait qu'un des trois
+champs rendrait la même réponse sur la fixture complète. Retirer les inputs, retirer la révision,
+retirer le commit, salir l'arbre : chacun ramène à R0, séparément.
+
+**`4` et `4.0` sont le même nombre, et le test l'a rappelé.** La comparaison d'aller-retour porte
+sur les documents **décodés**, pas sur leur écriture : `cpu` est un `number` au schéma — cœurs
+fractionnaires — donc un `4` lu ressort en `4.0`, et aucun lecteur conforme ne rapporte lequel a été
+écrit. `packages/lep/tests/round_trip.rs` avait rencontré le même fait en W0.8 et en avait tiré la
+conséquence qui compte : les octets à hasher viennent d'un canonicaliseur, jamais de la sortie d'un
+sérialiseur.
+
+**Six mutations vérifiées rouges** : le niveau déclaré cru sur parole (2 tests) ; le plafond d'un
+document porté à R4 (4) ; l'arbre sale sans effet (3) ; les inputs absents sans effet (3) ; la
+reproduction manquante effacée du verdict (2) ; l'absence de seed cessant d'être notée (1).
+Restauration confirmée verte.
+
+**Écart avec la spec.** Aucun.
+
+**Prochain item.** **W6.e** — workflow de reproduction sur le backend déterministe de W3, qui est ce
+qui peut porter R3 et R4.

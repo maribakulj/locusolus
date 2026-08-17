@@ -884,8 +884,9 @@ pub struct EpistemicCommit {
 }
 
 /// Les documents qu'un pair peut envoyer ou recevoir, dans l'ordre du registre.
-pub const LEP_DOCUMENTS: [&str; 8] = [
+pub const LEP_DOCUMENTS: [&str; 9] = [
     "ArtifactManifest",
+    "RunManifest",
     "CapabilityManifest",
     "MissionEnvelope",
     "SandboxAttestation",

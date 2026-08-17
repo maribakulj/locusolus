@@ -29,6 +29,13 @@
 //! relation typée, le type MIME a la forme que le schéma exige. Voir [`wire`] pour ce que la
 //! traduction refuse dans l'autre sens.
 //!
+//! # Le cinquième, ajouté par W6.d
+//!
+//! **Un niveau de reproductibilité se calcule, il ne se déclare pas.** §19.7 en nomme cinq, et le
+//! schéma du `RunManifest` dit du champ qui les porte qu'il est « vérifiable depuis le reste du
+//! manifeste — c'est précisément ce qui le rend contestable ». [`run`] est cette vérification, et
+//! elle refuse un niveau déclaré au-dessus de ce que le document soutient.
+//!
 //! # Le quatrième, ajouté par W6.c
 //!
 //! **Aucun octet n'entre sans manifeste déclaré, et un contenu refusé ne laisse rien derrière
@@ -39,6 +46,8 @@ pub mod derivation;
 pub mod ingest;
 pub mod manifest;
 pub mod memory;
+pub mod reproducibility;
+pub mod run;
 pub mod state;
 pub mod store;
 pub mod wire;
@@ -47,6 +56,8 @@ pub use derivation::{Derivation, DerivationError, DerivationRelation};
 pub use ingest::{IngestError, ingest};
 pub use manifest::{ArtifactManifest, Integrity, ManifestError, ProducedBy, Rights, ViewerHints};
 pub use memory::MemoryObjectStore;
+pub use reproducibility::{Assessment, Caveat, Level, Missing};
+pub use run::{RunError, RunManifest};
 pub use state::{ArtifactState, ForbiddenTransition, transition};
 pub use store::{Digest, ObjectStore, StoreError, UploadId};
 pub use wire::WireError;

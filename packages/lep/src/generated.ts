@@ -792,6 +792,7 @@ export type EpistemicCommit = {
  */
 export const LEP_DOCUMENTS = [
   "ArtifactManifest",
+  "RunManifest",
   "CapabilityManifest",
   "MissionEnvelope",
   "SandboxAttestation",
