@@ -23,10 +23,15 @@
 //!    mentir.
 
 pub mod blueprint;
+pub mod build;
 pub mod toolchain;
 
 pub use blueprint::{
     BlueprintError, EnvironmentBlueprint, Image, Requirements, SECRET_NAME_MARKERS,
     secret_name_marker,
+};
+pub use build::{
+    BuildError, Built, Finding, HealthOutcome, HealthResult, Inventoried, Locked, Lockfile,
+    Published, Sbom, Scanned, Severity, Signature, Tested,
 };
 pub use toolchain::ToolchainProfile;

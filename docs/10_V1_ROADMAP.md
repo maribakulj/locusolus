@@ -203,7 +203,8 @@ porte `version:` ni `image:`, tous deux obligatoires au schéma, et `ml-mps.yaml
 | # | Commit | Test de sortie |
 |---|---|---|
 | W5.a `[R]` | `packages/environments` : `ToolchainProfile` et `EnvironmentBlueprint`, avec les invariants que le schéma de W0.5 ne peut pas exprimer | un profil répété, un préféré inférieur au minimum, une variable dont le nom annonce un secret et une image par tag sont refusés, chacun par son nom |
-| W5.b `[R]` | le Builder : lockfile → build OCI → SBOM → scan → health checks → signature → digest | à écrire quand W5.a est mergé. Il doit livrer les six sondes compilées que W4.d.3 attend dans l'image de base |
+| W5.b `[R]` | la chaîne : lockfile → build → SBOM → scan → tests → signature → digest, comme suite de types | aucun chemin ne signe une image non scannée ni ne publie un digest dont les tests n'ont pas tourné — vérifié par un `compile_fail`, pas seulement par un test |
+| W5.c `[R]` | le driver de build : buildah/podman derrière un port, et les six sondes compilées que W4.d.3 attend dans l'image de base | à écrire quand W5.b est mergé |
 
 ## W6 — Artifact / reproductibilité
 
