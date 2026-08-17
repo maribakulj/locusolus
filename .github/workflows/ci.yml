@@ -30,21 +30,29 @@ jobs:
       # `--require-emacs` interdit à la garde de sauter cette règle en silence quand le
       # binaire manque : une frontière non vérifiée doit se voir.
       #
-      # Chaque tentative est bornée, et il y en a trois. Un miroir apt lent a déjà consommé
-      # les dix minutes du job et fait annuler une CI verte par ailleurs : sans borne, la
-      # lenteur du réseau devient indistinguable d'un test qui échoue. Le budget du job est
-      # passé à vingt minutes pour que la reprise ait la place de servir.
+      # Chaque tentative est bornée. Un miroir apt lent a déjà consommé les dix minutes du job
+      # et fait annuler une CI verte par ailleurs : sans borne, la lenteur du réseau devient
+      # indistinguable d'un test qui échoue. Le budget du job est passé à vingt minutes pour
+      # que la reprise ait la place de servir.
       - name: Install Emacs
         run: |
-          for attempt in 1 2 3; do
-            if timeout 60 sudo apt-get update -qq \
-              && timeout 150 sudo apt-get install -y --no-install-recommends emacs-nox; then
+          # L'index du runner est déjà peuplé et `emacs-nox` est dans les dépôts de base : on tente
+          # donc l'installation SANS `apt-get update`, qui est l'étape lente et la seule qui ait
+          # jamais échoué ici. Le rafraîchissement de l'index n'est fait qu'en repli, et avec de
+          # quoi aboutir — la première version de cette reprise bornait `update` à soixante
+          # secondes, ce qui ne suffit pas à un miroir lent et faisait échouer les trois tentatives.
+          if timeout 240 sudo apt-get install -y --no-install-recommends emacs-nox; then
+            exit 0
+          fi
+          for attempt in 1 2; do
+            echo "installation directe sans succès, rafraîchissement de l'index (tentative $attempt)"
+            timeout 300 sudo apt-get update || true
+            if timeout 240 sudo apt-get install -y --no-install-recommends emacs-nox; then
               exit 0
             fi
-            echo "tentative $attempt sans succès, reprise"
-            sleep $((attempt * 5))
+            sleep $((attempt * 10))
           done
-          echo "emacs-nox introuvable après trois tentatives"
+          echo "emacs-nox introuvable : la frontière 5 ne peut pas être vérifiée"
           exit 1
 
       - name: Install
