@@ -155,7 +155,7 @@ impl DeterministicBackend {
 
         instance.cursor += 1;
         instance.state = WorkflowState::Running {
-            step: instance.cursor,
+            step: Some(instance.cursor),
         };
         Ok(Progress::Advanced {
             step: instance.cursor,
@@ -200,7 +200,7 @@ impl WorkflowBackend for DeterministicBackend {
                 Instance {
                     definition: definition.clone(),
                     cursor: 0,
-                    state: WorkflowState::Running { step: 0 },
+                    state: WorkflowState::Running { step: Some(0) },
                     history: vec![HistoryEvent::Started {
                         kind: definition.kind(),
                         version: definition.version(),
@@ -236,7 +236,7 @@ impl WorkflowBackend for DeterministicBackend {
     fn suspend<'a>(&'a mut self, id: &'a WorkflowId) -> Outcome<'a, ()> {
         Box::pin(async move {
             let instance = self.lookup_mut(id)?;
-            let WorkflowState::Running { step } = instance.state else {
+            let WorkflowState::Running { step } = instance.state.clone() else {
                 return Err(BackendError::InvalidTransition {
                     id: id.clone(),
                     from: instance.state.clone(),
@@ -252,7 +252,7 @@ impl WorkflowBackend for DeterministicBackend {
     fn resume<'a>(&'a mut self, id: &'a WorkflowId) -> Outcome<'a, ()> {
         Box::pin(async move {
             let instance = self.lookup_mut(id)?;
-            let WorkflowState::Suspended { step } = instance.state else {
+            let WorkflowState::Suspended { step } = instance.state.clone() else {
                 return Err(BackendError::InvalidTransition {
                     id: id.clone(),
                     from: instance.state.clone(),

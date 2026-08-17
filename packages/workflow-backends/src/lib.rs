@@ -22,7 +22,12 @@
 pub mod deterministic;
 pub mod history;
 pub mod immediate;
+pub mod temporal;
 
 pub use deterministic::{DeterministicBackend, Progress};
 pub use history::{HistoryEvent, ReplayError, Replayed, replay};
 pub use immediate::block_on;
+pub use temporal::{
+    Description, ExecutionRef, ExecutionStatus, GatewayError, StartRequest, TemporalConfig,
+    TemporalGateway, TemporalWorkflowBackend,
+};

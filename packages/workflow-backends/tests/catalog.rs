@@ -250,7 +250,7 @@ fn une_activity_sans_executant_arrete_le_workflow_au_bon_pas() {
         replay(&definition, backend.history(&id).expect("historique"))
             .expect("rejeu")
             .state,
-        WorkflowState::Running { step: 2 },
+        WorkflowState::Running { step: Some(2) },
         "l'exécution est restée au pas où l'exécutant manquait"
     );
 }

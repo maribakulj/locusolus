@@ -1356,3 +1356,73 @@ pas déterministe ; retirer l'un des onze du décompte de replay.
 
 **Ce qui reste.** Le détail métier de chaque pas, qui viendra avec les couches qu'il commande. Le
 crash/restart et la compensation de §11.4 sont W3.e ; le backend Temporal, W3.d.
+
+### W3.d `[R]` — adaptateur Temporal : la traduction, pas le fil (§11.1, ADR 0015)
+
+**Livré.** `packages/workflow-backends/src/temporal.rs` : la traduction complète des six opérations
+de §11.1 vers les concepts de Temporal, `TemporalGateway` (une méthode par RPC de
+`WorkflowService`), `state_from` (la carte des statuts). `tests/temporal.rs` : dix tests contre un
+faux cluster. ADR 0015.
+
+**Ce qui n'est pas livré, et pourquoi.** La liaison au fil. Constat vérifié pendant le sprint : le
+SDK Rust officiel est en `0.1.0-alpha.1`, et `temporal-sdk-core-api` **ne se construit pas** ici —
+son script de build panique sur la génération protobuf. L'ajouter ajouterait `protoc` à toute
+machine qui construit le projet, ce que « aucune dépendance implicite à une machine de développeur »
+interdit. Et il n'y a aucun cluster en CI pour valider la liaison même si elle compilait. Les trois
+voies possibles — SDK alpha, fork tiers `squads-temporal-*` en `0.3.x`, ou gRPC direct — sont dans
+l'ADR 0015 avec leur coût. **Aucune ne se tranche dans un sprint** : elles engagent ce que la V1
+peut promettre en durabilité. La couture livrée est commune aux trois, donc rien n'est perdu quelle
+que soit l'issue.
+
+**Le nommer autrement aurait été le mensonge facile.** Un `TemporalWorkflowBackend` qui n'a jamais
+vu de cluster n'est pas un backend Temporal ; c'est une traduction testée, ce qui est utile et n'est
+pas la même chose. Le module le dit dans sa première phrase, le test dans la sienne, l'ADR dans la
+sienne.
+
+**Test de sortie, arbitré ici.** **« Les six opérations tiennent le même contrat sur les deux
+backends, et la traduction ne perd aucune distinction que le cluster faisait »** — une suite
+d'opérations identique jouée sur le backend déterministe et sur l'adaptateur, comparée sur les
+**étiquettes** d'état. Les étiquettes et non les états : le moteur en mémoire connaît son indice de
+pas, Temporal ne le connaît pas, et exiger l'égalité stricte reviendrait à demander au second de
+savoir ce que seul le premier peut savoir.
+
+**Ce que le second moteur a appris au port.** Trois amendements à `WorkflowState`, tous imposés par
+la traduction, tous invisibles tant que le seul moteur était en mémoire :
+
+1. `step` devient `Option<usize>` — Temporal rend un statut, pas une position ;
+2. `Failed` apparaît à côté de `Terminated` — « on l'a arrêtée » et « elle a cassé » n'appellent pas
+   la même compensation (§11.4), et `TimedOut` est une casse, pas une décision ;
+3. `Unknown` apparaît — pour la suspension inobservable et pour `ContinuedAsNew`.
+
+C'est la panne exacte que l'ADR 0003 nomme : le port avait pris la forme de son unique
+implémentation sans que personne ne le décide. Elle a été trouvée en écrivant le second moteur, ce
+qui est la raison pour laquelle l'ADR en demande deux. **Première fois de ce chantier qu'une
+interface est corrigée par l'usage plutôt que par relecture.** Coût : trois lignes dans les tests de
+W3.b et W3.c, parce que la correction est arrivée avant le premier consommateur.
+
+**Décisions prises.**
+
+_`suspend` et `resume` sont des signaux réservés._ Temporal n'a pas de pause côté serveur pour une
+exécution de workflow : `PauseActivity` existe, `PauseWorkflow` non. Suspendre est de la logique de
+workflow, et la seule façon de la demander de l'extérieur est un signal. Conséquence : le serveur
+dira « running » d'un workflow en pause, et la suspension se lit par une **query** réservée. Un
+workflow qui n'y répond pas rend `inspect` incapable de conclure — et c'est `Unknown` qui est rendu,
+avec le détail de ce qui manquait. Rendre `Running` aurait été un défaut plausible : la réponse la
+plus probable, indiscernable d'une observation, et fausse exactement quand la question compte. Même
+décision qu'en W2.18, même raison.
+
+_L'adaptateur ne garde aucun état d'exécution._ Seule la correspondance identifiant du port →
+référence cluster (`workflow_id` **et** `run_id`). Un cache local serait une seconde vérité, qui
+diverge au premier redémarrage du control plane et qui diverge en silence. Un test le vérifie en
+changeant le statut du faux cluster derrière l'adaptateur.
+
+_L'identifiant Temporal est composé, pas tiré._ `kind/version/subject`. Temporal se sert du
+`workflow_id` pour dédoublonner les démarrages : un identifiant aléatoire ferait de chaque reprise
+un second workflow.
+
+**Quatre mutations vérifiées rouges.** Replier `TimedOut` sur `Terminated` ; faire passer un
+workflow muet pour `Running` ; traduire `suspend` par un `terminate` ; mettre en cache l'état au
+lieu de le demander au cluster.
+
+**Ce qui reste.** W3.e — crash/restart/replay sur les deux backends, compensation qui n'efface aucun
+fait observé.
