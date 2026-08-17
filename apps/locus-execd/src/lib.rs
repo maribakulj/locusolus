@@ -29,7 +29,7 @@ pub mod linux;
 pub mod macos;
 pub mod runtime;
 
-pub use admission::{Admission, HostCapabilities, RefusalReason, admit};
+pub use admission::{AcceleratorReach, Admission, HostCapabilities, RefusalReason, admit};
 pub use linux::Missing;
 pub use linux::{ConfinementPlan, HostFacts, PlanError, PodmanBackend, Workload, plan};
 pub use macos::{MachineFacts, MachineState};
