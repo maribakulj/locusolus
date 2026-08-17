@@ -1880,3 +1880,74 @@ ne change pas. `RelationKind::ALL` est bien `[Self; 28]`, `ObjectionTarget` a bi
 
 **Prochain item.** **W4.d** — backend Linux rootless, cgroups v2, seccomp. W13 ne prend pas sa place
 : c'est la décision 13, et ce commit n'est pas un début de W13.b.
+
+---
+
+## 2026-08-17 — W4.d.1 — La traduction Linux rootless, et la lecture de ce que l'hôte permet
+
+**Périmètre.** `apps/locus-execd/src/linux/{mod,plan,probe}.rs`, neufs ; `src/lib.rs` (trois lignes
+de réexport) ; `tests/linux.rs`, neuf ; `docs/10` gagne le découpage de W4.d en deux commits. Aucun
+processus lancé, aucun socket ouvert.
+
+**Pourquoi la traduction d'abord.** ADR 0012 a posé le port avant le driver, ADR 0015 la traduction
+avant le fil. Le motif vaut ici plus qu'ailleurs : le plan de rollback d'ADR 0004 dit qu'il n'y a «
+aucun chemin de repli acceptable — un raccourci ici est exactement le _sandbox factice_ que le
+handoff interdit ». Un driver écrit avant que la traduction soit vérifiée confinerait de travers
+sans que rien ne le dise, et c'est le seul échec de ce workstream qui ne se rattrape pas.
+
+**Tests exécutés.** `npm run check` vert. 23 tests dans `tests/linux.rs`. Test de sortie de W4.d.1 :
+le plan ne concède jamais plus que le niveau exigé, il refuse par leur nom ce qu'un conteneur
+rootless ne sait pas faire, et la lecture de l'hôte nomme ce qui manque.
+
+**Ce que le test de stricte croissance a trouvé, et qui n'était pas prévu.** Deux tests encadrent
+l'échelle : chaque niveau confine **au moins autant** que le précédent, et **strictement plus**. Le
+second a échoué du premier coup, sur `S2` → `S3`. La cause n'était pas le test : sous
+`NetworkMode::Full`, le plan `S3` était **identique** au plan `S2`, puisque la seule chose que `S3`
+ajoute est le namespace réseau et que `full` ne le crée pas. Un niveau qui ne change rien à ce qui
+est appliqué est un niveau qu'on revendique sans le tenir — exactement ce que §21.6 appelle un
+downgrade, pris du côté où personne ne regarde.
+
+D'où une règle qui n'était pas dans le plan initial, et qui est une **équivalence** plutôt que deux
+conditions : `S3` s'appelle `container-isolated-network`, donc en deçà de `S3` un mode autre que
+`full` n'a rien pour le porter, et en `S3` `full` viderait le niveau. Une mission qui veut
+l'isolation des processus et le réseau de l'hôte demande `S2` et `full` — elle l'obtient, sous son
+vrai nom. `PlanError::IsolationContradictsNetwork` porte ce refus et le dit.
+
+**Décisions prises.** Le plafond du backend est `S3`, en constante, refusée au-delà par un nom. Les
+limites cgroup sont écrites **à tous les niveaux**, `S0` compris : l'invariant 6 dit que les
+ressources sont réservées avant exécution, pas qu'elles le sont quand on isole. Le quota disque et
+l'horizon vivent **hors** des limites cgroup — cgroup v2 borne un débit, pas un espace, et l'horizon
+est compté par le broker ; les mettre dans la même liste ferait croire qu'écrire trois fichiers les
+applique. `S0` refuse un montage et un quota disque : il n'a ni vue du système de fichiers ni rien
+pour contenir une écriture.
+
+**Le doute ne s'arrondit pas vers le haut.** `Support` a trois variantes : `Available`,
+`Unavailable { reason }` et `Undetermined { reason }`. Les deux dernières mènent au même refus —
+`ceiling` est conservateur — mais ne se disent pas pareil, parce que « le noyau refuse » et « je
+n'ai pas su regarder » envoient chercher à deux endroits différents. Cas concret conservé comme test
+: `unprivileged_userns_clone` n'existe que sur les noyaux portant le correctif Debian, donc son
+**absence** ne dit rien et le lire comme un refus interdirait `S1` sur la plupart des noyaux amont ;
+présent et à zéro, en revanche, c'est bien un refus.
+
+**`S2` et `S3` demandent les mêmes primitives à l'hôte**, et c'est écrit plutôt que corrigé. Un
+namespace réseau non privilégié s'obtient par le namespace utilisateur, comme celui de montage : il
+n'existe aucun fichier qui distinguerait les deux. Ce qui les sépare est ce que le plan applique,
+pas ce que l'hôte permet ; inventer ici un test qui les distinguerait donnerait une fausse
+précision.
+
+**Cinq mutations vérifiées rouges**, motif vérifié présent avant chaque substitution : le plan
+appliquant le plafond au lieu du niveau exigé (14 tests) ; un mode réseau non-`full` accepté sans
+namespace (1) ; la détection de l'hôte rendue optimiste (6) ; l'absence du correctif Debian lue
+comme un refus (5) ; un fichier illisible traité comme un refus plutôt que comme un doute (1).
+
+**Une dépendance implicite évitée.** Le test contre l'hôte réel n'affirme rien sur _cette_ machine —
+la CI, un poste de développement et un conteneur ne répondent pas la même chose. Il vérifie ce qui
+est vrai partout : la lecture ne panique pas, ne revendique jamais au-delà du plafond, et rend une
+preuve non vide. Les huit autres tests de détection tournent contre un arbre de fixtures.
+
+**Écart avec la spec.** Aucun. `docs/03` fixe « rootless Podman/containerd », cgroups v2 et seccomp
+; le plan les traduit sans en choisir un — c'est W4.d.2 qui branchera Podman.
+
+**Prochain item.** **W4.d.2** — le driver rootless proprement dit : `RuntimePort` implémenté, la
+sandbox créée, l'attestation lue de ce qui tourne. Ses dépendances sont satisfaites : le port existe
+(W4.c), la suite qui le jugera existe (W4.b), et la traduction qu'il appliquera existe désormais.

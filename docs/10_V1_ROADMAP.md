@@ -152,6 +152,19 @@ trust + localité + fit + budget, admission, refus, reroutage.
 W4.b avant W4.c : la suite de tests définit ce que « sandbox » veut dire dans ce projet, et un
 backend qui échoue un test critique n'est pas `trusted`.
 
+**W4.d se découpe en deux commits**, sur la forme d'ADR 0012 (le port avant le driver) et d'ADR 0015
+(la traduction avant le fil). Elle vaut ici plus qu'ailleurs : le plan de rollback d'ADR 0004 dit
+qu'il n'y a « aucun chemin de repli acceptable », et un driver écrit avant sa traduction confinerait
+de travers en silence.
+
+| # | Commit | Test de sortie |
+|---|---|---|
+| W4.d.1 `[R]` | la traduction `SandboxSpec` → plan de confinement rootless, et la lecture de ce que l'hôte permet | le plan ne concède jamais plus que le niveau exigé — monter d'un niveau ne relâche rien et change quelque chose — il refuse par leur nom la micro-VM, l'enclave et un mode réseau sans namespace pour le porter, et la lecture de l'hôte nomme ce qui manque au lieu de le supposer |
+| W4.d.2 `[R]` | le driver rootless : `RuntimePort` implémenté sur Podman rootless (`docs/03`), la sandbox créée, l'attestation lue de ce qui tourne | la suite de W4.b tourne contre ce backend et rend un `Standing` ; une sonde non exécutée est `NotRun` avec sa raison, jamais un succès |
+
+Le plafond de ce backend est `S3` et c'est une constante, pas une ambition : `S4` est une micro-VM
+et `S5` une enclave distante. W4.e les ouvre sur macOS.
+
 ---
 
 ## W5 — Toolchains

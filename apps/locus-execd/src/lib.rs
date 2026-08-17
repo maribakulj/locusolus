@@ -14,14 +14,17 @@
 //! # Ce que ce paquet contient aujourd'hui
 //!
 //! - [`runtime::RuntimePort`] : la seule description, dans tout le dépôt, de ce qu'on demande à un
-//!   runtime de containers. Les drivers arrivent en W4.d (Linux rootless) et W4.e (macOS) ;
-//! - [`admission`] : la décision **avant** exécution, sur des capacités déclarées.
+//!   runtime de containers. Le driver macOS arrive en W4.e ;
+//! - [`admission`] : la décision **avant** exécution, sur des capacités déclarées ;
+//! - [`linux`] : la traduction Linux rootless et la lecture de ce que l'hôte permet (W4.d).
 //!
 //! Aucun socket n'est ouvert ici. Le dire est important : ce paquet est le seul endroit où il sera
 //! légitime d'en ouvrir un, et un test balaie l'arbre pour vérifier que personne d'autre n'en parle.
 
 pub mod admission;
+pub mod linux;
 pub mod runtime;
 
 pub use admission::{Admission, HostCapabilities, RefusalReason, admit};
+pub use linux::{ConfinementPlan, HostFacts, PlanError, plan};
 pub use runtime::{RuntimeError, RuntimePort, SandboxId};
