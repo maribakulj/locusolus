@@ -14,20 +14,26 @@
 //! crate ne porte donc que des noms de la spec, et chaque énumération reprend la liste de la
 //! section qui la définit — pas une liste voisine qui aurait l'air équivalente.
 //!
-//! # Ce que ce crate ne fait pas
+//! # Une seule sorte de relation
 //!
-//! Aucune relation de coordination n'y est encore écrite : ADR 0016 veut qu'une sorte de relation
-//! n'entre dans son énumération que lorsqu'un consommateur exécutable et testé existe. C'est W13.e,
-//! avec `review` et rien d'autre.
+//! ADR 0016, décision 4 : une sorte de relation n'entre dans son énumération que lorsqu'un
+//! consommateur exécutable et testé existe. `review` en a un — l'indépendance de §14.4 et
+//! l'invariant 11 s'y appuient — et c'est la seule. `mentors`, `delegates_to`, `supervises`
+//! seraient du vocabulaire que rien ne vérifie.
 
 pub mod agent;
 pub mod capability;
 pub mod decision;
+pub mod proposal;
 pub mod task;
 pub mod team;
 
 pub use agent::{AgentError, AgentInstance, AgentTemplate, InstanceState, TemplateStatus};
 pub use capability::{Capability, CapabilityError, Source, Sources, capabilities};
 pub use decision::{ApprovalRequest, ApprovalState, Decision, DecisionError, DecisionState};
+pub use proposal::{
+    Approved, Author, Change, Committed, EpistemicIndex, Justification, Mode, Proposal,
+    ProposalError, Relation, RelationKind, approve, commit,
+};
 pub use task::{Assignment, Task, TaskError};
 pub use team::{CoordinationMode, Team, TeamError};
