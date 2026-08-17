@@ -571,3 +571,80 @@ indépendant de W1 : le harnais livré ici joue le serveur contre lequel le work
 W2.1 et W2.2 vivent dans `maribakulj/canterel` et ne dépendent que de ce dépôt-ci pour le SDK,
 désormais publié. En parallèle, W1 (domaine et event store) est ouvert côté `locusolus` et n'attend
 rien.
+
+## 2026-08-17 — W1.a — enveloppe commune d'objet épistémique (§7.4)
+
+**Périmètre.** Un crate neuf : `packages/domain` — `envelope.rs`, `status.rs`, `validation.rs`,
+`lineage.rs`, `ids.rs`, `hash.rs`, plus `tests/envelope_invariants.rs`. Ajouté aux membres du
+workspace Cargo. Aucun fichier existant modifié en dehors de cette ligne.
+
+**Tests exécutés.** `cargo test --all-features` : 10 property tests sur le domaine, 43 au total sur
+le workspace, 0 échec. `npm run check` : les neuf portes vertes — format, repo, naming, boundaries,
+schemas, generated, typecheck, tests Node, Rust (fmt + clippy `-D warnings` + tests).
+
+Le test de sortie de W1.a — « property tests sur les invariants » — passe. Vérifié par mutation,
+trois fois : faire hériter le niveau de validation d'une révision fait rougir §7.4 ; réattribuer le
+`stable_id` à chaque révision fait rougir §7.7 ; faire perdre à un merge son prédécesseur unique
+fait rougir deux tests de lignée.
+
+**La garde de frontières a été vérifiée sur ce crate, pas supposée.** `packages/domain` est le
+premier code que la règle 1 de `boundaries.json` avait à surveiller — jusqu'ici elle tournait sur
+zéro fichier. Un `use std::fs` glissé dans `status.rs` la fait échouer avec
+`domain-imports-no-infrastructure`, et le retirer la fait repasser. La règle scanne désormais neuf
+fichiers réels.
+
+**Décisions prises.** Cinq.
+
+_`validation_level` n'est dérivable d'aucun statut._ §7.4 : « `validation_level` décrit la force
+épistémique et ne doit pas être déduit du seul statut ». Il n'existe donc aucune conversion entre
+les deux, et le property test montre que **les soixante-dix combinaisons sont représentables** — y
+compris `validated` avec `L0`, qui décrit un objet ayant traversé le processus sans qu'aucune preuve
+n'ait été produite. Un type qui interdirait cette combinaison aurait déjà déduit le niveau.
+
+_`ValidationLevel` n'est ni `Ord` ni `PartialOrd`._ §8.1 : « ces niveaux ne forment pas toujours une
+chaîne totale. Une interprétation historique peut atteindre L3 et L6 sans être “reproduite” ».
+Dériver `Ord` écrirait dans le type une affirmation que la spec dément — et ce ne serait pas un
+défaut théorique : `if level >= Reproduced` compilerait, se lirait bien, et refuserait une
+interprétation historique parfaitement validée parce qu'aucune expérience ne l'a répliquée.
+`rank()` reste accessible comme **étiquette**, avec la note qui dit ce qu'elle n'est pas.
+
+_La lignée est une énumération, pas un `Vec`._ §7.7 dit deux choses qui semblent se contredire :
+« au plus un prédécesseur direct » et « un merge peut créer une révision avec plusieurs parents
+déclarés ». Elles ne parlent pas de la même chose. La lignée est une chaîne — c'est elle qui donne
+un sens à « la version précédente » ; les parents d'un merge sont de la provenance. Les fondre dans
+un même `Vec<RevisionId>` ferait de « la version précédente » une question sans réponse dès le
+premier merge. `Lineage::{Root, Successor, Merge}` rend l'unicité vraie **par construction**, merge
+compris.
+
+_Une révision repart en `draft` / `L0`._ Hériter du statut et du niveau ferait franchir à un contenu
+modifié une validation qui portait sur un autre contenu — la manière exacte dont une preuve se perd
+sans que personne ne s'en aperçoive. Les `evidence_refs` ne suivent pas non plus, pour la même
+raison ; la provenance, elle, suit, parce qu'elle dit d'où vient l'objet et non ce qu'il vaut.
+
+_Le domaine ne calcule aucun hash._ `ContentHash` vérifie la **forme** — préfixe obligatoire,
+longueur par algorithme, hexadécimal minuscule non normalisé — et rien de plus. Choisir une
+implémentation de hash est une décision d'infrastructure, et l'invariant 1 l'exclut d'ici. Même
+raison pour l'horloge et l'aléa : `revise()` reçoit l'instant et l'identifiant, elle ne les fabrique
+pas. Le crate reste pur, donc rejouable.
+
+**Écart avec la spec.** Trois notes.
+
+_Les préfixes `obj_` et `rev_` sont provisoires._ Aucun document ne montre d'exemple d'identifiant
+d'objet épistémique, là où `evt_01…` apparaît littéralement au §10.1. Ils sont marqués comme tels,
+au même titre que `msn` et `err` de `locus_protocol::id::provisional`. W1.b ou W1.c les confirmeront
+ou les remplaceront : ce sera une modification de schéma, pas de code.
+
+_`supersedes_revision_id` de §7.4 est exposé en lecture, pas en champ._ C'est la lignée qui porte la
+garantie d'unicité ; un champ nu se laisserait écrire deux fois. `Envelope::supersedes()` rend
+exactement ce que le YAML de §7.4 nomme.
+
+_Pas de `proptest` ni de `quickcheck`._ Le workspace ne dépend que de `serde` et `serde_json`, et
+ajouter une bibliothèque de génération pour dix propriétés paierait une dépendance permanente pour
+un confort ponctuel. Le générateur congruentiel du fichier de test tient en vingt lignes et il est
+**déterministe** — un échec se rejoue en relançant, sans graine à recopier depuis une sortie CI. Ce
+qu'on perd est la réduction des contre-exemples, et c'est tout. Si W1.b ou W1.f demandent des
+espaces qu'un LCG ne balaie pas honnêtement, la dépendance se justifiera à ce moment-là.
+
+**Prochain item.** W1.b `[R]` — agrégats organisationnels (§7.1) et objets épistémiques (§7.3),
+test de sortie « property tests ». Ses dépendances sont satisfaites : l'enveloppe livrée ici est ce
+que §7.3 enveloppe, et §7.1 s'écrit sur les mêmes identifiants typés.
