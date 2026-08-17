@@ -1635,3 +1635,75 @@ quota nul accepté.
 **Ce qui vient.** W4.b — la suite de self-tests indexée par niveau, **avant** le premier backend
 d'exécution (ADR 0004) : c'est elle qui définit ce que « sandbox » veut dire dans ce projet, et W4.a
 vient de lui donner les mots.
+
+### W4.b `[R]` — la suite de self-tests de sandbox, indexée par niveau (ADR 0004, §21.6, §32.3)
+
+**Livré.** `packages/execution/src/selftest.rs` : seize sondes, chacune déclarant le niveau à partir
+duquel elle doit être contenue et **pourquoi ce niveau-là** ; les sept dimensions de §32.3 et §21.7
+; `expectation`, `judge`, `standing`, `newly_contained`. Quinze tests.
+
+**Test de sortie, arbitré ici.** **« Chaque niveau que la suite couvre contient strictement plus que
+le précédent, et une sonde qu'on n'a pas su lancer ne compte jamais comme une réussite. »** Les deux
+moitiés disent la même chose par les deux bouts : un niveau qui ne contient rien de plus que le
+précédent est un synonyme, et une sonde non exécutée comptée comme bloquée fait d'un outil manquant
+une preuve d'isolation.
+
+**Écrite avant le premier backend, et c'est l'ordre de l'ADR 0004.** Un backend écrit d'abord
+définirait la sandbox par ce qu'il sait faire, et la suite se contenterait ensuite de le décrire.
+
+**Décisions prises.**
+
+_Chaque sonde déclare sa frontière et la justifie._ `S1 os-write-contained` contient les écritures
+et pas les lectures — c'est ce que son nom dit ; `S2 container-rootless` ajoute les espaces de noms,
+donc les lectures de l'hôte, le socket de runtime, la vue sur les processus et les quotas cgroup ;
+`S3` ajoute le réseau ; `S4` ajoute un noyau propre. Un test vérifie que la frontière déclarée est
+exactement celle qu'`expectation` applique, et qu'aucune sonde ne redevient permise en montant :
+sans cette monotonie, « exiger davantage » cesserait d'être une phrase qui a un sens.
+
+_Le sur-confinement est un constat, pas un non-événement._ Une sonde bloquée là où le niveau ne
+promettait rien n'est pas un trou de sécurité — et n'est pas rien : un backend plus strict que ce
+qu'il annonce fera échouer des missions légitimes de façon inexplicable, et personne ne cherchera la
+cause du côté de l'isolation puisque l'isolation « va bien ». `judge` le nomme ; `standing` ne
+refuse pas la confiance pour autant.
+
+_Une sonde non exécutée est un troisième verdict._ `Inconclusive`, distinct de « réussie » et de «
+bloquée », et il **refuse la confiance** sur une sonde critique : ADR 0004 dit qu'un backend qui
+échoue un test critique n'est pas `trusted`, et un test critique qu'on n'a pas su lancer n'a pas
+réussi. Le compter comme neutre reviendrait à accorder la confiance faute de contre-preuve, alors
+que c'est la preuve qui manque. Même famille que `WorkflowState::Unknown` en W3.d et que `UNKNOWN`
+en W2.18.
+
+_Une sonde absente du rapport vaut `Inconclusive`._ Le silence n'est pas un succès : une suite
+tronquée — parce qu'un backend ne sait pas lancer une sonde, ou parce que le rapport a été écrit à
+la main — ne doit pas se lire comme une suite passée.
+
+_« Presque trusted » n'existe pas._ `Standing` n'a que deux variantes. Un backend qui laisse
+échapper une sonde critique n'est pas un backend légèrement moins bon : c'est un backend dont les
+missions ont tourné sans le confinement qu'elles croyaient avoir.
+
+**L'écart de documents relevé en W4.a n'en était pas un.** §21.6 énumère six niveaux, la roadmap
+écrit « S0–S4 » pour cette suite. La raison apparaît en l'écrivant : **`S5` n'est pas
+self-testable**. Il promet une protection contre l'hôte lui-même, et une suite de self-tests
+s'exécute sur cet hôte — une sonde qui prétendrait vérifier « l'opérateur ne peut pas lire ma
+mémoire » rendrait le verdict que l'hôte aurait choisi de lui rendre. C'est une limite de méthode,
+pas une sonde manquante : la garantie de `S5` se vérifie par attestation matérielle distante. Un
+test affirme que `S5` ne gagne aucune sonde, pour que personne ne « complète » la suite en inventant
+celle qui ne peut pas exister.
+
+**La criticité est déclarée bien qu'aujourd'hui uniforme.** Les seize sondes sont critiques, et un
+test l'affirme plutôt que de laisser le champ ambigu. Le jour où quelqu'un ajoutera une sonde non
+critique, il devra le décider explicitement — une sandbox n'a pas de contenu accessoire.
+
+**Cinq mutations vérifiées rouges.** La frontière de niveau glissée d'un cran ; une sonde non
+exécutée comptée comme conforme ; une sonde absente du rapport comptée comme bloquée ; la seule
+sonde `S4` ramenée à `S3`, ce qui fait de `S4` un synonyme ; un échappement qui n'empêche plus la
+confiance.
+
+**Une mutation qui n'avait pas rougi pour la mauvaise raison.** La troisième a d'abord semblé ne
+rien casser. En vérifiant, la substitution ne s'était **pas appliquée** : `cargo fmt`, lancé juste
+avant, avait reformaté la fonction et le motif cherché n'existait plus. Une mutation qui rate
+ressemble exactement à une garde absente. Les mutations suivantes vérifient donc que le texte a bien
+changé avant de conclure quoi que ce soit du vert.
+
+**Ce qui vient.** W4.c — `locus-execd`, seul détenteur du socket runtime. La suite existe désormais
+pour dire s'il tient ce qu'il annonce.
