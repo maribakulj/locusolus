@@ -14,6 +14,31 @@ pub struct HostCapabilities {
     best_level: SandboxLevel,
     capacity: ResourceSpec,
     network_modes: Vec<&'static str>,
+    reach: AcceleratorReach,
+}
+
+/// D'où l'accélérateur de l'hôte est atteignable.
+///
+/// # Pourquoi cette distinction existe
+///
+/// `docs/05` : « les capacités macOS natives telles que MPS/MLX sont exposées par un worker de
+/// confiance **séparé** ». Le mot « séparé » n'est pas une préférence d'organisation, c'est une
+/// contrainte de la plateforme : Metal est une API de macOS, et un invité Linux dans une VM n'y a
+/// pas accès. Sur un tel hôte, une mission peut avoir le conteneur **ou** l'accélérateur, jamais les
+/// deux — et c'est exactement le genre de chose qu'on fusionne par optimisme, parce que « la machine
+/// a bien un GPU ».
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AcceleratorReach {
+    /// L'accélérateur est visible depuis la sandbox : un GPU passé au conteneur, par exemple.
+    InsideSandbox,
+    /// L'accélérateur n'existe qu'en exécution native, hors du conteneur.
+    NativeOnly {
+        /// Le meilleur confinement qu'une exécution **native** obtient sur cet hôte.
+        ///
+        /// C'est ce qui rend le mot « confiance » mesurable : un worker qui offre `mps` tourne hors
+        /// conteneur, donc bas dans l'échelle, et ne peut recevoir que ce qu'on lui confie.
+        native_level: SandboxLevel,
+    },
 }
 
 impl HostCapabilities {
@@ -21,6 +46,7 @@ impl HostCapabilities {
     ///
     /// L'accélérateur offert, s'il y en a un, vit dans `capacity` : c'est une ressource comme les
     /// autres, et lui donner une seconde déclaration à côté ferait deux endroits à tenir d'accord.
+    /// Par défaut il est réputé atteignable depuis la sandbox — voir [`HostCapabilities::native_only`].
     #[must_use]
     pub fn new(
         best_level: SandboxLevel,
@@ -31,7 +57,15 @@ impl HostCapabilities {
             best_level,
             capacity,
             network_modes,
+            reach: AcceleratorReach::InsideSandbox,
         }
+    }
+
+    /// Déclarer que l'accélérateur n'est atteignable qu'en exécution native.
+    #[must_use]
+    pub fn native_only(mut self, native_level: SandboxLevel) -> Self {
+        self.reach = AcceleratorReach::NativeOnly { native_level };
+        self
     }
 
     /// Le meilleur confinement que cet hôte sait appliquer.
@@ -44,6 +78,29 @@ impl HostCapabilities {
     #[must_use]
     pub const fn capacity(&self) -> &ResourceSpec {
         &self.capacity
+    }
+
+    /// D'où son accélérateur est atteignable.
+    #[must_use]
+    pub const fn reach(&self) -> &AcceleratorReach {
+        &self.reach
+    }
+
+    /// Le meilleur confinement disponible **pour cette mission**.
+    ///
+    /// Il vaut [`HostCapabilities::best_level`], sauf quand la mission exige un accélérateur que
+    /// seule l'exécution native atteint : le plafond devient alors celui de l'exécution native.
+    /// Décider cela ici plutôt que dans [`admit`] évite qu'un second appelant l'oublie.
+    #[must_use]
+    pub fn level_for(&self, spec: &SandboxSpec) -> SandboxLevel {
+        match &self.reach {
+            AcceleratorReach::NativeOnly { native_level }
+                if spec.resources().accelerator().is_some() =>
+            {
+                *native_level
+            }
+            _ => self.best_level,
+        }
     }
 }
 
@@ -71,6 +128,19 @@ pub enum RefusalReason {
         /// Le mode demandé.
         mode: &'static str,
     },
+    /// L'accélérateur existe, mais pas là où la mission veut être confinée.
+    ///
+    /// Le refus est distinct de [`RefusalReason::AcceleratorUnavailable`] : l'accélérateur **est**
+    /// sur cet hôte, et le dire « absent » enverrait chercher du matériel au lieu de choisir entre
+    /// le conteneur et l'accélérateur.
+    AcceleratorOutsideSandbox {
+        /// Le genre demandé.
+        kind: String,
+        /// Le niveau que la mission exige.
+        required: SandboxLevel,
+        /// Le niveau qu'une exécution native obtient sur cet hôte.
+        native_level: SandboxLevel,
+    },
 }
 
 impl fmt::Display for RefusalReason {
@@ -94,6 +164,16 @@ impl fmt::Display for RefusalReason {
                     "l'hôte ne sait pas appliquer le mode réseau « {mode} »"
                 )
             }
+            Self::AcceleratorOutsideSandbox {
+                kind,
+                required,
+                native_level,
+            } => write!(
+                formatter,
+                "« {kind} » n'existe qu'en exécution native sur cet hôte, donc au mieux en {} ; la mission exige {}",
+                native_level.code(),
+                required.code()
+            ),
         }
     }
 }
@@ -133,11 +213,21 @@ pub enum Admission {
 #[must_use]
 pub fn admit(spec: &SandboxSpec, host: &HostCapabilities) -> Admission {
     let mut reasons = Vec::new();
+    let available = host.level_for(spec);
 
-    if !host.best_level.satisfies(spec.minimum_level()) {
-        reasons.push(RefusalReason::LevelUnavailable {
-            required: spec.minimum_level(),
-            best: host.best_level,
+    if !available.satisfies(spec.minimum_level()) {
+        reasons.push(match (&host.reach, spec.resources().accelerator()) {
+            (AcceleratorReach::NativeOnly { native_level }, Some(accelerator)) => {
+                RefusalReason::AcceleratorOutsideSandbox {
+                    kind: accelerator.kind.clone(),
+                    required: spec.minimum_level(),
+                    native_level: *native_level,
+                }
+            }
+            _ => RefusalReason::LevelUnavailable {
+                required: spec.minimum_level(),
+                best: available,
+            },
         });
     }
 

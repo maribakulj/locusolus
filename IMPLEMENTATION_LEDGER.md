@@ -2190,3 +2190,50 @@ tient.
 
 **Prochain item.** **W4.f** — worker macOS de confiance annonçant la capability `mps`, qui ne reçoit
 que les tâches compatibles.
+
+---
+
+## 2026-08-17 — W4.f.1 — La portée de l'accélérateur : le conteneur ou Metal, jamais les deux
+
+**Périmètre.** `apps/locus-execd/src/admission.rs` — `AcceleratorReach`,
+`HostCapabilities::native_only`, `level_for`, une raison de refus de plus ; `src/lib.rs` ;
+`tests/accelerator.rs`, neuf ; `docs/10` gagne W4.f.1.
+
+**La contrainte est de la plateforme, pas de l'organisation.** `docs/05` : « les capacités macOS
+natives telles que MPS/MLX sont exposées par un worker de confiance **séparé** ». Metal est une API
+de macOS ; un invité Linux dans une VM n'y a pas accès. Sur un tel hôte, une mission peut avoir le
+conteneur **ou** l'accélérateur — et c'est exactement le genre de chose qu'on fusionne par
+optimisme, parce que « la machine a bien un GPU ».
+
+`HostCapabilities` déclare donc d'où son accélérateur est atteignable. Par défaut il est dans la
+sandbox — un GPU passé au conteneur est une ressource comme une autre. `native_only(level)` dit le
+contraire, et `level_for(spec)` en tire le plafond **pour cette mission** : c'est la mission qui, en
+demandant l'accélérateur, sort du conteneur. Mettre ce calcul dans `HostCapabilities` plutôt que
+dans `admit` évite qu'un second appelant l'oublie — et W4.g en aura un.
+
+**Ce qui rend le mot « confiance » mesurable.** Un worker qui offre `mps` tourne hors conteneur,
+donc bas dans l'échelle. « De confiance » n'est pas un compliment : c'est la conséquence du fait
+qu'on ne peut pas le confiner, donc qu'on ne lui confie que ce qu'on accepte de voir tourner sans
+confinement. Le refus le dit en nommant les deux niveaux : celui que la mission exige, et celui que
+l'exécution native obtient.
+
+**Deux refus qui se ressemblent et n'appellent pas la même action.** `AcceleratorUnavailable` envoie
+chercher du matériel ; `AcceleratorOutsideSandbox` demande de choisir entre le conteneur et
+l'accélérateur. Les confondre ferait commander un Mac à quelqu'un qui en a déjà un. Un test tient
+les deux côte à côte.
+
+**Trois mutations vérifiées rouges** : la portée native ignorée, le plafond restant celui du
+conteneur (3 tests) ; une mission sans accélérateur tombant elle aussi au niveau natif (2) ; le
+refus hors-sandbox dit « absent » (2).
+
+**Ce qui n'est pas dans ce commit, et pourquoi.** Le lien entre `Standing` (W4.d.3) et l'admission :
+un hôte devrait ne pouvoir annoncer que le niveau qu'il a **prouvé** tenir. C'est de la confiance au
+sens de `docs/10` §W4.g — « placement par capability + **trust** + localité + fit + budget » — et
+c'est là que ça va. Le mettre ici aurait mêlé deux objectifs dans un commit.
+
+**Écart avec la spec.** Aucun. §12.2 liste « sandbox disponible et attestée » et « mémoire, CPU, GPU
+et espace disque » parmi les critères de placement ; ce commit rend le premier dépendant du second
+quand la plateforme l'impose.
+
+**Prochain item.** **W4.g** — le scheduler : placement par capability, trust, localité, fit et
+budget ; admission, refus, reroutage. C'est là que `Standing` rejoint l'admission.

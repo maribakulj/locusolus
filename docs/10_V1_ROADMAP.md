@@ -177,6 +177,7 @@ un autre backend, avec son propre plafond et sa propre suite.
 | # | Commit | Test de sortie |
 |---|---|---|
 | W4.e.1 `[R]` | la machine macOS : son état, la lecture des faits **dans l'invité**, et le plafond qui en découle | les faits viennent du noyau qui confine et non de celui qui appelle ; une machine arrêtée se distingue d'un noyau incapable ; une VM partagée ne fait jamais franchir `S3` |
+| W4.f.1 `[R]` | la portée de l'accélérateur : `mps` n'existe qu'en natif, donc hors du conteneur | sur un hôte natif, une mission a le conteneur **ou** l'accélérateur, jamais les deux, et le refus dit lequel des deux il faut lâcher — distinct de « accélérateur absent », qui appelle une autre action |
 
 La posture seccomp **restreinte** promet le refus, depuis l'intérieur, de la création de namespaces
 et du chargement de code noyau. Ce dépôt ne **fournit pas** ce profil : un profil par défaut-refus
