@@ -2393,3 +2393,60 @@ seul « non image Linux portable ».
 **Prochain item.** **W5.b** — le Builder : lockfile → build OCI → SBOM → scan → health checks →
 signature → digest. Il doit livrer les six sondes compilées que W4.d.3 attend dans l'image de base,
 sans quoi elles échouent en 127 et se lisent comme des blocages.
+
+---
+
+## 2026-08-17 — W5.b — La chaîne de construction, tenue par les types
+
+**Périmètre.** `packages/environments/src/build.rs`, neuf ; `lib.rs` ; `tests/build.rs`, neuf ;
+`docs/10` §W5 gagne W5.c.
+
+**Ce que la chaîne garantit, et par quel moyen.** §19.5 énumère la suite : « lockfile, SBOM, scan,
+tests, signature et publication par digest ». Une suite écrite en prose se saute — il suffit
+d'appeler la dernière fonction. Ici chaque étape **consomme** la preuve de la précédente et rend la
+sienne : `Locked → Built → Inventoried → Scanned → Tested → Published`. Signer sans scanner n'est
+donc pas un chemin à interdire, c'est un chemin qui n'existe pas.
+
+**La garantie est vérifiée par le compilateur, et cette vérification est elle-même testée.** Un bloc
+`compile_fail` dans la documentation du module tente de sauter du `Built` au `published` ; il doit
+ne pas compiler. Une septième mutation — ajouter un `published` à `Built` — le fait compiler, et le
+doctest échoue en disant « Test compiled successfully, but it's marked `compile_fail` ». C'est la
+première garantie du dépôt dont la mise à l'épreuve passe par `cargo test --doc` ; un test
+d'intégration ne pouvait pas la porter, les doctests ne tournant que sur la lib.
+
+**Six autres mutations vérifiées rouges** : le plafond de gravité atteint mais pas dépassé (1 test)
+; le refus nommant la première trouvaille au lieu de la pire (1) ; une vérification non lancée
+comptée comme passée (1) ; un build sans lockfile (1) ; un SBOM vide (1) ; une publication non
+signée (1).
+
+**Quatre refus qui méritent leur nom.**
+
+_Sans lockfile, la chaîne ne démarre pas._ §19.7 fait de `R2` « l'environnement verrouillé » : une
+image construite sans lockfile ne se reconstruit pas à l'identique, et la publier promettrait `R2`
+sans le tenir.
+
+_« Scanné » ne veut pas dire « propre »._ Le plafond de gravité est un **argument** : la politique
+décide de ce qu'elle tolère. Un scan qui rendrait des vulnérabilités et laisserait passer l'image
+donnerait à la chaîne l'apparence d'un contrôle sans le contrôle. Le refus nomme la **pire**
+trouvaille, pas la première — corriger la première laisserait la pire.
+
+_Sous le plafond ne veut pas dire aucune._ `Published::findings_tolerated` emporte les trouvailles
+tolérées. Publier une image porteuse de vulnérabilités connues sans les emporter reviendrait à les
+oublier au moment précis où quelqu'un pourrait encore décider de ne pas s'en servir.
+
+_Une vérification non lancée est distincte d'un échec._ Troisième apparition du même refus, après
+`Observed::NotRun` (W4.b) et `Support::Undetermined` (W4.d.1) : « la commande a échoué » et « je
+n'ai pas su la lancer » envoient chercher à deux endroits différents, et compter la seconde comme un
+succès ferait d'un outil manquant une preuve de santé.
+
+**Ce que la chaîne ne garantit pas, et qui est écrit.** Qu'une `Image` vienne d'une chaîne.
+`Image::new` reste publique parce que décrire un environnement **déjà publié** — lu d'un registre,
+reçu d'un pair — est un autre acte que le construire. La garantie porte sur _ce build-ci_, pas sur
+toute image qui existe ; prétendre le contraire aurait rendu indescriptible ce qui existait avant
+nous.
+
+**Écart avec la spec.** Aucun. L'ordre est celui de §19.5, « tests » compris entre le scan et la
+signature.
+
+**Prochain item.** **W5.c** — le driver de build derrière un port, sur la forme de W4.d.2, et les
+six sondes compilées que W4.d.3 attend dans l'image de base.
