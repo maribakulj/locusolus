@@ -33,6 +33,7 @@
 //! code. Ce que le corps fait se vérifie quand un moteur l'exécute, c'est-à-dire en W3.b.
 
 pub mod backend;
+pub mod catalog;
 pub mod definition;
 pub mod determinism;
 pub mod kind;
@@ -42,6 +43,9 @@ pub use backend::{
     BackendError, Outcome, WorkflowBackend, WorkflowHandle, WorkflowId, WorkflowSignal,
     WorkflowState,
 };
+// `catalog::definition` n'est pas réexportée : le nom cohabiterait avec le module `definition`,
+// et les deux namespaces de Rust rendraient la chose légale sans la rendre lisible.
+pub use catalog::CATALOG_VERSION;
 pub use definition::{
     Activity, DefinitionError, Effect, Idempotency, Step, WorkflowDefinition, WorkflowVersion,
 };
