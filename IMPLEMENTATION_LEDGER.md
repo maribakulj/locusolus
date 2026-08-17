@@ -717,3 +717,65 @@ l'écriture du ledger.
 **Prochain item.** W1.c `[M]` — `packages/event-store` : enveloppe de §10.1, append-only logique,
 concurrence optimiste. Test de sortie : « replay complet + conflit de concurrence détecté ». Premier
 item `[M]` de W1 : il demande donc un ADR et un plan de rollback.
+
+## 2026-08-17 — W1.c `[M]` — `packages/event-store` : enveloppe, append-only, concurrence optimiste
+
+**Périmètre.** Un crate neuf : `packages/event-store` — `envelope.rs`, `store.rs`, `memory.rs`, plus
+`tests/contract.rs`. Un ADR : `docs/adr/0012-port-event-store-avant-driver.md`. Ajouté aux membres
+du workspace Cargo.
+
+**Tests exécutés.** `cargo test --all-features` : 15 contract tests neufs, 73 au total sur le
+workspace, 0 échec. `npm run check` : les neuf portes vertes.
+
+Le test de sortie de W1.c — « replay complet + conflit de concurrence détecté » — passe. Vérifié par
+mutation, trois fois : désactiver le contrôle de révision fait rougir les deux tests de concurrence
+; vérifier l'idempotence **après** la concurrence fait rougir les deux tests de rejeu ; laisser
+passer un lot mal formé fait rougir l'atomicité.
+
+**Quatre décisions, toutes dans l'ADR 0012.** Résumées ici, argumentées là-bas.
+
+_Le port et sa suite de contract tests avant tout driver._ `CLAUDE.md` demande des ports purs avant
+tout branchement. La suite est écrite **contre le trait**, jamais contre l'implémentation en mémoire
+: le jour où le driver PostgreSQL existe, c'est elle qui décidera s'il est conforme — pas sa
+documentation, pas sa relecture. Écrite après lui, elle documenterait ce qu'il fait ; écrite avant,
+elle dit ce qu'il doit faire. Même geste que les self-tests de sandbox d'ADR 0004.
+
+_`Expected` n'a pas de variante « peu importe »._ §10.2 dit « optimistic concurrency **par**
+`expected_stream_revision` ». Un écrivain qui ne sait pas sur quelle révision il construit n'a rien
+vérifié : ce qu'il produit n'est pas un append concurrent réussi, c'est un conflit qu'on n'a pas
+regardé. La plupart des journaux offrent un `Any` par commodité, et c'est par cette commodité que
+les invariants d'agrégat se perdent.
+
+_L'idempotence est vérifiée avant la concurrence._ Une commande rejouée a fait avancer le stream,
+donc son `expected` est périmé **par sa propre faute**. Vérifier la concurrence d'abord lui
+opposerait sa propre écriture, et l'appelant obtiendrait un doublon en relisant puis en retentant.
+Un contract test verrouille l'ordre.
+
+_`Draft` et `Envelope` sont deux types._ « Ordre total par stream » n'est pas une propriété à
+vérifier après coup, c'est une propriété à rendre non violable : le producteur ne peut pas poser un
+rang parce que le champ n'existe pas chez lui. Idem pour `recorded_at`, qui est un fait du journal —
+et sa distinction d'avec `occurred_at` n'est pas décorative, un worker hors ligne (§24.3) produit
+des actes dont l'écriture suit de plusieurs heures.
+
+**Écart avec la spec.** Deux notes.
+
+_Le namespace d'un type d'événement est vérifié, le verbe ne l'est pas._ §10.3 donne les familles
+avec un `*` et n'énumère aucun verbe. Fermer la liste des verbes interdirait un événement que la
+spec autorise ; fermer celle des namespaces attrape la faute qui compte — un événement rangé dans
+une famille inexistante est un événement qu'aucune projection n'ira chercher. `EVENT_NAMESPACES`
+porte les vingt-huit familles du texte plus deux ajouts locaux, `projection` et `migration`,
+**signalés comme tels** en commentaire plutôt que fondus dans la liste normative.
+
+_Trois garanties de §10.2 ne sont pas portées par ce commit_ : signature de fédération, upcasters de
+migration (W1.h), snapshots reconstruisibles (W1.d). Nommées dans le module et dans l'ADR pour qu'on
+ne les croie pas oubliées.
+
+**Plan de rollback.** Dans l'ADR, section dédiée. En résumé : avant W1.d, revenir coûte la
+suppression du crate et d'une ligne de `Cargo.toml` — rien d'autre n'en dépend, `packages/domain` ne
+le connaît pas. Après W1.d, seule la décision 4 a un rollback coûteux, et c'est pourquoi elle est
+prise maintenant. Aucune donnée n'est en jeu : l'implémentation de référence est en mémoire, et
+aucun journal persistant n'existe.
+
+**Prochain item.** W1.d `[M]` — projections reconstructibles. Test de sortie : « reconstruction
+depuis zéro = état courant ». Ses dépendances sont satisfaites : le replay total et ordonné livré
+ici est exactement ce dont une reconstruction a besoin, et l'export brut lui donne l'ordre global.
