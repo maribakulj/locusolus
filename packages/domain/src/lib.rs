@@ -28,20 +28,24 @@
 //!    l'exécution ne les distinguerait : ce sont deux ULID de même forme.
 
 pub mod branch;
+pub mod conflict;
 pub mod envelope;
 pub mod hash;
 pub mod ids;
 pub mod lineage;
+pub mod negative_result;
 pub mod objects;
 pub mod status;
 pub mod task;
 pub mod validation;
 
 pub use branch::{Branch, BranchState, Condition, Origin, TransitionError, ValidationWitness};
+pub use conflict::{Conflict, ConflictLog, ConflictOrigin, Verdict, conflicts_from_merge};
 pub use envelope::{Confidentiality, Envelope, Ref, Revision};
 pub use hash::{ContentHash, ParseHashError};
 pub use ids::{RevisionId, RevisionKind, StableId, StableKind};
 pub use lineage::Lineage;
+pub use negative_result::{CONCLUSIVE_POWER, Exclusion, NegativeResult, Power};
 pub use objects::{CoreObjectType, ObjectType, ParseObjectTypeError};
 pub use status::Status;
 pub use task::{ForbiddenTransition, TaskState, implies_validated_claims, transition};
