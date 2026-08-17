@@ -72,6 +72,10 @@
     {
       "schema": "artifacts/1.0/artifact-manifest.schema.json",
       "examples": ["artifact-manifest-promoted.json", "artifact-manifest-quarantined.json"]
+    },
+    {
+      "schema": "artifacts/1.0/run-manifest.schema.json",
+      "examples": ["run-manifest-reproducible.json", "run-manifest-narration-only.json"]
     }
   ],
   "shared": [

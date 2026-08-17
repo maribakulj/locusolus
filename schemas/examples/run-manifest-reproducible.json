@@ -1,0 +1,77 @@
+{
+  "_fixture": {
+    "name": "run-manifest-that-supports-what-it-claims",
+    "expect": "valid",
+    "pairs_with": "run-manifest-narration-only.json",
+    "note": "Un run qui soutient ce qu'il déclare : inputs par hash, révision de code propre, image par digest, seeds consignés. Il déclare R2, et R2 est ce que le calcul de §19.7 rend. Il porte aussi `observed` face à `reserved` — c'est l'écart entre les deux que le rapprochement de coûts exploite."
+  },
+  "run_id": "run-2026-08-17-0007",
+  "task_id": "task-plot-recall",
+  "attempt": 2,
+  "environment": {
+    "environment_id": "env-python-science",
+    "image_digest": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "toolchains": [
+      "base",
+      "python-science"
+    ]
+  },
+  "code_revision": {
+    "repository": "https://github.com/maribakulj/locusolus",
+    "commit": "0123456789abcdef0123456789abcdef01234567",
+    "dirty": false
+  },
+  "inputs": [
+    {
+      "artifact_id": "artifact-measurements",
+      "content_hash": "blake3:fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210",
+      "role": "measurements"
+    }
+  ],
+  "commands": [
+    {
+      "argv": [
+        "python",
+        "-m",
+        "analysis.plot",
+        "--input",
+        "measurements.parquet"
+      ],
+      "cwd": "/work",
+      "exit_code": 0,
+      "started_at": "2026-08-17T11:19:00.000Z",
+      "duration_seconds": 42.5
+    }
+  ],
+  "env": {
+    "PYTHONHASHSEED": "0",
+    "TOKENIZERS_PARALLELISM": "false"
+  },
+  "seeds": {
+    "numpy": 20260817,
+    "python": 20260817
+  },
+  "resources": {
+    "reserved": {
+      "cpu": 4,
+      "memory_mb": 8192,
+      "disk_mb": 20480,
+      "wall_time_seconds": 600
+    },
+    "observed": {
+      "cpu_seconds": 138.2,
+      "memory_peak_mb": 3104,
+      "disk_peak_mb": 512,
+      "wall_time_seconds": 44.1
+    }
+  },
+  "outputs": [
+    {
+      "artifact_id": "artifact-figure-3",
+      "content_hash": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    }
+  ],
+  "reproducibility_level": "R2",
+  "started_at": "2026-08-17T11:18:55.000Z",
+  "completed_at": "2026-08-17T11:19:44.000Z"
+}
