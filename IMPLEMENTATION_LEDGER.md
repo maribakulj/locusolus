@@ -3297,3 +3297,67 @@ son CAS et ses bornes, et les deux graphes. Restent **W5.f** (bloqué sur un hô
 `docs/10` signale comme faciles à rater : la prévention de contamination (§16.6) doit être testée
 par un cas adverse explicite et pas seulement par construction, et l'anti-gaming du portefeuille
 (§13.6) doit exister **avant** que la fonction de valeur pilote des décisions automatiques.
+
+---
+
+## 2026-08-17 — W7 découpé, et W7.a — la revue comme protocole
+
+**Périmètre.** `docs/10` : W7 est redécoupé au commit près, comme le document l'exige de tout
+workstream qui devient le prochain. Puis `packages/review`, neuf : `src/{dossier,review}.rs`,
+`src/lib.rs`, `tests/review.rs` ; le `Cargo.toml` de l'espace de travail gagne le membre.
+Dépendances : `locus-domain`, `locus-protocol`.
+
+**L'ordre de W7 suit une seule idée.** Ce qu'un relecteur **ne voit pas** est décidé avant qu'il
+relise. Le dossier se fige avant l'attribution (§17.3), l'indépendance se vérifie avant la remise,
+et l'anti-gaming existe avant que la valeur pilote quoi que ce soit — dans chaque cas, l'inverse
+produit un système qui a l'air de fonctionner. D'où deux contraintes d'ordre inscrites : W7.b (cas
+adverses de contamination) **avant** W7.c (`ContextView`), parce qu'un cas adverse écrit contre une
+`ContextView` déjà là serait écrit pour passer ; et W7.f (anti-gaming) avant tout usage automatique
+de la fonction de valeur, ce qui est la mise en garde du workstream transformée en ordre de commits.
+
+**Le dossier figé est une suite de types, pas un booléen.** §17.3 : « le dossier est figé **avant
+attribution** ; toute modification entraîne une nouvelle version ou un addendum explicitement
+visible ». `Draft` puis `Frozen` : un `Frozen` n'a aucune méthode qui change ce que le relecteur
+consultera, et les deux issues de la phrase — addendum visible, nouvelle version — sont les deux
+seules qui existent. Un dossier retouchable après attribution rendrait toute revue incontestable :
+on ne saurait jamais si le relecteur a vu ce que le dossier dit aujourd'hui. Même forme que la
+chaîne de build de W5.b, pour la même raison — un processus qui se déroule une fois, dans un ordre
+qui est la garantie.
+
+**L'indépendance est constatée, jamais déclarée.** `attest` confronte le relecteur au générateur,
+exigence par exigence. C'est la **quatrième** occurrence de cette forme après l'attestation de
+sandbox (W4.d.2), le digest de build (W5.e) et le niveau de reproductibilité (W6.d) ; le motif est
+maintenant assez établi pour être une règle de conception du dépôt : _ce qui prouve ne peut pas être
+ce qui est demandé_.
+
+**Deux groupes inconnus ne sont pas deux groupes distincts.** Cinquième apparition de « l'absence de
+preuve n'est pas une preuve », et ici elle a du mordant : conclure l'inverse ferait de l'ignorance
+une garantie d'indépendance, c'est-à-dire exactement le contraire de ce que §14.4 demande.
+
+**Trois exigences d'indépendance sur les dix de §14.4.** Celles qui ont un consommateur exécutable :
+le groupe vient de W13.c, le worker distinct de W13.d, l'absence de transcript de l'invariant 11.
+Les sept autres — familles de modèles, fournisseurs, corpus, outils, randomisation, anonymisation,
+mémoire partagée — n'ont rien qui les vérifie, et les écrire en ferait du vocabulaire inerte (ADR
+0016, décision 4).
+
+**Une revue non indépendante reste une revue.** Elle est rendue, consignée, ses constats restent
+lisibles. Ce qu'elle ne peut pas faire est **compter comme** la revue indépendante que la politique
+exigeait. L'écarter effacerait un travail réel ; la confondre avec une revue indépendante serait
+pire. `is_independent` dit la différence d'une seule voix.
+
+**Un finding sans preuve ne décide de rien, même déclaré bloquant.** §17.5 le dit en toutes lettres,
+et sans cette règle il suffirait d'écrire `blocking` pour bloquer. `is_binding` exige les deux
+conditions — une preuve **et** une gravité — et un test vérifie que chacune manque à son tour.
+
+**Six mutations vérifiées rouges** : deux groupes inconnus passant pour distincts (1 test) ; le
+transcript cessant d'empêcher l'indépendance (1) ; un finding sans preuve devenu liant (1) ; la
+revue de son propre travail redevenue possible (1) ; l'addendum réécrivant le dossier (1) ; un
+dossier sans question qui se fige (1). Restauration confirmée verte.
+
+**Écart avec la spec.** Aucun. Ce que W7.a ne livre pas et que §17 nomme : le rebuttal (§17.6) et la
+méta-revue (§17.7), qui sont W7.d ; `provenance_view_id` et `reviewer_context_view_id`, qui
+attendent la `ContextView` de W7.c ; `severity_schema`, qui est une politique et relève de W14.
+
+**Prochain item.** **W7.b** — la prévention de contamination de §16.6, par **cas adverses**. Cinq
+cas, un par forme nommée, et chacun doit échouer **avant** son correctif : c'est la mise en garde de
+`docs/10` prise au mot.

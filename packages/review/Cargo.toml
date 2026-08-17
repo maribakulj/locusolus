@@ -1,0 +1,15 @@
+[package]
+name = "locus-review"
+description = "La revue comme protocole : dossier figé, findings, attestation d'indépendance (SPEC_V1 §17, §14.4)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+locus-domain = { path = "../domain" }
+locus-protocol = { path = "../protocol" }

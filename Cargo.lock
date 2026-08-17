@@ -114,6 +114,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "locus-review"
+version = "0.0.0"
+dependencies = [
+ "locus-domain",
+ "locus-protocol",
+]
+
+[[package]]
 name = "locus-validation"
 version = "0.0.0"
 dependencies = [
