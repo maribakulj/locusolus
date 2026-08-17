@@ -2912,3 +2912,62 @@ servir. Sans borne, la lenteur du réseau est indistinguable d'un test qui écho
 est donc **W7** — mémoire, revue indépendante, budgets, portefeuille — qui dépend de W13.c et W13.d
 (ADR 0016, décision 13) : la revue indépendante suppose des instances d'agent distinctes et une
 assignation. **W13.b** est donc le prochain item exécutable.
+
+---
+
+## 2026-08-17 — W13.b — Le pli : `lep/1.0` journalise une exécution, pas une organisation
+
+**Périmètre.** `tests/graph/fold.ts` et `tests/graph/fold.test.ts`, neufs. Aucun schéma modifié,
+aucun champ ajouté au protocole, aucun paquet touché.
+
+**Pourquoi un pli, et pourquoi sous `tests/`.** Ce n'est pas une projection : il lit des documents
+et rend un graphe, sans état, sans journal, sans base. Il existe pour répondre à une question
+**avant** que W13.f engage une projection sur la réponse — le graphe d'exécution est-il dérivable de
+`lep/1.0` tel quel ? La réponse est oui, et la découvrir après avoir écrit la projection l'aurait
+coûtée.
+
+**La réponse tient en une phrase.** `lep/1.0` journalise une **exécution**, pas une
+**organisation**. Attempt, tâche, worker, lease, outil, artefact, run et leurs relations se
+reconstituent sans rien ajouter. Qui — quel **agent** — a agi ne s'y trouve pas.
+
+**Ce que le test prouve par l'absence, et ce qu'il ne demande pas.** Le schéma de l'événement ne
+déclare aucune propriété d'agent : aucun producteur conforme n'a d'endroit où en mettre une. Une
+première version exigeait en plus `additionalProperties: false`, et **c'était une erreur** : aucun
+schéma LEP ne ferme, et pour une raison — `docs/06` fait des champs optionnels compatibles un ajout
+mineur, ce qui suppose qu'un consommateur `1.0` tolère les champs d'un producteur `1.1`. Le schéma
+de l'événement le dit lui-même à propos d'`event_type`, « fermé exprès, **contrairement aux
+documents** ». Ce qui protège réellement un consommateur est ailleurs : le SDK est **généré** depuis
+le schéma, donc un champ non modélisé n'existe pas pour qui l'emploie — et un second test le vérifie
+sur le fichier généré plutôt que sur une liste recopiée.
+
+**La nuance qui décide de W13.g.** `attempt.schema.json` porte bien un `agent_id`, **facultatif**.
+Mais une projection consomme le **flux d'événements**, pas les documents d'attempt : l'assignation
+ne lui parvient jamais. C'est exactement ce que W13.d comble en faisant de l'assignation un
+événement, et le test est ce qui empêche de croire que le champ existant suffisait.
+
+**Une arête est un fait, pas une occurrence.** « `task-nominal#1` appartient à `task-nominal` » est
+écrit par la mission, par la lease, par l'attempt et par chaque événement. La première version
+empilait quatre arêtes identiques, ce qui aurait fait d'un graphe de dépendances un histogramme de
+mentions et faussé le premier calcul de degré venu. Trouvé par le test, pas par relecture.
+
+**Deux pertes déclarées plutôt que masquées.** `lep/1.0` ne donne aucun identifiant d'appel d'outil
+: deux appels du même outil dans le même attempt sont **un seul nœud**. Et un document partiel ne
+produit rien — le pli s'abstient au lieu de fabriquer un attempt « inconnu », ce qui est le cas
+normal d'une projection qui rattrape un journal.
+
+**La mutation qui est passée verte, et ce qu'elle a montré.** Neutraliser `orphanEdges` pour qu'il
+rende toujours la liste vide laissait la suite **verte** : aucun test ne lui donnait d'orpheline à
+trouver. Un détecteur muet est indiscernable d'un graphe sain. C'est la troisième fois de ce
+chantier qu'une garde passe sans être elle-même vérifiée, et la forme est toujours la même — on
+teste ce que la garde protège, jamais qu'elle protège. Un test lui donne maintenant une arête
+pendante dans chaque sens et exige que le nœud manquant soit nommé.
+
+**Six mutations vérifiées rouges** : le préfixe de sorte supprimé (2 tests) ; une arête redevenue
+occurrence (1) ; un attempt lié à une tâche jamais créée (2) ; un attempt fabriqué pour un document
+sans identité (1) ; la dérivation d'artefact cessant d'être une arête (1) ; le détecteur
+d'orphelines rendu muet (1, après correction du test). Restauration confirmée verte.
+
+**Écart avec la spec.** Aucun.
+
+**Prochain item.** **W13.c** — `packages/coordination` : `AgentTemplate`, `AgentInstance`, `Team`,
+`Decision`, `ApprovalRequest`, et les quatre identifiants dans `packages/protocol`.
