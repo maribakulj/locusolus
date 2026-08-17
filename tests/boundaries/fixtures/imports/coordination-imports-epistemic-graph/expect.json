@@ -1,0 +1,9 @@
+{
+  "title": "le domaine de coordination traverse le graphe épistémique au lieu de citer un RevisionId",
+  "violations": [
+    {
+      "rule": "coordination-imports-no-epistemic-graph",
+      "where": "packages/coordination/src/lib.rs"
+    }
+  ]
+}

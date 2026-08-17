@@ -1,8 +1,10 @@
 {
   "$comment": [
-    "Forme opposable des cinq règles de CLAUDE.md, section « Frontières vérifiées par la CI ».",
+    "Forme opposable des frontières de CLAUDE.md, section « Frontières vérifiées par la CI ».",
     "Le champ `statement` de chaque règle reprend le texte de CLAUDE.md mot pour mot : si les deux",
-    "divergent, CLAUDE.md fait foi et ce fichier est en retard.",
+    "divergent, CLAUDE.md fait foi et ce fichier est en retard — vérifié par tests/boundaries/",
+    "contract.test.ts, qui lit CLAUDE.md et compare. Une frontière peut porter deux règles quand",
+    "elle a deux sens, chacune ayant son scope et toutes deux le même énoncé.",
     "Vérifié par `npm run check:boundaries`, exécuté en CI."
   ],
 
@@ -139,6 +141,23 @@
         "kube",
         "kube-client"
       ]
+    },
+
+    "epistemic-graph": {
+      "$comment": [
+        "Règle 6. Le crate du graphe épistémique. Sa garantie est une garantie par absence d'API —",
+        "pas de flatten, pas de decompose, pas d'as_edges — et un graphe de coordination a",
+        "légitimement besoin de ces opérations. ADR 0016, décision 1."
+      ],
+      "patterns": ["@locus/graph", "locus-graph"]
+    },
+
+    "coordination": {
+      "$comment": [
+        "Règle 6, autre sens. Une justification de proposition cite un objet épistémique par son",
+        "RevisionId, obtenu de locus-domain : elle ne traverse jamais le graphe."
+      ],
+      "patterns": ["@locus/coordination", "locus-coordination"]
     },
 
     "host-io": {
@@ -289,6 +308,34 @@
       "statement": "apps/emacs démarre en emacs -Q avec sa seule load-path.",
       "kind": "emacs-isolation",
       "unit": "apps/emacs"
+    },
+
+    {
+      "id": "epistemic-graph-imports-no-coordination",
+      "claudeMd": 6,
+      "statement": "packages/graph et le domaine des objets de coordination ne s'importent pas l'un l'autre.",
+      "$comment": [
+        "Un des deux sens. La règle est écrite en deux entrées parce qu'une règle porte un seul",
+        "scope. Les deux portent le même statement, qui est le texte de CLAUDE.md mot pour mot."
+      ],
+      "kind": "imports",
+      "scope": ["packages/graph/**"],
+      "deny": ["coordination"]
+    },
+
+    {
+      "id": "coordination-imports-no-epistemic-graph",
+      "claudeMd": 6,
+      "statement": "packages/graph et le domaine des objets de coordination ne s'importent pas l'un l'autre.",
+      "$comment": [
+        "L'autre sens. Le scope vise le crate créé en W13.c ; jusque-là la règle examine zéro",
+        "fichier, et `check:boundaries` l'imprime plutôt que de le taire — comme la règle 4 avant",
+        "qu'apps/locusd existe. Ce que la règle garantit aujourd'hui est vérifié sur fixtures,",
+        "dans tests/boundaries/fixtures/imports/."
+      ],
+      "kind": "imports",
+      "scope": ["packages/coordination/**"],
+      "deny": ["epistemic-graph"]
     }
   ]
 }

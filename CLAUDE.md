@@ -31,6 +31,11 @@ frontières inter-repos.
   `apps/web`, le SDK client généré et le worker Canterel restent en TypeScript ; `apps/emacs` en
   Emacs Lisp. Les JSON Schemas s'écrivent en **Draft 7** tant qu'un prototype `typify` sur
   2020-12 n'a pas levé la condition 1 de l'ADR.
+- Les objets d'organisation, de coordination et de gouvernance sont ceux de `SPEC_V1.md` §7.1, §13,
+  §16, §20 et §22, sous leur nom. Aucun vocabulaire parallèle — pas de `MutationPolicy`, pas de
+  `MutationGrant`, pas de `TopologyNode`, pas d'échelle d'autorité à cinq barreaux (ADR 0016). Une
+  sorte de relation de coordination n'entre dans son énumération que lorsqu'un consommateur
+  exécutable et testé existe.
 
 ## Frontières vérifiées par la CI
 
@@ -39,6 +44,7 @@ frontières inter-repos.
 3. Aucun client PostgreSQL hors `packages/event-store` et projections.
 4. `apps/locusd` n'importe aucun SDK de runtime de containers.
 5. `apps/emacs` démarre en `emacs -Q` avec sa seule `load-path`.
+6. `packages/graph` et le domaine des objets de coordination ne s'importent pas l'un l'autre.
 
 ---
 

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { test } from "node:test";
 
@@ -7,13 +8,52 @@ import { loadContract } from "../../tooling/boundaries/rules.ts";
 import { loadFixtures, repoRoot } from "./fixtures.ts";
 
 const contract = await loadContract(join(repoRoot, "boundaries.json"));
+const frontiers = await claudeMdFrontiers();
 
-test("le contrat porte les cinq règles de CLAUDE.md, dans l'ordre", () => {
+test("le contrat porte les frontières de CLAUDE.md, dans l'ordre", () => {
+  const numbered = [...frontiers.keys()];
+  assert.deepEqual(numbered, [1, 2, 3, 4, 5, 6], "la liste de CLAUDE.md est numérotée sans trou");
+  const carried = contract.rules.map((rule) => rule.claudeMd);
+  assert.deepEqual([...new Set(carried)], numbered, "chaque frontière a au moins une règle");
   assert.deepEqual(
-    contract.rules.map((rule) => rule.claudeMd),
-    [1, 2, 3, 4, 5],
+    [...carried].sort((a, b) => a - b),
+    carried,
+    "les règles suivent l'ordre de la liste",
   );
 });
+
+/**
+ * `boundaries.json` dit que si les deux divergent, CLAUDE.md fait foi. Jusqu'ici personne ne le
+ * vérifiait : une frontière reformulée d'un côté aurait laissé l'autre décrire une garantie que
+ * plus rien ne portait. Une règle écrite en deux entrées — un scope par sens — porte deux fois le
+ * même énoncé, et c'est ce que la comparaison exige.
+ */
+test("l'énoncé de chaque règle est celui de CLAUDE.md, mot pour mot", () => {
+  for (const rule of contract.rules) {
+    const expected = frontiers.get(rule.claudeMd);
+    assert.ok(expected, `CLAUDE.md ne porte aucune frontière ${rule.claudeMd}`);
+    assert.equal(plain(rule.statement), plain(expected), `règle ${rule.id}`);
+  }
+});
+
+/** Les frontières numérotées de « Frontières vérifiées par la CI », dans l'ordre du fichier. */
+async function claudeMdFrontiers(): Promise<Map<number, string>> {
+  const source = await readFile(join(repoRoot, "CLAUDE.md"), "utf8");
+  const section = source.split("## Frontières vérifiées par la CI")[1];
+  assert.ok(section, "CLAUDE.md doit porter la section « Frontières vérifiées par la CI »");
+  const frontiers = new Map<number, string>();
+  for (const line of section.split("\n")) {
+    if (line.startsWith("#") || line.trimStart().startsWith("---")) break;
+    const match = /^(\d+)\.\s+(.*\S)\s*$/.exec(line);
+    if (match?.[1] && match[2]) frontiers.set(Number(match[1]), match[2]);
+  }
+  return frontiers;
+}
+
+/** Le balisage Markdown n'est pas l'énoncé : `boundaries.json` porte le texte nu. */
+function plain(statement: string): string {
+  return statement.replaceAll("`", "").replaceAll("**", "");
+}
 
 test("aucune règle n'est admise sans violation délibérée qui la démontre", async () => {
   const demonstrated = new Set<string>();
