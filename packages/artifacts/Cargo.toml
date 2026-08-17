@@ -1,0 +1,13 @@
+[package]
+name = "locus-artifacts"
+description = "ArtifactManifest : le hash déclaré avant l'upload, la quarantaine puis la promotion (ADR 0005)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]

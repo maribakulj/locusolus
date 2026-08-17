@@ -213,6 +213,17 @@ porte `version:` ni `image:`, tous deux obligatoires au schéma, et `ml-mps.yaml
 
 Object store, manifests, quarantaine/promotion, `RunManifest`, workflows de reproduction.
 
+L'ordre est celui de W5 : le vocabulaire et ses refus d'abord, dans un paquet sans dépendance ; le
+stockage ensuite, derrière un port (ADR 0012). Un manifeste qui ne sait pas dire non n'a pas besoin
+d'un object store pour être faux.
+
+| # | Commit | Test de sortie |
+|---|---|---|
+| W6.a `[R]` | `packages/artifacts` : `ArtifactManifest` et la machine à états quarantaine/promotion | un contenu dont le hash n'est pas celui qui avait été déclaré est refusé ; `declared → promoted` n'existe pas ; un artefact promu ne se déprome pas ; l'histoire des états traversés ne s'efface pas |
+| W6.b `[R]` | l'object store derrière un port, avec un backend en mémoire pour les tests | aucun octet n'entre sans manifeste déclaré ; la taille annoncée borne l'upload avant de l'accepter ; un contenu non conforme ne laisse rien derrière lui |
+| W6.c `[R]` | `RunManifest` : ce qu'il faut pour rejouer une exécution | un run dont l'environnement n'est pas identifié par digest n'est pas reproductible, et le manifeste le dit plutôt que de l'omettre |
+| W6.d `[R]` | workflow de reproduction sur le backend déterministe de W3 | rejouer un `RunManifest` produit les mêmes hashes d'artefacts, et une divergence est un résultat rendu, pas une erreur avalée |
+
 ## W7 — Memory / review / portfolio
 
 `ContextView`, retrieval hybride, revue indépendante, budgets, scheduler qualité-diversité.
