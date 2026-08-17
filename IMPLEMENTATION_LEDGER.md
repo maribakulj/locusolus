@@ -2582,3 +2582,54 @@ scan. Un test le fixe pour que personne ne l'aligne sur le `deny` des missions e
 **Prochain item.** **W5.f** — validation sémantique des sondes contre une sandbox réelle, seul item
 de W5 qui exige une machine capable de `S2`. À défaut, **W6** — artefacts et reproductibilité — dont
 les dépendances sont satisfaites.
+
+---
+
+## 2026-08-17 — W6.a — `ArtifactManifest` : le hash promis, la promotion qui ne se saute pas
+
+**Périmètre.** `packages/artifacts`, neuf et sans aucune dépendance : `src/state.rs`,
+`src/manifest.rs`, `src/lib.rs`, `tests/manifest.rs` ; `Cargo.toml` de l'espace de travail gagne le
+membre ; `docs/10` gagne le découpage de W6 (a→d).
+
+**Un champ d'état, pas une suite de types — et c'est un choix, pas une facilité.** W5.b a porté la
+chaîne de build par une suite de types, et ce serait le réflexe ici. Un build est un **processus** :
+il se déroule une fois, au même endroit, l'ordre de ses étapes est celui des appels, et rien de lui
+ne survit hors du programme qui le mène. Un état d'artefact est un **fait** : il voyage dans un
+manifeste, se sérialise, se relit six mois plus tard, se compare entre pairs fédérés. Un typestate
+le rendrait inexprimable en JSON, et `artifact-manifest.schema.json` le déclare bel et bien comme
+une énumération. Ce qui reste à tenir est donc la légalité des **transitions**, sous la forme de
+`TaskState::transition` du domaine, pour la même raison.
+
+**Le hash est déclaré avant l'upload, et l'arrivée le confronte.** C'est la garantie de ADR 0005, et
+c'est la même forme que l'attestation de W4.d.2 et que le digest de build de W5.e : ce qui prouve
+vient de l'observation, jamais de la demande. Un manifeste écrit après coup à partir du contenu reçu
+dit seulement que ce qui est arrivé est ce qui est arrivé. `uploaded()` est le seul endroit où la
+comparaison a lieu, et le seul endroit qui ait besoin que la déclaration précède.
+
+**Ce que la table refuse.** `declared → promoted` n'existe pas — sauter d'un bout à l'autre
+servirait un contenu que personne n'a vu. `uploaded → promoted` non plus : un contenu arrivé n'est
+pas un contenu vérifié. La quarantaine, elle, est évitable : un contenu de source fiable se vérifie
+sans passer par elle, et l'histoire garde la différence. `Promoted` est terminal ; retirer un
+artefact promu n'est pas une transition d'état — ce serait effacer qu'il a été cité — mais un acte
+de revue, qui viendra avec W7 avec sa propre trace. L'invariant 12 vaut ici : rien ne disparaît pour
+faire propre.
+
+**`is_servable()` plutôt qu'une comparaison éparpillée.** Un seul état autorise à servir le contenu.
+Le dire par une fonction évite qu'on écrive un jour `state != Rejected` en croyant dire la même
+chose — ce qui servirait cinq états sur six. Un test l'énumère.
+
+**`parse` rend `None` et non un défaut.** Un état inconnu traité comme `declared` ferait réuploader
+un artefact promu ; traité comme `promoted`, il servirait un contenu que personne n'a vérifié. Aucun
+des deux défauts n'est sûr, donc il n'y en a pas.
+
+**Cinq mutations vérifiées rouges** : le hash reçu remplaçant le hash promis (1 test) ;
+`declared → promoted` rendu légal (1) ; un artefact promu redevenu déprommable (2) ; tout sauf le
+refus rendu servable (1) ; l'histoire des états cessant d'être tenue (2). Restauration confirmée
+verte.
+
+**Ce que ce paquet ne fait pas.** Aucun octet n'est écrit, aucun object store n'est branché. C'est
+W6.b, derrière un port — même ordre qu'en W5 : le vocabulaire et ses refus d'abord.
+
+**Écart avec la spec.** Aucun.
+
+**Prochain item.** **W6.b** — l'object store derrière un port, avec un backend en mémoire.
