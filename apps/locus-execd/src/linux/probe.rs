@@ -21,7 +21,7 @@
 use std::collections::BTreeSet;
 use std::fmt;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use locus_execution::SandboxLevel;
 
@@ -68,19 +68,33 @@ pub struct HostFacts {
 }
 
 impl HostFacts {
-    /// Lire l'hôte à partir d'une racine.
+    /// Établir les faits à partir de n'importe quelle source de lecture.
+    ///
+    /// Le paramètre est un [`Reader`] et non un chemin parce que le noyau à interroger n'est pas
+    /// toujours celui du processus : sur macOS, le confinement d'une mission est fourni par le
+    /// noyau de la VM, et lire `/sys/fs/cgroup` de l'hôte y répondrait « rien » pour une machine
+    /// parfaitement capable. Les deux lectures partagent donc la déduction, et ne diffèrent que par
+    /// la façon d'obtenir les fichiers.
+    #[must_use]
+    pub fn probe<R: Reader + ?Sized>(reader: &R) -> Self {
+        let (cgroup_v2, controllers) = cgroup(reader);
+        Self {
+            cgroup_v2,
+            controllers,
+            unprivileged_userns: userns(reader),
+            seccomp: seccomp(reader),
+        }
+    }
+
+    /// Lire un système de fichiers local à partir d'une racine.
     ///
     /// La racine est un paramètre pour que les tests puissent la remplacer par un arbre de
     /// fixtures. En production elle vaut `/` — voir [`HostFacts::read_host`].
     #[must_use]
     pub fn read(root: &Path) -> Self {
-        let (cgroup_v2, controllers) = cgroup(root);
-        Self {
-            cgroup_v2,
-            controllers,
-            unprivileged_userns: userns(root),
-            seccomp: seccomp(root),
-        }
+        Self::probe(&LocalReader {
+            root: root.to_path_buf(),
+        })
     }
 
     /// Lire l'hôte réel.
@@ -254,9 +268,8 @@ impl fmt::Display for Missing {
 /// Ce que la racine offre ne dit pas ce que nous avons : `cgroup.subtree_control` d'un parent
 /// décide de ce que ses enfants voient. On lit donc le `cgroup.controllers` de notre propre
 /// répertoire, qui est la seule liste que nous pourrons effectivement écrire.
-fn cgroup(root: &Path) -> (Support, BTreeSet<String>) {
-    let unified = root.join("sys/fs/cgroup/cgroup.controllers");
-    let Some(_) = read(&unified) else {
+fn cgroup<R: Reader + ?Sized>(reader: &R) -> (Support, BTreeSet<String>) {
+    let Some(_) = reader.read("/sys/fs/cgroup/cgroup.controllers") else {
         return (
             Support::Unavailable {
                 reason: "sys/fs/cgroup/cgroup.controllers est absent : pas de hiérarchie unifiée"
@@ -265,7 +278,7 @@ fn cgroup(root: &Path) -> (Support, BTreeSet<String>) {
             BTreeSet::new(),
         );
     };
-    let Some(own) = own_cgroup_path(root) else {
+    let Some(own) = own_cgroup_path(reader) else {
         return (
             Support::Undetermined {
                 reason: "proc/self/cgroup ne porte pas de ligne « 0:: »".to_owned(),
@@ -273,10 +286,11 @@ fn cgroup(root: &Path) -> (Support, BTreeSet<String>) {
             BTreeSet::new(),
         );
     };
-    let Some(listed) = read(&own.join("cgroup.controllers")) else {
+    let controllers = format!("{own}/cgroup.controllers");
+    let Some(listed) = reader.read(&controllers) else {
         return (
             Support::Undetermined {
-                reason: format!("{} est illisible", own.display()),
+                reason: format!("{controllers} est illisible"),
             },
             BTreeSet::new(),
         );
@@ -287,14 +301,14 @@ fn cgroup(root: &Path) -> (Support, BTreeSet<String>) {
     )
 }
 
-fn own_cgroup_path(root: &Path) -> Option<PathBuf> {
-    let content = read(&root.join("proc/self/cgroup"))?;
+fn own_cgroup_path<R: Reader + ?Sized>(reader: &R) -> Option<String> {
+    let content = reader.read("/proc/self/cgroup")?;
     let relative = content
         .lines()
         .find_map(|line| line.strip_prefix("0::"))?
         .trim()
         .trim_start_matches('/');
-    Some(root.join("sys/fs/cgroup").join(relative))
+    Some(format!("/sys/fs/cgroup/{relative}"))
 }
 
 /// Les namespaces utilisateur non privilégiés.
@@ -303,8 +317,8 @@ fn own_cgroup_path(root: &Path) -> Option<PathBuf> {
 /// `proc/sys/kernel/unprivileged_userns_clone` n'existe que sur les noyaux qui portent le correctif
 /// Debian ; **son absence n'est donc pas un refus**, et la traiter comme tel refuserait S1 sur la
 /// plupart des noyaux amont.
-fn userns(root: &Path) -> Support {
-    let Some(maximum) = read(&root.join("proc/sys/user/max_user_namespaces")) else {
+fn userns<R: Reader + ?Sized>(reader: &R) -> Support {
+    let Some(maximum) = reader.read("/proc/sys/user/max_user_namespaces") else {
         return Support::Undetermined {
             reason: "proc/sys/user/max_user_namespaces est illisible".to_owned(),
         };
@@ -319,7 +333,7 @@ fn userns(root: &Path) -> Support {
             reason: "max_user_namespaces vaut 0".to_owned(),
         };
     }
-    match read(&root.join("proc/sys/kernel/unprivileged_userns_clone")) {
+    match reader.read("/proc/sys/kernel/unprivileged_userns_clone") {
         Some(toggle) if toggle.trim() == "0" => Support::Unavailable {
             reason: "unprivileged_userns_clone vaut 0".to_owned(),
         },
@@ -327,8 +341,8 @@ fn userns(root: &Path) -> Support {
     }
 }
 
-fn seccomp(root: &Path) -> Support {
-    match read(&root.join("proc/sys/kernel/seccomp/actions_avail")) {
+fn seccomp<R: Reader + ?Sized>(reader: &R) -> Support {
+    match reader.read("/proc/sys/kernel/seccomp/actions_avail") {
         Some(actions) if actions.contains("errno") || actions.contains("kill") => {
             Support::Available
         }
@@ -341,6 +355,25 @@ fn seccomp(root: &Path) -> Support {
     }
 }
 
-fn read(path: &Path) -> Option<String> {
-    fs::read_to_string(path).ok()
+/// De quoi obtenir le contenu d'un fichier, d'où qu'il vienne.
+///
+/// `None` ne distingue pas « absent » de « illisible » : les deux mènent au même `Undetermined`,
+/// et le détail qui les sépare n'est pas disponible de la même façon selon la source. Ce que la
+/// distinction sert à préserver — le doute contre le refus — est porté par [`Support`], plus haut.
+pub trait Reader {
+    /// Le contenu du fichier, ou `None`.
+    fn read(&self, path: &str) -> Option<String>;
+}
+
+/// La lecture d'un système de fichiers monté localement, sous une racine.
+#[derive(Debug, Clone)]
+pub struct LocalReader {
+    /// La racine sous laquelle les chemins absolus sont résolus.
+    pub root: std::path::PathBuf,
+}
+
+impl Reader for LocalReader {
+    fn read(&self, path: &str) -> Option<String> {
+        fs::read_to_string(self.root.join(path.trim_start_matches('/'))).ok()
+    }
 }
