@@ -1,0 +1,241 @@
+//! Le driver rootless : le seul endroit du dépôt qui lance un runtime de containers.
+//!
+//! # La seule chose qui compte ici
+//!
+//! `runtime.rs` l'écrit à propos de [`crate::runtime::RuntimePort::attestation`] : « c'est le
+//! worker qui atteste, pas le broker ; un broker qui composerait l'attestation à partir de ce
+//! qu'il avait demandé attesterait de sa propre demande ». Ce module en tire la conséquence : le
+//! niveau attesté est **dérivé de ce que Podman dit du conteneur qui tourne**, jamais du plan qui
+//! l'a créé. Si le confinement obtenu est plus faible que celui demandé, l'attestation le dit, et
+//! `locus_execution::conformance` refuse — ou exige l'approbation et produit son événement.
+//!
+//! # Pourquoi le lancement passe par un port
+//!
+//! [`Runner`] est un port, comme `TemporalGateway` l'est pour W3. Il rend la construction des
+//! arguments, l'analyse des sorties et tous les chemins d'erreur vérifiables sans Podman — donc
+//! en CI, où aucun runtime rootless n'est garanti. Ce qui reste hors test est
+//! [`SystemRunner::run`] : trois lignes qui lancent un processus.
+
+use std::collections::BTreeMap;
+use std::process::Command;
+
+use locus_execution::{SandboxAttestation, SandboxLevel, SandboxSpec};
+
+use super::invocation::{
+    INSPECTED_FIELDS, SeccompProfiles, Workload, create_arguments, inspect_arguments,
+};
+use super::plan::plan;
+use crate::runtime::{RuntimeError, RuntimePort, SandboxId};
+
+/// Ce qu'un processus a rendu.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Execution {
+    /// Le code de sortie.
+    pub code: i32,
+    /// La sortie standard.
+    pub stdout: String,
+    /// La sortie d'erreur.
+    pub stderr: String,
+}
+
+/// Lancer `podman`.
+///
+/// `&self` et non `&mut self` : lancer un processus ne mute rien du lanceur, et
+/// [`RuntimePort::attestation`] prend `&self`. Un port qui exigerait `&mut` forcerait l'attestation
+/// à devenir mutante, c'est-à-dire à pouvoir changer ce dont elle témoigne.
+pub trait Runner: Send + Sync {
+    /// Lancer avec ces arguments.
+    ///
+    /// # Errors
+    ///
+    /// [`RuntimeError::Unavailable`] quand le binaire est introuvable ou refuse de démarrer.
+    fn run(&self, arguments: &[String]) -> Result<Execution, RuntimeError>;
+}
+
+/// Le lanceur réel.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct SystemRunner;
+
+impl Runner for SystemRunner {
+    fn run(&self, arguments: &[String]) -> Result<Execution, RuntimeError> {
+        let output = Command::new("podman")
+            .args(arguments)
+            .output()
+            .map_err(|error| RuntimeError::Unavailable {
+                detail: format!("podman : {error}"),
+            })?;
+        Ok(Execution {
+            code: output.status.code().unwrap_or(-1),
+            stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+            stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+        })
+    }
+}
+
+/// Le backend Podman rootless.
+pub struct PodmanBackend<R: Runner> {
+    runner: R,
+    profiles: SeccompProfiles,
+    workload: Workload,
+    created: BTreeMap<SandboxId, SandboxSpec>,
+    counter: u32,
+}
+
+impl<R: Runner> PodmanBackend<R> {
+    /// Construire le backend.
+    ///
+    /// Le workload est fourni à la construction parce que `SandboxSpec` ne porte pas d'image :
+    /// c'est l'`EnvironmentBlueprint` de §19.3 qui la porte, et W5 la fournira. Ce paramètre est
+    /// la place que cette dépendance occupera.
+    pub const fn new(runner: R, profiles: SeccompProfiles, workload: Workload) -> Self {
+        Self {
+            runner,
+            profiles,
+            workload,
+            created: BTreeMap::new(),
+            counter: 0,
+        }
+    }
+
+    /// Le lanceur, pour qu'un test puisse lire ce qui lui a été demandé.
+    pub const fn runner(&self) -> &R {
+        &self.runner
+    }
+
+    /// Le nom que portera la prochaine sandbox.
+    fn next_name(&mut self) -> String {
+        self.counter += 1;
+        format!("locus-{:04}", self.counter)
+    }
+
+    /// Lancer, et faire d'un code non nul une erreur nommée.
+    fn expect_success(&self, arguments: &[String]) -> Result<Execution, RuntimeError> {
+        let execution = self.runner.run(arguments)?;
+        if execution.code == 0 {
+            return Ok(execution);
+        }
+        Err(RuntimeError::Unavailable {
+            detail: format!(
+                "podman {} a rendu {} : {}",
+                arguments.first().map_or("", String::as_str),
+                execution.code,
+                execution.stderr.trim()
+            ),
+        })
+    }
+}
+
+impl<R: Runner> RuntimePort for PodmanBackend<R> {
+    fn create(&mut self, spec: &SandboxSpec) -> Result<SandboxId, RuntimeError> {
+        let confinement = plan(spec).map_err(|error| RuntimeError::Unsupported {
+            capability: error.to_string(),
+        })?;
+        let name = self.next_name();
+        let arguments = create_arguments(&confinement, &self.workload, &self.profiles, &name)
+            .map_err(|error| RuntimeError::Unsupported {
+                capability: error.to_string(),
+            })?;
+        self.expect_success(&arguments)?;
+        let id = SandboxId::new(&name)?;
+        self.created.insert(id.clone(), spec.clone());
+        Ok(id)
+    }
+
+    fn start(&mut self, id: &SandboxId) -> Result<(), RuntimeError> {
+        self.known(id)?;
+        self.expect_success(&["start".to_owned(), id.as_str().to_owned()])?;
+        Ok(())
+    }
+
+    fn stop(&mut self, id: &SandboxId) -> Result<(), RuntimeError> {
+        self.known(id)?;
+        self.expect_success(&["stop".to_owned(), id.as_str().to_owned()])?;
+        Ok(())
+    }
+
+    fn attestation(&self, id: &SandboxId) -> Result<SandboxAttestation, RuntimeError> {
+        self.known(id)?;
+        let execution = self.expect_success(&inspect_arguments(id.as_str()))?;
+        let observed = observations(&execution.stdout)?;
+        let level = observed_level(&observed);
+        SandboxAttestation::new(level, "podman-rootless", evidence(&observed)).map_err(|error| {
+            RuntimeError::Unsupported {
+                capability: format!("attestation : {error}"),
+            }
+        })
+    }
+}
+
+impl<R: Runner> PodmanBackend<R> {
+    fn known(&self, id: &SandboxId) -> Result<(), RuntimeError> {
+        if self.created.contains_key(id) {
+            return Ok(());
+        }
+        Err(RuntimeError::Unknown { id: id.clone() })
+    }
+}
+
+/// Relire la sortie d'inspection.
+///
+/// # Errors
+///
+/// [`RuntimeError::Unsupported`] quand un champ attendu manque. Un champ absent n'est pas une
+/// valeur par défaut : Podman a peut-être changé de nom de champ, et deviner ferait attester un
+/// confinement sur une lecture qui n'a pas eu lieu.
+fn observations(stdout: &str) -> Result<BTreeMap<String, String>, RuntimeError> {
+    let mut observed = BTreeMap::new();
+    for line in stdout.lines() {
+        if let Some((key, value)) = line.split_once('=') {
+            observed.insert(key.trim().to_owned(), value.trim().to_owned());
+        }
+    }
+    for field in INSPECTED_FIELDS {
+        if !observed.contains_key(field) {
+            return Err(RuntimeError::Unsupported {
+                capability: format!("champ d'inspection « {field} »"),
+            });
+        }
+    }
+    Ok(observed)
+}
+
+/// Le niveau que ces observations soutiennent.
+///
+/// Dérivé de ce qui a été **constaté**, jamais de ce qui avait été demandé. C'est la seule
+/// propriété de ce module qui ne se négocie pas : elle est ce qui rend le downgrade visible.
+fn observed_level(observed: &BTreeMap<String, String>) -> SandboxLevel {
+    let shares = |key: &str| observed.get(key).is_some_and(|value| value == "host");
+    let private = |key: &str| !shares(key);
+    let no_new_privileges = observed
+        .get("security")
+        .is_some_and(|value| value.contains("no-new-privileges"));
+
+    if !private("userns") || !no_new_privileges {
+        return SandboxLevel::S0;
+    }
+    let contained = private("pidns")
+        && private("ipcns")
+        && private("utsns")
+        && observed
+            .get("readonly")
+            .is_some_and(|value| value == "true");
+    if !contained {
+        return SandboxLevel::S1;
+    }
+    let isolated_network = observed
+        .get("network")
+        .is_some_and(|value| value == "none" || value == "slirp4netns");
+    if isolated_network {
+        SandboxLevel::S3
+    } else {
+        SandboxLevel::S2
+    }
+}
+
+/// Le témoignage : ce qui a été lu, tel qu'il a été lu.
+fn evidence(observed: &BTreeMap<String, String>) -> Vec<String> {
+    observed
+        .iter()
+        .map(|(key, value)| format!("{key}={value}"))
+        .collect()
+}
