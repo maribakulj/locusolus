@@ -779,3 +779,69 @@ aucun journal persistant n'existe.
 **Prochain item.** W1.d `[M]` — projections reconstructibles. Test de sortie : « reconstruction
 depuis zéro = état courant ». Ses dépendances sont satisfaites : le replay total et ordonné livré
 ici est exactement ce dont une reconstruction a besoin, et l'export brut lui donne l'ordre global.
+
+## 2026-08-17 — W1.d `[M]` — projections reconstructibles (§9.3, §9.5)
+
+**Périmètre.** Un crate neuf : `packages/projections` — `projection.rs`, `runner.rs`, `verify.rs`,
+`validation_state.rs`, `conflict_registry.rs`, plus `tests/rebuild.rs`. Une addition au port de W1.c
+: `EventStore::feed` et le type `Sequenced`. Un ADR :
+`docs/adr/0013-projections-reconstructibles.md`.
+
+**Tests exécutés.** `cargo test --all-features` : 10 tests neufs, 83 au total sur le workspace, 0
+échec. `npm run check` : les neuf portes vertes.
+
+Le test de sortie de W1.d — « reconstruction depuis zéro = état courant » — passe, sur les deux
+projections livrées et sur huit graines de journal. Vérifié par mutation, trois fois : laisser
+`reset` garder le watermark, faire sauter l'événement fautif au lieu de s'arrêter, ou faire oublier
+au registre les conflits résolus font rougir quatre tests au total.
+
+**Cinq décisions, toutes dans l'ADR 0013.** Résumées ici.
+
+_Le journal gagne une position globale, hors de l'enveloppe._ §9.5 demande que chaque projection
+expose son dernier `event_sequence` — encore faut-il qu'il y en ait un. §10.1 n'en met pas dans
+l'enveloppe, et `stream_revision` est un rang **dans un stream** : deux streams portent tous deux
+une révision 1. La position vit donc à côté de l'enveloppe, dans `Sequenced`, parce que l'enveloppe
+est le document normatif que deux SDK doivent produire à l'identique.
+
+_`reset` et `checksum` sont dans le port._ `reset` n'est pas une facilité d'opérateur : c'est la
+propriété qui rend une projection **secondaire**. Une projection qu'on ne saurait pas reconstruire
+serait une seconde source de vérité, ce que §9.1 réserve au journal. La mettre dans le trait oblige
+chaque projection à répondre à la question au moment où elle est écrite, plutôt qu'à la découvrir le
+jour d'un incident.
+
+_Une projection en défaut s'arrête, elle ne saute pas._ Sauter l'événement fautif donnerait un état
+que la reconstruction ne reproduirait pas — elle rencontrerait la même faute au même endroit — et «
+reconstruction depuis zéro = état courant » deviendrait faux. C'est aussi décider unilatéralement
+qu'un événement canonique n'a pas d'importance, ce qu'une projection n'a pas autorité pour faire.
+
+_La quarantaine ne bloque pas l'écriture, et cela tient par la forme._ Le pilote reçoit le journal
+par référence partagée et n'a **aucun chemin d'écriture** : une projection en défaut ne peut pas
+empêcher un append parce qu'il n'existe pas de moyen par lequel elle l'atteindrait. `catch_up` ne
+rend jamais d'erreur — la faire remonter inviterait un appelant à la propager jusqu'à un chemin
+d'écriture, ce que §9.5 interdit.
+
+_Deux projections, pas douze._ §9.3 en liste douze ; celles que le domaine de W1.a et W1.b permet
+d'écrire honnêtement sont deux. Elles suffisent à éprouver le port : la propriété de reconstruction
+est vérifiée sur les deux, donc elle porte sur le trait et non sur une implémentation.
+
+**Un détail qui aurait pu passer.** `verify` reconstruit sur une projection **neuve**, jamais sur
+celle qu'elle vérifie. Une vérification qui détruirait son sujet réparerait la divergence en même
+temps qu'elle la découvrirait, ce qui est la définition d'une réparation silencieuse — celle que
+§24.5 interdit ailleurs pour la même raison. Le test le vérifie : après un `verify`, le watermark de
+la projection vivante n'a pas bougé.
+
+**Écart avec la spec.** Une note. Le cas réservé de §9.5 — « sauf si elles concernent une projection
+synchrone nécessaire à un invariant » — n'est pas implémenté : aucune projection de ce paquet n'est
+synchrone, et écrire le mécanisme avant d'avoir le cas produirait une abstraction que rien ne teste.
+Nommé dans le module et dans l'ADR.
+
+**Plan de rollback.** Dans l'ADR. En résumé : la décision 1 est **additive** — `feed` s'ajoute au
+trait sans toucher aux quatre méthodes existantes. Les décisions 2 à 5 sont contenues dans un crate
+que rien ne consomme encore ; avant W1.e, revenir coûte une suppression et une ligne de
+`Cargo.toml`. Après W1.e, seul le retrait de `reset` du port coûte une garantie plutôt qu'un diff.
+Aucune donnée n'est en jeu : les projections sont reconstructibles par construction.
+
+**Prochain item.** W1.e `[R]` — `packages/graph` : relations typées de §7.5 et **hyperarêtes** pour
+les inférences multi-prémisses (§7.6). Test de sortie : « une inférence à 3 prémisses n'est pas 3
+liens ». Ses dépendances sont satisfaites : les objets de §7.3 sont typés depuis W1.b, et le port de
+projection livré ici est ce sur quoi les graphes de §9.3 se construiront.

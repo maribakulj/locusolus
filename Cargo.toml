@@ -4,6 +4,7 @@ members = [
     "packages/domain",
     "packages/event-store",
     "packages/lep",
+    "packages/projections",
     "packages/protocol",
 ]
 

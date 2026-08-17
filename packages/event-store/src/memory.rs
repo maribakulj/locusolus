@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use locus_protocol::{Id, Timestamp, id::Command};
 
 use crate::envelope::{Draft, Envelope};
-use crate::store::{Append, AppendError, Appended, EventStore, Expected};
+use crate::store::{Append, AppendError, Appended, EventStore, Expected, Sequenced};
 
 /// Un journal en mémoire.
 ///
@@ -157,6 +157,17 @@ impl EventStore for MemoryEventStore {
         self.streams
             .get(stream_id)
             .map(|events| u64::try_from(events.len()).unwrap_or(u64::MAX))
+    }
+
+    fn feed(&self, from: u64) -> Vec<Sequenced> {
+        self.export()
+            .into_iter()
+            .enumerate()
+            .filter_map(|(index, event)| {
+                let position = u64::try_from(index).unwrap_or(u64::MAX) + 1;
+                (position > from).then_some(Sequenced { position, event })
+            })
+            .collect()
     }
 
     fn export(&self) -> Vec<Envelope> {

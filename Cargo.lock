@@ -36,6 +36,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "locus-projections"
+version = "0.0.0"
+dependencies = [
+ "locus-domain",
+ "locus-event-store",
+ "locus-protocol",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "locus-protocol"
 version = "0.0.0"
 dependencies = [

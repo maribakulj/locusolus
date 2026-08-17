@@ -121,6 +121,25 @@ impl fmt::Display for AppendError {
 
 impl std::error::Error for AppendError {}
 
+/// Un événement du journal avec sa position globale.
+///
+/// §9.5 : « chaque projection expose son dernier `event_sequence` appliqué ». Encore faut-il qu'il
+/// y en ait un. §10.1 ne met pas de rang global dans l'enveloppe — `stream_revision` est le rang
+/// **dans un stream** — et deux streams différents portent tous deux une révision 1. Une projection
+/// qui suivrait `stream_revision` ne saurait donc pas où elle en est du journal.
+///
+/// La position est attribuée par le journal, comme la révision et pour la même raison, et elle vit
+/// **à côté** de l'enveloppe plutôt que dedans : l'enveloppe est le document normatif de §10.1, et
+/// y ajouter un champ ferait diverger cette implémentation du schéma que deux pairs doivent
+/// partager.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Sequenced {
+    /// Le rang dans l'ordre d'écriture global, à partir de 1.
+    pub position: u64,
+    /// L'événement.
+    pub event: Envelope,
+}
+
 /// Le port du journal canonique — §10.2.
 ///
 /// # Pourquoi un trait, et pourquoi aucune implémentation `PostgreSQL` ici
@@ -154,6 +173,12 @@ pub trait EventStore {
     /// `None` et non `0` : « ce stream n'existe pas » et « ce stream est vide » sont deux faits
     /// différents, et le second n'arrive jamais — un stream naît de son premier événement.
     fn revision(&self, stream_id: &str) -> Option<u64>;
+
+    /// Le flux global depuis une position exclue — ce qu'une projection consomme.
+    ///
+    /// `from = 0` rend tout. C'est [`EventStore::export`] avec les positions, et c'est cette
+    /// méthode que W1.d utilise : sans rang global, une projection ne sait pas où elle en est.
+    fn feed(&self, from: u64) -> Vec<Sequenced>;
 
     /// Tout le journal, dans l'ordre d'écriture — §10.2, « export brut ».
     ///
