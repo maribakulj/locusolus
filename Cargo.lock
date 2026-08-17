@@ -18,6 +18,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "locus-environments"
+version = "0.0.0"
+dependencies = [
+ "locus-execution",
+]
+
+[[package]]
 name = "locus-event-store"
 version = "0.0.0"
 dependencies = [

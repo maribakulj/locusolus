@@ -2336,3 +2336,60 @@ l'invariant 3.
 → SBOM → scan → health checks. Ses dépendances sont satisfaites, et W4.d.3 lui a laissé une dette
 nommée : six sondes de la suite visent des binaires que l'image de base devra porter, sans quoi
 elles échouent en 127 et se lisent comme des blocages.
+
+---
+
+## 2026-08-17 — W5.a — `EnvironmentBlueprint` : ce que le schéma ne peut pas refuser
+
+**Périmètre.** `packages/environments/`, crate neuf — `toolchain.rs`, `blueprint.rs`, `lib.rs` et
+`tests/blueprint.rs` ; `Cargo.toml` racine gagne un membre ; `docs/10` §W5 est découpé et corrigé.
+
+**Ce que ce type ajoute au schéma de W0.5.** Le schéma existe depuis W0.5, à
+`schemas/environments/1.0/` — délibérément hors de `lep/1.0`, parce que la `MissionEnvelope` ne
+porte qu'un `environment_id`, un digest et des toolchains. Il refuse déjà les champs obligatoires
+absents, un digest mal formé, un mode réseau inconnu. Un schéma JSON ne sait pas exprimer les
+invariants **entre** champs : un profil répété — l'ordre de composition décidant de ce qui écrase
+quoi — et un préféré inférieur au minimum — le blueprint disant qu'il préfère moins qu'il n'exige.
+Le type les refuse tous les deux, et refuse aussi ce que le schéma refuse déjà, parce que rien ne
+garantit qu'un blueprint construit en Rust soit passé par le schéma.
+
+**Deux tables de secrets, et pourquoi ce n'est pas une duplication.** Le test de sortie a d'abord
+échoué sur `HF_TOKEN`, que `locus_execution::secret_marker` ne reconnaît pas. Constat : cette table
+répond à « cette **preuve** d'événement de sécurité porte-t-elle un secret ? », vise des valeurs —
+`AKIA…`, `Bearer …`, `api_key=…` — et a **raison** de ne pas contenir `token`, sans quoi une preuve
+qui dit « le token de session a expiré » deviendrait inécrivable. La question d'ici est autre : « ce
+**nom** de variable annonce-t-il un secret ? ». D'où `SECRET_NAME_MARKERS`, appliqué au nom, la
+table existante restant appliquée à la valeur. Un test vérifie que les deux ne se recouvrent pas —
+ce que l'une attrape, l'autre laisse passer, et c'est voulu.
+
+**Le premier essai de comparaison était trop grossier, et un test l'a dit.** Comparer le nom par
+sous-chaîne refusait `TOKENIZERS_PARALLELISM`, variable HuggingFace parfaitement ordinaire, parce
+qu'elle contient `token`. Un garde qui refuse des noms légitimes se fait désactiver, et un garde
+désactivé ne garde rien. Le nom est donc découpé en segments — sur les séparateurs **et** sur les
+changements de casse — puis comparé aux segments et à leurs concaténations contiguës : `API_KEY`,
+`api-key`, `apikey` et `ApiKey` donnent tous `apikey`, et `TOKENIZERS_PARALLELISM` ne donne jamais
+`token`.
+
+**Six mutations vérifiées rouges** : le nom non examiné (1 test) ; la valeur non examinée (1) ; le
+nom comparé par sous-chaîne (1) ; un profil répété accepté (1) ; le digest non vérifié (1) ; le
+préféré autorisé sous le minimum (1).
+
+**La sixième mutation a d'abord été muette**, pour la même raison qu'en W4.b : `cargo fmt` avait
+reformaté la fermeture visée, donc le motif n'existait plus tel quel et la substitution ne s'est pas
+appliquée. Reprise sur le texte formaté, elle rougit. Le réflexe — vérifier le motif présent avant
+de conclure quoi que ce soit d'un vert — a servi une troisième fois.
+
+**Ce que les templates reçus ne sont pas.** `docs/10` §W5 dit qu'ils sont « le point de départ », et
+deux tests disent ce qui les en sépare : aucun des quatre ne porte `version:` ni `image:`, tous deux
+obligatoires au schéma. `ml-mps.yaml` porte en outre un champ `trust: local-native` que le schéma ne
+définit pas — vocabulaire reçu du handoff, qui rejoint la portée d'accélérateur de W4.f et qui
+demandera sa propre décision. Un second test vérifie que tous les profils nommés par les templates
+existent dans l'énumération : c'est ce qui aurait attrapé la divergence entre `docs/10` §W5, qui
+listait six profils, et §19.4, qui en liste treize. `docs/10` est corrigé.
+
+**Écart avec la spec.** Aucun. Les treize profils de §19.4 sont transcrits, `ml-mps` porté comme le
+seul « non image Linux portable ».
+
+**Prochain item.** **W5.b** — le Builder : lockfile → build OCI → SBOM → scan → health checks →
+signature → digest. Il doit livrer les six sondes compilées que W4.d.3 attend dans l'image de base,
+sans quoi elles échouent en 127 et se lisent comme des blocages.
