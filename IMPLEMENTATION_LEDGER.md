@@ -1296,3 +1296,63 @@ l'activity ; `terminate` qui perd le motif.
 **Ce qui reste pour W3.c et W3.e.** Les onze workflows de §11.2 n'ont pas encore de définition
 concrète — c'est W3.c, sur ce moteur. Le crash/restart et la compensation de §11.4 sont W3.e ; le
 `Progress`/`HistoryEvent` d'ici en porte déjà la matière, mais rien n'a été écrit qui les suppose.
+
+### W3.c `[R]` — les onze workflows de §11.2 sur le backend de test
+
+**Livré.** `packages/workflow/src/catalog.rs` : les onze définitions, cinquante-quatre pas,
+vingt-neuf activities. `packages/workflow-backends/tests/catalog.rs` : sept tests.
+
+**Test de sortie, arbitré ici.** **« Les onze workflows de §11.2 s'exécutent sur le backend de test
+et se rejouent à l'identique »** — chacun démarré, mené jusqu'à `Completed`, puis rejoué après
+destruction du moteur, avec vérification que les résultats d'activity rejoués sont exactement ceux
+qui ont eu lieu.
+
+**Ce que ce sprint change vraiment.** Les gardes de W3.a cessent de tourner sur des fixtures écrites
+par celui-là même qui les avait écrites. Le filet des noms voyait trois exemples choisis ; il voit
+maintenant cinquante-quatre pas de contenu. C'est exactement ce qui s'était produit en W1.a, quand
+la règle 1 de `boundaries.json` — qui tournait sur zéro fichier depuis W0.3 — a enfin eu quelque
+chose à examiner.
+
+**Décisions prises.**
+
+_Les suites de pas sont arbitrées, et ancrées._ §11.2 énumère les onze et ne décrit leurs pas nulle
+part. Chaque définition est donc dérivée de la section qui décrit le processus correspondant : §13
+pour le portefeuille et la campagne, §7.1 et §18 pour la branche, §11 et §12 pour la tâche, §17 pour
+la revue, §16 pour la curation, §19 pour la reproduction et la construction d'environnement, §21
+pour la sandbox, §25 pour la fédération. Exactes sur la **forme** — où un effet a le droit d'avoir
+lieu, ce que chaque activity dédoublonne — et provisoires sur le détail métier, que W4 à W8
+rempliront.
+
+_Une seule fonction, un `match` exhaustif._ Un douzième workflow ajouté à `WorkflowKind` ne
+compilera pas tant qu'il n'aura pas de définition. La liste de §11.2 et le catalogue ne peuvent pas
+diverger en silence — la garantie est au compilateur, le test n'en dit que la conséquence.
+
+_La clé d'idempotence est ancrée sur l'objet, pas sur l'exécution._ Deux tentatives du même workflow
+sur le même objet doivent se dédoublonner, sinon la reprise après incident refait l'effet une
+seconde fois. Un test vérifie que **deux activities d'un même workflow ne partagent jamais une clé**
+: elles se dédoublonneraient l'une contre l'autre, le second effet ne se produirait jamais, et rien
+ne le dirait.
+
+_Un seul pas est naturellement idempotent, et c'est écrit._ `record_image_digest` : le digest est
+l'identité de l'image, le réenregistrer ne change rien. Les vingt-huit autres activities portent une
+clé. Écrire « naturel » là où une clé suffisait aurait été la facilité que les deux constructeurs de
+`Idempotency` existent pour rendre visible.
+
+_Le décompte de replay est fait à partir de ce que le test a réellement rejoué._ La liste des
+versions rejouées est **accumulée pendant l'exécution du test**, pas écrite à côté : une liste
+écrite resterait verte le jour où l'un des onze cesserait d'être rejoué. C'est §11.3, cinquième
+règle, tenue par un décompte qui ne peut pas se désynchroniser de ce qu'il décompte.
+
+_Quatre des cinq effets apparaissent, et `Random` n'apparaît pas._ Un catalogue monoculture ne
+prouverait rien du filet ; un test vérifie donc que `Llm`, `Network`, `Filesystem` et `Clock` sont
+tous déclarés quelque part. `Random` est absent parce qu'aucun des onze n'a besoin de tirer au sort,
+et en déclarer un pour remplir le tableau irait dans le mauvais sens. `collect_attestation` déclare
+`Clock` : §11.3 ne demande pas que le temps ne soit jamais lu, mais qu'il ne le soit **que** dans
+une activity.
+
+**Quatre mutations vérifiées rouges.** Retirer un effet d'une activity dont le nom l'annonce ;
+donner la même clé à deux activities d'un même workflow ; transformer un pas qui touche au monde en
+pas déterministe ; retirer l'un des onze du décompte de replay.
+
+**Ce qui reste.** Le détail métier de chaque pas, qui viendra avec les couches qu'il commande. Le
+crash/restart et la compensation de §11.4 sont W3.e ; le backend Temporal, W3.d.
