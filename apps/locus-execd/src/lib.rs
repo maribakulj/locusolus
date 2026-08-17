@@ -18,7 +18,8 @@
 //! - [`admission`] : la décision **avant** exécution, sur des capacités déclarées ;
 //! - [`linux`] : le backend Linux rootless — la traduction, la lecture de ce que l'hôte permet,
 //!   et le driver Podman (W4.d) ;
-//! - [`macos`] : la machine qui porte l'invité Linux, et le plafond qui en découle (W4.e).
+//! - [`macos`] : la machine qui porte l'invité Linux, et le plafond qui en découle (W4.e) ;
+//! - [`placement`] : choisir un hôte parmi plusieurs, sur ce qu'il a **prouvé** (W4.g).
 //!
 //! Depuis W4.d.2, ce paquet **lance** un runtime : [`linux::SystemRunner`] est la seule fonction du
 //! dépôt qui exécute `podman`. C'est précisément ce que la séparation autorise ici et nulle part
@@ -27,10 +28,12 @@
 pub mod admission;
 pub mod linux;
 pub mod macos;
+pub mod placement;
 pub mod runtime;
 
 pub use admission::{AcceleratorReach, Admission, HostCapabilities, RefusalReason, admit};
 pub use linux::Missing;
 pub use linux::{ConfinementPlan, HostFacts, PlanError, PodmanBackend, Workload, plan};
 pub use macos::{MachineFacts, MachineState};
+pub use placement::{Candidate, Placement, place};
 pub use runtime::{RuntimeError, RuntimePort, SandboxId};

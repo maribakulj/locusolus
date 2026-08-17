@@ -128,6 +128,17 @@ pub enum RefusalReason {
         /// Le mode demandé.
         mode: &'static str,
     },
+    /// L'hôte annonce ce niveau mais ne l'a jamais prouvé.
+    ///
+    /// §12.2 demande une sandbox « disponible **et attestée** ». Une annonce n'est pas une preuve,
+    /// et W4.d.3 a établi qu'une suite non passée ne vaut pas une suite passée — c'est la même
+    /// règle, appliquée au placement plutôt qu'à une sonde.
+    LevelNotAttested {
+        /// Ce que la mission exige.
+        required: SandboxLevel,
+        /// Le meilleur niveau que l'hôte a prouvé tenir, s'il en a prouvé un.
+        proven: Option<SandboxLevel>,
+    },
     /// L'accélérateur existe, mais pas là où la mission veut être confinée.
     ///
     /// Le refus est distinct de [`RefusalReason::AcceleratorUnavailable`] : l'accélérateur **est**
@@ -164,6 +175,19 @@ impl fmt::Display for RefusalReason {
                     "l'hôte ne sait pas appliquer le mode réseau « {mode} »"
                 )
             }
+            Self::LevelNotAttested { required, proven } => match proven {
+                Some(level) => write!(
+                    formatter,
+                    "l'hôte exige {} et n'a prouvé que {}",
+                    required.code(),
+                    level.code()
+                ),
+                None => write!(
+                    formatter,
+                    "aucune campagne de self-tests n'a conclu sur cet hôte : {} n'est pas prouvé",
+                    required.code()
+                ),
+            },
             Self::AcceleratorOutsideSandbox {
                 kind,
                 required,
