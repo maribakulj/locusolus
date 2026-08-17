@@ -3052,3 +3052,59 @@ n'entre que lorsqu'un consommateur testé existe. Ils viendront avec W7 et W13.e
 
 **Prochain item.** **W13.d** — complétion de l'agrégat `Task` de §7.1, dont `assigned_agent_id` et
 `assigned_worker_id`, sans toucher la machine à états existante.
+
+---
+
+## 2026-08-17 — W13.d — L'assignation est un événement, pas une transition
+
+**Périmètre.** `packages/coordination/src/task.rs` et `tests/task.rs`, neufs ; `src/lib.rs` les
+expose ; le `Cargo.toml` du paquet gagne `locus-domain`. **`packages/domain/src/task.rs` n'est pas
+touché.**
+
+**La décision du sprint, en clair.** Un état dit **où en est** le travail ; une assignation dit
+**qui le fait**. Les deux changent indépendamment : une tâche `running` peut être réassignée après
+la perte d'un lease sans jamais quitter `running`, et elle peut passer de `leased` à `running` sans
+changer d'exécutant. Faire de l'assignation une transition obligerait à croiser quinze états avec
+autant d'agents, et le premier changement d'agent en cours d'exécution rendrait la table fausse.
+
+**Conséquence directe pour W13.g.** Le graphe organisationnel **réalisé** se dérive d'une suite
+d'assignations, pas d'un champ courant. Une tâche qui a changé de main trois fois a trois faits à
+consigner, et le dernier n'efface pas les deux premiers (invariant 12). `assigned_agent_id` et
+`assigned_worker_id` de §7.1 existent — ce sont des **lectures** de la dernière assignation, pas le
+lieu où l'information vit.
+
+**Les deux identités, pas une.** Un worker est une machine, un agent est un rôle situé : deux agents
+peuvent tourner sur le même worker, et un agent peut être réassigné d'un worker à un autre. §7.1
+porte les deux champs, et n'en garder qu'un rendrait indécidable l'une des deux questions que W13.g
+doit trancher — « qui a fait ce travail » et « où a-t-il tourné ».
+
+**Ce module n'a pas de table à lui.** `moved_to` délègue à `locus_domain::transition` et rend
+l'erreur du domaine telle quelle. Une divergence entre deux tables est donc impossible : elle n'a
+pas d'endroit où s'écrire. La mutation qui remplace la délégation par une affectation directe le
+confirme.
+
+**Le test du diagramme énumère les arêtes de §7.1 plutôt que de parcourir la table.** Un parcours ne
+vérifierait que la cohérence de la table avec elle-même. Les seize transitions du diagramme sont
+donc écrites une par une, et quatre transitions qu'il ne dessine pas sont exigées refusées — c'est
+ce qui rend le test capable de **voir** un changement de table, là où un parcours resterait vert.
+
+**La clé d'idempotence est exigée dès la proposition.** C'est elle qui empêche qu'une reprise après
+incident crée une seconde tâche pour le même travail ; une clé attribuée plus tard arriverait après
+le doublon. Et le numéro d'attempt ne redescend jamais : `orphaned → queued` fait repartir la tâche
+« sur un autre attempt », et réutiliser le numéro rendrait deux exécutions indiscernables dans le
+journal.
+
+**Six mutations vérifiées rouges** : l'assignation devenue transition (1 test) ; l'histoire écrasée
+au profit de la dernière assignation (3) ; le worker disparu de l'assignation (2) ; une tâche finie
+qu'on confie quand même (1) ; le numéro d'attempt remis à un (1) ; une table locale plus permissive
+que celle du domaine (1). Restauration confirmée verte.
+
+**Écart avec la spec.** Aucun. Les champs de §7.1 qui désignent des politiques — `success_contract`,
+`review_policy_id`, `budget_reservation_id`, `capability_requirements` — restent absents pour la
+raison d'ADR 0016 : rien d'exécutable ne les consomme encore. `capability_requirements` rencontrera
+`Sources` de W13.c quand l'admission les confrontera, en W7.
+
+**Prochain item.** **W13.e** — la relation de coordination (`kind` fermé à `review`), le payload de
+`team.modify`, le CAS par `expected_revision`, l'annulation par commit inverse, l'autorité de
+proposition agentique. C'est le premier item où une **relation** entre agents s'écrit, et ADR 0016
+exige qu'elle ait un consommateur exécutable et testé.
