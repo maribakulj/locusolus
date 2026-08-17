@@ -17,7 +17,7 @@ jobs:
   check:
     name: check
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
@@ -29,10 +29,23 @@ jobs:
       # La règle 5 de CLAUDE.md se vérifie en démarrant un Emacs, pas en lisant du code.
       # `--require-emacs` interdit à la garde de sauter cette règle en silence quand le
       # binaire manque : une frontière non vérifiée doit se voir.
+      #
+      # Chaque tentative est bornée, et il y en a trois. Un miroir apt lent a déjà consommé
+      # les dix minutes du job et fait annuler une CI verte par ailleurs : sans borne, la
+      # lenteur du réseau devient indistinguable d'un test qui échoue. Le budget du job est
+      # passé à vingt minutes pour que la reprise ait la place de servir.
       - name: Install Emacs
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends emacs-nox
+          for attempt in 1 2 3; do
+            if timeout 60 sudo apt-get update -qq \
+              && timeout 150 sudo apt-get install -y --no-install-recommends emacs-nox; then
+              exit 0
+            fi
+            echo "tentative $attempt sans succès, reprise"
+            sleep $((attempt * 5))
+          done
+          echo "emacs-nox introuvable après trois tentatives"
+          exit 1
 
       - name: Install
         run: npm ci

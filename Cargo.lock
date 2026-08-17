@@ -128,9 +128,12 @@ dependencies = [
 name = "locus-workflow-backends"
 version = "0.0.0"
 dependencies = [
+ "locus-artifacts",
  "locus-domain",
+ "locus-lep",
  "locus-protocol",
  "locus-workflow",
+ "serde_json",
 ]
 
 [[package]]

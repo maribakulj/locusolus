@@ -29,6 +29,13 @@
 //! relation typée, le type MIME a la forme que le schéma exige. Voir [`wire`] pour ce que la
 //! traduction refuse dans l'autre sens.
 //!
+//! # Le sixième, ajouté par W6.e
+//!
+//! **Une divergence est un résultat, pas une panne.** [`reproduction`] confronte un rejeu à son
+//! original et rend la divergence comme une **valeur**, détaillée sortie par sortie — invariant 12.
+//! C'est aussi la seule chose qui puisse porter `R3` et `R4`, que W6.d refuse à tout manifeste
+//! seul.
+//!
 //! # Le cinquième, ajouté par W6.d
 //!
 //! **Un niveau de reproductibilité se calcule, il ne se déclare pas.** §19.7 en nomme cinq, et le
@@ -47,6 +54,7 @@ pub mod ingest;
 pub mod manifest;
 pub mod memory;
 pub mod reproducibility;
+pub mod reproduction;
 pub mod run;
 pub mod state;
 pub mod store;
@@ -57,6 +65,9 @@ pub use ingest::{IngestError, ingest};
 pub use manifest::{ArtifactManifest, Integrity, ManifestError, ProducedBy, Rights, ViewerHints};
 pub use memory::MemoryObjectStore;
 pub use reproducibility::{Assessment, Caveat, Level, Missing};
+pub use reproduction::{
+    Comparison, Divergence, Independence, Mismatch, NotAReproduction, Verdict, compare,
+};
 pub use run::{RunError, RunManifest};
 pub use state::{ArtifactState, ForbiddenTransition, transition};
 pub use store::{Digest, ObjectStore, StoreError, UploadId};
