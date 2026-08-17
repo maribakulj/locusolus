@@ -1,0 +1,15 @@
+[package]
+name = "locus-execution"
+description = "SandboxSpec, ResourceSpec et attestations — le vocabulaire de l'Execution Fabric (§21)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+
+[dev-dependencies]

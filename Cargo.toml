@@ -3,6 +3,7 @@ resolver = "3"
 members = [
     "packages/domain",
     "packages/event-store",
+    "packages/execution",
     "packages/graph",
     "packages/lep",
     "packages/migrations",

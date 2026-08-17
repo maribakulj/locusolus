@@ -1556,3 +1556,82 @@ Dette datée, pas zone grise.
 sur un écosystème. Il disait seulement qu'un outil manquait. La leçon est la même que pour les
 mutations : un signal rouge doit être **ouvert** avant d'être conclu, et les trois trous trouvés
 cette étape l'ont été en refusant de s'arrêter au premier constat plausible.
+
+---
+
+## W4 — Execution Fabric
+
+### W4.a `[R]` — `SandboxSpec`, `ResourceSpec`, `SandboxAttestation` (§21.6, §21.7, §21.9, invariants 5, 6, 8)
+
+**Livré.** `packages/execution` (crate `locus-execution`) : `level.rs` (les six niveaux et les sept
+profils de §21.6), `spec.rs` (`SandboxSpec`, `Mount`, `NetworkMode`, la liste des montages
+interdits), `resources.rs` (`ResourceSpec`, `Accelerator`), `approval.rs` (`Approval`,
+`SecurityEvent`), `attestation.rs` (`SandboxAttestation`, `conformance`). Vingt-deux tests.
+
+**Test de sortie, arbitré ici.** **« Un niveau appliqué sous le niveau exigé est refusé, et l'écart
+qui est autorisé produit son événement de sécurité — sans que personne ait à y penser. »**
+
+**Décisions prises.**
+
+_L'événement de sécurité est dans la valeur de retour, pas à la charge de l'appelant._ §21.6 : un
+downgrade est interdit « sauf approbation explicite **et** événement de sécurité ». Les deux
+conditions sont conjointes, et la seconde est celle qu'on oublie — approuver est un geste que
+quelqu'un pose, consigner est un geste que personne ne réclame. `conformance` **produit** donc
+l'événement et le met dans `Conformance::ApprovedDeviation`. Il n'existe que deux variantes :
+conforme, ou écart portant ses événements. Pas de troisième forme, donc pas de « accepté, à
+journaliser plus tard » — le trou exact que §21.6 nomme.
+
+_L'ordre des niveaux est significatif, et la question a été posée._ `SandboxLevel` implémente `Ord`,
+là où `ValidationLevel` (W1.a) le refuse délibérément. La différence n'est pas un oubli de cohérence
+: rien ne dit qu'une preuve formelle vaut « plus » qu'une reproduction, tandis que §21.6 énumère les
+niveaux comme une échelle de confinement et que « un downgrade est interdit » n'a de sens que si
+l'on peut comparer. Si `S5` se révélait ne pas dominer `S4`, la comparaison devrait devenir un ordre
+partiel — et le test qui transcrit l'échelle serait le premier à le dire.
+
+_Les profils ne portent pas de niveau._ §21.6 énumère les sept profils sans dire à quel niveau
+chacun s'exécute. Leur en attribuer un ici serait écrire une politique de sécurité dans un type, à
+l'endroit exact où personne ne viendrait la relire. La correspondance appartient à §20 et se
+décidera en W4.g ; le type existe pour que le vocabulaire ne dérive pas.
+
+_Les montages interdits ont la même forme que le downgrade._ CLAUDE.md : « ne monte jamais le home
+utilisateur, le socket Docker/Podman ou un répertoire de secrets dans une sandbox **par défaut** ».
+Le « par défaut » est rendu par `Mount::approved`, qui exige une approbation nommée et produit son
+propre événement — **même quand le niveau d'isolation est tenu**. Un socket de runtime monté dans
+une micro-VM reste un socket de runtime monté : le confinement du niveau ne rachète pas le trou
+qu'on y a percé. Approuver un montage qui n'en avait pas besoin est refusé : banaliser l'approbation
+la vide.
+
+_Rien n'est supposé illimité._ Invariant 6. `ResourceSpec` n'a ni `Default`, ni quota optionnel, ni
+variante « sans limite » : une borne absente n'est pas une borne large, c'est une borne que personne
+n'a choisie. Les quatre quotas sont ceux que §32.3 exige de vérifier par self-tests
+(CPU/RAM/PID/disque) ; le cinquième, le temps, est là parce qu'une exécution sans horizon consomme
+les quatre autres indéfiniment. Zéro disque reste licite — une exécution sans droit d'écriture est
+un choix, pas un oubli.
+
+_Le placement compare quota par quota._ Un worker offrant beaucoup de mémoire et trop peu de PID ne
+convient pas ; un score agrégé le laisserait passer.
+
+_L'accélérateur est une `Option`._ Invariant 8 : le GPU est une capability, pas une dépendance
+globale. Un champ obligatoire, fût-il « aucun », ferait de l'accélérateur une dimension de toute
+exécution, et le premier scheduler écrit dessus en supposerait un partout.
+
+_L'événement de sécurité refuse de porter un secret._ §21.9 : « sans enregistrer les secrets ». La
+clause est exécutoire, pas documentaire — un journal de sécurité qui recopierait un token serait le
+seul endroit du système où l'on aurait accumulé, exprès et durablement, ce qu'on cherche à protéger.
+Les marqueurs sont assemblés par `concat!`, comme en W3.a, et un test vérifie que le filet ne crie
+pas sur une preuve technique ordinaire — sans lui, une fonction refusant tout supprimerait la
+garantie en ayant l'air de la renforcer.
+
+**Un écart de documents relevé, non tranché ici.** §21.6 énumère **six** niveaux, `S0` à `S5` ;
+`docs/10_V1_ROADMAP.md` écrit « suite de self-tests indexée par niveau **S0–S4** » pour W4.b. La
+spécification étant normative, les six sont transcrits. Ce que la suite de W4.b indexera se décidera
+là-bas, en connaissance de l'écart plutôt qu'en le découvrant.
+
+**Six mutations vérifiées rouges.** Le downgrade non approuvé qui passe ; l'écart approuvé qui ne
+rend aucun événement ; le montage sous dérogation qui ne produit rien quand le niveau tient ; le
+filet des montages interdits mis en veilleuse ; l'événement de sécurité qui accepte un secret ; un
+quota nul accepté.
+
+**Ce qui vient.** W4.b — la suite de self-tests indexée par niveau, **avant** le premier backend
+d'exécution (ADR 0004) : c'est elle qui définit ce que « sandbox » veut dire dans ce projet, et W4.a
+vient de lui donner les mots.
