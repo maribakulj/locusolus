@@ -1,0 +1,14 @@
+[package]
+name = "locus-coordination"
+description = "Les agrégats de coordination de SPEC_V1 §7.1 : AgentTemplate, AgentInstance, Team, Decision, ApprovalRequest."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+locus-protocol = { path = "../protocol" }

@@ -259,6 +259,11 @@ id_kinds! {
 /// la forme `evt_01…`. Les préfixes retenus ici sont donc **provisoires** : l'enveloppe d'erreur
 /// de W0.4 en a besoin, et W0.6 — qui définit `Attempt` et les événements — les confirmera ou
 /// les remplacera. Un changement à ce moment-là est une modification de schéma, pas de code.
+///
+/// W13.c y ajoute `Task`, `Team`, `Decision` et `Approval`, pour la même raison exactement : §7.1
+/// nomme les quatre agrégats et §10.1 ne montre aucun exemple de leurs identifiants. Les mettre
+/// ici plutôt que parmi les dix fixés est ce qui empêche de croire qu'un document les a arbitrés —
+/// c'est W13.e, qui écrira les événements de coordination, qui le fera.
 pub mod provisional {
     use super::IdKind;
 
@@ -267,5 +272,13 @@ pub mod provisional {
         Mission => "msn",
         /// Une erreur structurée (Canterel §26). Préfixe provisoire.
         Error => "err",
+        /// Une tâche (§7.1). Préfixe provisoire — W13.c.
+        Task => "task",
+        /// Une équipe (§7.1, §14.2). Préfixe provisoire — W13.c.
+        Team => "team",
+        /// Une décision (§7.1, §20). Préfixe provisoire — W13.c.
+        Decision => "dec",
+        /// Une demande d'approbation humaine (§7.1, §20). Préfixe provisoire — W13.c.
+        Approval => "apr",
     }
 }

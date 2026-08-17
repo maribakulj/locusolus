@@ -3,6 +3,7 @@ resolver = "3"
 members = [
     "apps/locus-execd",
     "packages/artifacts",
+    "packages/coordination",
     "packages/domain",
     "packages/environments",
     "packages/event-store",
