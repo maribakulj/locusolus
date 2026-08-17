@@ -3456,3 +3456,85 @@ consommateur exécutable existe. `query`, `included_types`, `max_depth`, `divers
 que découpé : ils arriveront avec le moteur qui les lit.
 
 **Prochain item.** **W7.d** — rebuttal et méta-revue (§17.6, §17.7).
+
+---
+
+## 2026-08-17 — W7.d — Le rebuttal et la méta-revue : le désaccord survit à la synthèse
+
+**Périmètre.** `packages/review/src/rebuttal.rs` et `tests/rebuttal.rs`, neufs ; `src/lib.rs` les
+expose. Aucune dépendance nouvelle.
+
+**Ce que ces deux objets ajoutent.** W7.a a livré la revue : un dossier figé, des constats, une
+attestation d'indépendance. Il y manquait la **réponse**. §17.1 exige que la revue rende explicites
+« les findings, **les réponses** et la décision finale » — sans rebuttal, un constat est un verdict
+sans recours, et le protocole cesse d'en être un.
+
+**Un rebuttal ne s'écrit pas sans constat.** §17.6 fait du `finding_id` un champ obligatoire, donc
+le type l'exige à la construction : une réponse qui ne répond à rien est une prise de parole, pas un
+rebuttal. C'est la différence entre un protocole et un fil de discussion.
+
+**La politique décide qui reprend, et le défaut suit le texte.** §17.6 dit « le reviewer initial
+**peut** effectuer un recheck » avant de mentionner la politique plus stricte : `RecheckPolicy`
+défaut à `InitialReviewer`, et `FreshReviewer` se demande. Un défaut caché dans le code déciderait à
+la place de la politique — et déciderait dans le sens le plus sévère, ce que la spec ne dit pas.
+
+**Une méta-revue relit les revues, pas le travail.** C'est la distinction qui décide de tout le
+reste : une méta-revue qui refait la revue n'est qu'une revue de plus. Elle ne rouvre aucun dossier
+et ne produit aucun constat propre. Elle mesure l'indépendance effective, signale les avis corrélés,
+garde les minoritaires, et recommande.
+
+**L'indépendance effective n'est pas le nombre de revues.** §17.7 : elle « mesure l'indépendance
+**effective** ». Trois revues dont deux partagent un groupe n'en font pas trois indépendantes, et
+compter les revues ferait passer un consensus pour une convergence. Quand elle tombe à zéro, la
+recommandation est `human_escalation` : recommander `validate` ferait d'un **défaut de procédure**
+un verdict scientifique, ce qui est la façon la plus discrète de rendre une revue inutile.
+
+**Le minoritaire est le côté le moins nombreux, quel qu'il soit.** §17.7 : la méta-revue « ne masque
+**jamais** les opinions minoritaires ». L'implémentation évidente — garder les opposants — ferait
+disparaître l'unique voix favorable au milieu de réfutations, ce qui est exactement ce que la règle
+cherche à empêcher. Deux tests symétriques le fixent dans les deux sens.
+
+**La corrélation se signale, elle ne se conclut pas.** §17.7 demande de « détecter les findings
+corrélés ou copiés ». Deux relecteurs qui rendent les mêmes verdicts sur les mêmes cibles
+n'apportent pas deux avis — ce qui ne prouve pas la copie. La méta-revue le signale donc, et
+s'arrête là.
+
+**Ce que la neuvième mutation a trouvé.** Deux relecteurs qui n'ont **rien** trouvé avaient des
+signatures égales, donc étaient signalés comme corrélés. La garde existait ; aucun test ne la
+tenait, et elle passait verte une fois mutée. Une revue sans constat est légitime — `Review::render`
+n'exige que la couverture — donc le cas se produit sans qu'on le cherche. Ne rien trouver deux fois
+n'est pas se copier : le test manquant a été écrit.
+
+**Une variante inerte retirée.** `RebuttalError::ContestsWithoutSaying` était déclarée, documentée
+comme retournable, et produite par rien : `to_finding` refuse la réponse vide avant qu'une partie
+puisse être contestée, et `contesting()` ne peut pas échouer. C'est la sémantique inerte que l'ADR
+0016 refuse — un cas d'erreur qu'aucun consommateur ne peut produire est une promesse que le code ne
+tient pas. Retirée.
+
+**L'absence de preuve n'est pas une preuve, et ce n'est pas un rien non plus.** §17.7 demande que la
+méta-revue « distingue absence de preuve, contradiction et réfutation ». Un constat liant qui dit «
+il n'y a pas de quoi conclure » ne réfute pas — et valider serait faire de ce manque un résultat.
+C'est `Revise` : la première des trois confusions que §17.7 nomme est celle-là, et elle est écartée
+par une règle, pas par un commentaire. §17.5 continue de valoir en dessous : une insuffisance **non
+étayée** reste un commentaire, sans quoi un doute non argumenté suffirait à bloquer une validation.
+
+**Douze mutations vérifiées rouges** : la réponse vide acceptée (1 test) ; la politique de recheck
+ignorée (1) ; le défaut basculé vers `FreshReviewer` (1) ; la méta-revue de sa propre revue
+autorisée (1) ; l'indépendance effective ramenée au nombre de revues (2) ; la détection de
+corrélation débranchée (1) ; le minoritaire toujours pris du côté des réfutations (1) ; un constat
+sans preuve pesant autant qu'un autre (1) ; la garde de signature vide retirée (1) ; la révision
+ramenée à une validation (1) ; l'insuffisance confondue avec un autre verdict (1) ; l'insuffisance
+non liante comptée quand même (1). Les trois dernières lignes et la garde de signature vide ont
+d'abord été **muettes** : les tests manquants ont été écrits avant de les recompter. Restauration
+confirmée verte.
+
+**Écart avec la spec.** Un, nommé. §17.7 nomme six recommandations, les six existent, et cinq sont
+produites par une règle. `Reproduce` ne l'est pas : elle appartient au moteur de reproduction de
+W6.e, qui n'est pas encore branché sur la revue — recommander de reproduire demande de savoir ce
+qu'une reproduction déciderait, et l'inventer ici serait simuler une capacité. Elle reste donc
+**nommée** : `slug()` la rend, l'énumération la porte, et la méta-revue ne la choisit pas encore. La
+différence avec la sémantique inerte retirée plus haut est qu'un producteur non automatique existe —
+un méta-relecteur humain rapporte une recommandation — alors qu'une variante d'erreur ne peut venir
+que du code.
+
+**Prochain item.** **W7.e** — budgets : réservation avant exécution, dépassement (§17, invariant 6).
