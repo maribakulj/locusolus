@@ -29,12 +29,14 @@
 //! (W1.e) et la validation (W1.f), qui leur donneront de quoi projeter.
 
 pub mod conflict_registry;
+pub mod execution_graph;
 pub mod projection;
 pub mod runner;
 pub mod validation_state;
 pub mod verify;
 
 pub use conflict_registry::{ConflictEntry, ConflictRegistry};
+pub use execution_graph::{Edge, EdgeKind, ExecutionGraph, NodeKind};
 pub use projection::{Projection, ProjectionError, Watermark};
 pub use runner::{Health, Progress, ProjectionRunner};
 pub use validation_state::{ObjectState, ValidationState};
