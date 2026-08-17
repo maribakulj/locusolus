@@ -7,6 +7,7 @@ members = [
     "packages/lep",
     "packages/projections",
     "packages/protocol",
+    "packages/validation",
 ]
 
 [workspace.package]

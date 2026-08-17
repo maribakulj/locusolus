@@ -916,3 +916,83 @@ moins 4 en paires. Le test a rougi au premier passage et le compte est corrigé 
 Test de sortie : « invalider une prémisse propage correctement ». Ses dépendances sont satisfaites :
 `inferences_broken_by` livré ici est exactement le premier pas de la propagation, et les sept
 niveaux de §8.1 sont typés depuis W1.a.
+
+## 2026-08-17 — W1.f — validation épistémique et propagation de l'invalidation (§8)
+
+**Périmètre.** Un crate neuf : `packages/validation` — `policy.rs`, `propagation.rs`, plus
+`tests/propagation.rs`. Ajouté aux membres du workspace. Aucun fichier existant modifié en dehors de
+cette ligne.
+
+**Tests exécutés.** `cargo test --all-features` : 10 tests neufs, 105 au total sur le workspace, 0
+échec. `npm run check` : les neuf portes vertes.
+
+Le test de sortie de W1.f — « invalider une prémisse propage correctement » — passe. Vérifié par
+mutation, quatre fois : arrêter la propagation au premier étage, cesser de conserver le niveau
+antérieur, faire de `cites` une relation de dépendance, ou faire propager une politique tolérante
+font rougir six tests au total.
+
+**Le mot « correctement » du test de sortie.** Il porte dans les deux sens, et le test le vérifie
+dans les deux : la propagation atteint la conclusion directe, le claim du second étage et l'objet
+dérivé — **et** elle n'atteint pas l'autre prémisse de la même inférence, ni l'objet qui se contente
+de citer. Une propagation qui marquerait tout serait aussi fausse qu'une qui ne marquerait rien.
+
+**Les cinq points de §8.3, et où chacun est vérifié.**
+
+_1. « Identifie les objets transitivement dépendants »._ Parcours en largeur, par les hyperarêtes de
+W1.e et par cinq relations de dépendance. Le second étage est atteint à la distance 2, et la
+mutation qui supprime l'enfilement de la file le fait rougir.
+
+_2. « Ne les réfute pas automatiquement sans règle disciplinaire »._ C'est une contrainte sur ce que
+le code a le droit de **rendre**, pas seulement sur ce qu'il fait : `Propagation` n'a aucun champ
+portant un niveau de validation, et un test verrouille l'absence de `refute`, `demote`, `downgrade`,
+`new_level`, `resulting_level`. Une propagation qui rendrait un niveau révisé aurait déjà pris la
+décision qu'elle a interdiction de prendre — et l'appelant l'appliquerait, parce qu'un champ rendu
+par une fonction a l'air d'un résultat.
+
+_3. « Les marque `needs_reassessment` »._ Une marque par dépendant, avec sa distance et sa raison.
+
+_4. « Ouvre des tâches de réévaluation selon la politique »._ Et **dit** quand il n'y a pas de
+politique : une liste de tâches vide se lirait « rien à réévaluer », alors qu'elle veut dire « la
+question est posée mais personne n'a de règle pour y répondre ».
+
+_5. « Conserve le niveau et la justification antérieurs dans l'historique »._ Sans cette trace, une
+réévaluation repartirait de zéro et le travail de validation qui avait mené à L3 serait **perdu** au
+lieu d'être remis en question. Un dépendant dont on ne savait rien porte `None` et non L0 : « je ne
+sais pas ce qu'il valait » et « il ne valait rien » ne sont pas la même information.
+
+**Décisions prises.** Trois.
+
+_La liste des relations de dépendance est courte, et `cites` n'y est pas._ Citer un article réfuté
+ne rend pas l'article citant faux : ça le rend discutable. Marquer tout le corpus citant à chaque
+rétractation noierait les vrais dépendants, et §8.3 vise « une définition, une source, un dataset ou
+une prémisse » — ce dont un objet **dépend**, pas ce qu'il mentionne. Cinq relations retenues :
+`depends_on`, `derived_from`, `instantiates`, `formalizes`, `anchored_in`, chacune avec sa raison en
+commentaire.
+
+_C'est la discipline qui déclare ce qui invalide._ §8.2, dernière puce. Une révision peut laisser
+une conclusion debout dans un domaine et la faire tomber dans un autre ; une politique qui ne fait
+pas de l'événement un invalidant arrête la propagation — et le **dit**, sans quoi « aucun dépendant
+» et « la politique a refusé de propager » se ressembleraient.
+
+_Le parcours tient un ensemble de visités._ Un graphe épistémique **contient** des cycles — deux
+claims qui se soutiennent mutuellement, une définition qui s'appuie sur un cas qui l'instancie — et
+une propagation qui ne les supporterait pas boucherait au premier corpus réel. Un test construit un
+cycle à trois et vérifie que l'objet invalidé ne se remarque pas lui-même en repassant par la
+boucle.
+
+**Ce que §8.4 interdit, et qui n'existe pas ici.** « Les scores de confiance des agents […] ne
+remplacent ni les preuves, ni les revues, ni les niveaux de validation. Une moyenne de confiance ne
+constitue jamais une procédure de décision par défaut. » Aucune fonction du crate ne prend une
+confiance en entrée ni n'en calcule la moyenne, et un test verrouille l'absence des mots
+`confidence`, `mean_`, `average`, `fn score` dans les deux modules.
+
+**Écart avec la spec.** Une note. §8.2 dit qu'un schéma disciplinaire « DOIT déclarer » six choses ;
+`TypePolicy` les rend donc toutes obligatoires, y compris quand la réponse est une liste vide. Une
+liste vide reste une décision — « aucune revue obligatoire » — mais deux d'entre elles la rendent
+suspecte, et `findings()` le signale : sans preuve minimale, une discipline ne valide rien ; sans
+événement invalidant, la propagation de §8.3 ne se déclenche jamais.
+
+**Prochain item.** W1.g `[R]` — résultats négatifs et conflits (§18.7). Test de sortie : « aucun
+chemin de code ne supprime un conflit ». Ses dépendances sont satisfaites : le registre des conflits
+de W1.d porte déjà l'invariant 12 côté lecture, et les types `NegativeResult` et `Conflict` sont
+dans les quarante de W1.b. C'est aussi le dernier item `[R]` avant W1.h, qui clôt W1.
