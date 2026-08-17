@@ -3238,3 +3238,62 @@ donnera de quoi projeter.
 
 **Prochain item.** **W13.g** — la projection du graphe organisationnel réalisé, par jointure
 `assigned_agent_id` × événements. Ses deux dépendances, W13.b et W13.d, sont mergées.
+
+---
+
+## 2026-08-17 — W13.g — Le graphe organisationnel réalisé, et la fin de W13
+
+**Périmètre.** `packages/projections/src/organisation_graph.rs` et `tests/organisation_graph.rs`,
+neufs ; `src/lib.rs` les expose. Quatrième projection du paquet. Aucune dépendance nouvelle.
+
+**C'est la jointure que W13 existait pour rendre possible.** W13.b avait établi que rien dans
+l'événement `lep/1.0` ne dit quel agent a agi ; W13.d y a répondu en faisant de l'assignation un
+**événement** plutôt qu'une transition d'état ; W13.g joint les deux. La chaîne complète a tenu, et
+chaque maillon avait été posé pour celui-ci.
+
+**Réalisé, et non prévu.** Un organigramme dit qui **devrait** faire quoi ; ce graphe dit qui l'a
+**fait**. Les deux divergent dès qu'un lease se perd et qu'une tâche change de main, et c'est
+précisément l'écart qu'on veut pouvoir lire. `current_agent` répond à « qui la fait », `assignments`
+répond à « qui l'a faite » — la seconde question est celle qu'un graphe réalisé doit savoir
+trancher, et l'invariant 12 interdit d'y répondre en effaçant.
+
+**Aucun instantané n'est reçu du worker, et c'est l'invariant 3 appliqué à la lecture.**
+L'assignation est une décision du plan de contrôle. Un agent qui en annoncerait une décrirait **sa
+propre affectation**, et un graphe qui le croirait serait un graphe que les workers écrivent. Seul
+un acteur `System` est source. L'événement d'un agent n'est pas une erreur — il reste journalisé, et
+c'est bien ainsi — il n'est simplement pas une source. Un test le vérifie aussi pour un acteur
+humain : la distinction n'est pas « agent contre humain », c'est « le plan de contrôle décide ».
+
+**L'ordre fait partie de l'état.** « A puis B » n'est pas « B puis A », et le résumé le porte : un
+résumé qui les confondrait rendrait la reconstruction incapable de détecter une inversion. Deux
+journaux inverses produisent donc deux résumés différents, et le test l'exige.
+
+**Une mutation est passée verte, et elle a montré un angle mort du harnais.** Un `reset` qui
+garderait les assignations laissait la suite verte, parce que `verify` reconstruit une projection
+**neuve** : `reset` y est appelé sur un état déjà vide, où oublier de le vider ne se voit pas. Or la
+reconstruction **en place** est le cas réel — c'est ainsi qu'une projection sort de quarantaine. Le
+test ajouté reconstruit un runner déjà peuplé et exige que les faits ne doublent pas.
+
+C'est la cinquième garde muette de ce chantier, et la première qui ne vienne pas de mon code mais du
+**harnais partagé** : `verify` ne peut pas, par construction, éprouver `reset` sur un état peuplé.
+Les trois projections antérieures ont le même angle mort ; deux d'entre elles s'en sortent par un
+test de reconstruction en place écrit pour d'autres raisons. À vérifier lors du prochain passage sur
+`packages/projections`.
+
+**Six mutations vérifiées rouges** : le graphe croyant les workers sur parole (2 tests) ; l'histoire
+écrasée au profit de la dernière assignation (3) ; `current_agent` rendant la première au lieu de la
+dernière (2) ; une assignation sans agent acceptée au lieu de mettre en quarantaine (1) ; le résumé
+oubliant l'ordre (1) ; `reset` gardant l'histoire (1, après correction du test). Restauration
+confirmée verte.
+
+**Écart avec la spec.** Aucun.
+
+**W13 est complet** — a, b, c, d, e, f, g. Le socle de coordination agentique existe : les agrégats
+de §7.1, l'intersection des capacités de §14.2, l'assignation comme événement, la proposition avec
+son CAS et ses bornes, et les deux graphes. Restent **W5.f** (bloqué sur un hôte capable de `S2`) et
+**W7**, dont les dépendances W13.c et W13.d sont désormais satisfaites.
+
+**Prochain item.** **W7** — mémoire, revue indépendante, budgets, portefeuille. Deux points que
+`docs/10` signale comme faciles à rater : la prévention de contamination (§16.6) doit être testée
+par un cas adverse explicite et pas seulement par construction, et l'anti-gaming du portefeuille
+(§13.6) doit exister **avant** que la fonction de valeur pilote des décisions automatiques.
