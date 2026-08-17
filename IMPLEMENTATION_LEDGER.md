@@ -1782,3 +1782,101 @@ Rust ; sa forme sur le fil attend le protocole.
 
 **Ce qui vient.** W4.d — backend Linux rootless, cgroups v2, seccomp : le premier driver, que la
 suite de W4.b jugera.
+
+---
+
+## 2026-08-17 — W13.a — ADR 0016, sixième frontière, et l'ouverture de W13 à W18
+
+**Périmètre.** `docs/adr/0016-coordination-agentique.md` et
+`docs/13_GRAPHES_AGENTIQUES_ETAT_DE_LART_ET_CIBLE.md`, neufs. Insertions dans `docs/10` (cible, trou
+de couverture, dépendance de W7, W13 découpé au commit près, W14 à W18, items de recherche),
+`docs/11` (sept lignes), `CLAUDE.md` (sixième frontière + règle de vocabulaire), `README.md` et
+`START_HERE_CLAUDE.md` (une ligne chacun pour `docs/13`). `boundaries.json` : deux catalogues, deux
+règles. Trois fixtures sous `tests/boundaries/fixtures/imports/`, et
+`tests/boundaries/contract.test.ts` élargi. **Aucun code de domaine, aucun package créé, aucun
+commit dans `canterel`.**
+
+**Tests exécutés.** `npm run check` vert. Test de sortie de l'item, en trois temps :
+
+- _Sens graphe → coordination, sur l'arbre réel._ `use locus_coordination::AgentInstance;` posé dans
+  `packages/graph/src/relation.rs` : `check:boundaries` a échoué avec
+  `[epistemic-graph-imports-no-coordination] packages/graph/src/relation.rs: importe locus-coordination/AgentInstance`,
+  et rien d'autre. Retiré.
+- _Sens coordination → graphe, sur l'arbre réel._ `packages/coordination/src/lib.rs` créé
+  temporairement avec `use locus_graph::Graph;` : finding `coordination-imports-no-epistemic-graph`,
+  seul. Répertoire **supprimé entièrement** ; il n'entre pas dans ce commit.
+- _La garde regarde quelque chose._ `check:boundaries` déclare « vérifiée sur 6 fichier(s) » pour le
+  premier sens, ce qui correspond aux quatre `.rs` de `packages/graph/src/`, plus
+  `tests/hyperedges.rs`, plus le `Cargo.toml`. Le second sens déclare 0 tant que le crate n'existe
+  pas, et l'imprime plutôt que de le taire — même état que la règle 4 avant `apps/locusd`.
+
+**Deux mutations vérifiées rouges.** Les deux règles neutralisées par `"deny": []` : exactement les
+trois fixtures neuves échouent, les treize autres restent vertes. Puis la sixième frontière
+reformulée dans `CLAUDE.md` seul : le test d'énoncé échoue, les quatre autres passent. Dans les deux
+cas le motif visé a été vérifié présent dans le fichier **avant** substitution — une mutation qui ne
+s'applique pas ressemble trait pour trait à une garde absente, et c'est l'erreur de W4.b.
+
+**Une garantie qui manquait, trouvée en franchissant la barre.** Le test du contrat affirmait
+`[1, 2, 3, 4, 5]` en dur, si bien qu'ajouter une frontière le faisait échouer sans rien apprendre.
+Il lit maintenant la section « Frontières vérifiées par la CI » de `CLAUDE.md` et vérifie deux
+choses : que chaque frontière numérotée porte au moins une règle, dans l'ordre, et que l'énoncé de
+chaque règle est celui de `CLAUDE.md` **mot pour mot**, balisage retiré. `boundaries.json` affirmait
+depuis W0.3 que « si les deux divergent, `CLAUDE.md` fait foi » ; personne ne le vérifiait, et une
+frontière reformulée d'un côté aurait laissé l'autre décrire une garantie que plus rien ne portait.
+Le cas d'une frontière à deux sens — un scope par sens, deux entrées, même énoncé — est celui de la
+règle 6 et est couvert explicitement.
+
+**Décisions prises.** ADR 0016, treize décisions, plus l'arbitrage d'emplacement que le handoff
+laissait ouvert : **les agrégats de §7.1 iront dans `packages/coordination`, crate distinct**, et
+non dans `packages/domain`. Le motif est mécanique et non esthétique : `rules.ts` n'accepte que les
+`kind` `"imports"` et `"emacs-isolation"`, il n'existe aucune garde par absence d'identifiant, et
+`packages/graph/Cargo.toml` déclare déjà `locus-domain`. Loger les agrégats dans `packages/domain`
+rendrait la décision 1 inapplicable par la CI. Le crate n'est pas créé aujourd'hui — un répertoire
+apparaît quand il porte une garantie testée — il apparaît en W13.c.
+
+**Écart avec le document reçu.** Le handoff demandait de déposer son §7 « à l'octet près » tout en
+posant que « le dépôt fait foi ». Quatre écarts, tous du second côté :
+
+1. _La clause LEP était fausse le jour même._ Le texte reçu affirmait que « `schemas/lep/1.0` ne
+   change pas, et aucun mineur n'est ouvert », le seul cas justifiant un mineur étant en W16. Deux
+   arbitrages du 2026-08-17 la démentent : la permission de fonctionnement hors ligne, activable et
+   désactivable, que la `MissionEnvelope` ne sait pas exprimer — ses quinze propriétés n'ont rien
+   pour ça — et les codes de refus d'admission sur le fil, déjà notés comme dus par l'entrée W4.c.
+   L'ADR affirme donc seulement ce qui est vrai : **aucun item de W13 ne touche le protocole**, et
+   le mineur `lep/1.1` a son propre ADR, dont W13 ne dépend pas.
+2. _Contradiction interne du handoff sur l'emplacement._ Son §10 recommande le crate séparé ; son
+   §13, prompt de W13.c, dit « livre dans `packages/domain`, sans créer de nouveau package ».
+   Tranché pour §10, qui est le seul des deux à porter une raison mécanique. Une session future qui
+   reprendrait le prompt tel quel produirait une frontière invérifiable.
+3. _La décision 13 avait une borne manquante._ « Repli, jamais prioritaire » et « W13.c est en amont
+   de W7 » ne peuvent pas coexister sans dire lequel décide du moment : une chose en amont de deux
+   workstreams et jamais prioritaire n'a aucun moment où elle se fait. La dépendance est donc écrite
+   dans `docs/10` §W7, et c'est elle qui ordonne, pas l'étiquette.
+4. _Les mises en garde bibliographiques entrent avec les affirmations._ `docs/13` reprend §1–§5 du
+   handoff, plus un §6 « Statut des sources » tiré de son §14. Déposer les thèses sans leurs
+   réserves — corpus de préprints de moins de six mois non répliqués, attribution de deux termes à
+   Yue et al. non vérifiée, chiffres d'ATM inutilisables — aurait laissé les secondes hors du dépôt.
+
+**Trois vérifications que le handoff déclarait dues, faites ici.** La normalisation de `imports.ts`
+se comporte comme décrit : `normaliseRustPath` rend les deux formes, à souligné et à tiret, dès que
+le nom de crate contient `_` ; le motif à tiret suffit donc, et `manifests.ts` lit les dépendances
+de `Cargo.toml` — les deux surfaces sont couvertes par fixture. Le décompte de fichiers examinés
+**existait déjà** pour les règles d'import : `check-boundaries.ts` l'imprime par règle depuis W0.3,
+avec le commentaire qui en donne la raison — « la différence entre _vérifié_ et _il n'y avait rien à
+vérifier_, et une seule des deux est une garantie ». Aucun travail d'outillage n'a donc été
+nécessaire, contrairement à ce que le handoff supposait. Enfin, son avertissement sur un finding
+`unit-placeholder` produit par `check:repo` pour un répertoire incomplet sous `packages/` ne s'est
+pas matérialisé : `repo-layout: ok`, et le finding de la règle 6 est apparu seul.
+
+**Écart avec la spec.** Aucun. `SPEC_V1.md` n'est pas réécrit ; ADR 0016 amende §14 sur deux points
+et le déclare dans son statut.
+
+**Vérification du constat de couverture.** `AgentTemplate`, `AgentInstance` et `ApprovalRequest` :
+zéro occurrence dans `packages/**.rs`. `packages/domain/src/task.rs` ne porte que `TaskState`,
+`transition` et `ForbiddenTransition` — l'agrégat `Task` de §7.1 et ses champs `assigned_agent_id` /
+`assigned_worker_id` sont absents, d'où W13.d comme dépendance explicite de W13.g.
+`EVENT_NAMESPACES` contient déjà `agent`, `team`, `policy`, `approval` et `decision` : l'event-store
+ne change pas. `RelationKind::ALL` est bien `[Self; 28]`, `ObjectionTarget` a bien quatre variantes.
+
+**Prochain item.** **W4.d** — backend Linux rootless, cgroups v2, seccomp. W13 ne prend pas sa place
+: c'est la décision 13, et ce commit n'est pas un début de W13.b.

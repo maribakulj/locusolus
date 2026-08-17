@@ -1,0 +1,9 @@
+{
+  "title": "le domaine de coordination déclare locus-graph dans Cargo.toml sans encore l'importer",
+  "violations": [
+    {
+      "rule": "coordination-imports-no-epistemic-graph",
+      "where": "packages/coordination/Cargo.toml"
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "title": "packages/graph nomme un objet de coordination — la variante d'énumération que la décision 1 refuse",
+  "violations": [
+    {
+      "rule": "epistemic-graph-imports-no-coordination",
+      "where": "packages/graph/src/relation.rs"
+    }
+  ]
+}

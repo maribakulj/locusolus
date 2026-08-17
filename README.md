@@ -18,6 +18,8 @@ horodatage, enveloppe d'erreur, versionnement.
 priorité en cas de contradiction, et les trois erreurs à ne pas commettre. `docs/10_V1_ROADMAP.md`
 est la feuille de route : un item n'y est terminé que quand son test de sortie passe en CI, et
 `IMPLEMENTATION_LEDGER.md` dit lesquels le sont.
+`docs/13_GRAPHES_AGENTIQUES_ETAT_DE_LART_ET_CIBLE.md` énonce la cible que ces workstreams servent —
+une roadmap de dix-neuf workstreams sans énoncé de cible est illisible.
 
 Les ADR arbitrent. En cas de contradiction : ADR → `docs/00` → `docs/01` → `docs/DECISIONS.md` →
 `docs/SPEC_V1.md` → le reste.

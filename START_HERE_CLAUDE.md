@@ -45,6 +45,10 @@ que ce qui les concerne, plus leur `CLAUDE.md`.
 propres au dépôt) → `docs/00` → `docs/01` → `docs/02` → `docs/03` → `docs/06` → la spec du dépôt →
 `docs/10_V1_ROADMAP.md` → `docs/11_ACCEPTANCE_MATRIX.md`.
 
+`docs/13` (cible et état de l'art des graphes agentiques) est **subordonné** : il vient après la spec
+et n'entre pas dans la chaîne d'arbitrage. Ce qui décide est `docs/adr/0016`, ce qui planifie est
+`docs/10`.
+
 Les ADR arbitrent. `docs/adr/0009` (client Emacs) et `docs/adr/0010` (fork Canterel) contredisent
 délibérément des passages des specs ; ils gagnent.
 

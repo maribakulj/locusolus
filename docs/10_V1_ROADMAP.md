@@ -9,6 +9,10 @@ restent au workstream : les découper finement aujourd'hui produirait un plan fa
 workstream est redécoupé au commit près quand il devient le prochain**, dans son
 `IMPLEMENTATION_STATE.md`.
 
+La cible que cette V1 doit atteindre est énoncée dans `docs/13`, sur une échelle de dynamisme à cinq
+niveaux : chaque workstream de W13 à W18 déclare le niveau qu'il fait franchir et sur quelle sorte de
+relation de coordination. Un workstream qui ne saurait pas le dire n'aurait pas de critère de fin.
+
 Un item est terminé quand son **test de sortie passe en CI**, pas quand le code est écrit.
 
 Convention : `[R]` = réversible par `git revert` seul ; `[M]` = comporte une migration de schéma
@@ -30,6 +34,14 @@ réels le 2026-08-07.
 
 Décisions déjà tranchées : le projet s'appelle `locusolus` ; quatre dépôts, client Emacs dans
 `apps/emacs/` (ADR 0009) ; fork suiveur pour Canterel (ADR 0010).
+
+Un second constat, établi le 2026-08-17 : **§7.1 (agrégats d'agents et d'équipes), §13 (orchestrateur
+de portefeuille), §16 (mémoire) et §20 (policy engine) ne sont couverts par aucun workstream.** W7
+attrape le portefeuille de §13 par ses seuls indicateurs et la revue de §17 ; rien n'assigne
+`AgentTemplate`, `AgentInstance`, `Team`, `Decision`, `ApprovalRequest`, les actions de §13.5,
+l'anti-gaming de §13.6, les sept niveaux de mémoire, ni la DSL de politique. C'est un trou de
+couverture, pas un choix : le dépôt sait décrire ce qui est cru et pourquoi, et ne sait rien dire de
+qui travaille. W13 comble le socle, W14 à W18 portent la cible, et ADR 0016 en fixe les bornes.
 
 Une décision reste ouverte : **le langage de `locusd`**. `SPEC_V1.md` §4.5 fixe TypeScript comme
 référence en précisant que le choix est remplaçable. Il l'est moins qu'il n'y paraît, puisque le
@@ -161,6 +173,9 @@ Deux points faciles à rater et coûteux à réparer : la prévention de contami
 portefeuille (§13.6) doit exister avant que la fonction de valeur pilote des décisions
 automatiques.
 
+**Dépend de W13.c et W13.d** (ADR 0016, décision 13) : la revue indépendante suppose des instances
+d'agent distinctes et une assignation, sans quoi « qui relit qui » n'a pas d'objet où s'écrire.
+
 ## W8 — Clients
 
 Web workspace + `apps/emacs` (monorepo) ; sandbox inspector ; decisions ; artifacts.
@@ -196,6 +211,128 @@ Local, personal-node, VM, adapter cloud, hybride distribué ; backup/restore/mig
 ## W12 — Evaluation / release
 
 Tests de sécurité, injection de fautes, endurance, benchmarks, ablations, docs, release candidate.
+
+---
+
+## W13 — Socle de coordination agentique — **repli, jamais prioritaire** — niveau 3 sur `review`
+
+Couvre le socle de §7.1 et les deux seuls manques de §14 (ADR 0016, décision 3). Ne prend jamais la
+priorité sur W4 ; les périmètres ne se recoupent pas. Aucun item ne modifie `canterel`. W13.c et
+W13.d sont néanmoins des **dépendances de W7** : « repli » ordonne, il ne déprogramme pas.
+
+Les modes `observed` et `assisted` (ADR 0016, décision 8) existent dès W13.e. Le mode fermé est une
+exigence de §33, pas une précaution.
+
+| # | Commit | Test de sortie |
+|---|---|---|
+| W13.a `[R]` | ADR 0016, sixième frontière (`CLAUDE.md` + `boundaries.json` + garde), ce workstream, `docs/11`, `docs/13` | une violation délibérée **dans chacun des deux sens** fait échouer la CI, et la garde déclare le nombre de fichiers réellement examinés |
+| W13.b `[R]` | pli des fixtures `lep/1.0` en graphe d'exécution, sous `tests/` — aucun champ ajouté au protocole | le pli rend un graphe attempt/outil/artefact **sans arête orpheline**, et un test affirme **par l'absence** qu'aucun champ d'agent n'existe dans l'événement LEP |
+| W13.c `[R]` | `packages/coordination` : `AgentTemplate`, `AgentInstance`, `Team`, `Decision`, `ApprovalRequest` selon §7.1 ; `Id<Team>`, `Id<Task>`, `Id<Decision>`, `Id<Approval>` dans `packages/protocol` | property test : la capacité effective est l'**intersection** des quatre sources de §14.2, jamais leur union ; ignorer une source fait rougir. Round-trip des quatre nouveaux identifiants |
+| W13.d `[R]` | complétion de l'agrégat `Task` de §7.1 — dont `assigned_agent_id` et `assigned_worker_id` — sans toucher la machine à états existante | l'assignation est un événement ; la machine à états de `task.rs` est inchangée et ses tests passent |
+| W13.e `[R]` | relation de coordination (`kind` fermé à `review`), payload de `team.modify`, CAS par `expected_revision`, annulation par commit inverse, autorité de proposition agentique | quatre : deux propositions concurrentes sur la même base ne committent pas toutes deux et le refus dit s'il faut rebaser ; une proposition sans justification citant un objet épistémique existant est refusée ; aucun chemin de code ne modifie une `MissionEnvelope` émise ni le hash de sa `ContextView` ; une proposition d'origine agentique suit le même chemin qu'une proposition humaine et son proposeur ne peut pas l'approuver |
+| W13.f `[R]` | `packages/projections` : projection du graphe d'exécution | reconstruction depuis zéro = état courant ; quarantaine conforme à ADR 0013 |
+| W13.g `[R]` | projection du graphe organisationnel réalisé, par jointure `assigned_agent_id` × événements | **dépend de W13.b et W13.d.** Le graphe se reconstruit depuis le journal seul ; aucun instantané n'est reçu du worker |
+
+W13.b avant W13.f : le pli décide si la projection s'écrit contre `lep/1.0` inchangé, et le découvrir
+après aurait coûté la projection. W13.c avant W13.e : une relation entre deux agents suppose que
+l'agent soit un objet. W13.d avant W13.g : c'est l'assignation qui rend le graphe réalisé dérivable,
+l'événement LEP ne portant aucun champ d'agent.
+
+§18 est à lire avant W13.e : la coordination d'une branche interagit avec le fork, le merge et le
+rebase, et §18.4 pourrait imposer des règles sur ce qu'une fusion fait d'une équipe.
+
+Deux pièges qui coûteraient une garantie chacun : ajouter une variante à `ObjectionTarget` ou à toute
+énumération de `packages/graph` ; ouvrir l'énumération des sortes de relation à une valeur qu'aucun
+consommateur exécutable n'honore.
+
+## W14 — Moteur de politique et orchestrateur de portefeuille
+
+§20 en entier et §13 en entier — le plus large trou du dépôt, et déjà normatif. DSL déclarative
+versionnée ; séparation des faits et de la décision ; trace d'évaluation ; cinq verbes ; détection des
+conflits de politiques ; priorité explicite ; dry-run ; déterminisme à entrées identiques ;
+conservation des overrides. `Delegation` et sa révocation. Explicabilité de §20.5, y compris les
+**alternatives rejetées**. Côté portefeuille : les quinze indicateurs de §13.2, la qualité-diversité de
+§13.3, `V(b)` de §13.4, les actions de §13.5, et l'**anti-gaming de §13.6**.
+
+Attend W13.c et W13.e. Débloque les modes `bounded` et `operator`, la classe de risque dérivée, et la
+moitié de W7. §W7 avertit déjà que l'anti-gaming doit exister avant que la fonction de valeur pilote
+des décisions automatiques.
+
+## W15 — Cœur du graphe agentique et contestabilité — **niveau 3 → 4, structure**
+
+Généralisation de la relation unique de W13.e : version canonique immuable avec hash et parent, diff
+comme objet de première classe, régions mutables bornées à la façon de GRAFT — région déclarée,
+acceptation locale, veto de cohérence globale. L'énumération des sortes s'ouvre **une valeur à la
+fois** (ADR 0016 décision 4) ; `role` exerce la clause de falsification de la décision 10, puis
+`visibility` dont le consommateur est la construction de `ContextView`. Jeu d'opérations cible :
+`ADD_NODE`, `REMOVE_NODE`, `REPLACE_NODE`, `ADD_EDGE`, `REMOVE_EDGE`, `SPLIT_NODE`, `MERGE_NODES`,
+`SET_ROLE`, `SET_VISIBILITY`, `SET_VALIDATOR`, `SET_EXECUTION_ORDER`.
+
+Contestabilité des décisions de coordination : famille d'objection parallèle à celle du domaine
+épistémique, même forme logique, domaines disjoints, avec un test vérifiant l'**absence** de
+conversion. C'est la contribution originale du projet et le geste le plus facile à faire de travers.
+
+Attend W14. Un IR déclaratif contraint, jamais un script : la représentation détermine ce qui est
+vérifiable.
+
+## W16 — Reconfiguration vivante et scheduler dynamique — **niveau 4**
+
+Le scheduler doit savoir spawn, suspend, drain, kill, replace, split, merge, connect, disconnect,
+rerouter l'état, rejouer, migrer le contexte, et livrer les messages **en connaissance de la version**.
+Barrières par invariant menacé plutôt que par lieu ; quiescence locale d'un nœud plutôt que drain
+global. Epochs, messages tardifs et transfert d'état : ils n'ont un problème réel à résoudre qu'une
+fois une messagerie inter-agents existante. Visibilité institutionnelle facultative des sous-agents
+internes du harnais — le cas de W16 justifiant un mineur LEP, avec son ADR.
+
+Plan de simulation : rejeu déterministe, substitut d'environnement enregistré, ombre en sandbox réelle,
+canari facultatif. Un objet simulé n'existe pas comme type dans le domaine épistémique.
+
+Attend W15, W4.e et W4.g.
+
+## W17 — Cockpit et orchestration de la mémoire
+
+Cockpit à quatre vues — plan, vivant, trace, épistémique — avec sélection synchronisée par `Id<Agent>`.
+Le canvas produit une commande, jamais une écriture. Diff calculé une fois côté serveur, donc identique
+dans Emacs et dans le web. Preview statique, ombre, approbation, rollback, navigation dans le temps
+comme propriété du pli. Se branche sur le Visualization Projection Service de §23.3, dont la vue
+« société d'agents » est déjà nommée, et consomme `/branches/:id/diff` de §22.4.
+
+Mémoire : les sept niveaux de §16.1 ; le retrieval hybride de §16.3 avec ranking dont les facteurs sont
+exposés et embeddings ne contournant pas les ACL ; l'index mémoire hybride comme projection obligatoire
+de §9.3 ; la déduplication non automatique de §16.4 ; la compaction de §16.5 ; les cinq préventions de
+§16.6. Deux retrievals séparés, épistémique et organisationnel, sans conversion.
+
+Attend W16, W9 et `locusd`. Aucun outil existant ne combine canvas, graphe comme état mutable de
+première classe, mutations proposées par les agents, commit atomique et invariants.
+
+## W18 — Adaptation automatique et admission de capacité
+
+Boucle rapide sur la capacité — routage de modèle, choix d'outil, sélection de skill, retry, routes
+éphémères ; boucle lente sur la structure. Les onze déclencheurs de §14.5 et les indicateurs de §13.2.
+`bounded` sur les seules opérations dont la classe de risque est **dérivée** des invariants menacés.
+
+Admission de capacité : proposition, politique et approbation faisant entrer une capacité nouvelle sous
+forme d'`EnvironmentBlueprint` construit, scanné, signé et attesté (§19.3), jamais sous forme de code
+injecté. Attend W5, W6 et S3/S4 attesté.
+
+Métrique d'acceptation propre : le taux d'annulation humaine des adaptations agentiques.
+
+## Recherche — sans dépendance de chemin critique, abandonnable sans coût
+
+`R1` **consensus circulaire** — cycle de `Cites` sans `AnchoredIn` externe, exigé par §16.6, calculable
+sur les types existants de `packages/graph`. Le moins cher des items de recherche, ne dépend ni de W4
+ni de `locusd`, publiable seul. · `R2` **crédit structurel** — attribuer une amélioration à une
+relation, un rôle, un budget ou au hasard d'échantillonnage ; sans cela un système évolutionnaire
+accumule des changements inutiles. · `R3` **évaluation structurelle** — métriques de graphe et regret
+structurel `R_s = U(meilleur candidat disponible) − U(graphe choisi)`, calculable en **rejeu** sur
+fixtures identiques. · `R4` **substitut d'environnement puis world model** — générateur de trajectoires
+contrefactuelles, comparatif à graine et préfixe identiques, unilatéral en rejet, jamais un juge,
+jamais une preuve ; et la fidélité sur les environnements du domaine — IIIF, SPARQL, ALTO/PAGE,
+notebooks, prouveurs — est inconnue. · `R5` **prototype externe de harnais tiers** — dépôt jetable, une
+seule question : un `SessionPlan` peut-il produire un flux conforme au harnais de conformance de W0.9 ?
+Si oui, un worker LEP séparé ; si non, on supprime le dépôt. Aucune ligne dans
+`backend/cli/src/locus/` avant la réponse. · `R6` **évolution inter-exécutions** — une adaptation
+récurrente et gagnante en validation appariée propose une amélioration de template.
 
 ---
 

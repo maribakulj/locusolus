@@ -1,0 +1,9 @@
+[package]
+name = "locus-coordination"
+version = "0.0.0"
+edition = "2024"
+
+[dependencies]
+locus-domain = { path = "../domain" }
+locus-graph = { path = "../graph" }
+serde = { version = "1", features = ["derive"] }
