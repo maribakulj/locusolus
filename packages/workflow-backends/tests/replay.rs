@@ -90,7 +90,7 @@ fn les_six_operations_de_11_1_passent_par_un_objet_trait() {
     block_on(backend.suspend(&id)).expect("suspension");
     assert_eq!(
         block_on(backend.inspect(&id)).expect("inspection"),
-        WorkflowState::Suspended { step: 0 }
+        WorkflowState::Suspended { step: Some(0) }
     );
     block_on(backend.resume(&id)).expect("reprise");
     block_on(backend.terminate(&id, "budget épuisé")).expect("arrêt");
@@ -232,7 +232,7 @@ fn le_rejeu_reproduit_la_suspension_et_l_arret() {
     let suspended = replay(&definition, backend.history(&id).expect("historique"))
         .expect("rejeu")
         .state;
-    assert_eq!(suspended, WorkflowState::Suspended { step: 1 });
+    assert_eq!(suspended, WorkflowState::Suspended { step: Some(1) });
 
     block_on(backend.resume(&id)).expect("reprise");
     block_on(backend.terminate(&id, "arbitrage humain")).expect("arrêt");
@@ -393,7 +393,7 @@ fn une_activity_sans_executant_fait_refuser_sans_salir_l_historique() {
     // Et l'historique reste rejouable : le refus n'a rien cassé.
     assert_eq!(
         replay(&definition, &before).expect("rejeu").state,
-        WorkflowState::Running { step: 1 }
+        WorkflowState::Running { step: Some(1) }
     );
 }
 

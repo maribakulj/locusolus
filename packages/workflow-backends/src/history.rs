@@ -295,9 +295,9 @@ pub fn replay(
     }
 
     let state = ended.unwrap_or(if suspended {
-        WorkflowState::Suspended { step: cursor }
+        WorkflowState::Suspended { step: Some(cursor) }
     } else {
-        WorkflowState::Running { step: cursor }
+        WorkflowState::Running { step: Some(cursor) }
     });
 
     Ok(Replayed {

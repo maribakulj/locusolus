@@ -76,20 +76,43 @@ pub struct WorkflowHandle {
 }
 
 /// Où en est une exécution — ce que rend `inspect`.
+///
+/// # Trois choses que ce type a apprises de son deuxième moteur (W3.d)
+///
+/// La première version, écrite avec le seul backend déterministe sous les yeux, portait
+/// `Running { step: usize }`, n'avait pas de `Failed` et pas d'`Unknown`. Les trois manques ne se
+/// voyaient pas : un moteur en mémoire connaît toujours son indice de pas, ne casse jamais tout
+/// seul, et n'ignore jamais son propre état. C'est **exactement** la panne que l'ADR 0003 nomme —
+/// le domaine prenant la forme du premier backend branché — et elle a été trouvée en écrivant le
+/// second, ce qui est la raison pour laquelle l'ADR demande deux.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WorkflowState {
-    /// En cours, le prochain pas étant celui d'indice `step`.
+    /// En cours.
     Running {
-        /// L'indice du prochain pas.
-        step: usize,
+        /// L'indice du prochain pas, **quand le moteur le connaît**.
+        ///
+        /// Temporal ne le connaît pas : `DescribeWorkflowExecution` rend un statut, pas une
+        /// position, et la position ne se déduirait qu'en tirant tout l'historique à chaque
+        /// inspection. `None` dit « en cours, position non observable » plutôt que d'inventer un
+        /// zéro qui aurait l'air d'un début.
+        step: Option<usize>,
     },
-    /// Suspendue, au même endroit.
+    /// Suspendue.
     Suspended {
-        /// L'indice du prochain pas.
-        step: usize,
+        /// L'indice du prochain pas, quand le moteur le connaît.
+        step: Option<usize>,
     },
     /// Arrivée au bout.
     Completed,
+    /// Cassée : l'exécution a échoué d'elle-même.
+    ///
+    /// Distincte de [`WorkflowState::Terminated`], et la distinction n'est pas cosmétique : « on
+    /// l'a arrêtée » et « elle a cassé » appellent des compensations différentes (§11.4), et un
+    /// moteur qui replierait l'une sur l'autre ferait disparaître la question.
+    Failed {
+        /// Ce qui a cassé.
+        reason: String,
+    },
     /// Arrêtée, et la raison est conservée.
     ///
     /// La raison n'est pas décorative : §11.4 dit que les compensations « ne réécrivent jamais
@@ -99,10 +122,24 @@ pub enum WorkflowState {
         /// Pourquoi.
         reason: String,
     },
+    /// Le moteur n'a pas su dire où en était l'exécution.
+    ///
+    /// Ce n'est pas un état de l'exécution, c'est un état de la **connaissance** qu'on en a — et
+    /// c'est la seule réponse honnête quand un moteur rend un statut que le port ne sait pas
+    /// interpréter, ou quand la suspension n'est pas observable de l'extérieur. Rendre `Running`
+    /// dans ce cas serait un défaut plausible, c'est-à-dire la forme la plus dangereuse d'inconnu.
+    Unknown {
+        /// Ce qui manquait pour conclure.
+        detail: String,
+    },
 }
 
 impl WorkflowState {
-    /// Vrai tant que l'exécution peut encore avancer ou être reprise.
+    /// Vrai quand l'exécution est **connue** vivante.
+    ///
+    /// [`WorkflowState::Unknown`] rend `false` : l'ignorance n'est pas une vivacité. Les appelants
+    /// qui refusent une opération sur ce fondement doivent donc traiter l'inconnu à part, plutôt
+    /// que de le confondre avec une exécution finie.
     #[must_use]
     pub const fn is_live(&self) -> bool {
         matches!(self, Self::Running { .. } | Self::Suspended { .. })
@@ -115,7 +152,9 @@ impl WorkflowState {
             Self::Running { .. } => "running",
             Self::Suspended { .. } => "suspended",
             Self::Completed => "completed",
+            Self::Failed { .. } => "failed",
             Self::Terminated { .. } => "terminated",
+            Self::Unknown { .. } => "unknown",
         }
     }
 }
