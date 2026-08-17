@@ -1,0 +1,16 @@
+[package]
+name = "locus-domain"
+description = "Le domaine épistémique de Locus Solus : enveloppe commune, statuts, niveaux de validation."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+locus-protocol = { path = "../protocol" }
+serde = { workspace = true }
+serde_json = { workspace = true }
