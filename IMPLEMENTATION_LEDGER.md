@@ -2016,3 +2016,61 @@ branché, containerd reste ouvert derrière le même port.
 **Prochain item.** **W4.d.3** — le profil seccomp restreint, et la suite de self-tests de W4.b
 passée contre ce backend pour qu'il obtienne un `Standing`. Ses dépendances sont satisfaites : la
 suite existe (W4.b), le backend existe désormais.
+
+---
+
+## 2026-08-17 — W4.d.3 — La suite de W4.b contre le backend, et le `Standing` qui en sort
+
+**Périmètre.** `apps/locus-execd/src/linux/selftest.rs`, neuf ; `linux/mod.rs` (réexports) ;
+`tests/selftest.rs`, neuf ; `docs/10` sépare W4.d.3 (la suite) de W4.d.4 (le profil seccomp).
+
+**Ce que ce commit referme.** W4.b avait écrit ce qu'il faut tenter et à quel niveau ça doit
+échouer, sans backend pour le tenter. W4.d.2 avait écrit le backend, sans rien qui le juge. Ici la
+suite passe contre le driver et rend un `Standing`.
+
+**La moitié qui manquait à `Probe`.** Une sonde porte un nom, une dimension, un niveau et une
+justification — pas une commande. C'est délibéré : la façon de tenter dépend du backend, et une
+commande dans le crate de vocabulaire aurait supposé un Linux. `PROBE_COMMANDS` fournit cette moitié
+pour le backend rootless, et deux tests l'encadrent dans les deux sens : aucune sonde sans commande,
+aucune commande orpheline. Une sonde sans commande serait silencieusement absente du rapport, et
+`standing` la rendrait `Inconclusive` sans que personne sache pourquoi.
+
+**La convention de sortie va dans ce sens-là, et c'est le sujet.** Chaque commande **réussit quand
+la sonde réussit**, c'est-à-dire quand le confinement n'a pas tenu : code 0 devient `Succeeded`,
+code non nul devient `Blocked`. Le sens inverse aurait fait d'une commande absente de l'image — `sh`
+introuvable, code 127 — une preuve d'isolation. La mutation qui inverse la convention fait rougir
+quatre tests.
+
+**Ce qui n'a pas pu être lancé n'a rien prouvé.** Un runtime qui disparaît en cours de campagne
+produit seize `NotRun`, pas seize `Blocked`. `standing` en fait des `Inconclusive`, et
+`denies_trust` refuse la confiance parce que les seize sondes sont critiques. Le test le formule
+comme le seul résultat interdit : « accorder la confiance faute de contre-preuve ». C'est la
+propriété que `Observed::NotRun` existait pour porter, et c'est la première fois qu'un consommateur
+la met à l'épreuve.
+
+**La campagne arrête la sandbox même quand la suite s'est mal passée.** Une sonde qui échoue laisse
+derrière elle un conteneur qui tourne, et un hôte qui accumule des conteneurs d'épreuve finit par ne
+plus pouvoir en créer. `certify` ignore délibérément l'erreur de `stop` : elle ne doit pas masquer
+le verdict, qui est ce qu'on est venu chercher.
+
+**Le sur-confinement ne retire pas la confiance.** Un backend qui contient tout à `S0` reste
+`Trusted` : W4.b avait tranché que `OverContained` se signale sans être bloquant. Le test le
+consigne pour que personne ne « corrige » ce comportement en croyant durcir la garde.
+
+**Cinq mutations vérifiées rouges**, motif vérifié présent avant chaque substitution : un runtime
+injoignable compté comme un blocage (1 test) ; la convention de sortie inversée (4) ; le rapport
+perdant sa dernière sonde (5) ; la campagne laissant le conteneur tourner (1) ; une sonde perdant sa
+commande (8).
+
+**Ce qui est repoussé, et déclaré.** Les commandes de six sondes visent des sondes compilées
+(`/usr/libexec/locus/probe-*`) que l'image de base devra porter : dépasser un quota CPU, mémoire,
+PID ou disque, et ouvrir une connexion, ne se tentent pas honnêtement en une ligne de shell. Tant
+que l'image ne les porte pas, ces commandes échouent en 127 et la sonde est lue comme `Blocked` —
+c'est-à-dire exactement le piège que la convention de sortie évitait ailleurs. La parade est en W5,
+qui construit l'image : la suite ne doit pas tourner contre une image qui ne porte pas les sondes,
+et c'est à inscrire comme dépendance de la première campagne réelle.
+
+**Écart avec la spec.** Aucun.
+
+**Prochain item.** **W4.d.4** — le profil seccomp restreint, refusé s'il ne refuse pas ce que la
+posture promet.
