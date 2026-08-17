@@ -1,0 +1,19 @@
+[package]
+name = "locus-graph"
+description = "Le graphe épistémique : relations typées et hyperarêtes d'inférence."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+locus-domain = { path = "../domain" }
+serde = { workspace = true }
+
+[dev-dependencies]
+locus-protocol = { path = "../protocol" }
+serde_json = { workspace = true }

@@ -28,6 +28,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "locus-graph"
+version = "0.0.0"
+dependencies = [
+ "locus-domain",
+ "locus-protocol",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "locus-lep"
 version = "0.0.0"
 dependencies = [
