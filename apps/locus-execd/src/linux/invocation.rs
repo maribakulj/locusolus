@@ -11,6 +11,7 @@
 use std::fmt;
 
 use super::plan::{ConfinementPlan, MountPlan, Namespace, NetworkPosture, SeccompPosture};
+use super::seccomp::RestrictedProfile;
 
 /// Ce que la sandbox exécutera.
 ///
@@ -61,17 +62,22 @@ impl Workload {
 
 /// Le profil seccomp restreint, quand le déploiement en fournit un.
 ///
-/// # Pourquoi c'est une configuration et non une constante
+/// # Pourquoi c'est une configuration, et vérifiée
 ///
-/// `SeccompPosture::Restricted` promet plus que le profil par défaut de Podman : refuser depuis
-/// l'intérieur la création de namespaces et le chargement de code noyau. Ce refus vit dans un
-/// fichier de profil, que ce dépôt n'écrit pas encore. Tant qu'il n'est pas fourni, le backend
-/// **refuse** les niveaux qui en dépendent au lieu de les revendiquer avec le profil par défaut :
-/// c'est la même règle que le plafond `S3`, appliquée à une capacité que l'opérateur apporte.
+/// `SeccompPosture::Restricted` promet le refus, depuis l'intérieur, de la création de namespaces
+/// et du chargement de code noyau. Ce refus vit dans un fichier de profil que ce dépôt n'écrit pas :
+/// un profil par défaut-refus est une liste de plusieurs centaines d'appels autorisés dont
+/// l'exactitude ne se démontre qu'en l'exécutant. Le déploiement l'apporte donc, et
+/// [`super::seccomp::RestrictedProfile`] vérifie qu'il refuse bien ce que la posture promet.
+///
+/// Tant qu'aucun profil n'est fourni, le backend **refuse** les niveaux qui en dépendent au lieu de
+/// les revendiquer avec le profil par défaut du runtime — dont ce dépôt ne vérifie pas le contenu,
+/// et sur lequel il ne fait donc aucune promesse. C'est la règle du plafond `S3`, appliquée à une
+/// capacité que l'opérateur apporte.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SeccompProfiles {
-    /// Le chemin du profil restreint, s'il y en a un.
-    pub restricted: Option<String>,
+    /// Le profil restreint, lu et vérifié, s'il y en a un.
+    pub restricted: Option<RestrictedProfile>,
 }
 
 /// Les arguments de `podman create` qui réalisent ce plan.
@@ -222,7 +228,7 @@ fn security_arguments(
                 return Err(InvocationError::RestrictedProfileMissing);
             };
             arguments.push("--security-opt".to_owned());
-            arguments.push(format!("seccomp={profile}"));
+            arguments.push(format!("seccomp={}", profile.path()));
         }
     }
     arguments.extend(

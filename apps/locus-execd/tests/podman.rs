@@ -11,8 +11,8 @@
 use std::sync::Mutex;
 
 use locus_execd::linux::{
-    Execution, InvocationError, PodmanBackend, Runner, SeccompProfiles, Workload, create_arguments,
-    inspect_arguments, plan,
+    Execution, InvocationError, PodmanBackend, RestrictedProfile, Runner, SeccompProfiles,
+    Workload, create_arguments, inspect_arguments, plan,
 };
 use locus_execd::{RuntimeError, RuntimePort, SandboxId};
 use locus_execution::{
@@ -109,9 +109,17 @@ fn observations(network: &str, readonly: &str, security: &str) -> String {
 // Fixtures de mission
 // ---------------------------------------------------------------------------------------------
 
+/// Un profil par défaut-refus, donc porteur de la posture restreinte : `RestrictedProfile` ne se
+/// construit pas autrement, et c'est le type qui porte la garantie.
 fn profiles() -> SeccompProfiles {
     SeccompProfiles {
-        restricted: Some("/etc/locus/seccomp/restricted.json".to_owned()),
+        restricted: Some(
+            RestrictedProfile::parse(
+                "/etc/locus/seccomp/restricted.json",
+                r#"{ "defaultAction": "SCMP_ACT_ERRNO", "syscalls": [] }"#,
+            )
+            .expect("profil par défaut-refus"),
+        ),
     }
 }
 
