@@ -237,6 +237,8 @@ fn runtime_markers() -> Vec<String> {
         concat!("os::unix", "::net").to_owned(),
         concat!("Command::new(\"", "docker").to_owned(),
         concat!("Command::new(\"", "podman").to_owned(),
+        concat!("Command::new(\"", "buildah").to_owned(),
+        concat!("Command::new(\"", "nerdctl").to_owned(),
     ]
 }
 

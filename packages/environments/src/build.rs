@@ -165,6 +165,12 @@ impl Locked {
         &self.lockfiles
     }
 
+    /// Le blueprint dont les dépendances sont verrouillées.
+    #[must_use]
+    pub const fn blueprint(&self) -> &EnvironmentBlueprint {
+        &self.blueprint
+    }
+
     /// Étape 2 — l'image est construite.
     #[must_use]
     pub fn built(self, layers_digest: &str) -> Built {

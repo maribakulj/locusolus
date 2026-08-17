@@ -2535,3 +2535,50 @@ inscrit avec son test de sortie, et c'est le premier travail à faire sur une ma
 **Écart avec la spec.** Aucun.
 
 **Prochain item.** **W5.e** — le driver de build derrière un port, sur la forme de W4.d.2.
+
+---
+
+## 2026-08-17 — W5.e — Le driver de build : lire le digest, jamais le composer
+
+**Périmètre.** `apps/locus-execd/src/build.rs`, neuf ; `Cargo.toml` du paquet gagne
+`locus-environments` ; `src/lib.rs` ; `tests/build.rs`, neuf ; `packages/environments` expose le
+blueprint d'un `Locked` ; la garde de W4.c gagne deux actes ; `docs/10` §W4.d complète W5.e.
+
+**Pourquoi le driver est dans `locus-execd`.** Construire une image est un acte de runtime : ça
+lance un builder, ça écrit dans le stockage de conteneurs, ça peut pousser vers un registre. ADR
+0004 réserve ces actes au broker, et la raison vaut autant pour le build que pour l'exécution — un
+processus qui sait construire une image sait produire celle qu'il veut. `packages/environments`
+garde le vocabulaire et la chaîne ; ce module lance le premier maillon. La garde de W4.c gagne donc
+`Command::new("buildah")` et `Command::new("nerdctl")` : construire est un acte, au même titre
+qu'exécuter.
+
+**Ce que le driver ne peut pas faire, et par construction.** Dépasser `Built`. La chaîne de W5.b est
+une suite de types et `build` rend son deuxième état ; le SBOM, le scan, les tests et la signature
+viennent d'autres outils. Aucun raccourci ne mène d'ici à une image publiée, et ce n'est pas une
+discipline à tenir — c'est ce que les types permettent.
+
+**Le digest vient de la sortie du runtime, jamais du blueprint.** Même règle qu'en W4.d.2 pour
+l'attestation : composer à partir de ce qu'on attendait attesterait de sa propre attente. Le
+blueprint porte le digest d'une image **déjà publiée** ; un build en produit une **nouvelle**.
+
+**Le test disait moins que ce qu'il prétendait, et une mutation l'a montré.** La première version
+employait le même digest des deux côtés : la mutation qui recopie le digest du blueprint au lieu de
+lire la sortie ne faisait rougir qu'un test collatéral. Deux digests distincts plus tard, elle
+rougit sur le test qui porte la garantie. C'est la troisième fois de la session qu'une mutation
+corrige un test plutôt qu'un code, et le motif est toujours le même : un test qui compare une valeur
+à elle-même vérifie la mécanique et pas la propriété.
+
+**Cinq mutations vérifiées rouges** : le digest composé depuis le blueprint (2 tests) ; la première
+couche l'emportant sur l'image finale (1) ; un code non nul pris pour un succès (1) ; le réseau du
+build disparu (1) ; le tiret d'un nom de profil laissé dans un nom de variable (1).
+
+**Le réseau du build n'est pas celui d'une mission.** §19.5 : « un build séparé **avec réseau
+autorisé** […] une mission standard ne peut pas `curl | bash` ». Le build résout des dépendances,
+donc il sort ; c'est précisément pour cela qu'il est séparé de la mission, et qu'il finit par un
+scan. Un test le fixe pour que personne ne l'aligne sur le `deny` des missions en croyant durcir.
+
+**Écart avec la spec.** Aucun.
+
+**Prochain item.** **W5.f** — validation sémantique des sondes contre une sandbox réelle, seul item
+de W5 qui exige une machine capable de `S2`. À défaut, **W6** — artefacts et reproductibilité — dont
+les dépendances sont satisfaites.

@@ -19,6 +19,7 @@
 //! - [`linux`] : le backend Linux rootless — la traduction, la lecture de ce que l'hôte permet,
 //!   et le driver Podman (W4.d) ;
 //! - [`macos`] : la machine qui porte l'invité Linux, et le plafond qui en découle (W4.e) ;
+//! - [`build`] : construire une image, premier maillon de la chaîne de `packages/environments` (W5) ;
 //! - [`placement`] : choisir un hôte parmi plusieurs, sur ce qu'il a **prouvé** (W4.g) ;
 //! - [`reroute`] : replacer une tentative dont l'hôte est tombé, **sous le même numéro** (W4.g).
 //!
@@ -27,6 +28,7 @@
 //! ailleurs, et un test balaie l'arbre pour vérifier que personne d'autre n'en parle.
 
 pub mod admission;
+pub mod build;
 pub mod linux;
 pub mod macos;
 pub mod placement;
@@ -34,6 +36,7 @@ pub mod reroute;
 pub mod runtime;
 
 pub use admission::{AcceleratorReach, Admission, HostCapabilities, RefusalReason, admit};
+pub use build::{BuildContext, BuildDriver, BuildDriverError, build_arguments};
 pub use linux::Missing;
 pub use linux::{ConfinementPlan, HostFacts, PlanError, PodmanBackend, Workload, plan};
 pub use macos::{MachineFacts, MachineState};
