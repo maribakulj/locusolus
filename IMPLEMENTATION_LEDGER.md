@@ -2237,3 +2237,56 @@ quand la plateforme l'impose.
 
 **Prochain item.** **W4.g** — le scheduler : placement par capability, trust, localité, fit et
 budget ; admission, refus, reroutage. C'est là que `Standing` rejoint l'admission.
+
+---
+
+## 2026-08-17 — W4.g.1 — Le placement : la confiance ne se déclare pas, elle se prouve
+
+**Périmètre.** `apps/locus-execd/src/placement.rs`, neuf ; `admission.rs` gagne une raison de refus
+; `src/lib.rs` ; `tests/placement.rs`, neuf ; `docs/10` gagne W4.g.1 et W4.g.2.
+
+**Le mot qui était resté sans consommateur.** §12.2 place parmi les critères de placement « sandbox
+disponible **et attestée** ». `HostCapabilities` annonçait un niveau, et rien ne demandait à l'hôte
+de l'avoir tenu. W4.d.3 a produit le juge — la suite de self-tests rend un `Standing` — et ce commit
+le branche : un candidat sans `Trusted` au niveau exigé n'est pas placé, quoi qu'il annonce.
+
+Le cas limite est celui qui compte, et c'est le même que celui de W4.d.3 sous un autre angle. Un
+hôte qui n'a jamais passé la suite n'est pas un hôte dont on ignore la valeur : c'est un hôte dont
+on n'a **aucune preuve**. `Verdict::denies_trust` avait déjà tranché que l'absence de preuve n'est
+pas une preuve ; le placement ne fait qu'en tirer la conséquence. Un worker qui vient de s'enrôler
+ne reçoit donc rien au-dessus de `S0` avant d'avoir passé la suite — et `S0` n'en demande pas,
+puisqu'il ne promet rien.
+
+**Une campagne perdue ne vaut pas une campagne gagnée.** `proven_level` ne retient que les
+`Standing::Trusted`. Un `NotTrusted { level: S3 }` porte pourtant un niveau, et le lire comme une
+preuve était la mutation la plus facile à écrire — elle rougit.
+
+**Le refus porte tous les candidats.** C'est la règle de W4.c élargie d'un cran : là où un refus
+d'admission qui ne nommerait que la première condition manquante ferait corriger une chose et
+réessayer, un refus de placement qui ne garderait que « le plus proche » ferait corriger **un hôte**
+et réessayer. Un aller-retour par candidat au lieu d'un par condition.
+
+**Deux règles de choix, et la seconde est la plus importante.** Parmi les candidats qui conviennent,
+le retenu est celui dont le plafond prouvé est le plus **bas** : un `S3` consommé par une mission
+`S1` est un `S3` indisponible pour la mission qui en avait besoin. À plafond égal, l'ordre est celui
+de l'identifiant — le placement doit être **reproductible**, sans quoi deux rejeux du même journal
+placeraient différemment et la trace ne dirait plus ce qui s'est passé. C'est la même exigence que
+celle qui a fait interdire `Date::now` dans les scripts de workflow.
+
+**Six mutations vérifiées rouges** : l'attestation non exigée (3 tests) ; une campagne perdue
+comptée comme une preuve (1) ; le refus ne gardant que le premier candidat (1) ; le choix prenant le
+plafond le plus haut (1) ; l'ordre des candidats décidant à la place de l'identifiant (1) ; le
+niveau placé étant celui de l'hôte plutôt que celui de la mission (2).
+
+**Ce qui n'est pas implémenté, et déclaré.** §12.2 liste onze critères. Cinq ont un consommateur
+aujourd'hui — capabilities, fit, réseau, niveau, attestation — et ce commit les traite. Les six
+autres — localité et confidentialité des données, coût estimé, limites de parallélisme, indépendance
+requise, affinité, santé et historique du worker — n'ont aucun objet dans le dépôt qui les porte :
+`SandboxSpec` n'a pas de plafond de confidentialité, aucun journal de santé n'existe. Les inventer
+ici aurait produit des critères que le placement sait pondérer et que rien n'alimente. Ils arrivent
+avec leurs producteurs.
+
+**Écart avec la spec.** Aucun. §12.2 est mis en œuvre sur les critères dont les entrées existent.
+
+**Prochain item.** **W4.g.2** — le reroutage : une mission dont l'hôte tombe en cours de route, une
+mission refusée partout. Il dépend de la lease (§12.3), déjà écrite côté worker en W2.9.
