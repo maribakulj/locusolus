@@ -605,11 +605,11 @@ _`ValidationLevel` n'est ni `Ord` ni `PartialOrd`._ §8.1 : « ces niveaux ne fo
 chaîne totale. Une interprétation historique peut atteindre L3 et L6 sans être “reproduite” ».
 Dériver `Ord` écrirait dans le type une affirmation que la spec dément — et ce ne serait pas un
 défaut théorique : `if level >= Reproduced` compilerait, se lirait bien, et refuserait une
-interprétation historique parfaitement validée parce qu'aucune expérience ne l'a répliquée.
-`rank()` reste accessible comme **étiquette**, avec la note qui dit ce qu'elle n'est pas.
+interprétation historique parfaitement validée parce qu'aucune expérience ne l'a répliquée. `rank()`
+reste accessible comme **étiquette**, avec la note qui dit ce qu'elle n'est pas.
 
-_La lignée est une énumération, pas un `Vec`._ §7.7 dit deux choses qui semblent se contredire :
-« au plus un prédécesseur direct » et « un merge peut créer une révision avec plusieurs parents
+_La lignée est une énumération, pas un `Vec`._ §7.7 dit deux choses qui semblent se contredire : «
+au plus un prédécesseur direct » et « un merge peut créer une révision avec plusieurs parents
 déclarés ». Elles ne parlent pas de la même chose. La lignée est une chaîne — c'est elle qui donne
 un sens à « la version précédente » ; les parents d'un merge sont de la provenance. Les fondre dans
 un même `Vec<RevisionId>` ferait de « la version précédente » une question sans réponse dès le
@@ -645,6 +645,6 @@ un confort ponctuel. Le générateur congruentiel du fichier de test tient en vi
 qu'on perd est la réduction des contre-exemples, et c'est tout. Si W1.b ou W1.f demandent des
 espaces qu'un LCG ne balaie pas honnêtement, la dépendance se justifiera à ce moment-là.
 
-**Prochain item.** W1.b `[R]` — agrégats organisationnels (§7.1) et objets épistémiques (§7.3),
-test de sortie « property tests ». Ses dépendances sont satisfaites : l'enveloppe livrée ici est ce
-que §7.3 enveloppe, et §7.1 s'écrit sur les mêmes identifiants typés.
+**Prochain item.** W1.b `[R]` — agrégats organisationnels (§7.1) et objets épistémiques (§7.3), test
+de sortie « property tests ». Ses dépendances sont satisfaites : l'enveloppe livrée ici est ce que
+§7.3 enveloppe, et §7.1 s'écrit sur les mêmes identifiants typés.
