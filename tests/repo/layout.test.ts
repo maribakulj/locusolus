@@ -72,6 +72,22 @@ test("a conforming crate is clean, and coexists with a package of the same direc
   assert.deepEqual(await inspectRepo(root), []);
 });
 
+test("a directory that already carries the product name declares itself", async () => {
+  // `docs/SPEC_V1.md` §5 fixe les noms : `apps/locusd/`, `apps/locus-execd/`. Préfixer aveuglément
+  // exigerait `locus-locusd`, que la spécification ne dit nulle part et que personne n'écrirait.
+  const root = await skeleton();
+  await write(root, "apps/locus-execd/Cargo.toml", '[package]\nname = "locus-execd"\n');
+  assert.deepEqual(await inspectRepo(root), []);
+});
+
+test("a prefixed directory still may not declare something else", async () => {
+  // La dérogation porte sur le préfixe, pas sur la correspondance : le nom reste celui du
+  // répertoire, sans quoi la règle ne dirait plus rien.
+  const root = await skeleton();
+  await write(root, "apps/locus-execd/Cargo.toml", '[package]\nname = "locus-broker"\n');
+  assert.deepEqual(await rules(root), ["unit-name"]);
+});
+
 test("the pinned Node major must match engines.node", async () => {
   const root = await skeleton();
   await write(root, ".nvmrc", "20\n");

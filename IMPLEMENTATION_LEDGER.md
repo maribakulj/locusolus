@@ -1707,3 +1707,78 @@ changé avant de conclure quoi que ce soit du vert.
 
 **Ce qui vient.** W4.c — `locus-execd`, seul détenteur du socket runtime. La suite existe désormais
 pour dire s'il tient ce qu'il annonce.
+
+### W4.c `[R]` — `locus-execd`, seul détenteur du socket runtime (ADR 0004, §12.2, §21.6)
+
+**Livré.** `apps/locus-execd` (crate `locus-execd`, binaire du même nom) : `runtime.rs`
+(`RuntimePort`, la seule description dans tout le dépôt de ce qu'on demande à un runtime de
+containers), `admission.rs` (`HostCapabilities`, `admit`, `RefusalReason`), `main.rs`. Huit tests.
+Amendement de `tooling/repo/layout.ts` et deux tests de layout.
+
+**Test de sortie, arbitré ici.** **« `locus-execd` refuse proprement une mission qu'il ne peut pas
+honorer — en nommant _toutes_ les conditions qui manquent — et il est le seul endroit du dépôt qui
+parle d'un socket de runtime. »** Les deux moitiés sont la même décision vue de deux côtés : si
+`locusd` pouvait parler au runtime, l'admission ne serait qu'une politesse.
+
+**Décisions prises.**
+
+_Toutes les raisons, pas la première._ ADR 0004 dit « refuse **proprement** ». Un refus qui ne
+nommerait que la première condition manquante ferait corriger une chose, réessayer, découvrir la
+suivante — un aller-retour par condition. Un test vérifie aussi que chaque condition se constate
+**seule**, sans quoi une fonction rendant toujours les quatre raisons passerait le premier.
+
+_Aucun downgrade silencieux à l'admission._ Quand l'hôte ne sait pas confiner assez fort, la mission
+est refusée, pas admise au niveau que l'hôte sait offrir. Ce serait le downgrade que §21.6 interdit,
+pris au moment où personne ne regarde et sans l'approbation nommée que W4.a exige. Symétriquement,
+le niveau admis est **celui qu'exige la mission**, jamais le meilleur de l'hôte : appliquer
+davantage serait le sur-confinement que W4.b nomme.
+
+_Le port ne décide rien._ L'admission se fait sur des capacités **déclarées**, avant tout appel. Un
+broker qui apprendrait ses limites en échouant les découvrirait après avoir créé la moitié d'une
+sandbox, et laisserait derrière lui ce qu'il avait déjà créé.
+
+_Le binaire refuse de prétendre servir._ Sans driver, `main` échoue avec un message qui dit
+pourquoi. Un binaire qui démarrerait en annonçant un service qu'il ne rend pas serait le « sandbox
+factice » que le plan de rollback de l'ADR 0004 interdit nommément.
+
+_Le nom de crate d'un répertoire déjà préfixé est le répertoire lui-même._ §5 fixe
+`apps/locus-execd/` ; la règle de W0.2 en déduisait `locus-locus-execd`. La spécification étant
+normative sur les noms de répertoires, c'est la règle de nommage qui est amendée : un répertoire qui
+porte déjà le préfixe est déjà namespacé. Deux tests encadrent la dérogation — elle porte sur le
+préfixe, pas sur la correspondance.
+
+**Une duplication trouvée par un test qui échouait.** L'accélérateur était déclaré à deux endroits :
+dans `ResourceSpec` de l'hôte et dans une liste `accelerators` à côté. Un GPU manquant produisait
+alors **deux** raisons de refus pour un seul fait, dont l'une était fausse — les quatre quotas
+tenaient parfaitement. `ResourceSpec::fits_within` est donc scindé en `quotas_fit_within` et
+`accelerator_fits_within`, la liste redondante supprimée, et chaque cause est dite une fois sous le
+bon nom.
+
+**Quatre mutations vérifiées rouges.** Le refus qui s'arrête à la première condition ; l'admission
+qui ne vérifie plus le niveau ; l'admission qui applique le meilleur niveau de l'hôte au lieu de
+celui exigé ; un crate hors `locus-execd` qui ouvre une connexion vers un runtime.
+
+**La quatrième mutation a trouvé une garde vide, puis une garde trop large.** Deux corrections
+successives, et les deux méritent d'être écrites.
+
+D'abord : `workspace_root()` construisait la racine par `join("..").join("..")`, si bien que
+**tous** les chemins balayés contenaient `locus-execd` — et l'exclusion « ce paquet-ci est le seul
+auquel c'est permis », écrite par sous-chaîne, excluait l'arbre entier. La garde ne regardait rien
+et restait verte. Corrigé par `ancestors().nth(2)` et une exclusion par **préfixe de chemin** ; le
+décompte des fichiers réellement examinés fait désormais partie de la garde elle-même, pas d'un test
+à côté.
+
+Ensuite, une fois qu'elle regardait vraiment, elle a signalé `packages/execution` — qui nomme
+`docker.sock` et `podman.sock` dans `FORBIDDEN_MOUNT_MARKERS` **pour les refuser**, le contraire
+exact de ce qu'on traque. La table cherche donc maintenant des **actes** — `bollard::`,
+`UnixStream::connect`, `DOCKER_HOST`, `Command::new("docker")` — et non des chemins. Un chemin est
+une donnée ; ouvrir une connexion est un acte. Confondre les deux aurait forcé à exempter le paquet
+qui écrit la politique de sécurité, c'est-à-dire à trouer la garde là où elle sert le plus.
+
+**Ce qui reste dû.** ADR 0004 : « une fixture de refus d'admission fait partie du corpus de
+conformance ». Elle n'est pas livrée : les codes de refus doivent d'abord entrer dans `lep/1.0`, et
+c'est l'un des trois arbitrages de schéma restés ouverts depuis W2. Le refus existe et est testé en
+Rust ; sa forme sur le fil attend le protocole.
+
+**Ce qui vient.** W4.d — backend Linux rootless, cgroups v2, seccomp : le premier driver, que la
+suite de W4.b jugera.

@@ -140,19 +140,38 @@ impl ResourceSpec {
     /// laisserait passer.
     #[must_use]
     pub fn fits_within(&self, capacity: &Self) -> bool {
+        self.quotas_fit_within(capacity) && self.accelerator_fits_within(capacity)
+    }
+
+    /// Vrai quand les quatre quotas de §32.3 tiennent, **sans** regarder l'accélérateur.
+    ///
+    /// # Pourquoi la séparation
+    ///
+    /// Un accélérateur manquant faisait échouer `fits_within`, et un appelant qui listait les
+    /// causes d'un refus le nommait deux fois : une fois « capacité dépassée », une fois
+    /// « accélérateur absent ». Deux noms pour un seul fait, dont l'un est faux — les quatre quotas
+    /// tenaient parfaitement. Le refus est plus utile quand chaque cause est dite une fois et sous
+    /// le bon nom.
+    #[must_use]
+    pub const fn quotas_fit_within(&self, capacity: &Self) -> bool {
         self.cpu_millis <= capacity.cpu_millis
             && self.memory_bytes <= capacity.memory_bytes
             && self.pids <= capacity.pids
             && self.disk_bytes <= capacity.disk_bytes
-            && match (&self.accelerator, &capacity.accelerator) {
-                (None, _) => true,
-                (Some(_), None) => false,
-                (Some(wanted), Some(offered)) => {
-                    wanted.kind == offered.kind
-                        && wanted.count <= offered.count
-                        && wanted.memory_bytes <= offered.memory_bytes
-                }
+    }
+
+    /// Vrai quand l'accélérateur demandé, s'il y en a un, est offert en quantité suffisante.
+    #[must_use]
+    pub fn accelerator_fits_within(&self, capacity: &Self) -> bool {
+        match (&self.accelerator, &capacity.accelerator) {
+            (None, _) => true,
+            (Some(_), None) => false,
+            (Some(wanted), Some(offered)) => {
+                wanted.kind == offered.kind
+                    && wanted.count <= offered.count
+                    && wanted.memory_bytes <= offered.memory_bytes
             }
+        }
     }
 }
 
