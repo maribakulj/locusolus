@@ -32,6 +32,8 @@ name = "locus-execd"
 version = "0.0.0"
 dependencies = [
  "locus-execution",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

@@ -27,6 +27,7 @@ pub mod driver;
 pub mod invocation;
 pub mod plan;
 pub mod probe;
+pub mod seccomp;
 pub mod selftest;
 
 pub use driver::{Execution, PodmanBackend, Runner, SystemRunner};
@@ -39,6 +40,7 @@ pub use plan::{
     MountPlan, Namespace, NetworkPosture, PlanError, REMAINING_CAPABILITIES, SeccompPosture, plan,
 };
 pub use probe::{HostFacts, Missing, REQUIRED_CONTROLLERS, Support};
+pub use seccomp::{MUST_DENY, ProfileError, RestrictedProfile};
 pub use selftest::{
     PROBE_COMMANDS, UNREACHABLE_RUNTIME, assess, certify, exec_arguments, probe_command, run_suite,
 };

@@ -162,16 +162,19 @@ de travers en silence.
 | W4.d.1 `[R]` | la traduction `SandboxSpec` → plan de confinement rootless, et la lecture de ce que l'hôte permet | le plan ne concède jamais plus que le niveau exigé — monter d'un niveau ne relâche rien et change quelque chose — il refuse par leur nom la micro-VM, l'enclave et un mode réseau sans namespace pour le porter, et la lecture de l'hôte nomme ce qui manque au lieu de le supposer |
 | W4.d.2 `[R]` | le driver rootless : `RuntimePort` implémenté sur Podman rootless (`docs/03`), la sandbox créée, l'attestation lue de ce qui tourne | le driver demande au runtime exactement ce que le plan a décidé, et il atteste de ce qu'il **observe** — un confinement plus faible que demandé apparaît dans l'attestation et `conformance` le refuse |
 | W4.d.3 `[R]` | la suite de W4.b passée contre le backend : une commande par sonde, et le `Standing` qui en sort | la suite rend un `Standing` pour ce backend ; une sonde non exécutée est `NotRun` avec sa raison, jamais un succès, et un hôte sans runtime n'obtient jamais `Trusted` |
-| W4.d.4 `[R]` | le profil seccomp restreint | un profil qui ne refuse pas ce que la posture promet est refusé, et le refus nomme les appels manquants |
+| W4.d.4 `[R]` | la vérification du profil seccomp restreint apporté par le déploiement | un profil qui ne refuse pas ce que la posture promet est refusé, et le refus nomme **tous** les appels manquants |
 
 Le plafond de ce backend est `S3` et c'est une constante, pas une ambition : `S4` est une micro-VM
 et `S5` une enclave distante. W4.e les ouvre sur macOS.
 
-La posture seccomp **restreinte** promet plus que le profil par défaut de Podman : refuser depuis
-l'intérieur la création de namespaces et le chargement de code noyau. Ce refus vit dans un fichier de
-profil que W4.d.3 écrira. D'ici là le backend **refuse** les niveaux qui en dépendent au lieu de les
-revendiquer avec le profil par défaut — c'est la règle du plafond `S3`, appliquée à une capacité que
-l'opérateur apporte.
+La posture seccomp **restreinte** promet le refus, depuis l'intérieur, de la création de namespaces
+et du chargement de code noyau. Ce dépôt ne **fournit pas** ce profil : un profil par défaut-refus
+est une liste de plusieurs centaines d'appels autorisés dont l'exactitude ne se démontre qu'en
+l'exécutant contre des charges réelles, et en écrire un sans hôte pour l'éprouver produirait soit une
+sandbox qui casse tout, soit une sandbox qui autorise ce qu'elle prétend refuser. Le déploiement
+l'apporte, W4.d.4 le **vérifie**, et tant qu'aucun profil vérifié n'est fourni le backend refuse les
+niveaux qui en dépendent — c'est la règle du plafond `S3`, appliquée à une capacité que l'opérateur
+apporte.
 
 ---
 

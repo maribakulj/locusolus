@@ -2074,3 +2074,66 @@ et c'est à inscrire comme dépendance de la première campagne réelle.
 
 **Prochain item.** **W4.d.4** — le profil seccomp restreint, refusé s'il ne refuse pas ce que la
 posture promet.
+
+---
+
+## 2026-08-17 — W4.d.4 — Le profil seccomp restreint : vérifié, jamais fourni
+
+**Périmètre.** `apps/locus-execd/src/linux/seccomp.rs`, neuf ; `linux/{mod,invocation}.rs` ;
+`Cargo.toml` gagne `serde` et `serde_json` ; `tests/seccomp.rs`, neuf ; `tests/{podman,selftest}.rs`
+construisent désormais un profil vérifié ; `docs/10` corrige la description de W4.d.4.
+
+**Le refus d'écrire le profil est la décision de ce commit.** Un profil seccomp par défaut-refus est
+une liste de plusieurs centaines d'appels système autorisés, dont l'exactitude ne se démontre qu'en
+l'exécutant contre des charges réelles. En écrire un ici, sans hôte pour l'éprouver, produirait soit
+une sandbox qui casse tout, soit — bien pire — une sandbox qui autorise ce qu'elle prétend refuser.
+C'est nommément le « sandbox factice » que le plan de rollback d'ADR 0004 interdit. Le déploiement
+apporte le profil ; ce dépôt le **vérifie**.
+
+**La vérification porte sur ce que la posture promet, ni plus ni moins.** `MUST_DENY` tient huit
+appels, en deux familles : créer ou rejoindre un namespace (`unshare`, `setns`), charger ou
+décharger du code noyau (`init_module`, `finit_module`, `delete_module`, `kexec_load`,
+`kexec_file_load`, `bpf`). Chacun est un appel dont il n'existe pas d'usage légitime dans une
+sandbox de mission, ce qui permet de le refuser **par son nom**, sans lire ses arguments.
+
+**Ce que la vérification ne regarde pas, et pourquoi c'est écrit.** Les filtres d'arguments. Un
+profil peut autoriser `clone` en refusant `CLONE_NEWUSER` par un filtre sur le premier argument, ce
+qui refuse bien la création d'un namespace utilisateur sans refuser `clone` — dont tout programme à
+threads a besoin. Cette vérification demanderait un second interpréteur, du modèle d'argument cette
+fois, c'est-à-dire un second endroit où se tromper. `clone` est donc hors de la liste, et un test
+l'affirme pour que personne ne « complète » la liste sans savoir ce qu'il casse.
+
+**Le type porte la garantie.** `RestrictedProfile` ne se construit que par `parse` ou `read`, qui
+vérifient. Il n'existe aucun chemin qui produise cette valeur sans la vérification, donc aucune
+consigne d'« appeler le validateur » à oublier.
+
+**Le parti pris sur les règles contradictoires.** La première règle qui nomme l'appel décide ; s'il
+n'en existe aucune, l'action par défaut décide. Un profil dont deux règles se contredisent est un
+profil dont le comportement dépend de l'implémentation, et le supposer favorable reviendrait à lui
+accorder le bénéfice de sa propre ambiguïté.
+
+**Une correction à un texte écrit en W4.d.2.** Le module d'invocation affirmait que la posture
+restreinte « promet plus que le profil par défaut de Podman ». C'est une affirmation sur le contenu
+du profil par défaut d'un runtime tiers, que ce dépôt ne lit pas et ne vérifie pas. Le texte dit
+maintenant ce qui est vrai : la posture promet ces refus-là, ce dépôt vérifie le profil qu'on lui
+donne, et il ne fait aucune promesse sur celui du runtime. `docs/10` est corrigé de la même façon.
+
+**Cinq mutations vérifiées rouges** — plus une sixième reprise après correction du test.
+`SCMP_ACT_ALLOW` compté comme un refus (4 tests) ; une règle qui refuse n'importe où suffisant (2) ;
+la vérification ne vérifiant rien (4) ; la forme à nom unique ignorée (1) ; la liste perdant `bpf`
+(2).
+
+**La sixième mutation a d'abord été muette, et c'est le constat utile.** Retirer `bpf` de
+`MUST_DENY` ne compilait pas — la longueur du tableau est déclarée — donc aucun test ne tournait, et
+un tableau qui ne compile pas n'est pas un tableau vérifié. En ajustant la longueur, la mutation
+compilait et **tous les tests passaient** : ils comparaient `permitted` à `MUST_DENY` lui-même, ce
+qui reste vrai quelle que soit la liste. Ils vérifiaient la mécanique, pas ce qu'elle refuse. Un
+test épingle désormais les huit noms un par un, avec la raison de chaque famille en commentaire ; la
+mutation le fait rougir.
+
+**Écart avec la spec.** Aucun. `docs/03` demande « seccomp/AppArmor/SELinux lorsque disponibles » ;
+AppArmor et SELinux restent ouverts derrière la même configuration.
+
+**Prochain item.** **W4.e** — backend macOS : VM Linux légère et containers rootless par mission.
+Ses dépendances sont satisfaites : le port existe, la suite existe, et le backend Linux donne la
+forme.
