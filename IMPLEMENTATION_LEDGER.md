@@ -1147,3 +1147,86 @@ rougit. Deux fois, la mutation a révélé un trou plutôt que de confirmer une 
 
 **Prochain chantier.** W3 — abstraction de workflow. ADR 0003 en fixe l'ordre à la lettre : le
 backend déterministe de test s'écrit **avant** le backend Temporal.
+
+---
+
+## W3 — abstraction de workflow
+
+### W3.a `[R]` — définitions indépendantes du backend et règles de déterminisme (§11.1, §11.2, §11.3)
+
+**Livré.** `packages/workflow` (crate `locus-workflow`) : `kind.rs` (les onze workflows de §11.2),
+`definition.rs` (`WorkflowDefinition`, `Step`, `Activity`, `Effect`, `Idempotency`,
+`WorkflowVersion`), `determinism.rs` (les six règles de §11.3, le filet des noms, le balayage de
+frappe d'identifiants), `versions.rs` (`VersionRegistry`, couverture de replay, retraits refusés).
+Dix-huit tests dans `tests/determinism.rs`.
+
+**Test de sortie, arbitré ici.** La roadmap tient W3 au groupe de commits et ne donne pas de test
+par item. Celui de W3.a est : **« un effet non encapsulé ne se déclare pas, et la liste de §11.2 ne
+se réduit pas en silence »**. Il porte sur les deux seules choses qu'un paquet de définitions puisse
+garantir avant qu'un moteur existe — la **forme** de ce qui est déclaré, et le **décompte** de ce
+qui manque. Ce que fait le corps d'un pas ne se vérifie qu'en l'exécutant, donc en W3.b, et le dire
+vaut mieux que de laisser croire le contraire.
+
+**Pourquoi les définitions avant les deux backends.** ADR 0003 exige le backend déterministe avant
+Temporal. W3.a va un cran plus loin, pour la même raison : §11.1 dit que Locus Solus « ne code aucun
+invariant métier directement contre Temporal », et cette phrase n'est vérifiable que si un paquet
+existe qui ne connaît **aucun** backend. Si les définitions venaient après, elles porteraient la
+forme du premier moteur branché et l'indépendance serait une intention rétrospective.
+
+**Décisions prises.**
+
+_Les six règles de §11.3 n'ont pas la même force, et le code le dit._ `Rule::enforcement` rend
+`ByConstruction`, `ByNet` ou `ByCoverage`. Une règle tenue par le type ne peut pas être violée ; une
+règle tenue par un filet peut l'être sans que le filet le voie ; une règle tenue par un décompte ne
+dit rien tant que personne ne lit le décompte. Les confondre reviendrait à croire que les six sont
+également garanties — la cinquième, « tests de replay pour les versions supportées », est la seule
+qui ne casse rien quand on la laisse pourrir, et c'est précisément pour ça qu'elle est nommée.
+
+_Un pas déterministe n'a pas de champ pour un effet._ La première règle de §11.3 est portée par la
+forme de `Step`, pas par une convention : `Step::Deterministic` n'a qu'un nom. La faute ne s'exprime
+pas dans le type. Ce que le type ne voit pas — ce que le pas **fera** —, un filet le cherche dans le
+nom : `fetch_reviewer_context` déclaré déterministe est un aveu écrit, et c'est la seule trace
+qu'une définition, qui est de la donnée et non du code, puisse en garder. Le filet compare des
+**jetons** et non des sous-chaînes : `known` contient `now`, et un filet qui crierait sur
+`known_inputs` serait désarmé au premier agacement.
+
+_`Effect::Random` est une addition à §11.3, et elle s'assume._ Le texte énumère quatre appels
+sortants — LLM, réseau, filesystem, horloge. L'aléa est le seul non-déterminisme qui ne sorte de
+nulle part, donc le plus discret des cinq : un pas qui tire au sort rejoue autrement, ce qui est
+exactement la panne que la règle existe pour empêcher. L'omettre par fidélité littérale aurait
+laissé passer le cas le plus difficile à voir après coup.
+
+_L'idempotence se déclare, en deux formes et pas trois._ `Idempotency::key` ou
+`Idempotency::natural`, cette dernière exigeant une raison écrite — même forme que
+`Migration::reversible` / `lossy` en W1.h, et pour le même motif : « naturellement idempotent » sans
+justification a exactement le même air que la même phrase vérifiée. Ce n'est pas une preuve
+d'idempotence, aucun type ne la donnerait ; c'est l'endroit où quelqu'un y réfléchit une fois, au
+moment où c'est encore bon marché.
+
+_Les identifiants métier ne se frappent pas ici._ §11.3 les veut créés **avant** l'entrée dans le
+backend ; §11.2 exige qu'un workflow soit « rejoué ou repris avec un autre backend sans changer
+l'identité des objets scientifiques ». Un workflow qui frapperait un identifiant en chemin en
+produirait un neuf à chaque replay, et l'objet changerait d'identité en étant simplement rejoué.
+Garantie tenue deux fois : `WorkflowDefinition::new` exige son sujet, et `minting_findings` balaie
+les sources du paquet.
+
+_La table des marqueurs de frappe est assemblée par `concat!`._ Le balayage passe aussi sur le
+fichier qui porte la table. Écrite d'un bloc, elle se signalerait elle-même ; la sortie habituelle —
+exclure ce fichier du balayage — ouvrirait dans la garde exactement le trou qu'elle ferme. Les
+marqueurs sont donc produits à la compilation sans qu'aucune ligne source ne les contienne.
+
+_Deux retraits de version sont refusés, et le refus est structurel, pas informé._ `retire` refuse la
+version courante et la dernière restante : les deux laisseraient une exécution en cours pointer vers
+une forme que plus personne ne revendique. Le registre ne sait pas ce qui tourne — W3.b, qui aura un
+moteur, saura le lui demander. En attendant, refuser les deux retraits certainement dangereux vaut
+mieux que de tous les autoriser.
+
+**Six mutations vérifiées rouges.** Renommer l'un des onze workflows ; museler le filet des noms ;
+museler le balayage de frappe ; rendre une couverture de replay toujours vide ; autoriser le retrait
+de la version courante ; **et ajouter une vraie frappe d'identifiant dans les sources du paquet** —
+cette dernière parce que prouver qu'une fonction de balayage attrape un appât n'est pas la même
+chose que prouver que le balayage des sources réelles est branché.
+
+**Ce que ce paquet ne garantit pas.** Aucune de ses gardes ne voit le corps d'un pas. Une définition
+est de la donnée ; le déterminisme d'une exécution se vérifie en la rejouant. C'est le travail de
+W3.b, et `Rule::enforcement` est là pour que cette limite reste lisible au lieu d'être oubliée.

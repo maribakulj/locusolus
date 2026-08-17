@@ -9,6 +9,7 @@ members = [
     "packages/projections",
     "packages/protocol",
     "packages/validation",
+    "packages/workflow",
 ]
 
 [workspace.package]
