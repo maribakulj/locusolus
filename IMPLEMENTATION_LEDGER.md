@@ -996,3 +996,70 @@ suspecte, et `findings()` le signale : sans preuve minimale, une discipline ne v
 chemin de code ne supprime un conflit ». Ses dépendances sont satisfaites : le registre des conflits
 de W1.d porte déjà l'invariant 12 côté lecture, et les types `NegativeResult` et `Conflict` sont
 dans les quarante de W1.b. C'est aussi le dernier item `[R]` avant W1.h, qui clôt W1.
+
+## 2026-08-17 — W1.g — résultats négatifs et conflits (§18.7, §18.4, invariant 12)
+
+**Périmètre.** Deux modules ajoutés à `packages/domain` : `negative_result.rs` et `conflict.rs`,
+plus `tests/negative_and_conflict.rs`. Aucun autre fichier touché.
+
+**Tests exécutés.** `cargo test --all-features` : 12 tests neufs, 117 au total sur le workspace, 0
+échec. `npm run check` : les neuf portes vertes.
+
+Le test de sortie de W1.g — « aucun chemin de code ne supprime un conflit » — passe. Vérifié par
+mutation, quatre fois.
+
+**Le test de sortie balaie tout le workspace, pas seulement son module.** C'est le point de ce
+sprint. Une garantie qui ne tiendrait que dans le fichier qui la déclare n'en est pas une : le
+retrait viendra d'ailleurs, d'un paquet voisin écrit six mois plus tard par quelqu'un qui n'aura pas
+lu l'invariant 12. Le test lit donc **tous** les `.rs` du dépôt et signale toute ligne mentionnant
+un conflit et portant `remove`, `retain`, `drain`, `clear`, `prune`, `forget`, `purge`, `delete`,
+`truncate` ou `pop`.
+
+La mutation qui compte l'a confirmé : un `self.entries.remove(conflict_id)` ajouté dans
+**`packages/projections`** — un autre crate — fait rougir le test, avec le chemin et le numéro de
+ligne dans le message. Les commentaires sont exclus du balayage, sinon le test échouerait sur sa
+propre justification.
+
+**Un trou trouvé par une mutation qui n'a pas rougi.** La troisième mutation — faire dire à
+`Power::Unstated` qu'elle est concluante — est passée au vert. Cause : `excludes()` teste `Unstated`
+en premier et sort avant d'appeler `is_conclusive`, donc le test couvrait la garde de `excludes`
+mais pas celle de `is_conclusive`. Les deux gardes existaient, une seule était vérifiée. Assertion
+ajoutée sur `is_conclusive` directement ; la mutation rougit maintenant, et la mutation de la garde
+de `excludes` aussi. Les deux tiennent séparément, et c'est vérifié séparément.
+
+**Décisions prises.** Quatre.
+
+_Trancher un conflit est un fait qui s'ajoute, pas un effacement._ `record_verdict` remplace
+l'entrée par une entrée **portant le verdict** ; `sides()` rend les deux camps après coup, y compris
+le perdant. §18.4, point 3 : une fusion « conserve les claims incompatibles ». Un test vérifie qu'on
+peut toujours demander qui avait dit quoi après la décision.
+
+_`Verdict::Unresolved` est un état légitime, pas un défaut._ Un graphe qui ne peut pas porter de
+désaccord durable est un graphe qui force une réponse avant qu'elle existe. Rien dans l'API ne
+permet de faire taire un conflit ouvert.
+
+_Une fusion rend des conflits à déclarer, jamais des objets à retirer._ §18.4, point 7. Une fusion
+qui trancherait d'elle-même produirait un graphe propre et faux.
+
+_Une puissance non déclarée n'exclut rien._ C'est la troisième question de §18.7 — « qu'est-ce que
+son échec exclut **réellement** ? » — et le mot « réellement » est le sujet du type `Exclusion`.
+Trois refus, chacun correspondant à une manière dont une piste se ferme à tort : puissance non
+déclarée (personne ne sait si l'échec est informatif), puissance insuffisante (l'échec est
+compatible avec l'existence de ce qu'on cherchait), espace de recherche vide (on n'a pas cherché).
+Quand il exclut, l'énoncé est **borné** par le scope : « nous n'avons pas trouvé X ici » devient « X
+n'existe pas » exactement quand l'énoncé perd ses bornes.
+
+**Une nuance qui aurait pu se perdre.** Un résultat négatif sans puissance déclarée n'exclut rien,
+et il est **conservé quand même** — `findings()` le signale sans le rejeter. Savoir qu'une tentative
+n'a rien prouvé évite de la refaire en croyant qu'elle avait prouvé quelque chose ; c'est aussi ce
+que `attempt_signature()` rend trouvable, en réponse à la première question de §18.7.
+
+**Écart avec la spec.** Une note. Le seuil `CONCLUSIVE_POWER = 0.8` est une **politique**, pas une
+lecture : §18.7 demande que le champ de puissance existe sans chiffrer ce qui suffit. Il vit en
+constante pour être discuté d'un seul endroit, comme `STAGE_THRESHOLDS` en W2.13 et
+`MAX_ARCHIVE_EXPANSION_RATIO` en W2.14.
+
+**Prochain item.** W1.h `[M]` — migrations de schéma et tests de portabilité. Test de sortie : «
+migration aller-retour ». **Dernier item de W1**, et le troisième `[M]` : il demande donc un ADR et
+un plan de rollback. Ses dépendances sont satisfaites : §10.4 pose déjà les règles d'évolution, et
+l'enveloppe versionnée de W1.c porte le `schema_version` sur lequel un upcaster s'accroche.
