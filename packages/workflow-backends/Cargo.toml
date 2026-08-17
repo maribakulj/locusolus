@@ -14,5 +14,8 @@ workspace = true
 locus-workflow = { path = "../workflow" }
 
 [dev-dependencies]
+locus-artifacts = { path = "../artifacts" }
 locus-domain = { path = "../domain" }
+locus-lep = { path = "../lep" }
+serde_json = { workspace = true }
 locus-protocol = { path = "../protocol" }

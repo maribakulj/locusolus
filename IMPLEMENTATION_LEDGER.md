@@ -2835,3 +2835,80 @@ Restauration confirmée verte.
 
 **Prochain item.** **W6.e** — workflow de reproduction sur le backend déterministe de W3, qui est ce
 qui peut porter R3 et R4.
+
+---
+
+## 2026-08-17 — W6.e — Une divergence est un résultat, pas une panne
+
+**Périmètre.** `packages/artifacts/src/reproduction.rs` et `tests/reproduction.rs`, neufs ;
+`src/lib.rs` les expose ; `packages/workflow-backends/tests/reproduction.rs`, neuf, avec
+`locus-artifacts`, `locus-lep` et `serde_json` en dev-dependencies de ce paquet.
+
+**C'est l'événement que W6.d refusait de lire dans un document.** W6.d a posé que `R3` et `R4` ne
+s'établissent pas depuis un manifeste seul : ce sont des événements. Ce sprint les produit, en
+confrontant deux runs. `compare` ne lit aucun champ de niveau — il regarde ce que le rejeu a rendu.
+
+**Une divergence est une valeur, détaillée sortie par sortie.** Invariant 12 : « les résultats
+négatifs et conflits ne sont jamais supprimés pour rendre le graphe propre ». Un rejeu qui ne
+retrouve pas les mêmes sorties est une **information scientifique**, souvent la plus intéressante
+des deux ; la traiter en erreur la ferait remonter comme un incident technique, c'est-à-dire
+disparaître. Le second volet du test le vérifie là où ça compte : sur le `ReproductionWorkflow` de
+§11.2, un rejeu divergent **termine** son workflow et son verdict est consigné.
+
+**Ce qui, en revanche, est une erreur.** Comparer deux runs qui ne font pas la même chose. Là il n'y
+a rien à conclure, ni dans un sens ni dans l'autre : « les sorties diffèrent » ne dit rien sur la
+reproductibilité du premier si le second n'exécutait pas la même chose. `NotAReproduction` nomme ce
+qui diffère — image, inputs, commandes.
+
+**L'ordre compte pour les commandes et pas pour les inputs.** Deux runs qui consomment les mêmes
+contenus consomment les mêmes contenus, quel que soit l'ordre où le manifeste les a listés. Mais
+`train` puis `evaluate` n'est pas `evaluate` puis `train`, et un rejeu qui les intervertit n'exécute
+pas le même run.
+
+**Une sortie en trop est une divergence.** L'ignorer parce que « rien ne manque » laisserait passer
+un rejeu qui produit silencieusement autre chose en plus.
+
+**Ce que la spec ne permet pas de savoir, et d'où vient la réponse.** `run-manifest.schema.json` ne
+nomme **aucun worker**. Rien dans deux `RunManifest` ne dit s'ils ont tourné sur la même machine —
+et `R4` exige un « worker distinct ». Cette connaissance appartient au plan de contrôle, qui a émis
+les leases : c'est lui qui sait, donc c'est lui qui le dit, par le type `Independence` plutôt que
+par une déduction que les documents ne permettent pas. `Independence::Unknown` plafonne à `R3` :
+monter faute d'information reviendrait à conclure d'un silence. **Candidat d'évolution de schéma**
+pour une future ligne `lep/1.1` : un `worker_id` au `RunManifest` rendrait R4 lisible sans paramètre
+hors-bande. Le schéma n'est pas touché ici — il est gelé et deux consommateurs en dépendent.
+
+**Le niveau après une divergence ne descend pas et ne monte pas.** La reproduction a eu lieu, elle
+n'a rien établi de plus que ce que le manifeste soutenait : un rejeu raté ne défait pas un
+environnement verrouillé.
+
+**Le test de workflow n'est pas une mise en scène.** Le résultat consigné par
+`record_reproduction_verdict` n'est pas une chaîne écrite pour le test : c'est ce que `compare` a
+rendu, passé tel quel au moteur. Et le pas `compare_outputs` est vérifié **déterministe** : le jour
+où la comparaison irait rechercher un artefact pour le rehasher, elle devrait devenir une activity,
+et ce test est ce qui obligerait à s'en apercevoir.
+
+**Le test a trouvé un accroc de composition, et c'était W6.d qui avait raison.** Les premiers rejeux
+construits pour différer des inputs gardaient le `reproducibility_level: R2` de l'original — que
+W6.d refuse, puisqu'un run sans input ne le soutient plus. Le rejeu était donc invalide bien avant
+d'être comparé. Corrigé côté test : un rejeu qui perd ses inputs perd aussi sa déclaration. Les deux
+sprints se tiennent, et c'est le genre de vérification croisée qu'aucun des deux ne pouvait faire
+seul.
+
+**Six mutations vérifiées rouges** : la divergence redevenue erreur (3 tests) ; l'indépendance
+inconnue valant un worker distinct (1) ; la divergence n'empêchant plus de monter (1) ; deux images
+différentes rendues comparables (2) ; l'ordre des commandes cessant de compter (1) ; une sortie en
+trop cessant d'être une divergence (1). Restauration confirmée verte.
+
+**Un détail de CI tranché en passant, parce qu'il a coûté un sprint.** Le job `check` porte un
+budget de dix minutes, et l'installation d'`emacs-nox` — nécessaire parce que la frontière 5 se
+vérifie en démarrant un Emacs, pas en lisant du code — l'a consommé entièrement sur un miroir apt
+lent : la CI a été **annulée** alors que rien n'était rouge. Chaque tentative est désormais bornée
+et il y en a trois, et le budget du job passe à vingt minutes pour que la reprise ait la place de
+servir. Sans borne, la lenteur du réseau est indistinguable d'un test qui échoue.
+
+**Écart avec la spec.** Aucun.
+
+**Prochain item.** W6 est complet. Reste **W5.f**, bloqué sur un hôte capable de `S2`. Le suivant
+est donc **W7** — mémoire, revue indépendante, budgets, portefeuille — qui dépend de W13.c et W13.d
+(ADR 0016, décision 13) : la revue indépendante suppose des instances d'agent distinctes et une
+assignation. **W13.b** est donc le prochain item exécutable.
