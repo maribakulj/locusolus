@@ -15,6 +15,8 @@ dependencies = [
  "locus-budget",
  "locus-coordination",
  "locus-domain",
+ "locus-environments",
+ "locus-execution",
  "locus-policy",
  "locus-protocol",
 ]
