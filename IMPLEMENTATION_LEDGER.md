@@ -6354,3 +6354,69 @@ score social unique ».
 
 **Prochain item.** W18 est clos pour ce qui est faisable — W18.f attend un hôte capable d'attester
 `S3`/`S4`, comme W5.f. Restent les items de recherche R1 à R6, sans dépendance de chemin critique.
+
+---
+
+## 2026-08-18 — R1 — Le consensus circulaire, lu sur le graphe
+
+**Périmètre.** `packages/graph/src/consensus.rs`, `packages/graph/src/graph.rs`
+(`relations_of_kind`), `packages/graph/src/lib.rs`, `packages/graph/tests/consensus.rs`.
+
+**Tests exécutés.** `cargo test -p locus-graph` → 17 conformes pour cet item. `npm run check` → les
+dix portes vertes. Mutation : dix mutants, **dix tués** — après en avoir laissé un survivre, voir
+plus bas.
+
+**Ce que W7.b couvrait déjà, et ce qui manquait.** `packages/review/src/contamination.rs` détecte le
+consensus circulaire **dans un contexte qu'on s'apprête à livrer** : la question y est « ce dossier
+peut-il partir vers ce destinataire ». Ce module pose la même question du graphe lui-même : _quelles
+parties de ce qui est cru ne tiennent que sur elles-mêmes ?_ — une propriété permanente du dossier
+institutionnel, qu'on interroge sans destinataire et sans livraison en cours. Trois différences en
+découlent.
+
+_L'ancrage est dérivé, pas déclaré._ Il n'y a pas de booléen `is_external_source` : il y a des
+arêtes `AnchoredIn`, et l'ancrage se lit dans le graphe. Un drapeau qu'un appelant pose est un
+drapeau qu'un appelant peut oublier de poser — ou poser à tort sur ce qu'il vient d'écrire.
+
+_Le résultat nomme le groupe, pas chacun de ses membres._ Un cycle de cinq est **un** problème ; le
+rapporter cinq fois donne cinq fois la même chose à corriger et fait paraître un petit graphe malade
+cinq fois plus qu'il ne l'est. La détection passe donc par les composantes fortement connexes du
+sous-graphe `Cites`.
+
+_Un ancrage interne n'est pas un ancrage._ Si les membres d'un cycle s'ancrent les uns dans les
+autres, le groupe ne s'appuie sur rien de plus qu'avant. C'est la règle de W15.c sur « un chemin
+passant hors de la région », transposée : ce qui compte est ce qui **sort**. Un compte
+d'`AnchoredIn` — « ce groupe a trois ancrages » — laisserait exactement ce cas passer. Et le constat
+dit **lesquels** sont internes, pour répondre à l'objection qu'il appelle : « mais nous avons des
+ancrages ».
+
+**Décisions prises.**
+
+_Un cycle ancré n'est pas un consensus circulaire, et il est quand même rendu._ `citation_cycles` et
+`circular_consensus` sont deux fonctions. Deux travaux qui se citent mutuellement et tiennent tous
+deux à une source extérieure s'appuient sur quelque chose ; les confondre ferait signaler la moitié
+d'une bibliographie.
+
+_Un seul membre ancré suffit pour tout le groupe._ Exiger que chacun s'ancre ferait du constat une
+exigence de forme bibliographique, alors que §16.6 vise l'absence de fondation.
+
+_L'auto-citation compte._ C'est le plus petit cycle possible et le plus facile à écrire par accident
+; une détection qui ne regarderait que les composantes de taille deux le manquerait entièrement.
+
+_Le module ne supprime rien et ne fait descendre aucun niveau._ L'invariant 12 interdit d'effacer un
+conflit pour rendre le graphe propre, et un consensus circulaire **est** un constat, pas une faute
+prouvée : deux résultats indépendants peuvent se citer en rond sans qu'on ait pensé à écrire les
+ancrages.
+
+_Tarjan itératif, pas récursif._ La profondeur de pile suivrait la profondeur du graphe, et une
+détection qui déborderait la pile sur un grand dossier serait absente exactement quand elle sert. Un
+test la passe sur un cycle de 201 membres.
+
+**Un mutant a survécu, et il avait raison.** Remplacer `on_stack.contains(&successor)` par
+`!on_stack.is_empty()` passait toute la suite. Une arête vers une révision déjà visitée est de deux
+sortes : un retour dans le groupe qu'on ferme, ou un renvoi vers un groupe **déjà clos**. Les
+confondre ne signale aucune erreur — cela fait simplement **disparaître** le second groupe du
+rapport, et un consensus circulaire non rapporté se lit comme un graphe sain. Aucun test ne
+construisait un cycle citant un autre cycle déjà fermé ; il en existe un maintenant, et le mutant
+meurt.
+
+**Prochain item.** `R2` à `R6`, ou les items bloqués si leur condition se lève.
