@@ -5960,3 +5960,49 @@ et la subtilité écrite en commentaire — une garde morte finit par être lue 
 protège, et le jour où les bornes changent, personne ne saura qu'elle ne servait à rien.
 
 **Prochain item.** W17.e — les quatre vues du cockpit et la sélection synchronisée.
+
+## 2026-08-18 — W17.e — Les quatre vues du cockpit, et le canvas qui ne peut pas écrire
+
+**Périmètre.** `packages/visualization/src/cockpit.rs` (neuf),
+`packages/visualization/tests/cockpit.rs` (neuf, 9 tests), `src/lib.rs` (les réexports),
+`Cargo.toml` (`locus-protocol`), ce fichier.
+
+**Tests exécutés.** `cargo test -p locus-visualization` → 48 conformes. `npm run check` → les dix
+portes vertes. Mutation : douze mutants, **onze tués**, un inécrivable.
+
+**Décisions prises.**
+
+_Il n'y a pas quatre sélections qu'on synchronise, il y en a une que quatre vues lisent._ C'est la
+décision qui porte tout l'item. Quatre états plus un mécanisme de notification dérivent dès qu'un
+chemin oublie de notifier — et la dérive est **silencieuse**, puisque chaque vue reste cohérente
+avec elle-même : un opérateur lirait la trace d'un agent en croyant lire celle qu'il a sélectionnée
+dans le plan. `Cockpit` ne détient qu'un champ, donc il n'existe aucun chemin par lequel deux vues
+divergent — il n'y a rien à faire diverger.
+
+Le test parcourt les quatre origines × les quatre vues, seize lectures, parce que la faute que la
+forme prévient serait asymétrique et qu'un seul couple ne la montrerait pas.
+
+_L'origine se conserve sans rien décider._ Savoir qu'une sélection vient de la trace plutôt que du
+plan aide à relire une session ; le mutant qui l'efface meurt. Mais elle ne change pas ce que les
+autres vues montrent, et le mutant qui la fait décider meurt aussi.
+
+_Le canvas produit une demande, jamais une écriture._ `Requested` nomme un verbe et un sujet, et
+n'expose rien qui l'applique — même forme que la `Simulation` de W14.d et l'`Acceptance` de W15.c.
+Un geste qui écrirait ferait du canvas un chemin de mutation parallèle à la command API : sans
+approbation, sans trace et sans `expected_revision`.
+
+_Le verbe reste opaque, délibérément._ Ce que les verbes signifient appartient à la command API
+(§22), pas au canvas. Les énumérer ici ferait du cockpit l'endroit où l'on décide de ce qui peut
+être demandé, alors que c'est l'endroit où l'on demande.
+
+**Un test qui s'est retourné contre sa propre explication.** La vérification par l'absence lisait le
+source et refusait le mot `expected_revision` — qui apparaît dans le commentaire **expliquant
+pourquoi il est absent**. Un test qui confond le code et la prose interdit d'écrire la raison. Il
+lit désormais le code seul, commentaires retirés.
+
+**Un mutant inécrivable.** « L'agent sélectionné n'est pas celui désigné » n'a pas de mutant :
+`Selection` porte un champ d'agent et un accesseur qui le rend, sans branche où se tromper. Comme
+pour « rejouer le vide » en W16.c, la propriété découle de l'absence de choix.
+
+**Prochain item.** W17 est clos pour ce qui est faisable : W17.f attend `locusd`. Suit W18 —
+adaptation automatique et admission de capacité.

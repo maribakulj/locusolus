@@ -178,6 +178,7 @@ version = "0.0.0"
 dependencies = [
  "locus-domain",
  "locus-projections",
+ "locus-protocol",
 ]
 
 [[package]]

@@ -27,9 +27,11 @@
 //! comparaient l'ordre dans lequel un producteur a rempli un vecteur, ils différeraient sans que
 //! rien n'ait changé.
 
+pub mod cockpit;
 pub mod interaction;
 pub mod registry;
 
+pub use cockpit::{Cockpit, CockpitError, Pane, Requested, Selection, gesture};
 pub use interaction::{InteractionError, ViewerCommand, ViewerEvent};
 pub use registry::{ArtifactViewerRegistry, Choice, RegistryError, Viewer, ViewerRequest};
 
