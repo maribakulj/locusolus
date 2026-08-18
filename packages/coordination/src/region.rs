@@ -51,6 +51,7 @@ use std::fmt;
 use locus_protocol::{Id, id::Agent};
 
 use crate::diff::{Diff, DiffError};
+use crate::proposal::{Relation, RelationKind};
 use crate::version::{Digest, Operation, Version};
 
 /// Les invariants globaux qu'un veto protège.
@@ -92,18 +93,27 @@ impl fmt::Display for Invariant {
 /// « Peut », pas « menace » : la question est posée sur la forme de l'opération, avant de savoir sur
 /// quelle organisation elle tombera. Seules celles qui **créent** un chemin de revue peuvent fermer
 /// un cycle ; retirer n'en crée jamais, et remplacer ou scinder réécrit sans en ajouter.
+///
+/// La sorte compte depuis W15.e : ajouter une arête de **visibilité** ne menace rien, puisque deux
+/// agents qui voient le travail l'un de l'autre coopèrent au lieu de se valider. Une région à
+/// `risk_ceiling` nul peut donc recâbler la visibilité sans rien relâcher — et c'est le premier
+/// endroit où la deuxième sorte gagne quelque chose plutôt que de coûter.
 #[must_use]
 pub fn threatens(operation: &Operation) -> BTreeSet<Invariant> {
     match operation {
-        // Une arête neuve peut refermer un chemin existant ; fusionner rapproche deux extrémités,
-        // et `A → B → C` fusionné sur `A` et `C` devient un cycle de longueur deux sans qu'aucune
-        // arête n'ait été ajoutée.
-        Operation::AddEdge(_) | Operation::MergeNodes { .. } => {
+        // Une arête de revue neuve peut refermer un chemin existant.
+        Operation::AddEdge(relation) if relation.kind == RelationKind::Review => {
             [Invariant::ReviewAcyclicity].into_iter().collect()
         }
-        // Ajouter un nœud isolé, retirer, remplacer — un remplacement est un isomorphisme — et
-        // scindre, qui ne fait que répartir des arêtes existantes : aucun ne crée de chemin.
-        Operation::AddNode(_)
+        // Fusionner rapproche deux extrémités : `A → B → C` fusionné sur `A` et `C` devient un
+        // cycle de longueur deux sans qu'aucune arête n'ait été ajoutée. La sorte des arêtes
+        // réécrites n'est pas connue de l'opération, donc la fusion menace quelles qu'elles soient.
+        Operation::MergeNodes { .. } => [Invariant::ReviewAcyclicity].into_iter().collect(),
+        // Une arête de visibilité, un nœud isolé, un retrait, un remplacement — qui est un
+        // isomorphisme — et une scission, qui ne fait que répartir des arêtes existantes : aucun ne
+        // crée de chemin de revue.
+        Operation::AddEdge(_)
+        | Operation::AddNode(_)
         | Operation::RemoveNode(_)
         | Operation::ReplaceNode { .. }
         | Operation::RemoveEdge(_)
@@ -337,6 +347,19 @@ fn touched(operation: &Operation) -> Vec<Id<Agent>> {
     }
 }
 
+/// Les seules arêtes que l'acyclicité regarde.
+///
+/// **Un cycle de visibilité est normal** : deux agents qui voient le travail l'un de l'autre
+/// coopèrent, ils ne se valident pas. Un cycle de **revue** est le consensus circulaire. Tant que
+/// l'énumération n'avait qu'une valeur, ce filtre était sous-entendu et donc absent ; l'arrivée de
+/// `visibility` a montré que l'implicite était devenu une hypothèse fausse.
+fn reviews(version: &Version) -> impl Iterator<Item = &Relation> {
+    version
+        .relations()
+        .iter()
+        .filter(|relation| relation.kind == RelationKind::Review)
+}
+
 /// Ce que la cohérence globale dit d'un état.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Coherence {
@@ -355,7 +378,7 @@ enum Coherence {
 fn coherence(version: &Version) -> Coherence {
     let mut incoming: BTreeMap<Id<Agent>, usize> =
         version.members().iter().map(|node| (*node, 0)).collect();
-    for relation in version.relations() {
+    for relation in reviews(version) {
         *incoming.entry(relation.to).or_insert(0) += 1;
     }
 
@@ -367,7 +390,7 @@ fn coherence(version: &Version) -> Coherence {
     let mut settled = 0_usize;
     while let Some(node) = ready.pop_front() {
         settled += 1;
-        for relation in version.relations().iter().filter(|edge| edge.from == node) {
+        for relation in reviews(version).filter(|edge| edge.from == node) {
             if let Some(count) = incoming.get_mut(&relation.to) {
                 *count -= 1;
                 if *count == 0 {

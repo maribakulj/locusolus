@@ -309,6 +309,25 @@ consommateur candidat est l'overlay additif du worker. Son ajout est le test de 
   configuration versionné avec une machinerie de gouvernance autour — utile, mais qui ne doit pas
   s'appeler un graphe. Le constat est écrit au ledger et la décision 3 est rouverte.
 
+**Amendement du 2026-08-18 : la sonde est `visibility`, pas `role`.** En instruisant W15.e, une
+troisième issue est apparue, que la clause n'avait pas prévue — **la sonde était mal choisie**.
+`role` n'est pas une relation : `SPEC_V1.md` §7.1 en fait un champ d'`AgentTemplate`, §20 une
+classification dans une exigence de reviewers (`- role: logical-reviewer`), §6.3 un attribut
+d'appartenance héritable ; nulle part il n'a la forme *A → B*, et `packages/coordination/src/agent.rs`
+le portait déjà comme attribut avant que la question soit posée. W15.a l'avait classé indépendamment
+parmi les opérations **attributaires** différées, et les deux analyses concordent.
+
+Exécuter la clause telle qu'écrite aurait donné une réponse fausse dans les deux sens : forcer une
+charge sur la sorte (`Role(String)`) pour condamner l'abstraction sur un test qu'on ne lui a jamais
+fait passer, ou inventer une sémantique paire que la spec n'énonce pas pour la déclarer valide sans
+l'avoir éprouvée.
+
+La sonde devient donc `visibility`, qui est réellement de forme paire — « A voit ce que B a
+produit » — et dont le consommateur, la construction de `ContextView` (décision 11), vit dans le
+dépôt et s'éprouve de bout en bout. Les deux branches de la clause sont inchangées ; seule la valeur
+qui l'exerce l'est. `role` reste dû, comme **attribut** : c'est `SET_ROLE`, dont le lecteur candidat
+est l'overlay additif du worker, et il entre quand ce lecteur existe.
+
 ---
 
 ## Décision 11 — La mémoire est la substance de la coordination

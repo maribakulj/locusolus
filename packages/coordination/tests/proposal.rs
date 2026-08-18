@@ -437,23 +437,52 @@ fn le_refus_de_mode_ne_revele_pas_ce_que_l_index_contient() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// La sorte de relation reste unique
+// L'énumération des sortes n'accueille que ce qu'un consommateur honore
 // ---------------------------------------------------------------------------------------------
 
 /// ADR 0016, décision 4 : « aucune sémantique inerte ». Une sorte de relation n'entre dans
-/// l'énumération que lorsqu'un consommateur exécutable et testé existe. `review` en a un ;
-/// `mentors`, `delegates_to`, `supervises` n'en ont pas, et les écrire en ferait du vocabulaire
-/// que rien ne vérifie.
+/// l'énumération que lorsqu'un consommateur exécutable et testé existe.
+///
+/// **Ce test a fait son travail à l'arrivée de `visibility` (W15.e) : il a échoué.** Il liste donc
+/// une valeur de plus, et chacune des deux se lit à côté du consommateur qui l'honore — `review`
+/// pour l'indépendance de §14.4 (`region.rs`), `visibility` pour la construction de `ContextView`
+/// (`visibility.rs`, éprouvé de bout en bout dans `tests/visibility.rs`). Élargir cette liste sans
+/// écrire le consommateur à côté est exactement ce que la décision 4 interdit.
+///
+/// `role` n'y figure pas et n'y figurera pas : ce n'est pas une relation mais un champ
+/// d'`AgentTemplate` (§7.1), et il revient comme l'opération attributaire `SET_ROLE`.
 #[test]
-fn une_seule_sorte_de_relation_existe() {
+fn une_sorte_de_relation_a_toujours_son_consommateur() {
+    let declared: Vec<(&str, &str)> = RelationKind::ALL
+        .into_iter()
+        .map(|kind| {
+            (
+                kind.slug(),
+                match kind {
+                    RelationKind::Review => "region.rs — l'acyclicité de revue",
+                    RelationKind::Visibility => "visibility.rs — la construction de ContextView",
+                },
+            )
+        })
+        .collect();
     assert_eq!(
-        RelationKind::ALL
-            .into_iter()
-            .map(RelationKind::slug)
-            .collect::<Vec<_>>(),
-        vec!["review"]
+        declared,
+        vec![
+            ("review", "region.rs — l'acyclicité de revue"),
+            (
+                "visibility",
+                "visibility.rs — la construction de ContextView"
+            ),
+        ],
+        "chaque sorte se lit à côté du consommateur qui l'honore"
     );
-    for invented in ["mentors", "delegates_to", "supervises", "reports_to"] {
+    for invented in [
+        "mentors",
+        "delegates_to",
+        "supervises",
+        "reports_to",
+        "role",
+    ] {
         assert_eq!(
             RelationKind::parse(invented),
             None,

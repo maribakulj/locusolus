@@ -456,13 +456,21 @@ attempts entre instances d'agent — ce que la décision 4 a déjà vérifié ab
 | W15.b `[R]` | le diff comme objet de première classe, calculé une fois | un diff se rejoue sur sa base et rend exactement le contenu visé, et deux rejeux du même diff sur la même base rendent la **même version**, identité comprise ; rejoué sur une autre base il est refusé et le refus dit s'il faut rebaser ; le diff d'une version vers elle-même est **vide**, jamais absent |
 | W15.c `[R]` | les régions mutables bornées de GRAFT — `allowed_ops`, `risk_ceiling`, `max_nodes_delta`, `max_edges_delta`, `approval_mode`, `require_shadow` — acceptation locale et veto de cohérence globale | une opération hors de la région déclarée ou hors de `allowed_ops` est refusée en nommant laquelle des bornes mord — quatre interdisent, les deux autres (`approval_mode`, `require_shadow`) **obligent** ; un lot accepté localement mais qui casse un invariant global **par un chemin passant hors de la région** est vetoé, et le veto nomme l'invariant et les agents pris dedans ; l'acceptation locale seule ne commit jamais, et rien dans son type ne le permet |
 | W15.d `[R]` | contestabilité d'une décision de coordination : famille d'objection parallèle, domaines disjoints | une décision de coordination offre ses cibles — déclencheur, politique, périmètre, décision — ; **aucune fonction ne convertit** une objection de coordination en `ObjectionTarget` ni l'inverse, et un test le tient par l'absence ; aucun trait générique ne factorise les deux familles, ce qui serait la conversion reconstruite |
-| W15.e `[M]` | `role`, deuxième membre de l'énumération des sortes (ADR 0016 décisions 4 et 10), avec son consommateur exécutable dans `canterel` | l'overlay additif du worker honore la relation `role` et un test l'exerce de bout en bout ; le constat de la clause de falsification est écrit au ledger, **dans un sens ou dans l'autre** |
-| W15.f `[R]` | `visibility`, troisième membre, dont le consommateur est la construction de `ContextView` | deux `ContextView` construites sous deux versions de coordination différentes diffèrent exactement des révisions que `visibility` retire ; aucune relation `visibility` n'élargit ce qu'une ACL refuse |
+| W15.e `[R]` | `visibility`, **deuxième** membre de l'énumération des sortes (ADR 0016 décisions 4 et 10, amendées le 2026-08-18), dont le consommateur est la construction de `ContextView` | deux `ContextView` construites sous deux versions de coordination différentes diffèrent exactement des révisions que `visibility` retire ; aucune relation `visibility` n'élargit ce qu'une ACL refuse ; le constat de la clause de falsification est écrit au ledger, **dans un sens ou dans l'autre** |
+| W15.f `[M]` | `SET_ROLE` comme opération **attributaire**, avec son lecteur exécutable dans `canterel` | l'overlay additif du worker lit le rôle de l'instance et un test l'exerce de bout en bout ; sans ce lecteur, l'opération reste hors de l'énumération |
 
 W15.a avant W15.b : un diff se rejoue contre une identité de version, et l'identité décide de ce
 qu'un rejeu peut affirmer. W15.b avant W15.c : une région borne un lot d'opérations, donc un diff.
 W15.d ne dépend d'aucun des trois et peut se faire en parallèle ; il ne dépend surtout pas de
 `packages/graph`, et c'est la moitié de son objet.
+
+**W15.e et W15.f ont été échangés le 2026-08-18.** `role` devait être le deuxième membre de
+l'énumération des sortes de relation ; en l'instruisant, il est apparu que ce n'est pas une relation
+— `SPEC_V1.md` §7.1 en fait un champ d'`AgentTemplate`, §20 une classification, §6.3 un attribut
+d'appartenance, et `agent.rs` le portait déjà comme attribut. La clause de falsification de l'ADR
+0016 est donc réorientée sur `visibility`, qui est réellement de forme paire et dont le consommateur
+vit dans le dépôt ; `role` reste dû comme `SET_ROLE`, l'opération attributaire que W15.a avait déjà
+différée. L'amendement daté est dans `docs/adr/0016`.
 
 ## W16 — Reconfiguration vivante et scheduler dynamique — **niveau 4**
 

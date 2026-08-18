@@ -13,3 +13,9 @@ workspace = true
 [dependencies]
 locus-domain = { path = "../domain" }
 locus-protocol = { path = "../protocol" }
+
+# `locus-review` n'est utilisé que par `tests/visibility.rs`, qui éprouve la sorte `visibility` de
+# bout en bout contre la vraie `ContextView`. Le crate de production ne dépend pas de la revue :
+# c'est un port qui les relie, et c'est le test qui le branche.
+[dev-dependencies]
+locus-review = { path = "../review" }

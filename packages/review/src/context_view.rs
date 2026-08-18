@@ -20,8 +20,41 @@
 use std::fmt;
 
 use locus_domain::{Confidentiality, ContentHash, RevisionId};
+use locus_protocol::{Id, id::Agent};
 
 use crate::contamination::{ContextItem, Recipient, inspect};
+
+/// Qui voit le travail de qui — un **port**.
+///
+/// ADR 0016 décision 11 : « recâbler une relation change qui peut lire quoi ». La réponse vient du
+/// domaine de coordination, mais ce crate ne l'importe pas : il pose la seule question dont la
+/// construction d'une vue a besoin, comme `EpistemicIndex` le fait dans l'autre sens.
+///
+/// # Il retire, il n'ajoute jamais
+///
+/// §16.3 : les embeddings « ne contournent pas les ACL ». Une relation de coordination ne le peut
+/// pas davantage, et la garantie est structurelle plutôt que promise — ce port ne rend qu'un
+/// `bool` que [`ContextView::build_under`] combine **par un et logique** avec le filtre de
+/// contamination. Il n'existe aucun chemin par lequel une visibilité déclarée fasse entrer ce
+/// qu'un autre refus écarte.
+pub trait Visible {
+    /// `viewer` peut-il voir ce que `producer` a produit ?
+    fn sees(&self, viewer: Id<Agent>, producer: Id<Agent>) -> bool;
+}
+
+/// Le port dans sa forme sans contrainte : tout est visible.
+///
+/// C'est ce que [`ContextView::build`] passe, et c'est **le même calcul** que sous une visibilité
+/// déclarée — pas un second chemin. Un chemin « sans visibilité » écrit à part divergerait le jour
+/// où l'un des deux est corrigé, et personne ne saurait lequel des deux dit la vérité.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Unrestricted;
+
+impl Visible for Unrestricted {
+    fn sees(&self, _viewer: Id<Agent>, _producer: Id<Agent>) -> bool {
+        true
+    }
+}
 
 /// Ce qu'un élément écarté laisse comme trace.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -75,6 +108,38 @@ impl ContextView {
         source_event_watermark: u64,
         content_hash: ContentHash,
     ) -> Result<Self, ContextViewError> {
+        Self::build_under(
+            candidates,
+            recipient,
+            source_event_watermark,
+            content_hash,
+            &Unrestricted,
+        )
+    }
+
+    /// La même construction, sous une visibilité déclarée.
+    ///
+    /// # Ce que la visibilité change, et ce qu'elle ne change pas
+    ///
+    /// Elle **retire**. Un élément produit par un agent que le destinataire ne voit pas est écarté,
+    /// et consigné comme le reste : une exclusion non nommée est indistinguable d'un oubli. Elle
+    /// n'ajoute rien — un élément que la contamination écarte reste écarté quelle que soit la
+    /// visibilité déclarée, parce que les deux filtres se composent par un **et**.
+    ///
+    /// Un élément qu'aucun agent n'a produit n'est pas concerné : la visibilité est une relation
+    /// entre agents, et couper une vue de ses sources externes sous couvert d'organisation serait
+    /// une autre faute.
+    ///
+    /// # Errors
+    ///
+    /// Les mêmes que [`ContextView::build`] — c'est le même calcul.
+    pub fn build_under(
+        candidates: &[(ContextItem, u64)],
+        recipient: &Recipient,
+        source_event_watermark: u64,
+        content_hash: ContentHash,
+        visible: &impl Visible,
+    ) -> Result<Self, ContextViewError> {
         let mut included = Vec::new();
         let mut redactions = Vec::new();
 
@@ -86,17 +151,21 @@ impl ContextView {
                     watermark: source_event_watermark,
                 });
             }
-            let findings = inspect(std::slice::from_ref(item), recipient);
-            if findings.is_empty() {
+            let mut reasons: Vec<String> = inspect(std::slice::from_ref(item), recipient)
+                .iter()
+                .map(|finding| finding.kind.slug().to_owned())
+                .collect();
+            if let Some(producer) = item.produced_by
+                && !visible.sees(recipient.agent_id, producer)
+            {
+                reasons.push(format!("not_visible_to_recipient({producer})"));
+            }
+            if reasons.is_empty() {
                 included.push(item.revision);
             } else {
                 redactions.push(Redaction {
                     revision: item.revision,
-                    reason: findings
-                        .iter()
-                        .map(|finding| finding.kind.slug())
-                        .collect::<Vec<_>>()
-                        .join(", "),
+                    reason: reasons.join(", "),
                 });
             }
         }
