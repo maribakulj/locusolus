@@ -601,13 +601,44 @@ Si oui, un worker LEP séparé ; si non, on supprime le dépôt. Aucune ligne da
 `backend/cli/src/locus/` avant la réponse. · `R6` **évolution inter-exécutions** — une adaptation
 récurrente et gagnante en validation appariée propose une amélioration de template.
 
-**`R5` est le seul des six qui ne se fasse pas ici, et ce n'est pas une question technique.** Il
-demande un **dépôt jetable** — créé pour poser une question, supprimé si la réponse est non. Créer
-un dépôt engage un compte au-delà de ce chantier, et le supprimer plus encore ; c'est une décision
-qui appartient à qui possède le compte, pas à la session qui écrit le code. Sa contrainte, elle, est
-tenue sans rien faire : « aucune ligne dans `backend/cli/src/locus/` avant la réponse » est une
-**interdiction**, et elle est respectée tant que le worker LEP séparé n'est pas écrit. Les cinq
-autres items de recherche sont livrés.
+**`R5` a été instruit le 2026-08-18, et la réponse est OUI.** La sonde a tourné dans un
+environnement jetable — le conteneur de session, reclamé à l'inactivité — plutôt que dans un dépôt
+GitHub, l'intégration n'ayant pas le droit d'en créer un. Ce qui compte pour l'item est tenu :
+la sonde n'a rien laissé dans aucun dépôt permanent, et aucune ligne n'a été écrite dans
+`canterel/backend/cli/src/locus/` avant la réponse.
+
+**Ce qui a été mesuré.** Un `WorkerUnderTest` piloté par les seuls neuf champs d'un `SessionPlan`,
+passé aux huit vérifications de W0.9. Quatre passages, et le troisième est celui qui rend les
+autres lisibles :
+
+| Passage | Constats |
+|---|---|
+| **C** — contrôle négatif, une violation injectée par vérification | **8/8 mordent** |
+| **A** — le plan seul, rien d'autre | 4 |
+| **B** — plan + état de connexion + lease | **0** |
+| **D** — rang d'attempt faux, `worker_id` substitué, `task_id` étranger | 0 |
+
+Les quatre constats du passage A portent tous sur des choses qu'un plan **n'a pas à porter** :
+les niveaux de sandbox et les modes réseau du worker (annoncés au handshake, antérieurs au plan),
+l'admission qui en découle, et l'absence de heartbeat (le plan n'a ni horloge ni intervalle de
+lease). Aucun ne dit « le plan aurait dû porter ceci et ne le porte pas ».
+
+**Conséquence, telle que l'item la formule : un worker LEP séparé.** Le `SessionPlan` est une base
+suffisante ; ce qui s'y ajoute — séquence monotone, horodatage, clés d'idempotence stables par
+rejeu, identité du worker, lease — appartient au **lien** et au **serveur**, pas au plan. Cette
+répartition est exactement ce qu'un worker séparé sait tenir.
+
+**Trouvaille annexe, qui ne vient pas de la question posée.** Le passage D montre un angle mort du
+harnais de W0.9 : il ne vérifie ni `event.attempt` (le **rang**), ni `event.worker_id`, ni la
+cohérence de `event.task_id` avec la mission. Un flux dont le rang est faux, dont le `worker_id`
+est un `attempt_id` substitué — la substitution que §11.1 interdit nommément — et dont le
+`task_id` désigne une autre tâche passe les huit vérifications. Ce n'est pas un défaut du plan,
+c'est une dette de W0.9, et elle est reprise en `W0.9-bis` ci-dessous.
+
+`W0.9-bis` `[R]` **les trois identités que le harnais ne regarde pas** — `event.attempt` face au
+rang de la lease, `event.worker_id` face au manifeste, `event.task_id` face à la mission. Test de
+sortie : le flux du passage D est refusé, et chacun des trois refus nomme l'identité substituée
+plutôt que « incohérent ».
 
 ---
 
