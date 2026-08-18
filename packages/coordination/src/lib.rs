@@ -31,6 +31,7 @@ pub mod region;
 pub mod task;
 pub mod team;
 pub mod version;
+pub mod visibility;
 
 pub use agent::{AgentError, AgentInstance, AgentTemplate, InstanceState, TemplateStatus};
 pub use capability::{Capability, CapabilityError, Source, Sources, capabilities};
@@ -47,3 +48,4 @@ pub use region::{
 pub use task::{Assignment, Task, TaskError};
 pub use team::{CoordinationMode, Team, TeamError};
 pub use version::{Digest, Operation, Undo, Version, VersionError, VersionId};
+pub use visibility::Visibility;

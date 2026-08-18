@@ -757,8 +757,9 @@ impl fmt::Display for VersionError {
             }
             Self::SelfRelation { node } => write!(
                 formatter,
-                "{node} serait en relation avec lui-même : sous « review », un agent qui se relit, \
-                 ce que §14.4 et l'invariant 11 refusent"
+                "{node} serait en relation avec lui-même : sous « review » un agent qui se relit, \
+                 ce que §14.4 et l'invariant 11 refusent ; sous « visibility » une redondance, \
+                 puisqu'un agent voit toujours ce qu'il a produit"
             ),
             Self::NotIncident { edge, node } => write!(
                 formatter,

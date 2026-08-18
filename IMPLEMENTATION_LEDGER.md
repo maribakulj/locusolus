@@ -5459,3 +5459,98 @@ ligne « NON VÉRIFIÉE » de la règle 5 continue d'exister.
 
 **Prochain item.** W15.e — `role`, deuxième membre de l'énumération, avec son consommateur
 exécutable dans `canterel` (ADR 0016, clause de falsification de la décision 10).
+
+## 2026-08-18 — W15.e — `visibility`, deuxième sorte, et le verdict de la clause de falsification
+
+**Arbitrage préalable, validé.** W15.e devait livrer `role`. En l'instruisant, il est apparu que
+`role` **n'est pas une relation** : `SPEC_V1.md` §7.1 en fait un champ d'`AgentTemplate`, §20 une
+classification dans une exigence de reviewers, §6.3 un attribut d'appartenance héritable, et
+`packages/coordination/src/agent.rs` le portait déjà comme attribut avant que la question soit
+posée. W15.a l'avait classé indépendamment parmi les opérations **attributaires** différées, et les
+deux analyses concordent. La clause de falsification de l'ADR 0016 décision 10 a donc été réorientée
+sur `visibility`, qui est réellement de forme paire, et W15.e/W15.f échangés. `role` reste dû comme
+`SET_ROLE`.
+
+**Périmètre.** `packages/coordination/src/visibility.rs` (neuf),
+`packages/coordination/tests/visibility.rs` (neuf, 13 tests), `src/proposal.rs` (la deuxième sorte),
+`src/region.rs` (deux points d'application), `src/version.rs` (un message), `tests/proposal.rs` (la
+garde de liste close), `Cargo.toml` (une dev-dependency), `packages/review/src/context_view.rs` (le
+port `Visible`), `src/lib.rs` des deux crates ; `docs/adr/0016` et `docs/10` (l'amendement et
+l'échange), ce fichier.
+
+**Tests exécutés.** `cargo test -p locus-coordination` → 111 conformes. `npm run check` → les dix
+portes vertes. Mutation : vingt mutants, **vingt tués, aucun survivant**.
+
+---
+
+### Le verdict de la clause de falsification : **l'abstraction tient**
+
+La décision 10 posait deux branches. C'est la première : l'ajout « se branche en modifiant
+l'énumération, la projection et un point d'application ». Aucun type n'a changé de forme —
+`Relation { from, to, kind }` accueille `Visibility` sans une ligne de modification, et toute la
+machinerie de W15.a à W15.c — version, hash, diff, régions, veto — l'a prise sans être touchée. Ce
+qui a bougé tient en une énumération, un module de vingt lignes utiles, trois points d'application
+et un port.
+
+Le nom collectif peut donc être choisi en connaissance de cause. Ce ledger ne le choisit pas : la
+décision 10 dit que le nom est en aval de la thèse, et une troisième sorte l'instruira mieux qu'une
+deuxième.
+
+### Ce que la deuxième sorte a révélé, et qui aurait été livré faux
+
+Trois endroits où « relation » voulait dire « revue » sans le dire. Aucun n'était visible tant
+qu'une seule valeur existait, et deux auraient produit un comportement faux plutôt qu'une erreur :
+
+1. **Le veto d'acyclicité vetoait tous les cycles.** Un cycle de **visibilité** est normal — deux
+   agents qui voient le travail l'un de l'autre coopèrent. Les vetoer aurait interdit la
+   collaboration au nom de l'indépendance, avec un message parlant de consensus circulaire. Le veto
+   ne regarde plus que les arêtes `review`.
+2. **Le risque dérivé ne distinguait pas les sortes.** Ajouter une arête de visibilité ne peut pas
+   fermer un cycle de revue, donc ne menace rien : une région à `risk_ceiling` nul peut désormais
+   recâbler la visibilité sans rien relâcher. C'est le premier endroit où la deuxième sorte
+   **gagne** quelque chose au lieu de coûter.
+3. **Le message d'auto-relation ne parlait que de revue.** Sous `visibility`, une auto-relation est
+   une redondance, pas une faute d'indépendance ; le refus reste, la phrase dit maintenant les deux.
+
+### Décisions prises
+
+_Elle retire, elle n'ajoute jamais._ §16.3 exige que les embeddings ne contournent pas les ACL ; une
+relation de coordination ne le peut pas davantage. La garantie est **structurelle** plutôt que
+promise : le port ne rend qu'un `bool` que la vue compose par un **et** avec le filtre de
+contamination. Il n'existe aucun chemin par lequel une visibilité déclarée fasse entrer ce qu'un
+autre refus écarte — parce qu'il n'y a rien à faire entrer, seulement quelque chose à laisser
+sortir. Deux tests le tiennent, dont un qui exige que **les deux motifs** soient consignés quand les
+deux mordent : réparer la contamination sans savoir que la visibilité écartait aussi ferait croire
+le problème résolu.
+
+_Un agent voit son propre travail, sans arête._ Il ne peut pas en avoir : `Version` refuse les
+auto-relations depuis W15.a. Ce n'est pas une exception arrangeante, c'est la conséquence directe
+d'une règle antérieure — et l'oublier ferait disparaître d'une vue le travail de celui qui la
+reçoit.
+
+_Ce qui n'est pas déclaré n'est pas vu._ Le défaut permissif ferait qu'ajouter un agent lui
+donnerait accès à tout, et qu'il faudrait penser à l'en priver. Personne n'y pense. En revanche, ce
+qu'**aucun agent** n'a produit — source externe, saisie humaine — n'est pas concerné : couper une
+vue de ses sources sous couvert d'organisation serait une autre faute.
+
+_Relire n'est pas voir._ Une relation `review` ne donne aucune visibilité. Les confondre donnerait à
+tout relecteur le contexte de son relu, exactement ce que §12.4 et l'invariant 11 refusent. C'est la
+faute que deux sortes rendent possible et qu'une seule rendait inconcevable.
+
+_Un port, pas une dépendance._ `packages/review` ne connaît pas la coordination : il déclare
+`Visible` et pose la seule question dont il a besoin, comme `EpistemicIndex` le fait dans l'autre
+sens. Le branchement vit dans le test, et `locus-review` est une **dev-dependency** de
+`locus-coordination` — donc la sorte est éprouvée contre la vraie `ContextView`, pas contre une
+imitation, sans coupler les deux crates de production.
+
+_Un seul calcul._ `ContextView::build` délègue à `build_under` avec un port sans contrainte. Un
+chemin « sans visibilité » écrit à part divergerait le jour où l'un des deux est corrigé — la même
+discipline que le dry-run de W14.d, et un mutant qui lui donne son propre chemin meurt.
+
+**La garde de W13.e a fait son travail : elle a échoué.** Le test qui figeait la liste close à une
+valeur est tombé à l'arrivée de `visibility`. Il liste désormais deux valeurs **avec le consommateur
+qui honore chacune**, pour qu'élargir la liste sans écrire le consommateur reste ce que la décision
+4 interdit.
+
+**Prochain item.** W15.f — `SET_ROLE` comme opération attributaire, avec son lecteur dans
+`canterel`.

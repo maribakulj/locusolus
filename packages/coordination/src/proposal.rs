@@ -27,25 +27,46 @@ use crate::team::CoordinationMode;
 
 /// Les sortes de relation de coordination qui existent.
 ///
-/// **Une seule.** ADR 0016, décision 4 : « aucune sémantique inerte » — une sorte de relation
-/// n'entre dans cette énumération que lorsqu'un consommateur exécutable et testé existe. `review`
-/// en a un : l'indépendance de §14.4 et l'invariant 11 s'y appuient. `mentors`, `delegates_to`,
-/// `supervises` n'en ont pas, et les écrire ici en ferait du vocabulaire que rien ne vérifie.
+/// **Deux.** ADR 0016, décision 4 : « aucune sémantique inerte » — une sorte de relation n'entre
+/// dans cette énumération que lorsqu'un consommateur exécutable et testé existe.
+///
+/// - `review` en a un depuis W13.e : l'indépendance de §14.4 et l'invariant 11 s'y appuient.
+/// - `visibility` en a un depuis W15.e : la construction de `ContextView` (décision 11), par
+///   [`crate::visibility`].
+///
+/// `mentors`, `delegates_to`, `supervises` n'en ont pas, et les écrire ici en ferait du vocabulaire
+/// que rien ne vérifie. `role` n'est pas une sorte de relation du tout : §7.1 en fait un champ
+/// d'`AgentTemplate`, et c'est l'opération attributaire `SET_ROLE` qui le portera.
+///
+/// # Deux sortes, et ce que la seconde a révélé
+///
+/// Tant qu'il n'y en avait qu'une, tout code parlant de « relations » parlait en fait de revues
+/// sans le dire. L'arrivée de `visibility` a montré deux endroits où l'implicite était devenu une
+/// hypothèse : le veto d'acyclicité de [`crate::region`] — un cycle de visibilité est normal, un
+/// cycle de revue ne l'est pas — et le refus d'auto-relation de [`crate::version`], dont le message
+/// ne parlait que de revue.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum RelationKind {
     /// « relit », au sens de §14.4 et de l'invariant 11.
     Review,
+    /// « voit ce que l'autre a produit », au sens de §16.2 et §16.3.
+    ///
+    /// Elle **restreint**, elle n'élargit jamais : §16.3 exige que les embeddings ne contournent
+    /// pas les ACL, et une relation de coordination ne saurait pas davantage les contourner. Ce
+    /// qu'elle décide est ce qu'un destinataire **cesse** de voir, pas ce qu'il gagne.
+    Visibility,
 }
 
 impl RelationKind {
-    /// La seule, aujourd'hui.
-    pub const ALL: [Self; 1] = [Self::Review];
+    /// Les deux, dans l'ordre où elles ont obtenu un consommateur.
+    pub const ALL: [Self; 2] = [Self::Review, Self::Visibility];
 
     /// Son nom.
     #[must_use]
     pub const fn slug(self) -> &'static str {
         match self {
             Self::Review => "review",
+            Self::Visibility => "visibility",
         }
     }
 

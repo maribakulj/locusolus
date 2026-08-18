@@ -36,7 +36,7 @@ pub mod rebuttal;
 pub mod review;
 
 pub use contamination::{Contamination, ContextItem, Recipient, contradictions_dropped, inspect};
-pub use context_view::{ContextView, ContextViewError, Redaction};
+pub use context_view::{ContextView, ContextViewError, Redaction, Unrestricted, Visible};
 pub use dossier::{Blindness, DossierError, Draft, Frozen, IndependenceRequirement};
 pub use human::{HumanReview, HumanReviewError, HumanVerdict};
 pub use rebuttal::{
