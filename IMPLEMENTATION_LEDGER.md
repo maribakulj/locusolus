@@ -4087,3 +4087,63 @@ déjà que rien de sensible n'entre dans une commande, mais tant qu'aucun tampon
 l'exclusion des secrets n'aurait rien à exclure.
 
 **Prochain item.** **W8.f** — artefacts et inspecteur de sandbox.
+
+---
+
+## 2026-08-18 — W8.f — Les artefacts : ce qui est promu se voit, rien n'est exécuté
+
+**Périmètre.** `apps/emacs/locus-artifact.el` et `test/locus-artifact-test.el`, neufs. `locus.el`
+porte désormais `locus-error` ; `locus-auth.el` ne la définit plus. Un test ajouté à
+`locus-separation-test.el`. 79 tests ERT sur le paquet.
+
+**Ce qui est promu se voit, et ce qui ne l'est pas aussi.** Un artefact `staged` affiché comme
+`promoted` fait citer un résultat qui n'a pas été validé — l'invariant 4 ne tient pas si l'écran
+aplatit la différence. Six états, six badges distincts, et **aucun défaut rassurant** : un état
+inconnu rend « ? inconnu » et non le badge le plus neutre. Rendre l'inconnu comme du connu est la
+façon la plus discrète de faire citer un résultat non validé.
+
+**Le plan d'ouverture est rendu, pas exécuté.** §21.2 exige qu'un fichier ne soit pas exécuté
+automatiquement ; `locus-artifact-open-plan` rend une **décision** — ouvrir, en lecture seule, sans
+exécution, avec ou sans quarantaine — ce qui rend le refus testable sans écrire un octet sur le
+disque. La liste d'extensions douteuses est volontairement large : le coût d'une quarantaine indue
+est une commande de plus, celui d'un faux négatif est une exécution sur la machine de l'utilisateur.
+Elle n'est pas une garantie pour autant, et c'est pourquoi `:execute` vaut nil quelle que soit
+l'extension.
+
+**Le hash se confronte avant, pas après.** Ce qui prouve ne peut pas être ce qui est demandé : seul
+le hash **déclaré avant** l'upload sert de preuve. W6.a tient cette règle côté serveur, le client la
+tient dans le même sens, et le hasher est un port — dupliquer le vocabulaire de hachage de
+`packages/domain` serait la duplication cross-repo que le `CLAUDE.md` interdit.
+
+**Une propriété qui se vérifie sur le texte, pas sur le comportement.** §20A : « le package ne parle
+jamais directement à Docker/Podman ». Un client qui contournerait le control plane ne se trahirait
+pas à l'exécution — il n'appellerait le runtime que sur une machine qui en a un — mais il se trahit
+par ce qui est écrit. Le test lit donc les sources du paquet, comme la frontière 4 du dépôt le fait
+pour `locusd`.
+
+**Le vrai défaut trouvé par ce sprint.** Deux tests échouaient alors que les erreurs étaient bien
+signalées : `should-error` ne les attrapait pas. Cause : `locus-error` était définie dans
+`locus-auth.el`, et `locus-artifact`, `locus-cache` et `locus-command` en héritent en ne requérant
+que `locus`. Leurs conditions d'erreur ne contenaient donc **pas `error`** — elles échappaient à
+tout `condition-case` ordinaire, c'est-à-dire aux gardes écrites pour les attraper.
+
+Deux des trois modules avaient l'air corrects **parce que l'ordre alphabétique des fichiers de test
+chargeait `locus-auth` en premier**. Une correction qui dépend de l'ordre de chargement n'en est pas
+une. `locus-error` vit maintenant dans `locus.el`, que tout module requiert, et un test balaie
+l'obarray : toute condition `locus-*` doit contenir `locus-error` **et** `error`. Chaque module a
+ensuite été chargé seul pour le vérifier.
+
+**Onze mutations vérifiées rouges** : promu et vérifié partageant un badge (1 test) ; un état
+inconnu rendu comme promu (1) ; un état non servable ouvert quand même (1) ; tous les états devenus
+servables (2) ; le plan autorisant l'exécution (2) ; le plan cessant d'être en lecture seule (1) ;
+la quarantaine devenue sensible à la casse (2) ; la quarantaine ne signalant plus rien (1) ; le hash
+non confronté (1) ; la liste des états divergeant de celle du serveur (2) ; la racine d'erreurs
+perdant son parent `error` (**15**). Restauration confirmée verte.
+
+**Écart avec la spec.** Un, nommé. Le tampon `*Locus Sandboxes*` de §20A n'existe pas : ses colonnes
+sont des données que le serveur rend, et le rendre avant d'avoir un transport produirait un tableau
+dont chaque ligne serait inventée. Ce que ce sprint prend de §20A est la seule chose qui ne dépende
+pas du transport — l'interdiction de parler à un runtime — et elle est vérifiée.
+
+**Prochain item.** **W8.g** — intégrations Org/Magit/Jupyter/xiiif : chaque intégration absente
+dégrade sans casser le démarrage.

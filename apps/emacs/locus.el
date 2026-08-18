@@ -31,6 +31,17 @@
 
 (require 'locus-protocol)
 
+(define-error 'locus-error "Erreur Locus Solus"
+  ;; La racine de la hiérarchie d'erreurs du paquet, ici et pas ailleurs.
+  ;;
+  ;; Elle vivait dans `locus-auth', et les modules qui en héritent ne requièrent
+  ;; que `locus' : leurs conditions ne contenaient donc pas `error' tant que
+  ;; `locus-auth' n'avait pas été chargé, et un `condition-case' ordinaire les
+  ;; laissait passer.  Deux modules sur trois avaient l'air corrects parce que
+  ;; l'ordre alphabétique des fichiers de test chargeait `locus-auth' d'abord —
+  ;; une correction qui dépend de l'ordre de chargement n'en est pas une.
+  'error)
+
 (defgroup locus nil
   "Cockpit Emacs pour Locus Solus."
   :group 'tools
