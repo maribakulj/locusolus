@@ -5059,3 +5059,51 @@ une autre. Rien ici ne la porte : le texte ne dit pas si elle est permise, et l'
 un agent le moyen de s'étendre lui-même. À trancher quand un consommateur en aura besoin.
 
 **Prochain item.** W14.c — l'explicabilité de §20.5, dont les alternatives rejetées.
+
+## 2026-08-18 — W14.c — L'explicabilité de §20.5 : la facette qu'on omet toujours
+
+**Périmètre.** `packages/policy/src/explanation.rs` (neuf), `packages/policy/tests/explanation.rs`
+(neuf, 10 tests), `src/lib.rs` (les réexports), ce fichier.
+
+**Tests exécutés.** `cargo test -p locus-policy` → 38 conformes (16 + 12 + 10). `npm run check` →
+les dix portes vertes. Mutation : quatorze mutants, **quatorze tués, aucun survivant**.
+
+**Décisions prises.**
+
+_Sept facettes se remplissent seules, une seule demande d'être décidée._ §20.5 en énumère huit ;
+sept sortent naturellement de la construction de la décision. Les **alternatives rejetées** sont la
+seule qui n'existe nulle part une fois la décision prise — donc la seule qu'il faut vouloir garder.
+C'est aussi celle qui rend une décision contestable : savoir qu'un moteur a choisi A ne dit rien
+tant qu'on ignore s'il a même envisagé B.
+
+_Une alternative rejetée sans motif n'en est pas une._ « Nous avons envisagé B » sans dire pourquoi
+ne se conteste pas — il n'y a rien à objecter. Et une case cochée dans un rapport d'explicabilité
+est **pire que son absence**, parce qu'elle donne l'apparence d'un examen qui n'a pas eu lieu.
+
+_Conserver un override veut dire garder les deux verdicts._ §20.2 exige de « conserver les overrides
+humains ». `machine_outcome` rend ce que le moteur avait conclu, `effective_outcome` ce qui
+s'applique, et rien ne les fond. Les confondre effacerait la conclusion du moteur, et personne ne
+pourrait plus distinguer une erreur corrigée d'une garde contournée. Le cas où cela compte le plus
+est l'override d'un **conflit** : c'est le moment où un humain tranche ce que le moteur a refusé de
+trancher, et où il faut pouvoir relire ce refus.
+
+_Un override anonyme ou muet est refusé._ Il serait indiscernable d'un défaut du moteur, et c'est
+précisément ce qu'il ne faut pas confondre.
+
+_Deux facettes vides seulement sont toujours un manquement._ Sans données d'entrée la décision ne se
+rejoue pas ; sans règle déclenchée elle ne s'explique par rien. Les autres peuvent être légitimement
+vides — une décision sans override n'a pas d'override à montrer, et crier au manquement sur un
+exposé complet apprend à ignorer l'alarme. Un mutant qui déclare tout exposé incomplet meurt sur ce
+test.
+
+**Une collision de noms.** `Rejected::because(option, because)` et l'accesseur `because()` ne
+peuvent pas coexister ; le constructeur est devenu `considered`. Le nom dit mieux ce qu'il fait de
+toute façon : on consigne qu'une option **a été envisagée**, et le motif est ce qu'elle porte.
+
+**Écart avec la spec.** Deux facettes de §20.5 restent structurellement vides : « scores et
+incertitudes » n'a pas de producteur — le moteur de W14.a décide par règles, pas par score — et «
+politique et version » vit dans la trace plutôt que dans un champ propre, puisque c'est chaque règle
+déclenchée qui porte sa version. `Facet` les nomme toutes les huit pour que la liste soit close ;
+les remplir demande des consommateurs qui n'existent pas.
+
+**Prochain item.** W14.d — les seize catégories de §20.1 et le dry-run de §20.2.
