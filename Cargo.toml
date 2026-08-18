@@ -8,6 +8,7 @@ members = [
     "packages/deployment",
     "packages/domain",
     "packages/environments",
+    "packages/evaluation",
     "packages/event-store",
     "packages/execution",
     "packages/graph",

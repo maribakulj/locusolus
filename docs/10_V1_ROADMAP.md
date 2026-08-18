@@ -357,6 +357,17 @@ existe pour empêcher.
 
 Tests de sécurité, injection de fautes, endurance, benchmarks, ablations, docs, release candidate.
 
+Section en prose, décomposée ici comme W9 et W11 l'ont été. §29 nomme des listes closes — treize
+fautes à injecter (§29.4), quatorze attaques (§29.5), huit ablations (§29.8) — et c'est cette
+clôture qui rend l'exercice vérifiable : une liste nommée permet de dire ce qui n'a **pas** été
+éprouvé, ce qu'une intention générale ne permet jamais.
+
+| # | Commit | Dépôt | Test de sortie |
+|---|---|---|---|
+| W12.a `[R]` | `packages/evaluation` : le registre d'épreuves de §29.4, §29.5 et §29.8, et le verdict de préparation | une épreuve non traitée empêche la préparation, en la nommant ; une épreuve **écartée** exige sa raison, et une raison vide ne passe pas ; « pas éprouvé » n'est jamais « réussi » |
+| W12.b `[R]` | endurance de §29.6 : les huit seuils, et le constat qui les confronte | une campagne qui manque un seul seuil ne se dit pas endurante, et le verdict nomme lequel ; un compteur non relevé n'est pas un seuil atteint |
+| W12.c `[R]` | benchmarks de §29.7 : les six configurations et les onze mesures | une comparaison à laquelle il manque une configuration se déclare partielle ; une mesure absente n'est pas une mesure nulle |
+
 ---
 
 ## W13 — Socle de coordination agentique — **repli, jamais prioritaire** — niveau 3 sur `review`
