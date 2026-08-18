@@ -4198,3 +4198,84 @@ plutôt que sur ce qu'il doit porter.
 
 **Prochain item.** **W8.h** — 3D et WebView : la 3D reste une projection, aucune vue n'écrit dans le
 graphe.
+
+---
+
+## 2026-08-18 — W8.h — Les vues : abîmer la projection ne touche pas le graphe
+
+**Périmètre.** `apps/emacs/locus-view.el` et `test/locus-view-test.el`, neufs. Aucune dépendance
+nouvelle. 96 tests ERT sur le paquet.
+
+**La propriété ne se vérifie pas en cherchant une fonction d'écriture.** Il n'y en a pas — et c'est
+précisément le problème. Une projection qui partagerait ses structures avec la source ferait du
+premier `setcdr` d'une vue une écriture dans le graphe, **sans qu'aucune ligne de code ne s'appelle
+« écrire »**, donc sans rien à voir dans un diff. Le test abîme donc la projection de toutes les
+façons possibles — `setcdr` sur un nœud, `setcar` sur la liste, `setcdr` sur une arête — et compare
+le graphe à ce qu'il était.
+
+Le détachement vaut dans les deux sens, et le second sens compte autant : une vue affichée doit
+continuer de montrer ce qu'elle montrait, sans quoi elle changerait sous les yeux du lecteur au
+premier événement reçu.
+
+**Une action de vue est une description, pas une fermeture.** Une fermeture pourrait faire n'importe
+quoi, et le contrôle de §11 — `expected_revision`, confirmation graduée, conflit rendu — serait
+contourné par le chemin le plus court. `locus-view-project` refuse toute action qui est une
+fonction.
+
+**La troncature se dit.** §13.2 limite le nombre de nœuds ; une vue tronquée **sans le dire** se lit
+comme un graphe complet, et c'est la conclusion qu'on en tire qui est fausse, pas l'affichage. Le
+total reste rendu, sans quoi « sept de plus » ne se situe pas. Et une arête vers un nœud écarté ne
+survit pas : elle dessinerait un lien vers rien, indistinguable d'une relation cassée.
+
+**Le handoff est une charge, pas un canal.** Ce qui part vers un viewer 3D ou une WebView est ce qui
+s'affiche, et rien n'est prévu pour revenir. La charge ne porte aucune fonction — un viewer qui ne
+peut recevoir qu'un document ne peut pas recevoir de pouvoir — ni aucune action : les proposer
+inviterait à les déclencher. Elle porte en revanche la troncature, sinon celle-ci serait dite dans
+Emacs et tue dans la fenêtre, c'est-à-dire tue là où on regarde.
+
+**Dix mutations vérifiées rouges** : la projection partageant ses structures (3 tests) ; le
+détachement réduit à une copie de surface (3) ; les fermetures acceptées comme actions (1) ; la
+troncature non dite (2) ; le total non rendu (2) ; la limite de nœuds disparue (3) ; les arêtes vers
+un nœud écarté survivant (1) ; le handoff portant les actions (1), taisant la troncature (1),
+cessant de se déclarer en lecture seule (1). Restauration confirmée verte, aucune muette.
+
+**Écart avec la spec.** Un, nommé. §13.2 demande aussi zoom/pan, couleurs par faces, légende,
+filtres et accessibilité sans souris — ce sont des propriétés d'un **rendu**, et ce sprint livre ce
+qui est rendu. Le module tient la contrainte qui survit à tous les rendus : la projection est
+détachée et sans pouvoir. Les sept vues spécialisées de §13.3 sont sept requêtes différentes sur la
+même projection ; elles arrivent avec le transport.
+
+---
+
+## W8 est terminé
+
+Les huit items sont faits. `apps/emacs` compte **neuf fichiers Elisp** et **96 tests ERT**, et la
+frontière 5 — le paquet démarre sous `emacs -Q` avec sa seule `load-path` — est passée de « sans
+objet » à vérifiée en CI, sur chacun d'eux.
+
+**Ce que W8 a appris, et qui n'était pas dans le plan.** Cinq fois sur huit, le sprint a trouvé un
+défaut ailleurs que là où il regardait :
+
+- **W8.a** — la garde de frontières avait un angle mort qui couvrait le cas nominal de ce qu'elle
+  interdit : un `load` par chemin absolu ne touche pas `load-path`.
+- **CI** — deux des dix portes n'avaient **jamais** tourné en CI. Une porte qu'on croit tenue et qui
+  ne tourne pas ressemble en tout point à une porte verte.
+- **W8.b** — une mutation passée verte deux fois : le balayage ne voyait pas les variables créées
+  par `setq`, puis le test ne cherchait que des chaînes alors qu'`auth-source` rend une **fonction**
+  d'accès.
+- **W8.f** — trois modules avaient une hiérarchie d'erreurs cassée, et deux avaient l'air corrects
+  **parce que l'ordre alphabétique des fichiers de test** chargeait le bon module en premier.
+- **W8.g** — deux tests reposaient sur une sonde que la suite chargeait par ailleurs, donc passaient
+  quoi qu'il arrive.
+
+Trois de ces cinq sont la même faute sous trois formes : **un test qui dépend de ce que le reste de
+la suite a fait**. C'est la dette que W8 laisse identifiée et corrigée là où elle a été vue, et le
+réflexe qu'elle installe pour la suite — affirmer la prémisse plutôt que la supposer.
+
+**Le transport reste dû.** Sept des huit items l'ont déclaré en écart : le paquet sait construire
+des requêtes autorisées, plier un flux, projeter un graphe, cribler une commande — et n'a encore
+parlé à personne. C'est un choix tenu sprint après sprint, et il a payé : chaque module est testable
+sans serveur, donc rejouable, donc muté. C'est aussi la dette la plus visible du paquet.
+
+**Prochain item.** Le premier item non terminé de `docs/10` dont les dépendances sont satisfaites,
+hors W8.
