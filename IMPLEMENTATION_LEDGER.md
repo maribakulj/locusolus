@@ -5692,3 +5692,60 @@ observable le jour où un deuxième invariant entrera, et c'est ce jour-là qu'u
 La limitation est écrite dans le module plutôt que laissée à un survivant inexpliqué.
 
 **Prochain item.** W16.c — le plan de simulation.
+
+## 2026-08-18 — W16.c — Le plan de simulation, et l'absence de type qui le tient
+
+**Périmètre.** `packages/coordination/src/simulation.rs` (neuf),
+`packages/coordination/tests/simulation.rs` (neuf, 10 tests), `src/lib.rs` (les réexports), ce
+fichier.
+
+**Tests exécutés.** `cargo test -p locus-coordination` → 142 conformes. `npm run check` → les dix
+portes vertes. Mutation : quatorze mutants, **douze tués**, deux inexprimables (voir plus bas).
+
+**Décisions prises.**
+
+_Un substitut qui n'a pas la réponse le dit._ C'est la faute que ce module existe pour empêcher, et
+elle est silencieuse : un défaut — chaîne vide, zéro, « inconnu » — ferait **réussir** la simulation
+là où le run réel aurait échoué. Or prédire est la seule chose qu'on demande à une simulation ;
+celle qui se trompe dans ce sens-là est pire qu'absente, puisqu'on s'appuie dessus. `Recorded::ask`
+n'a donc aucune variante prenant un défaut : `ask_or` serait la porte par laquelle une valeur
+inventée entrerait, et personne ne la verrait passer.
+
+_Et la simulation ne conclut rien._ Une question sans réponse enregistrée rend
+`Verdict::Incomplete { unanswered }` — les questions manquantes sont nommées, et aucun verdict n'est
+rendu. Huitième occurrence de « pas vérifié n'est jamais réussi » dans ce dépôt.
+
+_Le degré atteint, jamais celui qui était visé._ Le canari est facultatif, donc le cas où un plan
+s'arrête avant le dernier degré est courant. `Outcome::reached` porte ce qui a réellement été fait :
+un rejeu ne dit pas ce qu'un canari dirait, et rendre le degré visé ferait citer une simulation pour
+ce qu'elle n'a pas fait. Le degré entre aussi dans la forme observée, de sorte que deux degrés sur
+le même plan ne produisent pas le même résultat.
+
+_Le déterminisme n'est pas une promesse, c'est une conséquence._ Le rejeu ne consulte **rien**
+d'autre que le substitut : ni horloge, ni ordre d'itération d'un conteneur non ordonné, ni
+environnement. Un mutant qui trie le plan au lieu de le suivre meurt, parce que l'ordre des
+questions fait partie de ce qui est observé — le prétendre indifférent effacerait une dépendance.
+
+_Un objet simulé n'existe pas comme type dans le domaine épistémique._ ADR 0016 décision 9 : « la
+garantie est une absence de type, pas un champ de classification ». Un `Outcome` désigne une
+**proposition** par son identifiant de décision et rien d'autre ; il ne peut pas nommer une
+`RevisionId`, donc il ne peut pas être cité comme preuve à propos d'un claim. Deux tests le tiennent
+par l'absence : la représentation ne contient aucun mot du domaine épistémique, et **l'échelle de
+validation de §8.1 n'a aucun barreau** où faire entrer une simulation — le test nomme les cinq mots
+qu'on serait tenté d'ajouter, pour que l'échec dise lequel est entré.
+
+**Une collision de noms, résolue sans renommer.** `region`, `lifecycle` et `simulation` disent
+chacun « verdict » ou « outcome » de leur propre domaine. Aplatir les trois au niveau du crate
+aurait forcé à renommer celui qui perdrait le mot juste ; `simulation::Verdict` et
+`simulation::Outcome` restent donc sous leur chemin de module, qui porte la distinction sans coûter
+un nom.
+
+**Deux mutants inexprimables, et pourquoi.** Faire porter à un `Outcome` un champ `evidence_class`
+demande **deux** modifications — déclarer le champ et le remplir — que ce harnais applique une par
+une, donc aucune des deux ne compile seule. La moitié intéressante est de toute façon refusée par le
+typage : `run` ne reçoit jamais de `RevisionId`, donc aucun champ de ce type ne pourrait être
+rempli. C'est plus fort qu'un test, et c'est exactement la forme que la décision 9 demandait — une
+absence de type.
+
+**Prochain item.** W16 est clos pour ce qui est faisable : W16.d attend le mineur `lep/1.1` et son
+ADR, W16.e une messagerie inter-agents. Suit W17 — cockpit et orchestration de la mémoire.

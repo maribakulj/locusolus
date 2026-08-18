@@ -30,6 +30,7 @@ pub mod lifecycle;
 pub mod objection;
 pub mod proposal;
 pub mod region;
+pub mod simulation;
 pub mod task;
 pub mod team;
 pub mod version;
@@ -51,6 +52,11 @@ pub use proposal::{
 pub use region::{
     Acceptance, ApprovalMode, Invariant, Refusal, Region, RegionError, Verdict, threatens,
 };
+// `simulation::Verdict`, `simulation::Outcome` et `simulation::run` ne sont **pas** remontés
+// ici : `region` et `lifecycle` disent déjà « verdict » et « outcome » de leur propre domaine,
+// et aplatir les trois forcerait à renommer celui qui perdrait le mot juste. Le chemin de
+// module porte la distinction sans coûter un nom.
+pub use simulation::{Answer, Fidelity, Recorded};
 pub use task::{Assignment, Task, TaskError};
 pub use team::{CoordinationMode, Team, TeamError};
 pub use version::{Digest, Operation, Undo, Version, VersionError, VersionId};
