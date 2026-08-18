@@ -4566,3 +4566,59 @@ un autre, c'est le registre du client qui l'accueille, pas ce défaut.
 
 **Prochain item.** W9.c — l'interaction de §23 : `focus`, `filter`, `select` vers le viewer,
 `node_selected` en retour, et aucun chemin par lequel un événement de viewer devienne une mutation.
+
+## 2026-08-18 — W9.c — L'interaction viewer : ce qui revient ne s'écrit pas
+
+**Périmètre.** `packages/visualization/src/interaction.rs` (neuf),
+`packages/visualization/tests/interaction.rs` (neuf, 13 tests), `src/lib.rs` (`derived_from` dans la
+forme canonique, `render_derived`), ce fichier.
+
+**Tests exécutés.** `cargo test -p locus-visualization` → 42 conformes (14 + 15 + 13).
+`npm run check` → les dix portes vertes. Mutation : onze mutants, **onze tués** — après correction
+d'un trou réel (voir plus bas).
+
+**Décisions prises.**
+
+_Un événement de viewer porte une identité, jamais un contenu._ C'est par le canal de retour que «
+la vue devient éditable en place » reviendrait si on la chassait de la vue : non pas en modifiant la
+projection, mais en laissant le viewer **dire** au control plane ce qu'un nœud vaut désormais. Un
+`node_selected` qui porterait un label remplacerait une lecture par une écriture sans jamais toucher
+au graphe. `ViewerEvent` n'a donc aucun champ où mettre autre chose, et un consommateur qui voudrait
+faire écrire un viewer devrait d'abord changer le type — c'est-à-dire éditer le fichier qui explique
+pourquoi il ne faut pas.
+
+_Deux événements, pas « etc. »._ `docs/07` écrit « `node_selected`, `artifact_opened`, etc. ». L'«
+etc. » est une invitation à inventer, et ADR 0016 dit qu'une sorte entre dans son énumération quand
+un consommateur exécutable et testé existe. `node_edited` accepté aujourd'hui serait le canal
+d'écriture que §23 interdit, ouvert par avance et sans que personne l'ait décidé — le test le refuse
+nommément.
+
+_Une vue dérivée déclare toujours son parent._ `focus` et `filter` produisent une autre vue, plus
+petite. Le danger n'est pas qu'elle existe, c'est qu'on la prenne pour la projection : qui compte
+les objections d'un claim dans une vue filtrée en compte moins, et rien à l'écran ne le lui dit. La
+forme canonique porte donc le condensat du parent **sans exception**, y compris quand le filtre ne
+retire rien — les exceptions sont exactement là où la confusion se loge.
+
+_Ce qui sort du cadrage emporte ses arêtes._ En garder une ferait supposer un nœud absent, et un
+trait qui mène hors de l'écran est l'invitation la plus forte qu'une visualisation puisse faire.
+C'est aussi ce qui permet à `focused` de ne jamais produire le `DanglingEdge` que W9.a refuse.
+
+_Cadrer sur un nœud absent rend une vue vide._ Élargir silencieusement à tout serait la pire des
+réponses : elle aurait l'air de marcher.
+
+_`select` désigne, il ne réduit pas._ Il n'existe aucune opération de vue qui lui corresponde : la
+sélection vit dans le canal d'interaction. Confondre les deux ferait disparaître de l'écran ce qu'on
+voulait seulement montrer du doigt.
+
+**Un trou réel trouvé par mutation.** « Le cadrage ne suit que le sens des arêtes » a **survécu** :
+la fixture était une chaîne `a → b → c`, donc suivre le sens sortant suffisait à tout trouver. Or
+une objection pointe **vers** ce qu'elle conteste : un `focus` qui ne suivrait que le sens sortant
+montrerait un claim débarrassé de tout ce qui lui est opposé — l'invariant 12 défait par un détail
+de parcours, et sans que rien n'ait l'air cassé. La fixture porte maintenant une objection entrante,
+et trois tests tombent quand le sens inverse disparaît.
+
+**Écart avec la spec.** §23 dit « toute mutation passe ensuite par command API et confirmation
+appropriée ». Ce crate ne contient ni l'API de commandes ni la confirmation : il tient sa moitié —
+rien ne sort d'ici qui puisse être écrit. L'autre moitié est §22, et elle n'a pas encore d'item.
+
+**Prochain item.** W9.d — `apps/web` sur la vue hashée, en TypeScript.

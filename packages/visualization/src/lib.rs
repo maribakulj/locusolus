@@ -27,8 +27,10 @@
 //! comparaient l'ordre dans lequel un producteur a rempli un vecteur, ils différeraient sans que
 //! rien n'ait changé.
 
+pub mod interaction;
 pub mod registry;
 
+pub use interaction::{InteractionError, ViewerCommand, ViewerEvent};
 pub use registry::{ArtifactViewerRegistry, Choice, RegistryError, Viewer, ViewerRequest};
 
 use std::collections::BTreeSet;
@@ -134,6 +136,7 @@ pub struct View {
     watermark: Watermark,
     nodes: Vec<ViewNode>,
     edges: Vec<ViewEdge>,
+    derived_from: Option<ContentHash>,
     canonical: String,
     digest: ContentHash,
 }
@@ -154,6 +157,17 @@ impl View {
     pub fn render(
         kind: ViewKind,
         watermark: Watermark,
+        nodes: Vec<ViewNode>,
+        edges: Vec<ViewEdge>,
+        digest: &dyn Digest,
+    ) -> Result<Self, ViewError> {
+        Self::render_inner(kind, watermark, None, nodes, edges, digest)
+    }
+
+    fn render_inner(
+        kind: ViewKind,
+        watermark: Watermark,
+        derived_from: Option<ContentHash>,
         nodes: Vec<ViewNode>,
         edges: Vec<ViewEdge>,
         digest: &dyn Digest,
@@ -182,16 +196,50 @@ impl View {
         edges.sort();
         edges.dedup();
 
-        let canonical = canonicalise(kind, watermark, &nodes, &edges);
+        let canonical = canonicalise(kind, watermark, derived_from.as_ref(), &nodes, &edges);
         let digest = digest.digest(&canonical);
         Ok(Self {
             kind,
             watermark,
             nodes,
             edges,
+            derived_from,
             canonical,
             digest,
         })
+    }
+
+    /// Rendre une vue **dérivée** de `parent` — un cadrage, un filtre.
+    ///
+    /// Elle porte le condensat de son parent dans sa forme canonique, sans exception. Le danger
+    /// d'une vue dérivée n'est pas qu'elle existe, c'est qu'on la prenne pour la projection : un
+    /// lecteur qui compte les objections d'un claim dans une vue filtrée en compte moins, et rien
+    /// ne le lui dit. Y compris quand le filtre ne retire rien — les exceptions sont précisément là
+    /// où la confusion se loge.
+    ///
+    /// # Errors
+    ///
+    /// Ce que [`View::render`] refuse.
+    pub fn render_derived(
+        parent: &Self,
+        nodes: Vec<ViewNode>,
+        edges: Vec<ViewEdge>,
+        digest: &dyn Digest,
+    ) -> Result<Self, ViewError> {
+        Self::render_inner(
+            parent.kind,
+            parent.watermark,
+            Some(parent.digest.clone()),
+            nodes,
+            edges,
+            digest,
+        )
+    }
+
+    /// Le condensat de la vue dont celle-ci est dérivée, s'il y en a une.
+    #[must_use]
+    pub const fn derived_from(&self) -> Option<&ContentHash> {
+        self.derived_from.as_ref()
     }
 
     /// Ce que la vue montre.
@@ -257,10 +305,14 @@ impl View {
 fn canonicalise(
     kind: ViewKind,
     watermark: Watermark,
+    derived_from: Option<&ContentHash>,
     nodes: &[ViewNode],
     edges: &[ViewEdge],
 ) -> String {
     let mut canonical = format!("view/1\n{kind}\n{watermark}\n");
+    if let Some(parent) = derived_from {
+        let _ = writeln!(canonical, "derived-from\t{parent}");
+    }
     for node in nodes {
         // `write!` sur une `String` ne peut pas échouer ; l'ignorer explicitement est ce que la
         // signature de `fmt::Write` impose, et clippy refuse le `push_str(&format!(..))` qui
