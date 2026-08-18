@@ -3946,3 +3946,61 @@ et un tampon de batch sans afficheur serait une sémantique inerte. Il arrive av
 
 **Prochain item.** **W8.d** — dashboard et buffers (§9) : un buffer se reconstruit depuis le cache
 sans réseau.
+
+---
+
+## 2026-08-18 — W8.d — Le tableau de bord : ce qui manque au cache manque à l'écran, et s'y voit
+
+**Périmètre.** `apps/emacs/locus-cache.el`, `locus-dashboard.el` et `test/locus-dashboard-test.el`,
+neufs. Aucune dépendance nouvelle : `tabulated-list` est dans Emacs. 49 tests ERT sur le paquet.
+
+**« Sans réseau » se vérifie en empoisonnant, pas en débranchant.** Le test entoure le rendu de
+`url-retrieve`, `url-retrieve-synchronously`, `make-network-process` et `open-network-stream`
+remplacés par des erreurs. Un rendu qui parlerait à quiconque **échoue** au lieu de réussir plus
+lentement — c'est la différence entre une propriété et une habitude. Et le poison lui-même est
+éprouvé par un test dédié : sans lui, `--offline` pourrait n'empoisonner rien du tout et le test de
+sortie passerait pour la mauvaise raison, ce que W7.f et W7.g ont chacune produit une fois.
+
+**La propriété est plus forte qu'un confort hors ligne.** Un tableau de bord qui interroge le
+serveur est aussi disponible que le réseau, alors qu'il sert précisément à savoir ce qui se passe
+**quand quelque chose ne va pas**. §14.1 le dit de l'autre côté — « n'effectue pas une query
+complète à chaque événement ».
+
+**« Ne sert pas de source canonique » est une contrainte de type.** §21.3 le demande, et une note en
+documentation ne l'obtient pas : dès qu'une lecture rend la valeur nue, l'appelant suivant la traite
+comme un fait. `locus-cache-get` rend donc une **entrée** — valeur, instant, curseur — et aucun
+accesseur ne rend la valeur seule. Lire le cache oblige à voir de quand date ce qu'on lit.
+
+**Les secrets sont refusés, pas détectés.** Une heuristique qui fouillerait les valeurs raterait le
+premier format qu'elle ne connaît pas tout en donnant l'impression d'avoir vérifié. L'appelant
+déclare `:sensitive`, le cache refuse. Le cache survit à l'arrêt d'Emacs et se copie avec le
+répertoire : ce qui y entre est durable, et un secret durable est un secret perdu.
+
+**Une entrée périmée est rendue, pas supprimée.** §22.1 autorise la lecture offline ; effacer au
+premier dépassement de TTL priverait le mode offline de ce qu'il existe pour montrer. La péremption
+prend en revanche le pas sur le statut rapporté à l'écran : afficher `active` sur une donnée vieille
+d'un jour serait exact au moment de la lecture et faux à l'écran, ce qui est la seule des deux
+choses que l'utilisateur voit.
+
+**Ce que la mutation a trouvé.** L'en-tête doit annoncer la synchronisation la **plus ancienne**, et
+aucun test ne donnait deux entrées d'âges différents : la mutation qui prend la plus récente passait
+verte. Or l'en-tête résume la confiance qu'on peut accorder à l'écran entier, et cette confiance
+vaut celle de sa donnée la plus vieille — annoncer la plus récente ferait passer pour frais un
+tableau où une seule ligne l'est. Test écrit, mutation recomptée rouge.
+
+**Treize mutations vérifiées rouges** : le refus des valeurs sensibles disparu (1 test) ; une entrée
+périmée supprimée au lieu d'être rendue (3) ; la péremption jamais déclarée (3) ; la purge qui ne
+purge pas (2) ; l'oubli qui n'oublie pas (1) ; l'âge toujours nul (1) ; une clé absente produisant
+une ligne vide (2) ; la péremption cessant de primer sur le statut (1) ; l'en-tête taisant l'état
+`stale` (1), puis le curseur (1) ; l'en-tête confondant « jamais synchronisé » et « synchronisé à
+l'instant » (1) ; l'en-tête prenant la synchro la plus récente (1, après écriture du test manquant).
+Restauration confirmée verte.
+
+**Écart avec la spec.** Deux, nommés. §9 décrit **dix** tampons ; seul `*Locus Solus Dashboard*` de
+§9.1 existe. Les neuf autres suivent le même moule — une projection du cache, un en-tête de
+fraîcheur — et les écrire tous avant qu'un seul soit branché sur des données réelles produirait neuf
+fois la même erreur si le moule est mauvais. Et « batch le rendu » de §14.1 attend toujours : le
+rendu existe désormais, mais rien ne l'appelle encore en rafale.
+
+**Prochain item.** **W8.e** — commandes et transient (§10, §11) : toute action mutante passe par
+l'API avec `expected_revision`, et un conflit est rendu plutôt qu'écrasé.
