@@ -395,6 +395,68 @@ fn the_four_attribute_operations_await_their_reader() {
     );
 }
 
+/// La forme canonique d'une opération porte **tout** ce qui décide de son effet.
+///
+/// C'est ce que deux clients comparent pour prouver qu'ils lisent la même opération avant de
+/// l'approuver. Deux opérations d'effets différents qui s'écriraient pareil feraient signer sur
+/// celle qu'on n'applique pas — et la liste ci-dessous fait varier **un champ à la fois** pour que
+/// l'échec dise lequel a été perdu.
+#[test]
+fn a_canonical_operation_carries_everything_that_decides_its_effect() {
+    let split = |follows_first: BTreeSet<Relation>| Operation::SplitNode {
+        node: agent(2),
+        into: (agent(8), agent(9)),
+        follows_first,
+    };
+    let operations = [
+        Operation::AddNode(agent(1)),
+        Operation::AddNode(agent(2)),
+        Operation::RemoveNode(agent(1)),
+        Operation::ReplaceNode {
+            from: agent(1),
+            to: agent(8),
+        },
+        Operation::ReplaceNode {
+            from: agent(1),
+            to: agent(9),
+        },
+        Operation::ReplaceNode {
+            from: agent(3),
+            to: agent(8),
+        },
+        Operation::AddEdge(reviews(agent(1), agent(2))),
+        Operation::RemoveEdge(reviews(agent(1), agent(2))),
+        Operation::AddEdge(reviews(agent(2), agent(1))),
+        split([reviews(agent(1), agent(2))].into_iter().collect()),
+        split([reviews(agent(3), agent(2))].into_iter().collect()),
+        split(BTreeSet::new()),
+        Operation::MergeNodes {
+            first: agent(1),
+            second: agent(3),
+            into: agent(9),
+        },
+        Operation::MergeNodes {
+            first: agent(1),
+            second: agent(3),
+            into: agent(8),
+        },
+    ];
+
+    let forms: Vec<String> = operations.iter().map(Operation::canonical).collect();
+    let distinct: BTreeSet<&String> = forms.iter().collect();
+    assert_eq!(
+        distinct.len(),
+        forms.len(),
+        "deux opérations d'effets différents s'écrivent pareil : {forms:#?}"
+    );
+    for (operation, form) in operations.iter().zip(&forms) {
+        assert!(
+            form.starts_with(operation.name()),
+            "une forme canonique commence par le nom de son opération : {form}"
+        );
+    }
+}
+
 // ---------------------------------------------------------------------------------------------
 // Les refus : chacun nomme une chose à écrire dans le diff
 // ---------------------------------------------------------------------------------------------

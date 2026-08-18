@@ -5228,3 +5228,72 @@ en fournit un jouet ; ce qui est vérifié est la stabilité de la forme canoniq
 octet en fixture.
 
 **Prochain item.** W15.b — le diff comme objet de première classe.
+
+## 2026-08-18 — W15.b — Le diff comme objet de première classe
+
+**Périmètre.** `packages/coordination/src/diff.rs` (neuf), `packages/coordination/tests/diff.rs`
+(neuf, 13 tests), `src/version.rs` (`Operation::canonical`, additif), `tests/version.rs` (un test de
+plus), `src/lib.rs` (les réexports), `docs/10_V1_ROADMAP.md` (formulation du test de sortie), ce
+fichier.
+
+**Tests exécutés.** `cargo test -p locus-coordination` → 74 conformes. `npm run check` → les dix
+portes vertes. Mutation : vingt-trois mutants, **vingt-trois tués, aucun survivant**.
+
+**Décisions prises.**
+
+_Une base est une version, une cible est un contenu._ L'asymétrie est la conséquence directe des
+deux hashes de W15.a. Rejouer se fait sur une **histoire précise**, donc la base est une `VersionId`
+; ce que le rejeu produira n'a pas encore d'histoire — son identité dépend du rejeu — donc la cible
+ne peut être qu'un `ContentHash`. Annoncer la cible sous forme d'identité de version obligerait à la
+deviner avant de l'avoir produite.
+
+_Le test de sortie a été reformulé en conséquence, et il en sort plus fort._ Il disait « rend
+exactement la cible, hash de version compris » ; ce qui est vrai et qui compte est : le rejeu rend
+exactement le **contenu** visé, et **deux rejeux du même diff sur la même base rendent la même
+version, identité comprise**. C'est cela que `docs/10` W17 demande — « diff calculé une fois côté
+serveur, donc identique dans Emacs et dans le web, sinon l'approbation porte sur ce que chaque
+client a cru voir ». Un test vérifie l'égalité de deux rejeux jusqu'à l'identifiant, un autre qu'une
+base de contenu identique mais d'histoire différente est refusée.
+
+_Un diff n'invente pas d'intention._ `Diff::between` n'émet que les quatre opérations qui décrivent
+un écart d'états. Il n'infère jamais `REPLACE_NODE`, `SPLIT_NODE` ni `MERGE_NODES` : au niveau des
+états, un remplacement est indiscernable d'un retrait suivi d'un ajout, et deviner ferait lire à
+l'approbateur une intention que personne n'a écrite. C'est la règle de §7.5 sur les relations, « ne
+doivent pas être inférées en sens inverse », appliquée aux opérations. Les opérations riches
+viennent du proposeur par `Diff::declaring`, et le diff les garde telles quelles — deux chemins, un
+seul type.
+
+_L'ordre est le diff._ Une version est un ensemble, un diff est une **suite**. Sa forme canonique
+n'est donc pas triée, contrairement à celle d'une version : le refus de la cascade impose de retirer
+les arêtes avant les nœuds et d'ajouter les nœuds avant les arêtes, et la même liste dans un autre
+ordre ne s'applique pas. Trier ferait signer deux clients sur un document qui ne décrit pas ce qui
+sera commité. Deux mutants échangeant les phases meurent.
+
+_Ce qui prouve n'est pas ce qui est annoncé._ `Diff::from_wire` lit un diff venu d'ailleurs — §22.4
+le sert sur `/branches/:id/diff` — et ne vérifie rien, faute de base sous la main. C'est le rejeu
+qui confronte, et il confronte le contenu **produit** à celui que le document déclare. Un diff
+flatteur est refusé, pas cru sur parole. Septième occurrence de cette discipline dans le dépôt.
+
+_Vide n'est pas absent._ Le diff d'une version vers elle-même existe, et `is_empty()` le dit. Rendre
+`None` obligerait chaque appelant à un cas particulier, et surtout un approbateur ne verrait _rien_
+au lieu de lire que la proposition ne change rien — ce qui est une information, et souvent une
+surprise. Rejouer une suite vide rend la base **elle-même** : produire une version au contenu
+identique inscrirait qu'il s'est passé quelque chose là où il ne s'est rien passé, pendant exact de
+la cascade qui inscrit moins que ce qui arrive.
+
+_Un refus nomme laquelle et où._ `Inapplicable` porte la **position** dans la suite et la forme
+canonique complète de l'opération fautive. Un mutant ne rapportant que le nom a survécu au premier
+tour : dans une suite qui ajoute plusieurs nœuds, « `ADD_NODE` » fait deviner lequel.
+
+_La forme canonique d'une opération porte tout ce qui décide de son effet._ Deux mutants ont montré
+que ce n'était pas acquis — une scission qui n'écrivait pas sa partition, un remplacement qui
+perdait sa cible — et ils survivaient parce que le test de diff les distinguait par leur ligne
+`target`, pas par leur ligne `op`. Un test fait désormais varier **un champ à la fois** sur les sept
+opérations et exige quatorze formes distinctes.
+
+**Un mutant qu'on ne peut pas écrire.** « Rejouer le vide inscrit une nouvelle version » n'a pas de
+mutant : la propriété découle de l'absence de branche — `replay_onto` part de `base.clone()` et n'a
+aucun cas particulier à se tromper. Le test l'affirme quand même, parce que le jour où quelqu'un
+ajoutera ce cas particulier, c'est lui qui le rattrapera.
+
+**Prochain item.** W15.c — les régions mutables bornées de GRAFT.
