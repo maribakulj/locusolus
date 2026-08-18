@@ -6861,3 +6861,167 @@ avant d'empiler quatre décisions dessus.
 refus, `W19.b` la permission hors ligne. Les tranches 1 et 4 restent chez `W15.f` et `W16.d`.
 `W19.a` avant `W19.b` parce qu'elle porte la clause de falsification, et `W15.f` avant les deux
 parce qu'elle porte les deux tests qui définissent le mineur.
+
+---
+
+## 2026-08-18 — W5.f — L'épreuve des seize sondes contre une sandbox réelle, et la question posée à la CI
+
+**Périmètre.** `apps/locus-execd/tests/host_sandbox.rs` (neuf), un job `sandbox` dans
+`.github/workflows/ci.yml`, `docs/10_V1_ROADMAP.md`. Aucun code de production modifié : tout ce que
+l'item demande existait déjà — `SUITE`, `PROBE_COMMANDS`, `run_suite`, `judge`, `standing`,
+`SystemRunner`. Ce qui manquait était **un hôte**, et de quoi savoir si la CI en est un.
+
+**Ce que les autres tests ne pouvaient pas dire.** `tests/podman.rs` pilote un `ScriptedRunner` et
+l'écrit lui-même : c'est ce qui permet de vérifier les arguments et les chemins d'erreur « là où
+aucun runtime rootless n'est garanti — c'est-à-dire en CI ». Un double rend ce qu'on lui a dit de
+rendre. Il ne sait pas si `cpu.max` mord, si `--userns` ferme la vue sur les processus de l'hôte, ni
+si le profil seccomp refuse `unshare`. Et `sh -n` vérifie une syntaxe :
+`[ "${after:-0}" -eq "${before:-0}" ]` se parse parfaitement et ne prouve rien tant que personne n'a
+vu `nr_throttled` bouger. Le module le disait déjà comme dette nommée — « c'est le premier travail
+d'un hôte capable de S2 ».
+
+**Décisions prises.**
+
+_Le test est `#[ignore]`, pas conditionnel._ Un test qui se sauterait tout seul quand l'hôte ne
+convient pas ressemblerait en tout point à un test qui passe — la leçon que `--require-emacs` a déjà
+coûtée. `ignored` apparaît dans la sortie de `cargo test` ; « sauté en silence » n'y apparaît pas.
+
+_La table s'imprime avant les assertions._ Un échec doit dire **laquelle** des seize n'a pas tenu et
+**comment**. C'est la moitié utile d'un premier passage sur un hôte qu'on ne connaît pas : le
+verdict agrégé ne se lit qu'après coup, la table se lit tout de suite.
+
+_Trois états qui ne se réparent pas pareil._ Pas de runtime rootless, un runtime sans cgroups v2, un
+confinement qui ne tient pas. La première assertion du test est donc qu'**au moins une sonde a
+tourné** — sans elle, seize `NotRun` produiraient un `NotTrusted` qu'on lirait comme une faille
+alors qu'il manque une machine. Le job imprime en plus, avant toute tentative, ce que l'hôte annonce
+: noyau, version de podman, type de `/sys/fs/cgroup`, contrôleurs, plages `subuid`.
+
+_`NetworkMode::Full` et non `Deny`._ `plan` refuse explicitement autre chose que `full` en deçà de
+`S3` — « un processus rootless sans namespace réseau voit le réseau de l'hôte, et dire "deny"
+là-dessus serait un mensonge ». Les deux sondes réseau sont donc `Allowed` à `S2` et **doivent
+réussir** ; les compter comme contenues ferait de `S2` un `S3`.
+
+_Un profil seccomp écrit par le test, dans un fichier temporaire._ `S2` exige la posture
+`Restricted`, donc un profil sur disque. `tests/seccomp.rs` explique pourquoi le dépôt **ne livre
+pas** de profil : « en écrire un sans hôte pour l'éprouver produirait soit une sandbox qui casse
+tout, soit une sandbox qui autorise ce qu'elle prétend refuser ». Celui du test ne prétend pas être
+celui-là : il est défaut-permissif et refuse nommément les huit appels de `MUST_DENY`, la posture
+exacte que `RestrictedProfile` vérifie et rien de plus. Il vit dans un fichier temporaire plutôt que
+dans le dépôt, précisément pour que personne ne le prenne pour le profil de production.
+
+_L'image porte un digest et `curl`._ `Workload::new` refuse une image par tag, et il a raison : une
+attestation qui nomme un tag n'atteste de rien de reproductible. `curl` est nécessaire parce que les
+deux sondes réseau rendent `120` sans lui, que le harnais lit comme `NotRun` — honnête et inutile,
+on saurait que la sonde n'a pas conclu, pas si le réseau est joignable. D'où une image
+**construite** dans le job, sans `ENTRYPOINT` qui se substituerait à la commande du workload, avec
+un repli déclaré si la référence locale par digest ne se résout pas.
+
+**`continue-on-error: true`, délibéré et temporaire.** Ce job est une question, pas une garde.
+Personne ne sait encore ce qu'un runner GitHub sait confiner, et un job rouge pour cette raison
+ferait rejeter des PR qui n'y sont pour rien. Le commentaire du workflow écrit l'arbitrage à faire
+au passage suivant plutôt que de le laisser à la mémoire : vert → `continue-on-error` tombe et
+`W5.f` est clos ; rouge → la table dit pourquoi, et l'item part vers une VM dédiée ou un report
+écrit.
+
+**Une question sémantique que ce passage va trancher, et qu'aucun test ne pouvait poser avant.**
+`read_host_filesystem` lit `/host-root/etc/hostname`. À `S2` elle doit être contenue, et elle le
+sera — rien ne monte `/host-root`. Mais en dessous elle doit **réussir**, et si aucun profil ne
+monte jamais la racine de l'hôte à cet endroit, la sonde ne peut réussir à aucun niveau : elle
+serait « contenue » partout, y compris là où le niveau ne promet rien. C'est exactement le genre de
+chose qu'un double ne peut pas dire, et c'est pourquoi l'item existe. Le constat sera écrit ici
+quand le job aura tourné.
+
+**Le premier passage a répondu, et il a trouvé un défaut avant d'exercer une seule sonde.** Le
+runner GitHub **fait tourner Podman rootless** : l'image s'est construite, la référence locale par
+digest s'est résolue, `podman create` a été atteint. Il a rendu 125 : « storage option overlay.size
+and overlay.inodes only supported for backingFS XFS. Found extfs ». `ConfinementPlan::disk_bytes`
+devient un `--storage-opt size=`, que Podman ne sait appliquer que sur XFS ; le runner est en ext4.
+
+_Mon propre message mentait, et c'est le premier correctif._ L'assertion disait « cet hôte n'a pas
+de runtime rootless en état de marche » sur seize `NotRun`. C'était faux : le runtime marchait et
+avait refusé la **spécification**. Les trois états que le test prétendait distinguer ne l'étaient
+donc pas — il confondait « il manque une machine » avec « il manque une capacité d'hôte ». `probe`
+rend désormais un `Result` dont l'erreur porte le message du runtime mot pour mot, et une sandbox
+qui n'a pas démarré ne produit plus une table de seize `NotRun` — zéro observation et une raison ne
+sont pas seize observations.
+
+_Deux tests, parce qu'un seul aurait dû mentir dans un sens ou dans l'autre._ Le premier demande si
+l'hôte tient `S2` sous une mission qui réserve du disque ; sur ce runner il n'observe rien et le
+dit. Le second éprouve les **quinze** sondes qui ne dépendent pas du quota disque — quinze seizièmes
+de la question, contre zéro auparavant — et **n'établit jamais `S2`** : `exceed_disk_quota` est
+`contained_from: S2`, sans quota elle réussirait pour une raison qui ne dit rien du confinement, et
+l'exclure en concluant « `S2` tient » serait la façon exacte de croire une sandbox qu'on n'a pas
+testée. L'exclusion est nommée et le test vérifie que la sonde écartée **existe** : l'écarter par un
+nom mort n'écarterait rien, et le test croirait couvrir seize sondes.
+
+_Le profil seccomp porte un `tag`._ Les deux tests tournent dans le même processus, donc
+`process::id()` ne les sépare pas, et le nettoyage de l'un effacerait le fichier que l'autre
+utilise.
+
+**Le défaut trouvé devient `W5.g`.** `probe.rs` a pour doctrine « ce que l'hôte permet réellement —
+lu, jamais supposé », et son en-tête dit pourquoi : « un broker qui apprendrait ses limites en
+échouant les découvrirait après avoir créé la moitié d'une sandbox ». C'est mot pour mot ce qui se
+passe pour le quota disque. Le module frôle le sujet sans en tirer la conséquence —
+`REQUIRED_CONTROLLERS` note que « le quatrième, le disque, ne se borne pas par cgroup » et s'arrête
+là. Le refus devra être **distinct** de `CapacityExceeded` : « la capacité manque » et « la borne
+n'est pas applicable ici » n'envoient pas chercher la même chose. Ce défaut n'était pas trouvable
+par un double ; il fallait un vrai `podman create` sur un vrai système de fichiers, et c'est
+précisément ce que `W5.f` existe pour obtenir.
+
+**L'arbitrage annoncé, rendu.** Un runner GitHub n'est pas un hôte `S2` pour ce dépôt, et la raison
+n'est pas réparable en CI : le système de fichiers d'un runner n'est pas un réglage. `W5.f` demande
+donc une VM à système de fichiers XFS, ou un report écrit. Le job reste `continue-on-error` en
+attendant, parce que son second test rapporte les quinze sondes — et c'est de l'information qu'on
+n'avait pas.
+
+**Le second passage a fait tourner la suite entière, et c'est là que tout s'est joué.** Sans quota
+disque, la sandbox démarre, et les seize sondes s'exercent pour la première fois dans un conteneur
+rootless réel. La table :
+
+| Verdict                 | Sondes                                                                                                                                                                                                                                                                                        |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **tient** (12)          | `write_outside_workspace`, `write_host_home`, `persist_after_teardown`, `read_host_filesystem`, `read_host_secret_files`, `access_container_runtime_socket`, `escalate_to_root`, `observe_host_processes`, `exceed_cpu_quota`, `exceed_memory_quota`, `exceed_pid_quota`, `exceed_disk_quota` |
+| **échappement** (1)     | `read_process_environment`                                                                                                                                                                                                                                                                    |
+| **sur-confinement** (3) | `open_outbound_connection`, `reach_cloud_metadata_service`, `reach_host_kernel_interfaces`                                                                                                                                                                                                    |
+
+Douze preuves là où il n'y avait qu'une syntaxe vérifiée. Et quatre démentis, qui deviennent `W5.h`.
+
+_`read_process_environment` échappait **parce que le confinement était correct**._ Elle lit
+`/proc/1/environ`. Dans un namespace PID, `/proc/1` est l'init **du conteneur** — le `sleep 600` du
+workload — appartenant à l'utilisateur mappé. La lecture réussit, et elle réussit d'autant plus
+sûrement que le namespace fait son travail. La sonde est donc inversée : elle ne peut pas échouer
+sur un hôte correctement confiné, et comme elle est `critical`, tout hôte bien configuré se voyait
+refuser la confiance. C'est le contraire du défaut qu'on cherchait, et très exactement ce qu'un
+double ne pouvait pas dire.
+
+_Les trois sur-confinements confondent deux choses que le module distingue déjà ailleurs._ Un
+résolveur absent dans l'image, une route que le réseau de l'hôte n'ouvre pas, un fichier que l'hôte
+lui-même refuse en 0400 : dans les trois cas la commande rend un code non nul ordinaire, que le
+harnais lit comme `Blocked`, c'est-à-dire comme une preuve d'isolation. C'est le piège du 127 de
+`W5.c` et du 120 de `W5.d`, une couche plus loin — cette fois ce n'est ni la sonde ni ce qu'elle
+lisait qui manque, c'est **ce qu'elle voulait atteindre**. Les causes exactes restent à établir par
+la sonde elle-même, et c'est le sujet de `W5.h` : une sonde qui ne peut pas dire pourquoi elle a
+échoué ne peut pas être crue quand elle réussit.
+
+**La cinquième trouvaille, et le seul endroit où le second test bat le premier.**
+`exceed_disk_quota` est ressortie « bloquée → tient » sous une mission qui **ne déclarait aucun
+quota**. Elle écrit à la racine (`dd of=/locus-probe-disk`), que `S2` monte en lecture seule : elle
+mesure donc la racine en lecture seule, jamais le quota. Une sonde qui passe alors que ce qu'elle
+teste n'existe pas est le pire des trois états, parce qu'elle ne se plaint jamais — et il fallait
+précisément un passage **sans quota** pour le voir. Le contrôle négatif était accidentel ; il n'en
+est pas moins un contrôle négatif, et c'est lui qui a trouvé le plus.
+
+**Ce que la question sémantique annoncée est devenue.** Le passage devait trancher si
+`read_host_filesystem` peut réussir à un niveau quelconque. Elle est ressortie « bloquée → tient » à
+`S2`, ce qui ne dit encore rien de son comportement en dessous : la question reste due, et elle est
+de la même famille que les quatre de `W5.h` — une sonde ne se juge pas seulement sur le niveau où
+elle doit être contenue, mais sur celui où elle doit réussir.
+
+**Ce que cela ouvre, et qui n'était pas prévu.** Une fois `W5.h` faite, le second test peut devenir
+**vert et bloquant en CI** : quinze sondes de sandbox réellement exercées à chaque passage, sur un
+runner ordinaire. Le dépôt n'a jamais eu ça. `W5.f` — les seize, `S2` établi — continue d'attendre
+un hôte XFS, et c'est une bien plus petite dette que celle du départ.
+
+**Ce que ce sprint ne prétend pas.** `W5.f` n'est pas clos. Ce qui est livré est l'épreuve et la
+question ; la réponse vient du prochain passage de CI, et l'arbitrage qu'elle appelle est écrit
+d'avance pour qu'il ne dépende pas de qui le lit.
