@@ -7251,3 +7251,48 @@ dimensionné, tmpfs borné, ou renoncement déclaré — et `exceed_disk_quota` 
 **Tests exécutés.** `cargo test -p locus-execd --test linux` → 31 conformes, dont huit neufs.
 `npm run check` → les dix portes vertes. Mutation : onze mutants, **onze tués** — après correction
 du survivant décrit plus haut, qui était un vrai trou.
+
+---
+
+## 2026-08-18 — W5.k — Le réseau déclaré n'est pas celui qu'obtient la sandbox
+
+**Périmètre.** `apps/locus-execd/tests/host_sandbox.rs` (un test `#[ignore]` de plus) et
+`docs/10_V1_ROADMAP.md`. Aucun correctif : ce sprint **établit** un fait et livre l'instrument qui
+le tranchera.
+
+**D'où vient la question.** Le constat de route ajouté par `W5.h` devait distinguer « la sandbox a
+coupé le réseau » de « l'hôte ne mène nulle part ». Sur le runner, il a rendu « pas de route par
+défaut ». Deux lectures s'offraient, réparables à des endroits opposés — la sonde lit mal, ou la
+sandbox n'a réellement pas de réseau — et le ledger de `W5.h` disait explicitement qu'affirmer l'une
+sans regarder serait exactement ce que cet item reproche aux sondes.
+
+**Trois vérifications, aucune n'a coûté un passage de CI supplémentaire.**
+
+_Les arguments sont bons._ `create_arguments` pour `S2` + `NetworkMode::Full` porte
+`--network=host`, et `plan` rend `NetworkPosture::Host` sans namespace réseau. Vérifié hors
+conteneur, sur les arguments eux-mêmes, en imprimant ce que le plan produit.
+
+_Le constat de route est bon._ Rejoué hors ligne sur la sortie réelle de `/proc/net/route` capturée
+dans le conteneur, l'`awk` trouve la route et rend 0 ; sur un `/proc/net/route` réduit à son en-tête
+— ce que présente un namespace réseau vide — il rend 1. La sonde fait donc exactement ce qu'elle
+annonce.
+
+_Le monde est joignable._ Le job imprime désormais ce qu'un `podman run --network=host` nu voit sur
+le runner : une route par défaut sur `eth0`, un `resolv.conf` qui résout, `curl example.org` →
+**200**, et même `169.254.169.254` → **400**, c'est-à-dire un service qui répond.
+
+**Ce qui reste, et c'est le fait.** La sandbox créée par le plan ne voit pas la route, alors que les
+arguments la demandent et que l'hôte l'offre. **Une permission déclarée n'est pas accordée**, en
+silence. C'est le miroir exact de `W5.g` : là une borne déclarée n'était pas applicable, ici une
+permission déclarée n'est pas honorée. Les deux ne se voient qu'en regardant depuis l'intérieur, et
+c'est pourquoi aucun double ne pouvait les trouver.
+
+**Ce qui est livré.** Un test `#[ignore]` qui crée la sandbox du plan, lit `/proc/net/route`
+**depuis l'intérieur**, l'imprime, puis affirme que la route par défaut y est. Il imprime avant
+d'affirmer parce que la suite du travail est de trouver **lequel** des drapeaux du plan produit cet
+écart — `--read-only`, la posture seccomp, les douze `--cap-drop`, les quotas cgroup — et que cela
+se bissecte sur une table, pas sur un verdict.
+
+**Ce que ce sprint ne fait pas.** Il ne corrige rien, et il ne prétend pas savoir quel drapeau est
+en cause. Nommer un coupable sans l'avoir isolé serait la même faute que celle des trois sondes qui
+lisaient un réseau muet comme une preuve d'isolation.

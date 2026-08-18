@@ -59,7 +59,8 @@ use std::path::PathBuf;
 use std::process;
 
 use locus_execd::linux::{
-    MUST_DENY, PodmanBackend, RestrictedProfile, SeccompProfiles, SystemRunner, Workload, run_suite,
+    MUST_DENY, PodmanBackend, RestrictedProfile, Runner, SeccompProfiles, SystemRunner, Workload,
+    exec_arguments, run_suite,
 };
 use locus_execd::{RuntimePort, SandboxId};
 use locus_execution::{
@@ -374,4 +375,89 @@ fn report(results: &[(&'static str, Observed)]) {
         );
     }
     println!();
+}
+
+// ---------------------------------------------------------------------------------------------
+// W5.k — le réseau déclaré, et celui que la sandbox obtient
+// ---------------------------------------------------------------------------------------------
+
+/// **La sandbox du plan présente-t-elle le réseau que la mission a déclaré ?**
+///
+/// # Ce que le premier hôte réel a montré, et qui n'est pas un défaut de sonde
+///
+/// À `S2` avec `NetworkMode::Full`, `plan` rend `NetworkPosture::Host` et `create_arguments` émet
+/// bien `--network=host` — vérifié hors conteneur, sur les arguments eux-mêmes. Pourtant les deux
+/// sondes réseau ressortent **bloquées**, c'est-à-dire que leur constat de route ne trouve aucune
+/// route par défaut. Or sur le même hôte, un `podman run --network=host` nu voit la route, résout
+/// les noms, et rend `200` sur `example.org`.
+///
+/// Le constat de route n'est pas en cause : rejoué hors ligne sur la sortie réelle de
+/// `/proc/net/route`, il trouve la route ; sur un namespace vide, il ne la trouve pas. Ce qui reste
+/// est que **la sandbox n'obtient pas le réseau que la mission a déclaré**, silencieusement.
+///
+/// C'est le miroir exact du quota disque de `W5.g` : là une borne déclarée n'était pas applicable,
+/// ici une permission déclarée n'est pas accordée. Les deux se voient de la même façon — en
+/// regardant depuis l'intérieur — et pas autrement.
+///
+/// # Ce que ce test affirme
+///
+/// Que la posture déclarée et ce que la sandbox présente coïncident. Il imprime d'abord ce qu'elle
+/// voit, parce qu'un échec doit dire **quoi** manque et non seulement que quelque chose manque : la
+/// suite du travail est de trouver lequel des drapeaux du plan produit cet écart, et cela se
+/// bissecte sur une table, pas sur un verdict.
+#[test]
+#[ignore = "exige Podman rootless et LOCUS_PROBE_IMAGE"]
+fn la_sandbox_presente_le_reseau_que_la_mission_declare() {
+    let workspace = workspace_dir("reseau");
+    let spec = probed_spec(&workspace.to_string_lossy(), 0);
+    let seen = inspect_network(&spec);
+    let _ = fs::remove_dir_all(&workspace);
+
+    println!("\nce que la sandbox du plan voit du réseau\n\n{seen}\n");
+
+    assert!(
+        seen.lines().skip(1).any(|line| {
+            let mut fields = line.split_whitespace();
+            fields.next().is_some() && fields.next() == Some("00000000")
+        }),
+        "la mission déclare `NetworkMode::Full`, le plan rend `NetworkPosture::Host` et les \
+         arguments portent `--network=host` — la sandbox devrait donc voir la route par défaut de \
+         l'hôte. Elle ne la voit pas, et c'est une permission déclarée qui n'est pas accordée."
+    );
+}
+
+/// Ce que la sandbox voit de `/proc/net/route`, lu depuis l'intérieur.
+fn inspect_network(spec: &SandboxSpec) -> String {
+    let image = env::var(IMAGE).expect("LOCUS_PROBE_IMAGE");
+    let workload = Workload::new(&image, vec!["sleep".to_owned(), "600".to_owned()])
+        .expect("une image à digest et une commande non vide");
+    let (profile_path, restricted) = write_restricted_profile("reseau");
+    let mut backend = PodmanBackend::new(
+        SystemRunner,
+        SeccompProfiles {
+            restricted: Some(restricted),
+        },
+        workload,
+    );
+
+    let seen = match backend.create(spec) {
+        Ok(id) => {
+            let read = if backend.start(&id).is_ok() {
+                backend
+                    .runner()
+                    .run(&exec_arguments(
+                        &id,
+                        &["sh", "-c", "cat /proc/net/route 2>&1"],
+                    ))
+                    .map_or_else(|error| error.to_string(), |execution| execution.stdout)
+            } else {
+                "la sandbox n'a pas démarré".to_owned()
+            };
+            let _ = backend.stop(&id);
+            read
+        }
+        Err(error) => error.to_string(),
+    };
+    let _ = fs::remove_file(&profile_path);
+    seen
 }
