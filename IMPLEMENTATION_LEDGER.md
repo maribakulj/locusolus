@@ -6554,3 +6554,53 @@ construction. Le `.max` a été retiré plutôt que couvert par un test. C'est l
 deuxième application dans ce chantier après le `is_finite` de W18.a.
 
 **Prochain item.** `R4` à `R6`, ou les items bloqués si leur condition se lève.
+
+---
+
+## 2026-08-18 — R4 — Le substitut d'environnement : unilatéral en rejet, et une fidélité inconnue
+
+**Périmètre.** `packages/evaluation/src/counterfactual.rs`, `packages/evaluation/src/lib.rs`,
+`packages/evaluation/tests/counterfactual.rs`.
+
+**Tests exécutés.** `cargo test -p locus-evaluation` → 15 conformes pour cet item. `npm run check` →
+les dix portes vertes. Mutation : treize mutants, **treize tués**.
+
+**Ce que W16.c avait déjà, et ce que celui-ci ajoute.** `coordination::simulation` porte les quatre
+fidélités du plan de simulation et le substitut d'environnement qui **dit** ne pas savoir plutôt que
+d'inventer une réponse. Il regarde une reconfiguration. Celui-ci regarde une **trajectoire** — la
+suite de pas d'une mission —, et il répond à une autre question : ce changement aurait-il fait une
+différence.
+
+**Décisions prises.**
+
+_Unilatéral en rejet, et c'est un chemin de types._ `Outcome` a deux variantes et une seule conclut
+: `Refuted`. L'autre s'appelle `NotRefuted`, **pas** « confirmé ». Deux trajectoires qui coïncident
+sur une graine et un préfixe donnés peuvent parfaitement diverger sur la suivante, et rien dans la
+comparaison ne dit le contraire. Un `is_confirmed()` ferait de l'absence de contre-exemple une
+preuve, ce que `R4` interdit en toutes lettres — « jamais un juge, jamais une preuve ». Un test lit
+le source et refuse `Confirmed`, `Validated`, `Proven`, `fn proves`, `fn judge`, `struct Proof`,
+`fn accept`. Un autre compte les variantes de l'énumération.
+
+_Le non-rejet porte le nombre de pas comparés._ « Non réfuté sur trois pas » et « non réfuté sur
+trois mille » ne sont pas la même chose ; un verdict qui tairait la différence les rendrait
+interchangeables. Troisième occurrence de la même forme dans ce bloc, après le nombre de rejeux
+d'une `Baseline` et le nombre de candidats d'un `Regret`.
+
+_Graine et préfixe identiques sont une condition, pas une recommandation._ Deux trajectoires qui ne
+partagent ni le tirage ni le début ne se comparent pas : leur divergence s'explique par tout, donc
+par rien. La graine est vérifiée **avant** le préfixe, parce que refixer la graine vient d'abord. Et
+un préfixe qui est le **début** de l'autre est refusé aussi : « l'un continue » n'est pas « les deux
+partent du même endroit », et le pas de plus peut expliquer toute la suite.
+
+_Zéro pas comparé se dit._ Deux suites vides rendent `NotRefuted { compared: 0 }`. Zéro n'est pas
+une absence de comparaison : c'est une comparaison qui n'a rien pu regarder, et le dire évite qu'un
+rapport la confonde avec un accord.
+
+_La fidélité est inconnue, et le type le dit._ La roadmap est explicite. Il n'existe donc **aucun**
+moyen d'exprimer une fidélité mesurée : pas d'énumération à deux variantes dont une serait vide — ce
+serait la sémantique inerte que l'ADR 0016 décision 4 interdit —, pas de `f64` par défaut.
+`fidelity` rend un `Unmeasured`, et c'est le seul type qu'elle sait rendre. Le jour où quelqu'un
+mesure, le type change et **tous** les appelants sont forcés de regarder ; un champ qui attendait
+déjà la valeur les en aurait dispensés.
+
+**Prochain item.** `R5` — prototype externe de harnais tiers — ou `R6`.
