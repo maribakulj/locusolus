@@ -15,6 +15,7 @@ pub struct HostCapabilities {
     capacity: ResourceSpec,
     network_modes: Vec<&'static str>,
     reach: AcceleratorReach,
+    disk_quota: DiskQuota,
 }
 
 /// D'où l'accélérateur de l'hôte est atteignable.
@@ -58,7 +59,28 @@ impl HostCapabilities {
             capacity,
             network_modes,
             reach: AcceleratorReach::InsideSandbox,
+            disk_quota: DiskQuota::Enforceable,
         }
+    }
+
+    /// Déclarer que cet hôte **ne peut pas** tenir de quota disque, et pourquoi.
+    ///
+    /// Le paramètre est la raison lue, pas un booléen : un refus qui dirait seulement « pas de
+    /// quota disque » enverrait chercher une option de configuration là où c'est le système de
+    /// fichiers qui décide. `HostFacts::unenforceable_disk_quota` la produit — c'est le pont entre
+    /// ce qui a été **lu** sur l'hôte et ce sur quoi l'admission **décide**.
+    #[must_use]
+    pub fn without_disk_quota(mut self, why: &str) -> Self {
+        self.disk_quota = DiskQuota::NotEnforceable {
+            why: why.to_owned(),
+        };
+        self
+    }
+
+    /// Si un quota disque est applicable ici.
+    #[must_use]
+    pub const fn disk_quota(&self) -> &DiskQuota {
+        &self.disk_quota
     }
 
     /// Déclarer que l'accélérateur n'est atteignable qu'en exécution native.
@@ -123,6 +145,18 @@ pub enum RefusalReason {
         /// Le genre demandé.
         kind: String,
     },
+    /// L'hôte ne sait pas **borner** l'espace disque, quel que soit ce qu'il en reste.
+    ///
+    /// Distinct de [`RefusalReason::CapacityExceeded`], et la distinction n'est pas cosmétique :
+    /// « la capacité manque » envoie libérer de la place ou réduire la réservation ; « la borne
+    /// n'est pas applicable ici » envoie changer de système de fichiers, ou de machine. Les fondre
+    /// ferait réduire une réservation qui aurait échoué de la même façon à un octet.
+    DiskQuotaNotEnforceable {
+        /// Ce que la mission réserve.
+        requested: u64,
+        /// Ce qui a été lu de l'hôte, et qui nomme le système de fichiers.
+        why: String,
+    },
     /// L'hôte ne sait pas appliquer ce mode réseau.
     NetworkModeUnsupported {
         /// Le mode demandé.
@@ -169,6 +203,10 @@ impl fmt::Display for RefusalReason {
             Self::AcceleratorUnavailable { kind } => {
                 write!(formatter, "aucun accélérateur « {kind} » sur cet hôte")
             }
+            Self::DiskQuotaNotEnforceable { requested, why } => write!(
+                formatter,
+                "la mission réserve {requested} octets de disque, que cet hôte ne sait pas borner : {why}"
+            ),
             Self::NetworkModeUnsupported { mode } => {
                 write!(
                     formatter,
@@ -200,6 +238,26 @@ impl fmt::Display for RefusalReason {
             ),
         }
     }
+}
+
+/// Si une réservation de disque est applicable sur cet hôte.
+///
+/// # Pourquoi ce n'est pas un quota de plus dans `ResourceSpec`
+///
+/// Les trois autres quotas — CPU, mémoire, PID — se bornent par cgroup v2, et un hôte qui porte les
+/// contrôleurs les porte tous. Le disque ne se borne pas par cgroup : `cgroup.controllers` ne dit
+/// rien de lui, et `REQUIRED_CONTROLLERS` le note sans en tirer la conséquence. Il dépend du
+/// **système de fichiers**, ce qui en fait une capacité d'une autre nature — présente ou absente
+/// indépendamment du niveau de confinement atteignable.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DiskQuota {
+    /// Le stockage de cet hôte sait porter un quota de projet.
+    Enforceable,
+    /// Il ne sait pas, et voici ce qui le dit.
+    NotEnforceable {
+        /// Ce qui a été lu, mot pour mot, et qui nomme le système de fichiers.
+        why: String,
+    },
 }
 
 /// Le verdict d'admission.
@@ -267,6 +325,18 @@ pub fn admit(spec: &SandboxSpec, host: &HostCapabilities) -> Admission {
     {
         reasons.push(RefusalReason::AcceleratorUnavailable {
             kind: accelerator.kind.clone(),
+        });
+    }
+
+    // Constaté **avant** toute création, et c'est tout l'objet de W5.g. Ce refus-là s'apprenait
+    // autrefois de `podman create`, qui rendait 125 après avoir commencé à configurer le stockage —
+    // exactement ce que l'en-tête de `HostCapabilities` dit qu'un broker ne doit pas faire.
+    if spec.resources().disk_bytes() > 0
+        && let DiskQuota::NotEnforceable { why } = &host.disk_quota
+    {
+        reasons.push(RefusalReason::DiskQuotaNotEnforceable {
+            requested: spec.resources().disk_bytes(),
+            why: why.clone(),
         });
     }
 

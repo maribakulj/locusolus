@@ -39,7 +39,10 @@ pub use plan::{
     BACKEND_CEILING, CPU_PERIOD_MICROSECONDS, CgroupLimit, ConfinementPlan, DANGEROUS_CAPABILITIES,
     MountPlan, Namespace, NetworkPosture, PlanError, REMAINING_CAPABILITIES, SeccompPosture, plan,
 };
-pub use probe::{HostFacts, Missing, REQUIRED_CONTROLLERS, Support};
+pub use probe::{
+    HostFacts, LocalReader, Missing, NO_STORAGE_DECLARED, PROJECT_QUOTA_OPTIONS,
+    QUOTA_CAPABLE_FILESYSTEMS, REQUIRED_CONTROLLERS, Reader, Support,
+};
 pub use seccomp::{MUST_DENY, ProfileError, RestrictedProfile};
 pub use selftest::{
     INCONCLUSIVE_EXIT_CODE, PROBE_COMMANDS, UNREACHABLE_RUNTIME, UNREACHABLE_TARGET_EXIT_CODE,
