@@ -306,7 +306,18 @@ Six items ne dépendent d'aucun autre dépôt : dispatcher `xiiif-open`, alias d
 numérique de région, politique d'URL, limites de taille et de redirections, bridge OpenSeadragon.
 Bon travail de repli quand une décision bloque ailleurs.
 
-Bloqué sur W0.6 : `RemoteArtifactRef`, `xiiif-open-locus-artifact`, affichage séparé identité /
+**Le blocage cité était W0.6, qui est terminé** — et pourtant `RemoteArtifactRef` n'existe nulle
+part. W0.6 a livré les schémas LEP ; ce type-ci est un contrat **entre** locusolus et xiiif, et aucun
+item ne le portait. C'est un trou de couverture, comme celui de §7.1 relevé plus haut, pas une
+dépendance en retard.
+
+| # | Commit | Dépôt | Test de sortie |
+|---|---|---|---|
+| W6.f `[R]` | `RemoteArtifactRef` (§19 de `xiiif/SPEC_V1.md`) : identité Locus, media type, hashes attendus, **un seul** locator | un document à deux locators est refusé, un document sans locator aussi ; le snapshot prouve la reproduction, la ressource live ne prouve rien ; une divergence entre les deux ne rend jamais la preuve historique douteuse |
+| W10.7 `[R]` | xiiif consomme `RemoteArtifactRef` : `xiiif-open-locus-artifact`, affichage séparé des cinq facettes | les cinq facettes de §19 sont distinctes à l'écran ; une ressource live modifiée après le run ne fait pas croire que la preuve a changé |
+| W10.8 `[R]` | revue humaine de §20 : `accept`, `needs-correction`, `wrong-target`, `source-changed` | un verdict produit un finding attachable à un `ReviewDossier`, et xiiif ne valide rien lui-même |
+
+Reste bloqué sur W6.f : `xiiif-open-locus-artifact`, affichage séparé identité /
 live / snapshot / intégrité / divergences (§19), revue humaine (§20).
 
 ## W11 — Deployment profiles

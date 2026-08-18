@@ -43,6 +43,8 @@ export type LimitResult = "enforced" | "unenforced" | "not-run";
  */
 export type Refs = readonly RefsItem[];
 
+export type Hash = string;
+
 /**
  * Le GPU est une capability, pas une dépendance globale (invariant 8) : absent veut dire « aucun n'est requis », jamais « n'importe lequel fera l'affaire ».
  */
@@ -788,6 +790,46 @@ export type EpistemicCommit = {
 };
 
 /**
+ * Ce que le run a constaté. Le hash du snapshot est ce qui prouve la reproduction ; celui de la ressource live, quand il est connu, ne sert qu'à constater l'évolution.
+ */
+export type RemoteArtifactRefExpected = {
+  readonly snapshot_hash: Hash;
+  readonly live_hash_at_run?: Hash | undefined;
+  readonly captured_at?: string | undefined;
+};
+
+/**
+ * Comment atteindre la ressource. §19 en nomme cinq et n'en autorise qu'un : deux locators laisseraient au viewer le soin de choisir, donc de choisir différemment d'une fois sur l'autre.
+ */
+export type RemoteArtifactRefLocator = {
+  readonly manifest_url?: string | undefined;
+  readonly canvas_id?: string | undefined;
+  readonly content_state?: string | undefined;
+  readonly annotation_target?: string | undefined;
+  readonly local_snapshot?: string | undefined;
+};
+
+export type RemoteArtifactRef = {
+  /**
+   * L'identité canonique de l'artefact côté Locus. §19 exige qu'elle s'affiche séparément de la ressource distante : c'est elle qui ne bouge pas.
+   */
+  readonly artifact_id: string;
+  readonly media_type: string;
+  /**
+   * Ce que le run a constaté. Le hash du snapshot est ce qui prouve la reproduction ; celui de la ressource live, quand il est connu, ne sert qu'à constater l'évolution.
+   */
+  readonly expected: RemoteArtifactRefExpected;
+  /**
+   * Comment atteindre la ressource. §19 en nomme cinq et n'en autorise qu'un : deux locators laisseraient au viewer le soin de choisir, donc de choisir différemment d'une fois sur l'autre.
+   */
+  readonly locator: RemoteArtifactRefLocator;
+  /**
+   * Ce que l'artefact suggère, jamais ce qu'il impose : xiiif n'est pas requis par les agents (invariant 10).
+   */
+  readonly viewer_hint?: "iiif" | "image" | "pdf" | "none" | undefined;
+};
+
+/**
  * Les documents qu'un pair peut envoyer ou recevoir, dans l'ordre du registre.
  */
 export const LEP_DOCUMENTS = [
@@ -800,6 +842,7 @@ export const LEP_DOCUMENTS = [
   "Attempt",
   "Lease",
   "EpistemicCommit",
+  "RemoteArtifactRef",
 ] as const;
 
 export type LepDocument = (typeof LEP_DOCUMENTS)[number];

@@ -53,8 +53,9 @@ pub mod derivation;
 pub mod ingest;
 pub mod manifest;
 pub mod memory;
+pub mod remote_ref;
 pub mod reproducibility;
-pub mod reproduction;
+mod reproduction;
 pub mod run;
 pub mod state;
 pub mod store;
@@ -64,6 +65,7 @@ pub use derivation::{Derivation, DerivationError, DerivationRelation};
 pub use ingest::{IngestError, ingest};
 pub use manifest::{ArtifactManifest, Integrity, ManifestError, ProducedBy, Rights, ViewerHints};
 pub use memory::MemoryObjectStore;
+pub use remote_ref::{Drift, Locator, Observed, RemoteArtifactRef, RemoteRefError, Standing};
 pub use reproducibility::{Assessment, Caveat, Level, Missing};
 pub use reproduction::{
     Comparison, Divergence, Independence, Mismatch, NotAReproduction, Verdict, compare,

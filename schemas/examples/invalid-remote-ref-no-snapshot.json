@@ -1,0 +1,16 @@
+{
+  "_fixture": {
+    "name": "a-reference-without-a-snapshot-proves-nothing",
+    "expect": "invalid",
+    "pairs_with": "remote-artifact-ref-iiif.json",
+    "note": "Le hash d'instantané est ce qui prouve la reproduction. Une référence qui n'en porte pas ne peut rendre qu'un verdict sur la ressource live — c'est-à-dire aucun verdict sur la preuve — et elle serait pourtant citée comme une provenance."
+  },
+  "artifact_id": "art-0f3c9a",
+  "media_type": "image/jpeg",
+  "expected": {
+    "live_hash_at_run": "sha256:1a3c5e7b9d0f2a4c6e8b0d2f4a6c8e0b2d4f6a8c0e2b4d6f8a0c2e4b6d8f0a2c"
+  },
+  "locator": {
+    "canvas_id": "https://gallica.example/iiif/canvas/p1"
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "_fixture": {
+    "name": "two-locators-let-the-viewer-choose",
+    "expect": "invalid",
+    "pairs_with": "remote-artifact-ref-iiif.json",
+    "note": "§19 nomme cinq locators et n'en autorise qu'un. Deux laisseraient au viewer le soin de choisir, donc de choisir différemment d'une fois sur l'autre — et deux ouvertures de la même référence ne montreraient pas la même chose."
+  },
+  "artifact_id": "art-0f3c9a",
+  "media_type": "image/jpeg",
+  "expected": {
+    "snapshot_hash": "sha256:9f2c1b7d4e6a8c0f2b4d6e8a0c2e4f6a8b0d2f4e6a8c0e2f4b6d8a0c2e4f6a8b"
+  },
+  "locator": {
+    "manifest_url": "https://gallica.example/iiif/manifest.json",
+    "canvas_id": "https://gallica.example/iiif/canvas/p1"
+  }
+}

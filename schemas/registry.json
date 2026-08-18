@@ -76,6 +76,14 @@
     {
       "schema": "artifacts/1.0/run-manifest.schema.json",
       "examples": ["run-manifest-reproducible.json", "run-manifest-narration-only.json"]
+    },
+    {
+      "schema": "artifacts/1.0/remote-artifact-ref.schema.json",
+      "examples": [
+        "remote-artifact-ref-iiif.json",
+        "invalid-remote-ref-two-locators.json",
+        "invalid-remote-ref-no-snapshot.json"
+      ]
     }
   ],
   "shared": [

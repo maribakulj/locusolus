@@ -118,6 +118,8 @@ pub enum LimitResult {
 /// Références à des artefacts, par identifiant et hash — la provenance passe par le contenu, pas par le nom.
 pub type Refs = Vec<RefsItem>;
 
+pub type Hash = String;
+
 /// Le GPU est une capability, pas une dépendance globale (invariant 8) : absent veut dire « aucun n'est requis », jamais « n'importe lequel fera l'affaire ».
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -883,8 +885,49 @@ pub struct EpistemicCommit {
     pub produced_at: String,
 }
 
+/// Ce que le run a constaté. Le hash du snapshot est ce qui prouve la reproduction ; celui de la ressource live, quand il est connu, ne sert qu'à constater l'évolution.
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RemoteArtifactRefExpected {
+    pub snapshot_hash: Hash,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub live_hash_at_run: Option<Hash>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub captured_at: Option<String>,
+}
+
+/// Comment atteindre la ressource. §19 en nomme cinq et n'en autorise qu'un : deux locators laisseraient au viewer le soin de choisir, donc de choisir différemment d'une fois sur l'autre.
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RemoteArtifactRefLocator {
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub manifest_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub canvas_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub content_state: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub annotation_target: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub local_snapshot: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RemoteArtifactRef {
+    /// L'identité canonique de l'artefact côté Locus. §19 exige qu'elle s'affiche séparément de la ressource distante : c'est elle qui ne bouge pas.
+    pub artifact_id: String,
+    pub media_type: String,
+    /// Ce que le run a constaté. Le hash du snapshot est ce qui prouve la reproduction ; celui de la ressource live, quand il est connu, ne sert qu'à constater l'évolution.
+    pub expected: RemoteArtifactRefExpected,
+    /// Comment atteindre la ressource. §19 en nomme cinq et n'en autorise qu'un : deux locators laisseraient au viewer le soin de choisir, donc de choisir différemment d'une fois sur l'autre.
+    pub locator: RemoteArtifactRefLocator,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    /// Ce que l'artefact suggère, jamais ce qu'il impose : xiiif n'est pas requis par les agents (invariant 10).
+    pub viewer_hint: Option<String>,
+}
+
 /// Les documents qu'un pair peut envoyer ou recevoir, dans l'ordre du registre.
-pub const LEP_DOCUMENTS: [&str; 9] = [
+pub const LEP_DOCUMENTS: [&str; 10] = [
     "ArtifactManifest",
     "RunManifest",
     "CapabilityManifest",
@@ -894,6 +937,7 @@ pub const LEP_DOCUMENTS: [&str; 9] = [
     "Attempt",
     "Lease",
     "EpistemicCommit",
+    "RemoteArtifactRef",
 ];
 
 /// Les features négociables au handshake, avec le mineur qui les introduit.

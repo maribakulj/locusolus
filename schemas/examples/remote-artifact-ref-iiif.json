@@ -1,0 +1,18 @@
+{
+  "_fixture": {
+    "name": "remote-artifact-ref-iiif",
+    "expect": "valid",
+    "note": "Le cas nominal de §19 : identité Locus, media type, hash d'instantané, un seul locator. Le hash live relevé au run permettra de constater une dérive sans jamais toucher à la preuve."
+  },
+  "artifact_id": "art-0f3c9a",
+  "media_type": "image/jpeg",
+  "expected": {
+    "snapshot_hash": "sha256:9f2c1b7d4e6a8c0f2b4d6e8a0c2e4f6a8b0d2f4e6a8c0e2f4b6d8a0c2e4f6a8b",
+    "live_hash_at_run": "sha256:1a3c5e7b9d0f2a4c6e8b0d2f4a6c8e0b2d4f6a8c0e2b4d6f8a0c2e4b6d8f0a2c",
+    "captured_at": "2026-08-13T10:10:00.000Z"
+  },
+  "locator": {
+    "manifest_url": "https://gallica.example/iiif/ark:/12148/btv1b8449691v/manifest.json"
+  },
+  "viewer_hint": "iiif"
+}
