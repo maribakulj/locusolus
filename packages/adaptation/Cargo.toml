@@ -10,9 +10,13 @@ publish.workspace = true
 [lints]
 workspace = true
 
+[dev-dependencies]
+locus-execution = { path = "../execution" }
+
 [dependencies]
 locus-budget = { path = "../budget" }
 locus-coordination = { path = "../coordination" }
 locus-domain = { path = "../domain" }
+locus-environments = { path = "../environments" }
 locus-policy = { path = "../policy" }
 locus-protocol = { path = "../protocol" }

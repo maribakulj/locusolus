@@ -6236,3 +6236,67 @@ cherchait `review_acyclicity` là où le slug de W15.c s'écrit `review-acyclici
 aucun chiffre dans le message » est restée, et c'est elle qui porte la garantie.
 
 **Prochain item.** W18.d — l'admission de capacité comme gouvernance.
+
+---
+
+## 2026-08-18 — W18.d — L'admission de capacité comme gouvernance
+
+**Périmètre.** `packages/adaptation/src/admission.rs`, `packages/adaptation/src/lib.rs`,
+`packages/adaptation/tests/admission.rs`, `packages/adaptation/Cargo.toml`.
+
+**Tests exécutés.** `cargo test -p locus-adaptation` → 71 conformes. `npm run check` → les dix
+portes vertes. Mutation : onze mutants, **onze tués**.
+
+**Ce que l'item n'a pas fait, et c'est le point.** L'ADR 0016 décision 8 dit exactement ce qui
+manquait : « Locusolus possède déjà le blueprint, l'artefact, l'attestation et le refus nommant
+toutes ses conditions. Ce qui manque est la proposition, la politique et l'approbation : du travail
+de gouvernance. » Ce module ne construit aucune image, ne scanne rien, ne signe rien. Refaire un
+maillon de la chaîne de W5.b ici en aurait fait un deuxième chemin, plus court — donc celui qu'on
+prend.
+
+**Décisions prises.**
+
+_Une capacité n'entre que par un `Published`._ `admit` en exige un, et cette valeur « est la preuve
+que les six étapes ont eu lieu, dans l'ordre : elle ne se construit pas autrement ». Il n'existe
+donc aucun argument par lequel une capacité entrerait sans lockfile, sans SBOM, sans scan, sans
+tests et sans signature — non parce qu'on les vérifie ici, mais parce que la valeur exigée ne peut
+pas exister sans eux.
+
+_L'extension est un axe orthogonal, pas un cinquième barreau._ L'ADR : « un déploiement peut être en
+`bounded` sur la coordination et interdire toute capacité nouvelle, ou l'inverse ». `Extension` est
+donc son propre interrupteur et non une valeur de `Mode`. Le ranger dans `Mode` aurait fait de
+l'extension une conséquence de l'autonomie de coordination, alors que les deux se décident
+séparément et n'ont pas les mêmes conséquences quand elles se trompent. Le défaut est `Forbidden`,
+et un mutant qui déplace le `#[default]` meurt.
+
+_« Démontré » est la condition qui manquait au raisonnement._ `Published` garantit déjà que
+**toutes** les vérifications de santé sont passées — `tested` refuse un échec, et séparément une
+vérification qu'on n'a pas su lancer. La question qui reste est _laquelle_ a été faite : la capacité
+doit être **nommée** par l'une d'elles. Une capacité qu'aucune vérification ne nomme n'a pas été
+démontrée par cette image, et la laisser passer parce que l'image est signée confondrait la
+**provenance** avec l'**aptitude**. La comparaison est exacte : un rapprochement par préfixe
+admettrait `sparql-write` sur la foi d'une vérification nommée `sparql`, et un test exerce les deux
+sens du préfixe.
+
+_Le refus dit ce que l'image a effectivement démontré._ Un refus qui dirait « non » enverrait relire
+quatre politiques à la main, et « l'image ne l'a pas démontrée » n'appelle pas du tout la même suite
+que « le déploiement n'admet aucune capacité nouvelle ». Un test vérifie que les quatre refus
+produisent quatre phrases distinctes.
+
+_Le demandeur n'approuve pas sa propre extension._ `forbid_self_approval` est l'une des trois bornes
+que l'ADR déclare inrelâchables ; ici elle empêche un agent d'élargir seul ce qu'il a le droit de
+faire, ce qui est la forme la plus directe du problème de l'agent auto-modifiant.
+
+_Du code injecté n'est pas une valeur exprimable._ Ce que la littérature appelle « système de
+plugins » fait circuler du **code** qu'un processus charge ; une admission fait circuler un **digest
+d'image** que `locus-execd` fait tourner sous sandbox. Aucun type du module ne porte de source, de
+script, de chemin de bibliothèque ni d'expression à évaluer. Ce n'est pas une garantie partielle :
+il n'y a pas de champ à remplir.
+
+_L'admission ne duplique pas la preuve._ Elle porte le digest et la clé de signature, pas le
+`Published` entier : ce qui suit est une mission, et une mission a besoin de savoir quelle image
+lancer, pas de relire le SBOM. Un second dépôt de la preuve divergerait du premier. Un test lit la
+déclaration de la structure et refuse `Published`, `Sbom`, `Lockfile`, `EnvironmentBlueprint`.
+
+**Prochain item.** W18.e — la métrique d'acceptation : taux d'annulation humaine des adaptations
+agentiques.
