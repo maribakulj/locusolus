@@ -4032,3 +4032,58 @@ C'est la leçon des gardes muettes, appliquée à la CI elle-même : une porte q
 ne tourne pas ressemble en tout point à une porte verte.
 
 **Prochain item.** **W8.e** — commandes et transient (§10, §11).
+
+---
+
+## 2026-08-18 — W8.e — Les commandes mutantes : un conflit est rendu, pas écrasé
+
+**Périmètre.** `apps/emacs/locus-command.el` et `test/locus-command-test.el`, neufs. Aucune
+dépendance nouvelle. 64 tests ERT sur le paquet.
+
+**Le refus qui porte le module.** §11.3 : « **ne jamais** resoumettre automatiquement avec la
+nouvelle révision ». C'est la seule règle du fichier qui protège quelque chose d'irrattrapable —
+resoumettre avec la révision courante applique la mutation à un état que l'utilisateur n'a pas vu,
+et efface silencieusement le travail de quelqu'un d'autre. Le confort d'un retry automatique est
+réel ; ce qu'il coûte ne se voit qu'après.
+
+**La propriété ne se lit pas dans la valeur de retour.** Un module qui resoumettrait rendrait un
+**succès**, ce qui a l'air bien. Le test compte donc les appels au transport : une resoumission
+serait un second appel, et il n'y en a qu'un. C'est la même famille de vérification que le poison
+réseau de W8.d — regarder ce qui a été fait plutôt que ce qui a été rendu.
+
+**`expected_revision` refusée au constructeur, pas à l'envoi.** Une commande sans révision attendue
+écrase par construction : elle réussit quel que soit l'état trouvé. Refuser à la construction
+déplace la faute du moment de l'envoi, où elle est invisible, à celui de l'écriture, où elle est
+évidente. La clé d'idempotence est exigée pour la même raison : sans elle, une réponse perdue ne
+peut être retrouvée que par une nouvelle soumission, c'est-à-dire par un doublon possible.
+
+**Rebaser est un geste, pas un effet de bord.** §11.3 propose « refresh, rebase ou nouvelle commande
+» — à l'utilisateur. `locus-command-rebased` existe donc et s'appelle explicitement ; sa clé
+d'idempotence change, sans quoi la nouvelle commande retrouverait le résultat de l'ancienne au lieu
+de partir.
+
+**La graduation de §11.2 est asymétrique exprès.** `sensitive` demande une confirmation, `critical`
+demande une confirmation **et** une raison écrite. Exiger une raison partout ferait taper « ok »
+quatre fois par heure, et la raison cesserait d'en être une. Une raison faite d'espaces est refusée
+: un formulaire qu'on remplit de blancs est un formulaire qu'on contourne.
+
+**La prévisualisation est une alist, pas un texte.** Ce qui s'affiche se teste : un formateur qui
+oublierait un des neuf champs de §11.1 le ferait disparaître de la prévisualisation sans que rien ne
+le dise.
+
+**Douze mutations vérifiées rouges** : le conflit déclenchant une resoumission (1 test) ;
+`expected_revision` devenue optionnelle (1) ; la clé d'idempotence devenue optionnelle (1) ; le type
+et la cible non exigés (1) ; la confirmation non exigée (1) ; la raison non exigée (2) ; une raison
+blanche acceptée (1) ; `critical` cessant de se distinguer de `sensitive` (2) ; toutes les sévérités
+exigeant une confirmation (6) ; le résultat connu rejoué au lieu d'être retrouvé (1) ; la clé du
+rebase inchangée (1) ; la prévisualisation perdant un champ (1). Restauration confirmée verte,
+aucune muette.
+
+**Écart avec la spec.** Deux, nommés. Le **transient** de §10 n'est pas là : c'est une interface,
+elle suppose des commandes à offrir, et ce sprint fabrique les commandes. Le dispatcher viendra
+quand il aura de quoi dispatcher — l'écrire d'abord produirait des entrées de menu qui n'appellent
+rien. Et §11.5, l'édition structurée en tampon JSON/YAML, attend un éditeur : le module garantit
+déjà que rien de sensible n'entre dans une commande, mais tant qu'aucun tampon n'ouvre un payload,
+l'exclusion des secrets n'aurait rien à exclure.
+
+**Prochain item.** **W8.f** — artefacts et inspecteur de sandbox.
