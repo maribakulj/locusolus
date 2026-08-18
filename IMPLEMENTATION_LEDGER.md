@@ -4687,3 +4687,53 @@ moyen de vérification.
 
 **Prochain item.** W9 est couvert pour ce qui est testable ici. La suite vient de W11 (profils de
 déploiement) ou de la 3D de §23.4, qui demande d'abord de décider comment on la vérifie.
+
+## 2026-08-18 — W11.a — Un profil ne se déclare pas exécutable, il est vérifié
+
+W11 était en prose et ne portait aucun item, comme W9 avant elle. Décomposée en trois lignes
+(W11.a–c) avant d'écrire.
+
+**Périmètre.** `packages/deployment/` (neuf : `Cargo.toml`, `src/lib.rs`, `tests/doctor.rs` avec 13
+tests), `Cargo.toml` du workspace, `docs/10_V1_ROADMAP.md`, ce fichier.
+
+**Tests exécutés.** `cargo test -p locus-deployment` → 13 conformes. `npm run check` → les dix
+portes vertes. Mutation : treize mutants, **treize tués, aucun survivant**.
+
+**Décisions prises.**
+
+_Le profil ne sait pas répondre « suis-je exécutable »._ §27.2 dit que `locus doctor` **vérifie** ;
+`docs/05` ajoute « avant d'accepter des campagnes ». La faute que ces phrases préviennent est
+courante et silencieuse : un fichier qui énumère des adaptateurs, personne qui vérifie qu'ils sont
+là, et une campagne acceptée qui échoue trois heures plus tard sur le premier appel. Seul le
+croisement d'un `Profile` et d'un `Inventory` produit un verdict — cinquième occurrence de « ce qui
+prouve ne peut pas être ce qui est demandé », après l'attestation de sandbox, le digest de build, le
+niveau de reproductibilité et l'attestation d'indépendance.
+
+_Trois présences, pas deux._ Une sonde qui n'a pas pu répondre n'a rien constaté. Compter cette
+ignorance comme un succès ferait déclarer un profil exécutable **par une panne de la sonde**,
+c'est-à-dire au moment précis où il ne faut pas. Et un adaptateur dont l'inventaire ne parle pas du
+tout est inconnu, jamais absent : ne pas avoir regardé et avoir regardé sans rien trouver appellent
+deux gestes différents — sonder, ou installer. Les deux listes restent séparées jusqu'à l'impression
+pour la même raison.
+
+_Un « non exécutable » sans raison ne se corrige pas._ Le verdict nomme ce qui manque et ce qui n'a
+pas été vérifié, séparément.
+
+_Le client voit une URL, pas une topologie._ Deux profils aussi éloignés qu'un poste personnel et un
+hybride distribué rendent la **même** valeur, à l'égalité près. Un test vérifie en plus qu'aucun nom
+d'adaptateur ne filtre : « postgres-rds-interne » dirait déjà quel fournisseur est derrière, et
+rendrait un client dépendant d'un détail que §27.3 lui promet de ne pas voir. Les capabilities, en
+revanche, traversent : §27.1 demande que les limites soient déclarées plutôt que contournées.
+
+_Un profil sans adaptateur est refusé._ Il passerait toute vérification sans rien avoir vérifié — la
+façon la plus discrète de rendre `locus doctor` inutile, puisque la commande répondrait « exécutable
+» et aurait raison.
+
+**Écart avec la spec.** §27.2 nomme aussi `locus up` et `locus deployment explain`, et §27.4 la
+sauvegarde cohérente. Rien de cela ici : ce commit livre le **verdict**, pas les commandes ni le
+format `deployment.yaml`, qui sont W11.b et W11.c. Les sondes elles-mêmes n'existent pas non plus —
+`Inventory` est ce qu'une sonde remplit, et écrire les sondes avant d'avoir un profil à vérifier
+aurait produit des constats que rien ne lit.
+
+**Prochain item.** W11.b — `deployment.yaml` : le schéma, les secrets dehors,
+`locus deployment explain`.

@@ -5,6 +5,7 @@ members = [
     "packages/artifacts",
     "packages/budget",
     "packages/coordination",
+    "packages/deployment",
     "packages/domain",
     "packages/environments",
     "packages/event-store",

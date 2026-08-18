@@ -342,6 +342,17 @@ qui attend le `ReviewDossier` de W7.a côté xiiif.
 
 Local, personal-node, VM, adapter cloud, hybride distribué ; backup/restore/migration.
 
+Section en prose, décomposée ici comme W9 l'a été. La phrase qui décide de tout est §27.2 :
+`locus doctor` **vérifie** dépendances, ports, versions, ressources, attestations et accès. Un
+profil qui se déclare exécutable sans avoir été vérifié est exactement ce que cette commande
+existe pour empêcher.
+
+| # | Commit | Dépôt | Test de sortie |
+|---|---|---|---|
+| W11.a `[R]` | `packages/deployment` : les cinq profils de §27.1 sous leur nom, `DeploymentProfile` et le verdict de `locus doctor` | un adaptateur déclaré mais absent rend le profil **inexécutable**, en nommant ce qui manque ; « pas vérifié » n'est jamais « présent » ; deux profils de topologies différentes exposent la même surface cliente |
+| W11.b `[R]` | `deployment.yaml` : le schéma, les secrets **dehors**, `locus deployment explain` | un document qui porte un secret en clair est refusé par son schéma ; `explain` nomme les backends actifs sans nommer d'hôte interne |
+| W11.c `[R]` | sauvegarde cohérente de §27.4 et restauration sur un backend différent | une sauvegarde qui omet une des cinq parties se refuse à s'appeler cohérente ; une campagne restaurée sur un backend qui n'a pas les capabilities de ses runs historiques le déclare au lieu de rejouer |
+
 ## W12 — Evaluation / release
 
 Tests de sécurité, injection de fautes, endurance, benchmarks, ablations, docs, release candidate.
