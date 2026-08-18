@@ -19,6 +19,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "locus-budget"
+version = "0.0.0"
+dependencies = [
+ "locus-protocol",
+]
+
+[[package]]
 name = "locus-coordination"
 version = "0.0.0"
 dependencies = [
