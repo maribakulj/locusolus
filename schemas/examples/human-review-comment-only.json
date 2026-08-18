@@ -1,0 +1,11 @@
+{
+  "_fixture": {
+    "name": "human-review-comment-only",
+    "expect": "valid",
+    "note": "§20 accepte « ou commentaire libre » : un enregistrement sans verdict est valide. Il reste sans preuve, donc non opposable au sens de §17.5."
+  },
+  "dossier_id": "dossier-0007",
+  "target": "01HQ8Z3M4N5P6Q7R8S9T0V1W2X",
+  "reviewer": "human:archiviste-12",
+  "comment": "La région revendiquée est correcte mais la marge coupe la réclame ; sans conséquence sur la lecture."
+}

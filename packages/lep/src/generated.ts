@@ -829,6 +829,34 @@ export type RemoteArtifactRef = {
   readonly viewer_hint?: "iiif" | "image" | "pdf" | "none" | undefined;
 };
 
+export type HumanReviewFinding = {
+  /**
+   * Le ReviewDossier auquel ce finding s'attache. §20 : la revue humaine « produit un finding attachable à un ReviewDossier », donc elle en nomme un.
+   */
+  readonly dossier_id: string;
+  /**
+   * La révision revue. Le domaine refuse une cible que le dossier ne couvre pas : sans cela une revue humaine élargirait le dossier en silence.
+   */
+  readonly target: string;
+  /**
+   * Qui a regardé. Une identité humaine, pas un agent : elle ne passe pas par l'attestation d'indépendance de §17.4, parce que ce n'est pas une revue indépendante.
+   */
+  readonly reviewer: string;
+  /**
+   * L'un des quatre de §20, sous son nom. `accept` ne dit pas que la revendication tient : il dit que le relecteur humain n'a pas d'objection, ce qui n'est pas une preuve.
+   */
+  readonly verdict?: "accept" | "needs-correction" | "wrong-target" | "source-changed" | undefined;
+  /**
+   * Le commentaire libre, cinquième forme d'enregistrement de §20. Un finding qui ne porte ni verdict ni commentaire ne dit rien, et `anyOf` le refuse.
+   */
+  readonly comment?: string | undefined;
+  /**
+   * Les révisions sur lesquelles le relecteur s'appuie. §17.5 : un finding sans preuve concrète est un commentaire non bloquant — la règle vaut pour un humain comme pour un agent, et c'est elle, pas la qualité du relecteur, qui décide si le finding est opposable.
+   */
+  readonly evidence?: readonly string[] | undefined;
+  readonly recorded_at?: string | undefined;
+};
+
 /**
  * Les documents qu'un pair peut envoyer ou recevoir, dans l'ordre du registre.
  */
@@ -843,6 +871,7 @@ export const LEP_DOCUMENTS = [
   "Lease",
   "EpistemicCommit",
   "RemoteArtifactRef",
+  "HumanReviewFinding",
 ] as const;
 
 export type LepDocument = (typeof LEP_DOCUMENTS)[number];

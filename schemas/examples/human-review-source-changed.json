@@ -1,0 +1,13 @@
+{
+  "_fixture": {
+    "name": "human-review-source-changed",
+    "expect": "valid",
+    "note": "Le verdict que §20 et §19 tiennent ensemble : un humain constate que la source a bougé. C'est un fait sur la source, pas une réfutation de la revendication — le domaine le rend `not_applicable`, jamais `refutes`, et surtout jamais `supports`."
+  },
+  "dossier_id": "dossier-0007",
+  "target": "01HQ8Z3M4N5P6Q7R8S9T0V1W2X",
+  "reviewer": "human:archiviste-12",
+  "verdict": "source-changed",
+  "comment": "Le manifeste de la bibliothèque a été réédité : le canvas p. 34 porte désormais une autre image de couverture. Le snapshot du run reste lisible.",
+  "recorded_at": "2026-08-17T14:05:00Z"
+}

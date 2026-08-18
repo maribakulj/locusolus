@@ -1,0 +1,12 @@
+{
+  "_fixture": {
+    "name": "human-review-says-nothing",
+    "expect": "invalid",
+    "pairs_with": "human-review-comment-only.json",
+    "note": "Ni verdict ni commentaire : l'enregistrement ne dit rien. Le laisser passer peuplerait un dossier de findings vides, qu'on compterait ensuite comme des relectures."
+  },
+  "dossier_id": "dossier-0007",
+  "target": "01HQ8Z3M4N5P6Q7R8S9T0V1W2X",
+  "reviewer": "human:archiviste-12",
+  "recorded_at": "2026-08-17T14:05:00Z"
+}

@@ -31,12 +31,14 @@
 pub mod contamination;
 pub mod context_view;
 pub mod dossier;
+pub mod human;
 pub mod rebuttal;
 pub mod review;
 
 pub use contamination::{Contamination, ContextItem, Recipient, contradictions_dropped, inspect};
 pub use context_view::{ContextView, ContextViewError, Redaction};
 pub use dossier::{Blindness, DossierError, Draft, Frozen, IndependenceRequirement};
+pub use human::{HumanReview, HumanReviewError, HumanVerdict};
 pub use rebuttal::{
     MetaReview, Rebuttal, RebuttalError, RecheckPolicy, Recommendation, assign_recheck, meta_review,
 };
