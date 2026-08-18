@@ -13,3 +13,4 @@ workspace = true
 [dependencies]
 locus-domain = { path = "../domain" }
 locus-projections = { path = "../projections" }
+locus-protocol = { path = "../protocol" }
