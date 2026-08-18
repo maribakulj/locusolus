@@ -27,6 +27,7 @@ pub mod decision;
 pub mod proposal;
 pub mod task;
 pub mod team;
+pub mod version;
 
 pub use agent::{AgentError, AgentInstance, AgentTemplate, InstanceState, TemplateStatus};
 pub use capability::{Capability, CapabilityError, Source, Sources, capabilities};
@@ -37,3 +38,4 @@ pub use proposal::{
 };
 pub use task::{Assignment, Task, TaskError};
 pub use team::{CoordinationMode, Team, TeamError};
+pub use version::{Digest, Operation, Undo, Version, VersionError, VersionId};

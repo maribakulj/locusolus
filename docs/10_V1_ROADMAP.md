@@ -441,6 +441,29 @@ conversion. C'est la contribution originale du projet et le geste le plus facile
 Attend W14. Un IR déclaratif contraint, jamais un script : la représentation détermine ce qui est
 vérifiable.
 
+Décomposée ici. Le jeu d'opérations est un jeu **cible** : la règle « aucune sémantique inerte » de
+l'ADR 0016 décision 4 vaut pour une opération comme pour une sorte de relation. Une opération dont
+l'effet sur l'état que ce crate détient est entièrement défini y entre ; une opération qui écrit un
+attribut dont le lecteur vit ailleurs attend son lecteur. Sept structurelles entrent en W15.a ;
+`SET_ROLE` et `SET_VISIBILITY` arrivent avec leur consommateur en W15.e et W15.f ; `SET_VALIDATOR`
+attend qu'un validateur soit un nœud, et `SET_EXECUTION_ORDER` attend qu'une chose ordonne des
+attempts entre instances d'agent — ce que la décision 4 a déjà vérifié absent en instruisant
+`dependency`.
+
+| # | Commit | Test de sortie |
+|---|---|---|
+| W15.a `[R]` | `packages/coordination` : la version canonique immuable — hash de contenu, hash de version, parent — et les sept opérations structurelles comme IR déclaratif fermé | le hash de contenu ne dépend que du contenu et se reproduit octet pour octet sur une forme canonique figée en fixture ; appliquer une opération puis son défaire rend le **même contenu** et une **autre version**, parce que l'histoire ne se défait pas ; une opération dont le défaire perdrait de l'information se déclare compensable et aucune fonction ne rend d'opération qui prétende la défaire ; les quatre opérations attributaires sont absentes, et un test le tient par l'absence |
+| W15.b `[R]` | le diff comme objet de première classe, calculé une fois | un diff entre deux versions se rejoue sur sa base et rend exactement la cible, hash de version compris ; rejoué sur une autre base il est refusé et le refus dit s'il faut rebaser ; le diff d'une version vers elle-même est **vide**, jamais absent |
+| W15.c `[R]` | les régions mutables bornées de GRAFT — `allowed_ops`, `risk_ceiling`, `max_nodes_delta`, `max_edges_delta`, `approval_mode`, `require_shadow` — acceptation locale et veto de cohérence globale | une opération hors de la région déclarée ou hors de `allowed_ops` est refusée en nommant laquelle des six bornes mord ; un lot accepté localement mais qui casse un invariant global est vetoé, et le veto nomme l'invariant ; l'acceptation locale seule ne commit jamais |
+| W15.d `[R]` | contestabilité d'une décision de coordination : famille d'objection parallèle, domaines disjoints | une décision de coordination offre ses cibles — déclencheur, politique, périmètre, décision — ; **aucune fonction ne convertit** une objection de coordination en `ObjectionTarget` ni l'inverse, et un test le tient par l'absence ; aucun trait générique ne factorise les deux familles, ce qui serait la conversion reconstruite |
+| W15.e `[M]` | `role`, deuxième membre de l'énumération des sortes (ADR 0016 décisions 4 et 10), avec son consommateur exécutable dans `canterel` | l'overlay additif du worker honore la relation `role` et un test l'exerce de bout en bout ; le constat de la clause de falsification est écrit au ledger, **dans un sens ou dans l'autre** |
+| W15.f `[R]` | `visibility`, troisième membre, dont le consommateur est la construction de `ContextView` | deux `ContextView` construites sous deux versions de coordination différentes diffèrent exactement des révisions que `visibility` retire ; aucune relation `visibility` n'élargit ce qu'une ACL refuse |
+
+W15.a avant W15.b : un diff se rejoue contre une identité de version, et l'identité décide de ce
+qu'un rejeu peut affirmer. W15.b avant W15.c : une région borne un lot d'opérations, donc un diff.
+W15.d ne dépend d'aucun des trois et peut se faire en parallèle ; il ne dépend surtout pas de
+`packages/graph`, et c'est la moitié de son objet.
+
 ## W16 — Reconfiguration vivante et scheduler dynamique — **niveau 4**
 
 Le scheduler doit savoir spawn, suspend, drain, kill, replace, split, merge, connect, disconnect,
