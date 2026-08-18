@@ -5384,3 +5384,78 @@ recâbler vers n'importe qui. Un test couvre les trois cas ensemble, parce qu'il
 séparément.
 
 **Prochain item.** W15.d — la contestabilité d'une décision de coordination.
+
+## 2026-08-18 — W15.d — La contestabilité d'une décision de coordination
+
+**Périmètre.** `packages/coordination/src/objection.rs` (neuf),
+`packages/coordination/tests/objection.rs` (neuf, 7 tests), `src/lib.rs` (les réexports) ;
+**septième frontière** : `CLAUDE.md`, `boundaries.json` (deux catalogues, une règle),
+`tooling/boundaries/rules.ts` et `analyze.ts` (une nature de règle nouvelle),
+`tests/boundaries/fixtures/imports/objection-families-converted/` (la violation délibérée),
+`tests/boundaries/contract.test.ts` (deux assertions) ; `docs/adr/0016` (amendement des
+conséquences), ce fichier.
+
+**Tests exécutés.** `cargo test -p locus-coordination` → 98 conformes.
+`node --test tests/boundaries/*.test.ts` → 37 conformes. `npm run check` → les dix portes vertes.
+Rouge puis vert sur le vrai dépôt : une conversion écrite dans `packages/projections` fait échouer
+`check:boundaries`, son retrait la fait passer. Mutation : vingt-trois mutants, **vingt-trois tués,
+aucun survivant**.
+
+**Décisions prises.**
+
+_Le test d'absence ne peut pas vivre dans le crate._ C'est le constat qui a décidé de tout le reste,
+et il n'était pas dans l'ADR. La décision 9 demandait « un test vérifiant l'absence de conversion »
+sans dire où. Or la sixième frontière interdit à `packages/coordination` d'importer `packages/graph`
+: un test écrit là-bas ne pourrait pas **nommer** `ObjectionTarget`, fût-ce pour affirmer qu'il ne
+le convertit pas. Un test qui dirait « la conversion n'existe pas » sans pouvoir voir l'autre
+famille n'affirmerait rien du tout.
+
+Et la règle 6 rend la conversion impossible **dans les deux crates**. Elle ne peut donc naître que
+dans un **troisième** fichier qui importe les deux — un cockpit qui « unifierait l'affichage des
+objections », par exemple. C'est celui-là qu'il faut regarder, et c'est la septième frontière : «
+aucun fichier ne voit les deux familles d'objection à la fois ».
+
+_Une nature de règle nouvelle, parce que ce qui est interdit est une conjonction._ Aucun des deux
+catalogues n'est interdit pris seul — `locusd` aura légitimement besoin du graphe et des objets de
+coordination dans le même fichier. Ce qui est interdit est de voir les deux familles
+d'**objection**. `no-co-import` ne s'exprime donc pas avec deux règles `imports`, et le refus cite
+**les deux** spécificateurs : « ce fichier voit les deux » sans dire lesquelles des lignes est un
+rapport sur lequel personne n'agit.
+
+_Les catalogues sont au grain du symbole, et l'évasion par glob a été vérifiée close._ Un
+`use locus_graph::*` contournerait un catalogue au grain du symbole. Il est déjà impossible ici :
+`clippy::wildcard_imports` est `pedantic` et la CI passe `-D warnings`. La vérification est
+consignée dans `boundaries.json` pour qu'elle ne soit pas refaite, comme celle de `dependency` dans
+l'ADR.
+
+_Quatre cibles, et elles demandent trois corrections différentes._ §7.6 donne l'argument dans
+l'autre domaine — « sur trois arêtes indépendantes, _la règle est fausse_ n'a aucun endroit où
+s'accrocher ». Ici de même : objecter au **déclencheur** demande d'établir un fait ; objecter à la
+**politique** demande de la reprendre, le fait étant admis ; objecter au **périmètre** demande de le
+restreindre, la politique étant admise. Une seule « objection à la décision » rendrait la réponse
+indéterminée. `Remedy` le rend explicite et un test exige quatre corrections distinctes.
+
+_Le déclencheur est nommé, pas générique._ Objecter au déclencheur `x` d'une décision déclenchée par
+`y` est **refusé** plutôt que consigné : le dossier porterait une contestation sans objet. « Le
+déclencheur est faux » sans dire lequel obligerait à retrouver dans le dossier ce qui avait été
+invoqué, et personne ne le fait.
+
+_Le vocabulaire est celui de ce domaine._ `decision`, `trigger`, `policy`, `perimeter` — jamais
+`premise`, `rule`, `scope`, `inference`. Un test le tient par l'absence : c'est par le vocabulaire
+qu'une unification recommence, avant qu'une seule ligne de conversion soit écrite.
+
+_Pourquoi la duplication est le bon choix, écrit dans le code._ Une conversion, même correcte à
+l'écriture, ferait circuler une objection organisationnelle dans la machinerie épistémique — où
+`packages/validation` propage l'invalidation sur les niveaux de §8.1. Une objection au périmètre
+d'un recâblage n'a rien à propager sur un claim ; l'y faire entrer affaiblirait un résultat
+scientifique au motif qu'une équipe a été mal composée.
+
+**Un trou trouvé dans la garde elle-même, et qui la précédait.** Un mutant faisant déclarer à la
+règle 7 l'état `skipped` a survécu : `check-boundaries` imprime « NON VÉRIFIÉE » sans faire échouer
+la CI. C'est le **bon** comportement pour la règle 5, qui démarre un vrai Emacs et se saute là où il
+n'y en a pas — et c'était un trou pour toutes les autres, qui lisent des imports déjà en mémoire et
+ne peuvent pas légitimement se dérober. Un test ferme le trou sans durcir la sortie, pour que la
+ligne « NON VÉRIFIÉE » de la règle 5 continue d'exister.
+
+**Prochain item.** W15.e — `role`, deuxième membre de l'énumération, avec son consommateur
+exécutable dans `canterel` (ADR 0016, clause de falsification de la décision 10).
