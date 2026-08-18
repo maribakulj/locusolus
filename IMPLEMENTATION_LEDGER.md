@@ -3597,3 +3597,79 @@ devise du compte sans avoir à la nommer tant que rien ne convertit.
 
 **Prochain item.** **W7.f** — portefeuille : les indicateurs de §13, et **l'anti-gaming de §13.6
 d'abord**. L'ordre est inscrit dans la roadmap et il est le point du sprint.
+
+---
+
+## 2026-08-18 — W7.f — Le portefeuille : l'anti-gaming d'abord, la valeur ensuite
+
+**Périmètre.** `packages/portfolio`, neuf : `activity.rs`, `gaming.rs`, `value.rs`, et deux fichiers
+de tests. Deux commits, dans cet ordre : le criblage seul, puis la fonction de valeur. Aucune
+dépendance nouvelle.
+
+**L'ordre est le sprint.** `docs/10` l'inscrit : « l'anti-gaming doit exister avant que la fonction
+de valeur pilote des décisions automatiques ». Ce n'est pas de la prudence, c'est un ordre de
+dépendance : une fonction de valeur mise en service avant ses garde-fous **enseigne** ce qu'il faut
+optimiser, et ce qu'elle enseigne alors est la faille. Ajouter les détecteurs ensuite ne défait pas
+ce qui a été appris.
+
+**Ce que le squash détruit, et ce qui survit.** La roadmap demande que l'ordre soit attesté par un
+test. Un test qui lirait `git log` n'attesterait rien après un merge écrasé — l'ordre des commits ne
+survit pas au squash. Ce qui survit est le **type** : `Screening` n'a pas d'autre constructeur que
+`screen`, et `value` l'exige. Une branche jamais criblée n'a donc pas une valeur haute, elle n'a
+**pas de valeur**. L'ordre des commits l'atteste une fois ; le type l'atteste toujours.
+
+**Le test qui porte le sprint se lit en trois temps.** La manœuvre gonfle l'indicateur visé ; elle
+gonfle aussi `V(b)` **brut** ; et elle perd une fois §13.6 appliqué. Le deuxième temps est celui
+qu'on serait tenté d'omettre, et sans lui le test serait creux : on ne saurait plus si la pénalité a
+renversé quelque chose ou si la stratégie était mauvaise dès le départ. Les deux branches passent
+par la **même** règle d'indicateur — poser à la main des indicateurs plus bas pour la tricheuse
+aurait supposé la conclusion.
+
+**La pénalité porte sur les termes positifs, et c'est un piège évité.** Une pénalité multiplicative
+sur la valeur nette rapprocherait de zéro une branche de valeur **négative**, c'est-à-dire
+l'améliorerait : tricher paierait précisément sur les branches qu'il faut abandonner. En pénalisant
+ce que la manœuvre gonfle, la pénalité ne peut jamais remonter une valeur — un test le fixe.
+
+**La similarité est un port.** « Duplications paraphrastiques » demande de savoir si deux énoncés
+disent la même chose ; le domaine ne le sait pas et ne le simule pas. `LexicalSimilarity` est un
+**plancher** lexical, le nom le dit, et un test montre qu'un autre index change le verdict sans
+qu'on touche au détecteur. Ce que le plancher attrape — la reformulation cosmétique — est la forme
+la moins coûteuse à produire, donc la plus probable.
+
+**Les seuils et les coefficients sont des politiques, pas des vérités.** §13.4 le dit de la formule
+et cela vaut des seuils : ils sont explicites, remplaçables, et enregistrés avec le résultat. Les
+coefficients par défaut valent tous 1 — §13.4 donne la **forme** de la formule, pas ses nombres, et
+inventer ici des coefficients réglés les ferait passer pour la spec parce qu'ils seraient écrits en
+Rust. Le défaut neutre dit « aucune pondération n'a été décidée », ce qui est vrai.
+
+**Le refus du non-fini appartient à ce sprint, pas au suivant.** Un `NaN` ne se compare à rien, pas
+même à lui-même : une branche qui en porte un ne serait ni meilleure ni pire que les autres, donc
+invisible au tri, sans qu'aucune erreur ne le dise. W7.g triera sur ce nombre — le refuser ici évite
+d'avoir à expliquer là-bas pourquoi une branche a disparu.
+
+**Vingt-six mutations vérifiées rouges.** Dix-sept sur le criblage : le compte de claims triviaux
+non vu (4 tests) ; le seuil de volume disparu (10) ; la confiance comparée à elle-même (1) ;
+l'absence de verdict valant échec (7) ; la duplication non vue (2) ; le port de similarité
+court-circuité (1) ; le taux d'aboutissement ne comptant plus (3) ; la collusion à sens unique
+suffisante (2) ; un refus ne défaisant plus l'entente (2) ; l'unité logique ne comptant plus (1) ;
+la taille d'artefact ne comptant plus (1) ; les métriques tues (2) puis ajoutées (3) ne comptant
+plus ; l'absence de pré-enregistrement devenue un aveu (1) ; le criblage s'arrêtant au premier
+constat (2) ; la pression non bornée (1) ; les seuils employés non enregistrés (1). Neuf sur la
+valeur : la pénalité débranchée (1) ; la pénalité rendue multiplicative sur la valeur nette (1) ; le
+non-fini accepté (2) ; les coefficients échappant au contrôle de finitude (1) ; `p_s` cessant d'être
+une probabilité (1) ; la borne 1 exclue (1) ; les paramètres non enregistrés (1) ; le coût cessant
+d'être soustrait (1) ; un coefficient cessant de compter (1). La garde de taille d'artefact était
+d'abord **muette** — le test manquant a été écrit avant de la recompter. Restauration confirmée
+verte.
+
+**Écart avec la spec.** Un, nommé. §13.2 liste quinze indicateurs ; `Indicators` en porte **dix** —
+ceux que `V(b)` consomme. Les cinq autres (vélocité, couverture de l'espace des stratégies, risque
+de verrouillage conceptuel, niches méthodologiques, part d'exploitation) appartiennent à la
+qualité-diversité de §13.3, qui décide d'un **portefeuille** et non d'une branche : les valoriser
+ici reviendrait à noter une branche sur ce que font les autres. Ils arrivent avec W7.g. §13.4
+mentionne aussi les « incertitudes » et les « overrides » parmi ce qui doit être enregistré : ni
+l'un ni l'autre n'a de consommateur exécutable, et `p_s` porte seule la part d'incertitude
+modélisée. §13.5 (les dix actions) n'est pas dans ce sprint.
+
+**Prochain item.** **W7.g** — scheduler qualité-diversité : deux propositions de valeur égale et de
+diversité inégale ne se départagent pas au hasard, et le choix est reproductible.
