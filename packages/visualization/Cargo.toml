@@ -1,0 +1,15 @@
+[package]
+name = "locus-visualization"
+description = "Le service de projection de visualisation : des vues versionnées et hashées, jamais une copie mutable du graphe (SPEC_V1 §23.3)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+locus-domain = { path = "../domain" }
+locus-projections = { path = "../projections" }

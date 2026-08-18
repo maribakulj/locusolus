@@ -148,6 +148,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "locus-visualization"
+version = "0.0.0"
+dependencies = [
+ "locus-domain",
+ "locus-projections",
+]
+
+[[package]]
 name = "locus-workflow"
 version = "0.0.0"
 dependencies = [

@@ -300,6 +300,16 @@ Contrainte à retenir dès maintenant : le service produit une **projection**, j
 mutable du graphe. Si une vue devient éditable en place, l'invariant « aucun frontend n'écrit
 directement dans le graphe » est perdu.
 
+Cette section était en prose et ne portait aucun item. Décomposée ici comme W6, W7 et W8 l'ont
+été : ce qui n'a pas de test de sortie n'a pas d'état.
+
+| # | Commit | Dépôt | Test de sortie |
+|---|---|---|---|
+| W9.a `[R]` | `packages/visualization` : les huit projections de §23.3, versionnées et hashées, derrière un port de condensat | deux rendus du même contenu ont la **même** forme canonique quel que soit l'ordre d'insertion ; une vue modifiée n'est plus la vue — sa forme canonique change ; une vue en retard sur le journal le **déclare** au lieu de se dire à jour ; une arête sans extrémité est refusée |
+| W9.b `[R]` | `ArtifactViewerRegistry` (§23.5) : l'artefact suggère, le client choisit | un hint que le client ne sait pas honorer se replie sans échouer ; aucun artefact n'impose de viewer (invariant 10) ; l'absence de tout viewer laisse l'artefact atteignable |
+| W9.c `[R]` | interaction de §23 : `focus`, `filter`, `select` vers le viewer, `node_selected` en retour | un événement de viewer ne produit **jamais** de mutation ; le type ne laisse aucun chemin qui contourne l'API de commandes |
+| W9.d `[R]` | `apps/web` : la scène de référence, 2D d'abord, sur la vue hashée de W9.a | l'application ne détient aucun graphe modifiable : elle rend une `View` et toute interaction repart par l'API de commandes |
+
 ## W10 — xiiif — **déverrouillé aujourd'hui**
 
 Six items ne dépendent d'aucun autre dépôt : dispatcher `xiiif-open`, alias d'API §15, sélection

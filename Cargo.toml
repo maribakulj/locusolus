@@ -17,6 +17,7 @@ members = [
     "packages/protocol",
     "packages/review",
     "packages/validation",
+    "packages/visualization",
     "packages/workflow",
     "packages/workflow-backends",
 ]
