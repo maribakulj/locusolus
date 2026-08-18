@@ -26,6 +26,7 @@ pub mod capability;
 pub mod decision;
 pub mod diff;
 pub mod proposal;
+pub mod region;
 pub mod task;
 pub mod team;
 pub mod version;
@@ -37,6 +38,9 @@ pub use diff::{Diff, DiffError};
 pub use proposal::{
     Approved, Author, Change, Committed, EpistemicIndex, Justification, Mode, Proposal,
     ProposalError, Relation, RelationKind, approve, commit,
+};
+pub use region::{
+    Acceptance, ApprovalMode, Invariant, Refusal, Region, RegionError, Verdict, threatens,
 };
 pub use task::{Assignment, Task, TaskError};
 pub use team::{CoordinationMode, Team, TeamError};
