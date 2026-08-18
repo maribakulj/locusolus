@@ -6477,3 +6477,80 @@ d'une soustraction est une assertion sur la représentation, pas sur le verdict.
 désormais à la tolérance près, et les autres cas emploient des écarts exactement représentables.
 
 **Prochain item.** `R3` — évaluation structurelle et regret structurel, calculable en rejeu.
+
+---
+
+## 2026-08-18 — R3 — Métriques structurelles et regret structurel
+
+**Périmètre.** `packages/coordination/src/metrics.rs`, `packages/coordination/src/lib.rs`,
+`packages/coordination/tests/metrics.rs`, `packages/evaluation/src/regret.rs`,
+`packages/evaluation/src/lib.rs`, `packages/evaluation/tests/regret.rs`.
+
+**Tests exécutés.** `cargo test -p locus-coordination -p locus-evaluation` → 15 + 12 conformes pour
+cet item. `npm run check` → les dix portes vertes. Mutation : dix-huit mutants, **dix-huit tués** —
+après deux survivants, voir plus bas.
+
+**Deux moitiés, deux crates.** Les métriques mesurent une `Version` : elles vivent dans
+`packages/coordination`. Le regret compare des utilités nommées : il vit dans `packages/evaluation`,
+sans dépendance nouvelle, et réutilise la `Baseline` de `R2`.
+
+### La moitié structurelle
+
+_Une métrique qui mesure une propriété déjà garantie ne dit rien._ Elle rend la même valeur sur tout
+ce que le système accepte, et son passage au vert n'a jamais été en jeu. Les cinq ont donc été
+choisies pour ce qu'aucun invariant ne force : couverture de revue, profondeur, concentration, revue
+mutuelle, isolement de visibilité.
+
+_Aucune ne juge._ Pas de seuil, pas de verdict, pas de note. Un seuil écrit ici deviendrait la
+définition d'une bonne organisation, alors que c'est une question de politique et de portefeuille —
+et qu'un chiffre écrit en Rust a l'air d'une décision prise. Un test refuse `const MIN`,
+`const MAX`, `fn is_healthy`, `fn score`, `enum Verdict`.
+
+**Une erreur de raisonnement corrigée en cours de route, et c'est la meilleure trouvaille de
+l'item.** J'avais écarté la réciprocité de revue comme « métrique morte » : `A relit B` et
+`B relit A` est un cycle de longueur deux, que `region` veto déjà par `ReviewAcyclicity`. Le test
+écrit pour justifier cette absence a échoué, et il avait raison. **Le veto s'applique à un `diff`**
+; `Version::root` ne refuse que les arêtes pendantes et les auto-relations. Une version racine porte
+parfaitement l'aller-retour — c'est exactement l'état qu'aucune transition n'a gardé. La métrique
+est donc la plus intéressante des cinq, et non la plus morte : la revue mutuelle est la forme à deux
+du consensus circulaire de §16.6, transposée de l'épistémique à la coordination. Elle est comptée
+par **paire**, jamais par arête.
+
+Conséquence sur la profondeur : elle ne peut pas supposer l'acyclicité. Le parcours borne sa
+profondeur par le nombre de nœuds, et un test l'exerce sur une version cyclique — une métrique qui
+ne termine pas est pire qu'une métrique absente, elle emporte l'appelant avec elle.
+
+### La moitié « regret »
+
+_« Disponible », et pas « imaginable »._ Le regret se mesure contre le meilleur du **menu**.
+Comparer à un optimum théorique donnerait un nombre qu'aucune décision n'aurait pu améliorer, et qui
+grandirait à mesure qu'on imagine mieux. D'où la borne : le choisi doit être **parmi** les
+candidats, et le calcul refuse sinon — un regret contre un menu dont on n'a rien pris ne veut rien
+dire, et rendrait quand même un nombre.
+
+_« Sur fixtures identiques » est une condition, pas une recommandation._ Deux utilités mesurées sur
+deux fixtures comparent les fixtures autant que les structures. Chaque candidat porte le nom de sa
+fixture, et le lot est refusé s'il n'en partage pas une seule — en les nommant. Sans cela, le regret
+est un nombre qu'on peut faire baisser en changeant de fixture.
+
+_Deux mesures d'une même structure sont des rejeux, pas deux candidats._ Ce sont une `Baseline`
+qu'elles font, et les compter comme deux options ferait battre une structure par elle-même.
+
+_Les deux items de recherche se tiennent._ `Regret::exceeds` confronte l'écart à la bande de `R2` :
+un regret qui tient dans la bande n'est pas un regret, et le poursuivre ferait changer
+d'organisation pour suivre le tirage.
+
+**Deux mutants ont survécu, et les deux avaient raison.**
+
+Le premier échangeait arêtes sortantes et entrantes dans l'isolement de visibilité. La fixture
+d'origine était symétrique — avec la seule arête `1 → 2`, deux membres ne voient personne et deux
+membres ne sont vus de personne, donc le même compte. « Ne voir personne » et « n'être vu de
+personne » sont deux situations opposées ; il fallait une fixture asymétrique pour que la différence
+se voie. Elle existe.
+
+Le second retirait le `.max(0.0)` du regret, et **passait** — parce que la garde était morte. Le pli
+part du choisi et ne le remplace que par strictement mieux : l'écart est positif ou nul par
+construction. Le `.max` a été retiré plutôt que couvert par un test. C'est la leçon de W14, et sa
+deuxième application dans ce chantier après le `is_finite` de W18.a.
+
+**Prochain item.** `R4` à `R6`, ou les items bloqués si leur condition se lève.

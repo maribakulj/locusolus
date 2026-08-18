@@ -30,12 +30,14 @@
 pub mod benchmark;
 pub mod credit;
 pub mod endurance;
+pub mod regret;
 
 pub use benchmark::{
     BenchmarkError, Comparison, Configuration, Coverage, Direction, Metric, Ranking,
 };
 pub use credit::{Arm, Baseline, Credit, CreditError, Factor, attribute};
 pub use endurance::{Campaign, Endurance, EnduranceError, Measure, Requirement, Shortfall};
+pub use regret::{Candidate, Regret, RegretError, regret};
 
 use std::collections::BTreeMap;
 use std::fmt;

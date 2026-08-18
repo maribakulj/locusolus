@@ -27,6 +27,7 @@ pub mod capability;
 pub mod decision;
 pub mod diff;
 pub mod lifecycle;
+pub mod metrics;
 pub mod objection;
 pub mod proposal;
 pub mod region;
@@ -44,6 +45,7 @@ pub use diff::{Diff, DiffError};
 pub use lifecycle::{
     Command, Lifecycle, LifecycleError, Outcome, Quiescence, may_leave_the_version,
 };
+pub use metrics::Metrics;
 pub use objection::{Contestable, ObjectedTo, Objection, ObjectionError, Remedy};
 pub use proposal::{
     Approved, Author, Change, Committed, EpistemicIndex, Justification, Mode, Proposal,
