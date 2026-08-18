@@ -457,7 +457,7 @@ attempts entre instances d'agent — ce que la décision 4 a déjà vérifié ab
 | W15.c `[R]` | les régions mutables bornées de GRAFT — `allowed_ops`, `risk_ceiling`, `max_nodes_delta`, `max_edges_delta`, `approval_mode`, `require_shadow` — acceptation locale et veto de cohérence globale | une opération hors de la région déclarée ou hors de `allowed_ops` est refusée en nommant laquelle des bornes mord — quatre interdisent, les deux autres (`approval_mode`, `require_shadow`) **obligent** ; un lot accepté localement mais qui casse un invariant global **par un chemin passant hors de la région** est vetoé, et le veto nomme l'invariant et les agents pris dedans ; l'acceptation locale seule ne commit jamais, et rien dans son type ne le permet |
 | W15.d `[R]` | contestabilité d'une décision de coordination : famille d'objection parallèle, domaines disjoints | une décision de coordination offre ses cibles — déclencheur, politique, périmètre, décision — ; **aucune fonction ne convertit** une objection de coordination en `ObjectionTarget` ni l'inverse, et un test le tient par l'absence ; aucun trait générique ne factorise les deux familles, ce qui serait la conversion reconstruite |
 | W15.e `[R]` | `visibility`, **deuxième** membre de l'énumération des sortes (ADR 0016 décisions 4 et 10, amendées le 2026-08-18), dont le consommateur est la construction de `ContextView` | deux `ContextView` construites sous deux versions de coordination différentes diffèrent exactement des révisions que `visibility` retire ; aucune relation `visibility` n'élargit ce qu'une ACL refuse ; le constat de la clause de falsification est écrit au ledger, **dans un sens ou dans l'autre** |
-| W15.f `[M]` **bloqué** | `SET_ROLE` comme opération **attributaire**, avec son lecteur exécutable dans `canterel` | l'overlay additif du worker lit le rôle de l'instance et un test l'exerce de bout en bout ; sans ce lecteur, l'opération reste hors de l'énumération |
+| W15.f `[M]` | `SET_ROLE` comme opération **attributaire**, avec son lecteur exécutable dans `canterel` — **tranche 1 du mineur `lep/1.1`** (ADR 0017 §5.1) | l'overlay additif du worker lit le rôle de l'instance et un test l'exerce de bout en bout ; sans ce lecteur, l'opération reste hors de l'énumération ; le rôle ne prend jamais le pas sur l'invariant 11 — une revue `independent` va au `reviewer` quel que soit le rôle demandé ; et un document `1.0` reçu par un consommateur `1.1` laisse le rôle **absent**, jamais rempli par un défaut |
 
 W15.a avant W15.b : un diff se rejoue contre une identité de version, et l'identité décide de ce
 qu'un rejeu peut affirmer. W15.b avant W15.c : une région borne un lot d'opérations, donc un diff.
@@ -472,14 +472,30 @@ d'appartenance, et `agent.rs` le portait déjà comme attribut. La clause de fal
 vit dans le dépôt ; `role` reste dû comme `SET_ROLE`, l'opération attributaire que W15.a avait déjà
 différée. L'amendement daté est dans `docs/adr/0016`.
 
-**W15.f est bloqué, et bloqué correctement.** Le lecteur du rôle est `selectOverlay` dans le worker,
-qui ne connaît d'une mission que ce que la `MissionEnvelope` lui livre — et `mission-envelope.schema.json`
-porte `review_policy` et `required_capabilities`, **pas** de rôle d'agent. Faire passer le rôle
-jusqu'au worker demande donc un **mineur `lep/1.1`**, dont l'ADR 0016 dit qu'il « a son propre ADR »
-et que W13 « ne l'ouvre pas ». Écrire `SET_ROLE` avant ce mineur produirait exactement la sémantique
-inerte que la décision 4 interdit : un attribut que le système saurait versionner, différencier,
-approuver et afficher, et que rien n'honorerait. L'item attend donc cet ADR, et W15 est clos sans
-lui.
+**W15.f était bloqué, et bloqué correctement ; l'ADR 0017 le débloque.** Le lecteur du rôle est
+`selectOverlay` dans le worker, qui ne connaît d'une mission que ce que la `MissionEnvelope` lui livre
+— et `mission-envelope.schema.json` porte `review_policy` et `required_capabilities`, **pas** de rôle
+d'agent. Faire passer le rôle jusqu'au worker demandait donc un **mineur `lep/1.1`**, dont l'ADR 0016
+disait qu'il « a son propre ADR » et que W13 « ne l'ouvre pas ». Écrire `SET_ROLE` avant ce mineur
+aurait produit exactement la sémantique inerte que la décision 4 interdit : un attribut que le système
+saurait versionner, différencier, approuver et afficher, et que rien n'honorerait.
+
+Cet ADR est écrit — `docs/adr/0017` — et il ouvre le mineur **une fois pour les quatre ajouts qui
+l'attendaient**, en livrant un champ par tranche et jamais avant son lecteur. W15.f est la **tranche
+1**, choisie en premier parce que son lecteur est le seul qui existe déjà en entier.
+
+**Les quatre tranches et où elles tombent :**
+
+| Tranche | Ajout | Item | Lecteur |
+| --- | --- | --- | --- |
+| 1 | `role` dans la `MissionEnvelope` | **W15.f** | `selectOverlay`, existe et est testé |
+| 2 | les six codes de refus d'admission sur le fil | **W19.a** (ci-dessous) | `apps/locus-execd/src/admission.rs`, existe |
+| 3 | la permission de fonctionnement hors ligne | **W19.b** (ci-dessous) | à écrire dans son sprint |
+| 4 | visibilité facultative des sous-agents | **W16.d** | à écrire, et à border sur l'invariant 11 |
+
+L'ADR 0017 porte une clause de falsification sur le coût d'un mineur : la tranche 2 ajoute un
+**document** là où la tranche 1 ajoute une **propriété**, et le constat s'écrit au ledger dans un sens
+ou dans l'autre.
 
 ## W16 — Reconfiguration vivante et scheduler dynamique — **niveau 4**
 
@@ -488,7 +504,7 @@ rerouter l'état, rejouer, migrer le contexte, et livrer les messages **en conna
 Barrières par invariant menacé plutôt que par lieu ; quiescence locale d'un nœud plutôt que drain
 global. Epochs, messages tardifs et transfert d'état : ils n'ont un problème réel à résoudre qu'une
 fois une messagerie inter-agents existante. Visibilité institutionnelle facultative des sous-agents
-internes du harnais — le cas de W16 justifiant un mineur LEP, avec son ADR.
+internes du harnais — le cas de W16 justifiant un mineur LEP, désormais tranché par l'ADR 0017.
 
 Plan de simulation : rejeu déterministe, substitut d'environnement enregistré, ombre en sandbox réelle,
 canari facultatif. Un objet simulé n'existe pas comme type dans le domaine épistémique.
@@ -507,7 +523,7 @@ donc elle attend cet ADR comme W15.f.
 | W16.a `[R]` | les transitions de cycle de vie du scheduler — `spawn`, `suspend`, `drain`, `kill`, `replace`, `connect`, `disconnect` — comme machine à états explicite, et la **quiescence locale** d'un nœud | une transition interdite est refusée en nommant l'état de départ et celui visé ; un nœud est drainé **sans** que rien d'autre soit arrêté, et la quiescence se constate au lieu de s'attendre ; `kill` sur un nœud quiescent et sur un nœud actif ne disent pas la même chose |
 | W16.b `[R]` | les **barrières par invariant menacé** plutôt que par lieu | une reconfiguration ne barre que les nœuds dont elle menace un invariant, et le refus nomme l'invariant, pas le lieu ; deux reconfigurations qui ne menacent pas le même invariant ne se bloquent pas l'une l'autre ; une barrière posée sans invariant menacé est refusée |
 | W16.c `[R]` | le plan de simulation : rejeu déterministe, substitut d'environnement enregistré, ombre en sandbox réelle, canari facultatif | deux rejeux de la même trace rendent le même résultat ; un substitut d'environnement qui n'a pas la réponse le **dit** au lieu d'en inventer une ; un objet simulé n'existe **pas** comme type dans le domaine épistémique, et un test le tient par l'absence |
-| W16.d `[M]` **bloqué** | visibilité institutionnelle facultative des sous-agents internes du harnais | attend le mineur `lep/1.1` et son ADR |
+| W16.d `[M]` **bloqué** | visibilité institutionnelle facultative des sous-agents internes du harnais — **tranche 4 du mineur `lep/1.1`** (ADR 0017 §5.4) | l'ADR est écrit ; **le blocage a changé de nature** et n'est plus une décision mais un consommateur, qui n'existe pas. Ce que l'institution voit d'un sous-agent reste à trancher, et ce trait traverse l'invariant 11 : voir qu'un sous-agent existe et voir son contexte sont deux choses, et un reviewer interne au harnais ne doit pas devenir le chemin par lequel le raisonnement privé du générateur remonte |
 | W16.e `[R]` **bloqué** | epochs, messages tardifs et transfert d'état | attend une messagerie inter-agents, qui n'existe pas |
 
 W16.a avant W16.b : une barrière borne des transitions, donc les transitions d'abord. W16.c ne
@@ -583,6 +599,39 @@ un hôte réel**, et elle attend pour exactement la raison de W5.f.
 W18.a avant W18.b : la boucle lente propose un spawn, donc la proposition d'abord. W18.c après W18.b :
 `bounded` est un mode de la boucle lente. W18.d ne dépend d'aucun des trois. W18.e en dernier : elle
 mesure des adaptations, et il en faut.
+
+## W19 — Le mineur `lep/1.1` — **tranches 2 et 3**
+
+Ouvert par l'**ADR 0017**, qui décide le numéro une fois pour quatre ajouts et livre un champ par
+tranche, jamais avant son lecteur. Les tranches 1 et 4 vivent chez leurs items d'origine — W15.f et
+W16.d ; les deux qui n'avaient pas d'item l'ont ici.
+
+Rappel de ce qu'un mineur n'a pas le droit de faire (ADR 0017 décision 4), parce que c'est l'interdit
+3 qui contraint la forme des deux items ci-dessous : **un mineur ajoute des champs, jamais des
+valeurs**. `packages/lep/src/generated.rs` émet des `enum` Rust fermés sans variante fourre-tout, donc
+un membre nouveau sur une énumération ancienne fait échouer la désérialisation chez tout consommateur
+`1.0`, en silence pour l'émetteur.
+
+Et aucun répertoire `schemas/lep/1.1/` : la ligne `1.x` est ouverte depuis W0.5 — motif
+`^lep/1\.[0-9]+$` sur `protocol_version`, aucun `additionalProperties: false` sur les douze fichiers.
+Les ajouts portent `x-since: "1.1"` là où ils tombent.
+
+| # | Commit | Test de sortie |
+| --- | --- | --- |
+| W19.a `[M]` | les six motifs de refus d'admission sur le fil, comme **document** — `LevelUnavailable`, `CapacityExceeded`, `AcceleratorUnavailable`, `NetworkModeUnsupported`, `LevelNotAttested`, `AcceleratorOutsideSandbox` | un refus voyage avec **tous** ses motifs, jamais le premier seul — un fil qui n'en transmettrait qu'un ferait corriger une condition pour retomber sur la suivante ; `LevelNotAttested` et `LevelUnavailable` restent deux refus distincts sur le fil comme en mémoire, et un test le tient par égalité stricte : « l'hôte ne sait pas faire » et « l'hôte l'annonce sans l'avoir prouvé » envoient chercher deux choses différentes ; le document est nouveau et **aucune énumération existante ne gagne un membre** |
+| W19.b `[M]` | la permission de fonctionnement hors ligne, activable et désactivable — `SPEC_V1.md` §1.2, dernier invariant | la permission est un champ **distinct** de `sandbox.network_mode`, et aucune fonction ne dérive l'une de l'autre : `deny` contraint le worker, la permission le dispense d'échouer quand le réseau manque, et les confondre ferait d'un confinement une autorisation ; un document `1.0` laisse la permission **absente**, jamais « accordée par défaut parce que le pair est ancien » |
+
+**W19.a avant W19.b**, et l'ordre n'est pas arbitraire : W19.a porte la **clause de falsification** de
+l'ADR 0017. Elle ajoute un document entier là où la tranche 1 n'ajoutait qu'une propriété, et l'ADR
+affirme que le coût d'un mineur est fixe — que c'est le péage qui coûte, pas le champ. Le constat
+s'écrit au ledger **dans un sens ou dans l'autre** ; si le document coûte substantiellement plus par
+nature, la décision de grouper quatre ajouts hétérogènes sous un numéro est rouverte pour les mineurs
+suivants.
+
+W15.f (tranche 1) avant les deux : elle porte les deux tests qui **définissent** ce que « mineur »
+veut dire ici — un document `1.1` accepté par un consommateur `1.0`, et un champ nouveau laissé
+**absent** plutôt que rempli par un défaut lorsqu'un document `1.0` arrive chez un consommateur `1.1`.
+Ces tests ont besoin d'un champ pour être écrits, et un seul suffit.
 
 ## Recherche — sans dépendance de chemin critique, abandonnable sans coût
 
