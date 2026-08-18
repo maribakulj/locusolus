@@ -7254,7 +7254,7 @@ du survivant décrit plus haut, qui était un vrai trou.
 
 ---
 
-## 2026-08-18 — W5.k — Le réseau déclaré n'est pas celui qu'obtient la sandbox
+## 2026-08-18 — W5.k — L'instrument a démenti l'hypothèse qui l'avait fait construire
 
 **Périmètre.** `apps/locus-execd/tests/host_sandbox.rs` (un test `#[ignore]` de plus) et
 `docs/10_V1_ROADMAP.md`. Aucun correctif : ce sprint **établit** un fait et livre l'instrument qui
@@ -7312,3 +7312,49 @@ de diagnostic qui n'avait rien observé, et il le dit maintenant.
 **Ce que ce sprint ne fait pas.** Il ne corrige rien, et il ne prétend pas savoir quel drapeau est
 en cause. Nommer un coupable sans l'avoir isolé serait la même faute que celle des trois sondes qui
 lisaient un réseau muet comme une preuve d'isolation.
+
+---
+
+## 2026-08-18 — W5.k, suite — L'hypothèse est fausse, et le vrai défaut est que « arrêter » n'est pas « retirer »
+
+**Ce sprint retire une affirmation.** L'entrée précédente concluait que la sandbox du plan
+n'obtenait pas le réseau déclaré. **C'est faux.** Le test construit pour le vérifier — celui qui lit
+`/proc/net/route` depuis l'intérieur — **passe** sur le runner : la sandbox voit la route par défaut
+de l'hôte, sur `eth0`, avec la passerelle. L'instrument a démenti l'hypothèse qui l'avait fait
+construire, et c'est exactement ce pour quoi il avait été écrit.
+
+**Ce que les trois passages illisibles cachaient.** `RuntimePort::stop` lance `podman stop`. **Rien
+ne lance `podman rm`.** Un conteneur arrêté garde son nom et sa couche inscriptible ; le suivant qui
+demande le même nom échoue avec « the container name `locus-0001` is already in use ». Et comme
+chaque test construit son propre `PodmanBackend`, dont le compteur de noms repart à zéro, ils se
+disputent tous le premier nom.
+
+Le module `selftest` avait vu la **conséquence** sans voir la **cause**. Sa documentation de
+`certify` dit : « la sandbox est arrêtée même quand la suite s'est mal passée : une sonde qui a
+échoué laisse derrière elle un conteneur qui tourne, et un hôte qui accumule des conteneurs
+d'épreuve finit par ne plus pouvoir en créer. » La phrase est juste et la précaution ne suffit pas :
+**arrêter n'est pas retirer**, et c'est le nom, pas l'exécution, qui manque au suivant.
+
+**Ce que cela invalide.** Les tables de sondes lues jusqu'ici viennent de passages où **un seul**
+des conteneurs existait ; les autres rapportaient une erreur de nom là où on attendait un verdict de
+confinement. Les verdicts « bloquée » des deux sondes réseau ne sont donc plus établis : ils peuvent
+venir d'un conteneur réel comme d'une collision. Il faut un passage propre avant de croire une ligne
+de plus de ces tables, et c'est pourquoi rien de ce qui en découlait n'est reporté ici comme acquis.
+
+**Ce qui est fait, et ce qui est ouvert.** Les tests retirent désormais leur conteneur après l'avoir
+arrêté, par le runner et non par le port — parce que **le port n'a pas cette opération**. C'est une
+dette assumée et nommée : un test qui laisse derrière lui de quoi faire échouer le suivant ne mesure
+plus rien, mais l'endroit correct est le port. `W5.l` l'y met, et son test de sortie demande qu'un
+`certify` ne laisse **rien** derrière lui, constaté en redemandant le même nom.
+
+_Une conséquence à ne pas manquer._ `persist_after_teardown` — « un fichier écrit dans la sandbox ne
+survit pas au démontage » — tient aujourd'hui parce que l'écriture est refusée par la racine en
+lecture seule, jamais parce qu'un démontage a eu lieu : **il n'y en a pas**. C'est la même famille
+que `exceed_disk_quota` de `W5.h`, une sonde qui passe un test qu'elle ne fait pas tourner. `W5.l`
+la rendra mesurable.
+
+**Ce que ce sprint garde de bon.** Un instrument qui regarde depuis l'intérieur, et qui a servi
+exactement une fois à réfuter celui qui l'avait écrit. Et deux corrections de méthode :
+`inspect_network` rend un `Result`, de sorte qu'« aucune sandbox » ne puisse plus se présenter comme
+« aucune route » ; et le job lance la suite en `--test-threads=1`, la raison écrite dans le
+workflow.

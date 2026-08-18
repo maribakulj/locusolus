@@ -211,7 +211,8 @@ porte `version:` ni `image:`, tous deux obligatoires au schéma, et `ml-mps.yaml
 | W5.g `[R]` **fait** | le **quota disque comme fait d'hôte lu**, et non appris en échouant — trouvé par le premier passage de W5.f | un hôte dont le système de fichiers ne peut pas porter `--storage-opt size=` est constaté **avant** toute création, et une mission qui réserve du disque y est refusée à l'**admission**, par un motif qui nomme le système de fichiers ; le refus est distinct de `CapacityExceeded` — « la capacité manque » et « la borne n'est pas applicable ici » n'envoient pas chercher la même chose ; aucun chemin ne laisse `podman create` être l'endroit où on l'apprend |
 | W5.h `[R]` | **les sondes que le premier hôte réel a démenties** — trois faites, deux restent | `read_process_environment` ne vise plus `/proc/1`, qui dans un namespace PID désigne l'init **du conteneur** : la sonde réussissait précisément parce que le confinement était correct, et comme elle est `critical`, tout hôte bien configuré se voyait refuser la confiance. Le discriminant est désormais le cgroup — un processus dont le cgroup diffère du nôtre est un processus que cette sandbox n'a pas créé. Les deux sondes réseau constatent l'absence de **route par défaut** avant de conclure : sans ce constat, un `curl` qui échoue ne distingue pas « la sandbox a coupé le réseau » de « l'hôte ne mène nulle part ». Un code réservé de plus, `121`, dit « ce que je devais **atteindre** n'a pas répondu » — distinct de `120`, « ce que je devais **lire** n'était pas là » : deux ignorances, deux réparations |
 | W5.j `[M]` | **où le quota disque s'applique**, quand la racine est en lecture seule | `W5.g` a rendu le quota **lisible** ; reste à le rendre **applicable**. À `S2` la racine est montée en lecture seule, donc `--storage-opt size=` dimensionne une couche que personne n'écrit : le seul endroit inscriptible est l'espace de travail monté, et un bind mount hérite du système de fichiers de l'hôte, non borné. L'arbitrage nomme le mécanisme — volume dimensionné, tmpfs borné, ou renoncement déclaré — et `exceed_disk_quota` écrit ensuite là où le quota mord : sans quota déclaré elle doit **réussir**, avec quota être bloquée. Aujourd'hui elle est bloquée par la racine en lecture seule dans les deux cas, donc elle passe un test qu'elle ne fait pas tourner |
-| W5.k `[R]` | **le réseau déclaré n'est pas celui qu'obtient la sandbox** | à `S2` sous `NetworkMode::Full`, `plan` rend `NetworkPosture::Host` et `create_arguments` émet bien `--network=host` — vérifié hors conteneur, sur les arguments eux-mêmes. Pourtant, depuis l'intérieur, `/proc/net/route` ne porte **aucune route par défaut**, alors qu'un `podman run --network=host` nu sur le même hôte voit la route, résout les noms et rend `200`. Test de sortie : la sandbox créée par le plan présente le réseau que la posture déclare, constaté **depuis l'intérieur** ; et lorsqu'elle ne le peut pas, l'écart est nommé plutôt que silencieux — une permission déclarée qui n'est pas accordée est le miroir exact d'une borne déclarée qui n'est pas applicable (`W5.g`) |
+| W5.k `[R]` **fait — et il a démenti son propre titre** | l'instrument qui regarde le réseau **depuis l'intérieur** de la sandbox du plan | la sandbox **voit** la route par défaut de l'hôte : l'hypothèse « une permission déclarée n'est pas accordée » est **fausse**, et c'est le test lui-même qui l'a démentie. Ce que les trois passages illisibles cachaient est ailleurs — voir `W5.l` |
+| W5.l `[R]` | **arrêter n'est pas retirer** | `RuntimePort::stop` lance `podman stop` et rien ne lance `podman rm` : le conteneur garde son **nom** et sa **couche inscriptible**. Le suivant qui demande le même nom échoue — « the container name `locus-0001` is already in use » — et c'est ce qui a rendu trois passages de CI illisibles. `selftest` avait vu la conséquence sans voir la cause : « un hôte qui accumule des conteneurs d'épreuve finit par ne plus pouvoir en créer ». Test de sortie : le port porte le retrait sous son nom, un `certify` ne laisse **rien** derrière lui — ni conteneur, ni couche — et un test le constate en redemandant le même nom ; la sonde `persist_after_teardown` cesse alors de tenir pour une raison qui n'est pas la sienne, puisqu'il y aura enfin un teardown |
 | W5.i `[M]` | **ce que `S4` promet**, et la sonde qui doit le constater | `reach_host_kernel_interfaces` constate que le noyau atteint **n'est pas celui de l'hôte**, et non qu'une lecture est refusée : un conteneur partage le noyau, une micro-VM en apporte un autre, et « je n'ai pas le droit de lire » ne distingue pas les deux. L'arbitrage nomme ce qui est observable de l'intérieur — version, `boot_id`, ou autre chose — et le refus de lecture, s'il subsiste, devient `NotRun` avec sa raison plutôt qu'un blocage |
 
 **L'épreuve est écrite ; ce qui manque est l'hôte, et on va savoir si la CI en est un.**
@@ -247,15 +248,21 @@ quota disque, et le module le frôle sans en tirer la conséquence — `REQUIRED
 « le quatrième, le disque, ne se borne pas par cgroup » et s'arrête là. Ce défaut n'était pas
 trouvable par un double : il fallait un vrai `podman create` sur un vrai système de fichiers.
 
-**Une trouvaille de plus, et elle ne vient pas des sondes.** Le constat de route ajouté par `W5.h`
-a rendu « pas de route par défaut » dans la sandbox. Trois vérifications l'ont instruit sans coûter un
+**Une trouvaille de plus, et elle a démenti l'hypothèse qui l'a fait chercher.** Le constat de route
+ajouté par `W5.h` a rendu « pas de route par défaut » dans la sandbox. Trois vérifications l'ont instruit sans coûter un
 seul passage de CI supplémentaire : les arguments produits par `create_arguments` portent bien
 `--network=host` ; le constat de route, rejoué hors ligne sur la sortie réelle de `/proc/net/route`,
 trouve la route et ne la trouve pas sur un namespace vide ; et un `podman run --network=host` nu sur
 le runner voit la route, résout les noms et rend `200` sur `example.org`. Ce qui reste est que **la
-sandbox du plan n'obtient pas le réseau que la mission déclare**, silencieusement. C'est `W5.k`, et
-c'est le miroir du quota disque : là une borne déclarée n'était pas applicable, ici une permission
-déclarée n'est pas accordée.
+sandbox du plan n'obtenait pas le réseau que la mission déclare. **L'instrument construit pour le
+vérifier l'a démenti** : la sandbox voit la route, et le test qui l'affirme passe sur le runner.
+
+Ce que les trois passages cachaient était plus banal et plus grave. `RuntimePort::stop` lance
+`podman stop` et **rien ne lance `podman rm`** : le conteneur garde son nom, le suivant qui demande le
+même nom échoue, et chaque test construisant son propre backend, tous repartent de `locus-0001`. Les
+tables de sondes lues jusqu'ici viennent donc de passages où l'un des trois conteneurs seulement
+existait — les autres rapportaient une erreur de nom là où on attendait un verdict de confinement.
+C'est `W5.l`, et c'est ce qu'il faut réparer avant de croire une seule ligne de plus de ces tables.
 
 **Une réponse à l'arbitrage.** Un runner GitHub n'est pas un hôte `S2` pour ce dépôt, et la raison
 n'est pas réparable en CI — le système de fichiers du runner n'est pas un réglage. `W5.f` demande

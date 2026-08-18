@@ -316,12 +316,35 @@ fn exercise(
 ) -> Result<Vec<(&'static str, Observed)>, String> {
     let id: SandboxId = backend.create(spec).map_err(|error| error.to_string())?;
     if let Err(error) = backend.start(&id) {
-        let _ = backend.stop(&id);
+        teardown(backend, &id);
         return Err(error.to_string());
     }
     let results = run_suite(backend, &id);
-    let _ = backend.stop(&id);
+    teardown(backend, &id);
     Ok(results)
+}
+
+/// Arrêter **et retirer** la sandbox.
+///
+/// # Pourquoi les tests le font eux-mêmes, et pourquoi c'est une dette et non une solution
+///
+/// `RuntimePort::stop` lance `podman stop`, et rien ne lance `podman rm`. Un conteneur arrêté garde
+/// son nom et sa couche inscriptible : le suivant qui demande le même nom échoue avec « the
+/// container name "locus-0001" is already in use », et c'est très exactement ce qui a rendu trois
+/// passages de CI illisibles — chaque test construit son propre `PodmanBackend`, dont le compteur de
+/// noms repart à zéro.
+///
+/// Le module `selftest` avait vu la conséquence sans voir la cause : « un hôte qui accumule des
+/// conteneurs d'épreuve finit par ne plus pouvoir en créer ». Arrêter n'est pas retirer.
+///
+/// Le retrait passe ici par le runner et non par le port, parce que le port **n'a pas** cette
+/// opération. L'y ajouter est le sujet de `W5.l` ; en attendant, un test qui laisse derrière lui de
+/// quoi faire échouer le suivant ne mesure plus rien.
+fn teardown(backend: &mut PodmanBackend<SystemRunner>, id: &SandboxId) {
+    let _ = backend.stop(id);
+    let _ = backend
+        .runner()
+        .run(&["rm".to_owned(), "-f".to_owned(), id.as_str().to_owned()]);
 }
 
 /// Ce qu'une sonde a produit, ou l'aveu qu'elle est absente du rapport.
@@ -475,7 +498,7 @@ fn inspect_network(spec: &SandboxSpec) -> Result<String, String> {
                     .map_err(|error| error.to_string()),
                 Err(error) => Err(error.to_string()),
             };
-            let _ = backend.stop(&id);
+            teardown(&mut backend, &id);
             read
         }
         Err(error) => Err(error.to_string()),
