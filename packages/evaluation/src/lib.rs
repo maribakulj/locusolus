@@ -28,12 +28,16 @@
 //! d'indépendance et le verdict de `locus doctor`.
 
 pub mod benchmark;
+pub mod counterfactual;
 pub mod credit;
 pub mod endurance;
 pub mod regret;
 
 pub use benchmark::{
     BenchmarkError, Comparison, Configuration, Coverage, Direction, Metric, Ranking,
+};
+pub use counterfactual::{
+    CompareError, DomainEnvironment, Outcome, Trajectory, Unmeasured, compare, fidelity,
 };
 pub use credit::{Arm, Baseline, Credit, CreditError, Factor, attribute};
 pub use endurance::{Campaign, Endurance, EnduranceError, Measure, Requirement, Shortfall};
