@@ -6718,3 +6718,51 @@ est bien placée pour trouver — elle a le droit de fabriquer des flux que pers
 en `W0.9-bis` dans `docs/10`.
 
 **Prochain item.** `W0.9-bis` — les trois identités que le harnais ne regarde pas.
+
+---
+
+## 2026-08-18 — W0.9-bis — Les trois identités que le harnais ne regardait pas
+
+**Périmètre.** `packages/testing/src/harness.ts` (trois vérifications, de huit à onze),
+`tests/testing/harness.test.ts`.
+
+**Tests exécutés.** `node --test "tests/testing/*.test.ts"` → 24 conformes (18 + 6). `npm run check`
+→ les dix portes vertes. Mutation : neuf mutants, **neuf tués**.
+
+**D'où vient l'item.** Du passage D de la sonde `R5`, qui fabriquait un flux dont le rang d'attempt
+était faux, dont le `worker_id` était un `attempt_id` substitué et dont le `task_id` désignait une
+autre tâche. Il passait les huit vérifications. Une sonde jetable a le droit de fabriquer des flux
+que personne n'écrirait ; c'est ce qui lui a permis de trouver ce que les tests de W0.9, écrits pour
+des flux plausibles, ne pouvaient pas voir.
+
+**Décisions prises.**
+
+_Trois vérifications, pas une._ §11.1 : « aucune de ces identités ne doit être substituée aux
+autres. » Une vérification unique qui dirait « identités incohérentes » enverrait comparer trois
+paires à la main — et c'est précisément le travail que la substitution rend difficile, les trois
+valeurs étant toutes des identifiants préfixés qui se ressemblent. Chaque identité a donc sa
+vérification, et chaque constat **nomme** celle qui a été substituée. Deux mutants le tiennent :
+l'un remplace le message par « identités incohérentes », l'autre efface la source.
+
+_Le constat dit aussi où relire l'identité de référence._ « `attempt` vaut 99 alors que **la lease**
+dit 1 » envoie au bon endroit ; « 99 ≠ 1 » laisse chercher lequel des trois documents fait foi.
+
+_Absent n'est pas substitué._ Les trois champs sont facultatifs dans le schéma de l'événement. Un
+champ absent n'est donc pas une substitution : c'est une absence, et exiger sa présence ici ferait
+du harnais un vérificateur de complétude que LEP ne demande pas. Les deux fautes ne se réparent pas
+pareil — l'une en corrigeant une valeur, l'autre en décidant si le champ doit devenir obligatoire,
+ce qui est un mineur de protocole. Un mutant qui confond les deux meurt.
+
+**Quatre mutants ne compilaient pas, et ce n'étaient pas des kills.** Ils comparaient le `worker_id`
+à une `lease` hors de portée, ou laissaient une variable inutilisée. Un mutant qui ne compile pas ne
+dit rien du test : ils ont été réécrits pour viser la même faute avec des valeurs en portée. Un
+cinquième était **inerte** — il remplaçait le lecteur du rang par `event.attempt ?? lease.attempt`,
+ce qui ne change rien puisque l'absent est déjà écarté. Il a été remplacé par deux mutants qui
+mordent vraiment : le rang n'est plus lu, et le rang est comparé à lui-même.
+
+**Ce que la sonde `R5` a confirmé après coup.** Rejouée contre le harnais corrigé, elle passe de 0 à
+**24 constats** sur le passage D — huit événements × trois identités — et reste à **0** sur le
+passage B, le flux piloté par le plan. La réponse de `R5` tient donc toujours, et l'angle mort est
+fermé.
+
+**La sonde a été supprimée**, sa réponse étant consignée. C'est ce que « dépôt jetable » veut dire.
