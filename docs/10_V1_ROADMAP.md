@@ -209,6 +209,7 @@ porte `version:` ni `image:`, tous deux obligatoires au schéma, et `ml-mps.yaml
 | W5.e `[R]` | le driver de build derrière un port, dans `apps/locus-execd` | le digest vient de la sortie du runtime et non du blueprint ; un build muet n'est pas un succès ; le driver ne sait pas dépasser le deuxième maillon de la chaîne |
 | W5.f `[R]` | validation **sémantique** des sondes contre une sandbox réelle | sur un hôte capable de `S2`, chaque sonde produit le verdict que son `contained_from` annonce — c'est la seule chose que ni `sh -n` ni un double ne peuvent dire |
 | W5.g `[R]` | le **quota disque comme fait d'hôte lu**, et non appris en échouant — trouvé par le premier passage de W5.f | un hôte dont le système de fichiers ne peut pas porter `--storage-opt size=` est constaté **avant** toute création, et une mission qui réserve du disque y est refusée à l'**admission**, par un motif qui nomme le système de fichiers ; le refus est distinct de `CapacityExceeded` — « la capacité manque » et « la borne n'est pas applicable ici » n'envoient pas chercher la même chose ; aucun chemin ne laisse `podman create` être l'endroit où on l'apprend |
+| W5.h `[R]` | **les quatre sondes que le premier hôte réel a démenties**, et la cinquième qui tenait pour la mauvaise raison | `read_process_environment` ne lit plus `/proc/1/environ`, qui dans un namespace PID désigne l'init **du conteneur** : la sonde réussissait donc précisément parce que le confinement était correct, et un hôte bien configuré produisait un échappement critique. `exceed_disk_quota` écrit dans l'espace de travail montré et non à la racine : sans quota déclaré elle doit **réussir**, avec quota être bloquée — aujourd'hui elle est bloquée par la racine en lecture seule, quota ou pas, donc elle passe un test qu'elle ne fait pas tourner. Les trois sondes « permises à `S2` » — `open_outbound_connection`, `reach_cloud_metadata_service`, `reach_host_kernel_interfaces` — distinguent « la sandbox a bloqué » de « le monde n'a pas répondu » : un résolveur absent, une route inexistante ou un fichier que l'hôte lui-même refuse rendent `NotRun` avec leur raison, jamais `Blocked`. C'est la distinction que 120, 125, 126 et 127 font déjà une couche plus bas, appliquée cette fois à ce que la sonde atteint |
 
 **L'épreuve est écrite ; ce qui manque est l'hôte, et on va savoir si la CI en est un.**
 `apps/locus-execd/tests/host_sandbox.rs` fait tourner les seize sondes dans un conteneur rootless
@@ -248,6 +249,28 @@ n'est pas réparable en CI — le système de fichiers du runner n'est pas un r�
 donc une **VM à système de fichiers XFS**, ou un report écrit. Le job reste `continue-on-error` en
 attendant, parce que son second test continue de rapporter les quinze sondes qui ne dépendent pas du
 quota disque, et que c'est quinze seizièmes d'information qu'on n'avait pas.
+
+**Et ces quinze ont parlé.** Le second passage a fait tourner la suite entière dans un conteneur
+rootless réel. **Douze sondes tiennent** : les écritures hors espace de travail, le home de
+l'utilisateur, la persistance après démontage, la lecture de la racine et des secrets de l'hôte, le
+socket de runtime, l'élévation à root, la vue sur les processus de l'hôte, et les trois quotas
+cgroup. C'est la première fois que ce dépôt a une preuve, plutôt qu'une syntaxe vérifiée.
+
+**Quatre sont démenties, et elles deviennent `W5.h`** — voir son test de sortie ci-dessus pour le
+détail. La forme du résultat vaut d'être notée : `read_process_environment` échappait **parce que le
+confinement était correct**, et elle est `critical`, donc tout hôte bien configuré se voyait refuser
+la confiance. C'est le contraire du défaut qu'on cherchait, et exactement ce qu'un double ne pouvait
+pas dire.
+
+**Une cinquième tenait pour la mauvaise raison**, et seul le second test pouvait le montrer :
+`exceed_disk_quota` est ressortie « bloquée → tient » sous une mission qui **ne déclarait aucun
+quota**. Elle écrit à la racine, que `S2` monte en lecture seule ; elle mesure donc la racine, pas le
+quota. Une sonde qui passe sans que ce qu'elle teste existe est le pire des trois états, parce qu'elle
+ne se plaint jamais.
+
+**Ce que cela ouvre.** Une fois `W5.h` faite, le second test peut devenir **vert et bloquant en CI** :
+quinze sondes de sandbox réellement exercées à chaque passage, sur un runner ordinaire. `W5.f` — les
+seize, `S2` établi — continue d'attendre un hôte XFS.
 
 Le fichier de test porte donc **deux tests** : le premier demande si l'hôte tient `S2` sous une
 mission qui réserve du disque et, quand la sandbox ne démarre pas, rend le message du runtime mot

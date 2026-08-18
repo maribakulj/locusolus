@@ -6974,9 +6974,53 @@ donc une VM à système de fichiers XFS, ou un report écrit. Le job reste `cont
 attendant, parce que son second test rapporte les quinze sondes — et c'est de l'information qu'on
 n'avait pas.
 
+**Le second passage a fait tourner la suite entière, et c'est là que tout s'est joué.** Sans quota
+disque, la sandbox démarre, et les seize sondes s'exercent pour la première fois dans un conteneur
+rootless réel. La table :
+
+| Verdict                 | Sondes                                                                                                                                                                                                                                                                                        |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **tient** (12)          | `write_outside_workspace`, `write_host_home`, `persist_after_teardown`, `read_host_filesystem`, `read_host_secret_files`, `access_container_runtime_socket`, `escalate_to_root`, `observe_host_processes`, `exceed_cpu_quota`, `exceed_memory_quota`, `exceed_pid_quota`, `exceed_disk_quota` |
+| **échappement** (1)     | `read_process_environment`                                                                                                                                                                                                                                                                    |
+| **sur-confinement** (3) | `open_outbound_connection`, `reach_cloud_metadata_service`, `reach_host_kernel_interfaces`                                                                                                                                                                                                    |
+
+Douze preuves là où il n'y avait qu'une syntaxe vérifiée. Et quatre démentis, qui deviennent `W5.h`.
+
+_`read_process_environment` échappait **parce que le confinement était correct**._ Elle lit
+`/proc/1/environ`. Dans un namespace PID, `/proc/1` est l'init **du conteneur** — le `sleep 600` du
+workload — appartenant à l'utilisateur mappé. La lecture réussit, et elle réussit d'autant plus
+sûrement que le namespace fait son travail. La sonde est donc inversée : elle ne peut pas échouer
+sur un hôte correctement confiné, et comme elle est `critical`, tout hôte bien configuré se voyait
+refuser la confiance. C'est le contraire du défaut qu'on cherchait, et très exactement ce qu'un
+double ne pouvait pas dire.
+
+_Les trois sur-confinements confondent deux choses que le module distingue déjà ailleurs._ Un
+résolveur absent dans l'image, une route que le réseau de l'hôte n'ouvre pas, un fichier que l'hôte
+lui-même refuse en 0400 : dans les trois cas la commande rend un code non nul ordinaire, que le
+harnais lit comme `Blocked`, c'est-à-dire comme une preuve d'isolation. C'est le piège du 127 de
+`W5.c` et du 120 de `W5.d`, une couche plus loin — cette fois ce n'est ni la sonde ni ce qu'elle
+lisait qui manque, c'est **ce qu'elle voulait atteindre**. Les causes exactes restent à établir par
+la sonde elle-même, et c'est le sujet de `W5.h` : une sonde qui ne peut pas dire pourquoi elle a
+échoué ne peut pas être crue quand elle réussit.
+
+**La cinquième trouvaille, et le seul endroit où le second test bat le premier.**
+`exceed_disk_quota` est ressortie « bloquée → tient » sous une mission qui **ne déclarait aucun
+quota**. Elle écrit à la racine (`dd of=/locus-probe-disk`), que `S2` monte en lecture seule : elle
+mesure donc la racine en lecture seule, jamais le quota. Une sonde qui passe alors que ce qu'elle
+teste n'existe pas est le pire des trois états, parce qu'elle ne se plaint jamais — et il fallait
+précisément un passage **sans quota** pour le voir. Le contrôle négatif était accidentel ; il n'en
+est pas moins un contrôle négatif, et c'est lui qui a trouvé le plus.
+
 **Ce que la question sémantique annoncée est devenue.** Le passage devait trancher si
-`read_host_filesystem` peut réussir à un niveau quelconque. Il ne l'a pas tranchée : aucune sonde
-n'a tourné. Elle reste due, et le second test est ce qui la rendra observable au prochain passage.
+`read_host_filesystem` peut réussir à un niveau quelconque. Elle est ressortie « bloquée → tient » à
+`S2`, ce qui ne dit encore rien de son comportement en dessous : la question reste due, et elle est
+de la même famille que les quatre de `W5.h` — une sonde ne se juge pas seulement sur le niveau où
+elle doit être contenue, mais sur celui où elle doit réussir.
+
+**Ce que cela ouvre, et qui n'était pas prévu.** Une fois `W5.h` faite, le second test peut devenir
+**vert et bloquant en CI** : quinze sondes de sandbox réellement exercées à chaque passage, sur un
+runner ordinaire. Le dépôt n'a jamais eu ça. `W5.f` — les seize, `S2` établi — continue d'attendre
+un hôte XFS, et c'est une bien plus petite dette que celle du départ.
 
 **Ce que ce sprint ne prétend pas.** `W5.f` n'est pas clos. Ce qui est livré est l'épreuve et la
 question ; la réponse vient du prochain passage de CI, et l'arbitrage qu'elle appelle est écrit
