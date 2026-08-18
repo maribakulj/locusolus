@@ -4337,3 +4337,58 @@ les écrire ensemble aurait mêlé deux protocoles de cadrage dans un même fich
 qu'on aurait mal fait.
 
 **Prochain item.** Le premier item non terminé de `docs/10` dont les dépendances sont satisfaites.
+
+---
+
+## 2026-08-18 — W6.f — `RemoteArtifactRef` : le snapshot prouve, la source live constate
+
+**Périmètre.** `schemas/artifacts/1.0/remote-artifact-ref.schema.json`,
+`packages/artifacts/src/remote_ref.rs` et `tests/remote_ref.rs`, neufs ; trois fixtures et leur
+entrée au registre ; le SDK régénéré. `docs/10` gagne W6.f, W10.7 et W10.8.
+
+**Un trou de couverture, pas une dépendance en retard.** `docs/10` disait le reste de xiiif « bloqué
+sur W0.6 » — or W0.6 est terminé depuis longtemps, et `RemoteArtifactRef` n'existait **nulle part**.
+W0.6 a livré les schémas LEP ; ce type-ci est un contrat **entre** locusolus et xiiif, et aucun item
+ne le portait. Même forme que le trou de §7.1 relevé en tête de roadmap : ce qui n'est assigné à
+personne n'est pas en retard, il est invisible.
+
+**Ce que §19 refuse de laisser confondre.** « Une ressource distante modifiée après le run ne doit
+**jamais** faire croire que la preuve historique a changé. » Deux verdicts distincts, donc, et aucun
+accesseur qui les résumerait : `proof_standing` parle de la preuve, `live_drift` n'en parle jamais.
+Un « intégrité : divergente » unique laisserait croire que le résultat scientifique est en cause
+quand c'est la source qui a bougé — et, dans l'autre sens, tairait la divergence d'une source qu'on
+continuerait de citer. Le test les tient séparés sur les **quatre** combinaisons.
+
+`Drift::Unknown` quand rien n'a été relevé au run : l'absence de relevé n'est pas l'absence de
+dérive, et répondre `Unchanged` ferait passer une ignorance pour un constat.
+
+**Un seul locator, et le type le rend indéfaisable.** §19 en nomme cinq et n'en autorise qu'un. Une
+énumération ne porte qu'une variante, là où une structure à cinq champs facultatifs en accepterait
+deux — et laisserait au viewer le soin de choisir, donc de choisir différemment d'une fois sur
+l'autre.
+
+**Le motif de W6.b, répété là où il fallait.** Le schéma porte `maxProperties: 1` ; Rust ne sait pas
+l'exprimer, donc le type engendré offre **cinq champs facultatifs**. Un document à deux locators le
+traverse sans bruit, et l'exclusivité ne serait tenue que par le validateur JSON — c'est-à-dire
+nulle part, dès qu'un producteur construit la valeur en mémoire. `from_wire` est donc le lecteur
+validant qui refuse zéro locator comme il en refuse deux. Sans lui, le test de sortie de cet item
+aurait été tenu par le schéma seul, et j'aurais reproduit exactement la faute que W6.b avait
+corrigée pour le manifeste.
+
+**Le schéma vit sous `artifacts/1.0`, pas sous `lep/1.0`.** Ce n'est pas un message du protocole
+d'exécution, c'est une référence qu'un viewer reçoit et relit. `lep/1.0` est gelé, et l'y ajouter
+aurait mêlé deux cycles de vie qui n'ont aucune raison d'avancer ensemble.
+
+**Dix mutations vérifiées rouges** : la preuve suivant la ressource live (3 tests) ; une dérive
+cassant la preuve (2) ; l'absence de relevé devenue absence de dérive (1) ; la dérive ne se
+constatant plus (2) ; deux locators passant (1) ; zéro locator passant (1) ; l'instantané local
+demandant le réseau (1) ; un media type malformé passant (1) ; une identité vide passant (1) ; un
+locator vide passant (1). Restauration confirmée verte, aucune muette.
+
+**Écart avec la spec.** Un, nommé. `to_wire` n'existe pas : rien ne produit encore de
+`RemoteArtifactRef` côté locusolus — c'est l'ingestion d'artefacts qui le fera, quand un artefact
+portera un `viewer_hint: iiif`. Écrire la traduction sortante avant son producteur donnerait une
+fonction que seuls ses tests appellent.
+
+**Prochain item.** **W10.7** — xiiif consomme `RemoteArtifactRef` : `xiiif-open-locus-artifact` et
+l'affichage séparé des cinq facettes de §19. Le dépôt est débloqué.

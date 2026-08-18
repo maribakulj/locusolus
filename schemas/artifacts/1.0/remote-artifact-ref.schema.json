@@ -1,0 +1,56 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://locusolus.dev/schemas/artifacts/1.0/remote-artifact-ref.schema.json",
+  "title": "RemoteArtifactRef",
+  "$comment": "Le contrat entre Locus Solus et un viewer externe — xiiif/SPEC_V1 §19. Il vit sous `artifacts/1.0` et non sous `lep/1.0` : ce n'est pas un message du protocole d'exécution, c'est une référence qu'un viewer reçoit et relit. `lep/1.0` est gelé, et l'y ajouter aurait mêlé deux cycles de vie qui n'ont aucune raison d'avancer ensemble.",
+  "type": "object",
+  "required": ["artifact_id", "media_type", "expected", "locator"],
+  "additionalProperties": false,
+  "properties": {
+    "artifact_id": {
+      "description": "L'identité canonique de l'artefact côté Locus. §19 exige qu'elle s'affiche séparément de la ressource distante : c'est elle qui ne bouge pas.",
+      "type": "string",
+      "minLength": 1
+    },
+    "media_type": {
+      "type": "string",
+      "pattern": "^[a-z]+/[A-Za-z0-9.+-]+$"
+    },
+    "expected": {
+      "description": "Ce que le run a constaté. Le hash du snapshot est ce qui prouve la reproduction ; celui de la ressource live, quand il est connu, ne sert qu'à constater l'évolution.",
+      "type": "object",
+      "required": ["snapshot_hash"],
+      "additionalProperties": false,
+      "properties": {
+        "snapshot_hash": { "$ref": "#/definitions/hash" },
+        "live_hash_at_run": { "$ref": "#/definitions/hash" },
+        "captured_at": { "type": "string", "format": "date-time" }
+      }
+    },
+    "locator": {
+      "description": "Comment atteindre la ressource. §19 en nomme cinq et n'en autorise qu'un : deux locators laisseraient au viewer le soin de choisir, donc de choisir différemment d'une fois sur l'autre.",
+      "type": "object",
+      "minProperties": 1,
+      "maxProperties": 1,
+      "additionalProperties": false,
+      "properties": {
+        "manifest_url": { "type": "string", "format": "uri" },
+        "canvas_id": { "type": "string", "minLength": 1 },
+        "content_state": { "type": "string", "minLength": 1 },
+        "annotation_target": { "type": "string", "minLength": 1 },
+        "local_snapshot": { "type": "string", "minLength": 1 }
+      }
+    },
+    "viewer_hint": {
+      "description": "Ce que l'artefact suggère, jamais ce qu'il impose : xiiif n'est pas requis par les agents (invariant 10).",
+      "type": "string",
+      "enum": ["iiif", "image", "pdf", "none"]
+    }
+  },
+  "definitions": {
+    "hash": {
+      "type": "string",
+      "pattern": "^(sha256|sha512|blake3):[0-9a-f]+$"
+    }
+  }
+}
