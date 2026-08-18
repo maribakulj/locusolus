@@ -4392,3 +4392,63 @@ fonction que seuls ses tests appellent.
 
 **Prochain item.** **W10.7** — xiiif consomme `RemoteArtifactRef` : `xiiif-open-locus-artifact` et
 l'affichage séparé des cinq facettes de §19. Le dépôt est débloqué.
+
+## 2026-08-18 — W7.h — `HumanReviewFinding` : un verdict humain ne vaut jamais une validation
+
+Item ouvert en cours de route, comme W6.f et pour la même raison. W10.8 (xiiif) demandait « un
+finding attachable à un `ReviewDossier` » et aucun item ne portait ce contrat : `packages/review`
+avait le dossier, la revue et les findings de §17, mais rien qui dise ce qu'un humain enregistre
+depuis une visionneuse. Trou de couverture, pas dépendance en retard.
+
+**Périmètre.** `packages/review/src/human.rs` (neuf), `packages/review/tests/human.rs` (neuf, 20
+tests), `packages/review/src/lib.rs`, `packages/review/Cargo.toml`,
+`schemas/review/1.0/human-review-finding.schema.json` (neuf, et une famille de schémas neuve), trois
+exemples, `schemas/registry.json`, les deux SDK régénérés, `docs/10_V1_ROADMAP.md`.
+
+**Tests exécutés.** `cargo test -p locus-review --test human` → 20 conformes. `npm run check` → les
+dix portes vertes. Mutation : treize mutants sur les gardes, **treize tués, aucun survivant**.
+
+**Décisions prises.**
+
+_Une seule porte fermée._ §20 demande deux choses opposées : que le finding soit réel — il
+s'attache, il se compte, il ne se perd pas (invariant 12) — et qu'il ne puisse jamais tenir lieu de
+validation. Fermer une seule porte suffit : **aucun verdict humain ne rend `Supports`**. `accept`
+rend `Insufficient`, parce qu'un relecteur sans objection n'est pas une preuve ; c'est le même geste
+que `Drift::Unknown` et `Verdict::Insufficient` avant lui, et le test le vérifie sur les quatre
+verdicts croisés avec commentaire et preuve citée, plus le commentaire seul.
+
+_`source-changed` ne réfute rien._ C'est §19 vu par un humain. Le rendre `Refutes` ferait douter
+d'un run correct chaque fois qu'une bibliothèque remanie son site — exactement ce que W10.7 vient
+d'interdire côté viewer. Il rend `NotApplicable` : le relecteur répond à une autre question que
+celle du dossier, et il faut que cela se voie. Les deux dépôts tiennent donc la même règle, chacun
+dans son vocabulaire, sans partager une ligne.
+
+_La règle d'opposabilité ne connaît pas la qualité du relecteur._ §17.5 dit qu'un finding sans
+preuve concrète est un commentaire non bloquant ; elle vaut pour un humain comme pour un agent.
+`wrong-target` sans preuve citée ne bloque donc pas, et un commentaire libre avec preuve citée ne
+bloque pas davantage. Deux tests, un par sens : n'en écrire qu'un laisserait passer une garde qui a
+perdu l'autre moitié.
+
+_Le dossier ne s'élargit pas en silence._ `attach_to` refuse une cible absente du dossier et un
+dossier qui n'est pas celui que la revue nomme. Sans ce refus, une revue humaine ajouterait des
+findings sur des révisions qu'un dossier figé avant attribution (§17.3) ne couvre pas — la forme de
+dérive qui ne contredit jamais rien ouvertement.
+
+_Lecteur validant, troisième occurrence._ Le schéma porte `anyOf` sur verdict/commentaire et une
+énumération de quatre valeurs ; Rust n'exprime ni l'un ni l'autre, donc le type engendré offre deux
+`Option<String>` indépendants. `from_wire` ajoute les deux refus, et celui qui compte le plus est
+`UnknownVerdict` : `validated` est précisément le mot que §20 interdit, et le laisser entrer comme
+une chaîne libre le ferait figurer au dossier sous un nom que personne n'a défini.
+
+_Une inconsistance de W6.f corrigée au passage._ `remote-artifact-ref.schema.json` portait un `$id`
+en URL là où les quatorze autres schémas portent une URN. Laisser deux précédents en place, c'est
+laisser le prochain auteur choisir — donc choisir autrement.
+
+**Écart avec la spec.** §20 nomme quatre autres exigences de revue — juxtaposer original et dérivé,
+superposer la région revendiquée, afficher OCR source/correction, ouvrir le rapport interprétatif
+sans l'injecter dans le rendu. Ce sont des exigences d'affichage : elles appartiennent à xiiif et
+sont le contenu de W10.8. Ce qui est livré ici est le contrat que xiiif écrira, pas l'écran.
+
+**Prochain item.** W10.8 — xiiif produit ce finding : les quatre verdicts et le commentaire libre
+enregistrés depuis la visionneuse, sans importer une ligne de Locus, avec sa propre implémentation
+des refus.

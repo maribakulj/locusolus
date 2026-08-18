@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://locusolus.dev/schemas/artifacts/1.0/remote-artifact-ref.schema.json",
+  "$id": "urn:locus:schema:artifacts:1.0:remote-artifact-ref",
   "title": "RemoteArtifactRef",
   "$comment": "Le contrat entre Locus Solus et un viewer externe — xiiif/SPEC_V1 §19. Il vit sous `artifacts/1.0` et non sous `lep/1.0` : ce n'est pas un message du protocole d'exécution, c'est une référence qu'un viewer reçoit et relit. `lep/1.0` est gelé, et l'y ajouter aurait mêlé deux cycles de vie qui n'ont aucune raison d'avancer ensemble.",
   "type": "object",

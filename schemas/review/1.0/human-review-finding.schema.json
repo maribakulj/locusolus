@@ -1,0 +1,43 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "urn:locus:schema:review:1.0:human-review-finding",
+  "title": "HumanReviewFinding",
+  "$comment": "Ce qu'un humain enregistre depuis un viewer — xiiif/SPEC_V1 §20. Il vit sous `review/1.0` et non sous `lep/1.0` : ce n'est pas un message du protocole d'exécution, et `lep/1.0` est gelé. §20 le dit lui-même : « cette revue n'est pas une validation scientifique complète » — c'est pourquoi aucun de ses verdicts ne peut valoir `supports` côté domaine, et pourquoi le schéma n'offre aucun champ qui le laisserait croire.",
+  "type": "object",
+  "required": ["dossier_id", "target", "reviewer"],
+  "additionalProperties": false,
+  "anyOf": [{ "required": ["verdict"] }, { "required": ["comment"] }],
+  "properties": {
+    "dossier_id": {
+      "description": "Le ReviewDossier auquel ce finding s'attache. §20 : la revue humaine « produit un finding attachable à un ReviewDossier », donc elle en nomme un.",
+      "type": "string",
+      "minLength": 1
+    },
+    "target": {
+      "description": "La révision revue. Le domaine refuse une cible que le dossier ne couvre pas : sans cela une revue humaine élargirait le dossier en silence.",
+      "type": "string",
+      "minLength": 1
+    },
+    "reviewer": {
+      "description": "Qui a regardé. Une identité humaine, pas un agent : elle ne passe pas par l'attestation d'indépendance de §17.4, parce que ce n'est pas une revue indépendante.",
+      "type": "string",
+      "minLength": 1
+    },
+    "verdict": {
+      "description": "L'un des quatre de §20, sous son nom. `accept` ne dit pas que la revendication tient : il dit que le relecteur humain n'a pas d'objection, ce qui n'est pas une preuve.",
+      "type": "string",
+      "enum": ["accept", "needs-correction", "wrong-target", "source-changed"]
+    },
+    "comment": {
+      "description": "Le commentaire libre, cinquième forme d'enregistrement de §20. Un finding qui ne porte ni verdict ni commentaire ne dit rien, et `anyOf` le refuse.",
+      "type": "string",
+      "minLength": 1
+    },
+    "evidence": {
+      "description": "Les révisions sur lesquelles le relecteur s'appuie. §17.5 : un finding sans preuve concrète est un commentaire non bloquant — la règle vaut pour un humain comme pour un agent, et c'est elle, pas la qualité du relecteur, qui décide si le finding est opposable.",
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "recorded_at": { "type": "string", "format": "date-time" }
+  }
+}

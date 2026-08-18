@@ -926,8 +926,29 @@ pub struct RemoteArtifactRef {
     pub viewer_hint: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HumanReviewFinding {
+    /// Le ReviewDossier auquel ce finding s'attache. §20 : la revue humaine « produit un finding attachable à un ReviewDossier », donc elle en nomme un.
+    pub dossier_id: String,
+    /// La révision revue. Le domaine refuse une cible que le dossier ne couvre pas : sans cela une revue humaine élargirait le dossier en silence.
+    pub target: String,
+    /// Qui a regardé. Une identité humaine, pas un agent : elle ne passe pas par l'attestation d'indépendance de §17.4, parce que ce n'est pas une revue indépendante.
+    pub reviewer: String,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    /// L'un des quatre de §20, sous son nom. `accept` ne dit pas que la revendication tient : il dit que le relecteur humain n'a pas d'objection, ce qui n'est pas une preuve.
+    pub verdict: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    /// Le commentaire libre, cinquième forme d'enregistrement de §20. Un finding qui ne porte ni verdict ni commentaire ne dit rien, et `anyOf` le refuse.
+    pub comment: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    /// Les révisions sur lesquelles le relecteur s'appuie. §17.5 : un finding sans preuve concrète est un commentaire non bloquant — la règle vaut pour un humain comme pour un agent, et c'est elle, pas la qualité du relecteur, qui décide si le finding est opposable.
+    pub evidence: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub recorded_at: Option<String>,
+}
+
 /// Les documents qu'un pair peut envoyer ou recevoir, dans l'ordre du registre.
-pub const LEP_DOCUMENTS: [&str; 10] = [
+pub const LEP_DOCUMENTS: [&str; 11] = [
     "ArtifactManifest",
     "RunManifest",
     "CapabilityManifest",
@@ -938,6 +959,7 @@ pub const LEP_DOCUMENTS: [&str; 10] = [
     "Lease",
     "EpistemicCommit",
     "RemoteArtifactRef",
+    "HumanReviewFinding",
 ];
 
 /// Les features négociables au handshake, avec le mineur qui les introduit.

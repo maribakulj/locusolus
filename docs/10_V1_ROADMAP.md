@@ -314,11 +314,19 @@ dépendance en retard.
 | # | Commit | Dépôt | Test de sortie |
 |---|---|---|---|
 | W6.f `[R]` | `RemoteArtifactRef` (§19 de `xiiif/SPEC_V1.md`) : identité Locus, media type, hashes attendus, **un seul** locator | un document à deux locators est refusé, un document sans locator aussi ; le snapshot prouve la reproduction, la ressource live ne prouve rien ; une divergence entre les deux ne rend jamais la preuve historique douteuse |
+| W7.h `[R]` | `HumanReviewFinding` (§20 de `xiiif/SPEC_V1.md`) : les quatre verdicts humains, le commentaire libre, et le schéma que xiiif écrit | un verdict humain ne rend **jamais** `supports` ; `source-changed` ne réfute rien ; un finding dont la cible n'est pas dans le dossier est refusé ; un enregistrement qui ne dit ni verdict ni commentaire est refusé par son schéma |
 | W10.7 `[R]` | xiiif consomme `RemoteArtifactRef` : `xiiif-open-locus-artifact`, affichage séparé des cinq facettes | les cinq facettes de §19 sont distinctes à l'écran ; une ressource live modifiée après le run ne fait pas croire que la preuve a changé |
 | W10.8 `[R]` | revue humaine de §20 : `accept`, `needs-correction`, `wrong-target`, `source-changed` | un verdict produit un finding attachable à un `ReviewDossier`, et xiiif ne valide rien lui-même |
 
-Reste bloqué sur W6.f : `xiiif-open-locus-artifact`, affichage séparé identité /
-live / snapshot / intégrité / divergences (§19), revue humaine (§20).
+W10.8 dépend de W7.h : §20 nomme quatre verdicts humains et un `ReviewDossier` auquel les
+attacher, et rien ne portait ce contrat — même trou de couverture que W6.f, relevé au même endroit
+et pour la même raison. W7.h le comble côté locusolus ; xiiif le consomme ensuite sans importer une
+ligne de Locus.
+
+W6.f et W10.7 sont livrés : `xiiif-open-locus-artifact` existe, et les cinq facettes de §19
+s'affichent séparément — l'intégrité de la preuve et la dérive de la source sont deux verdicts que
+rien ne résume en un seul, de part et d'autre de la frontière. Reste W10.8, la revue humaine de §20,
+qui attend le `ReviewDossier` de W7.a côté xiiif.
 
 ## W11 — Deployment profiles
 

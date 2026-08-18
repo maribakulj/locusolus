@@ -84,6 +84,14 @@
         "invalid-remote-ref-two-locators.json",
         "invalid-remote-ref-no-snapshot.json"
       ]
+    },
+    {
+      "schema": "review/1.0/human-review-finding.schema.json",
+      "examples": [
+        "human-review-source-changed.json",
+        "human-review-comment-only.json",
+        "invalid-human-review-says-nothing.json"
+      ]
     }
   ],
   "shared": [
