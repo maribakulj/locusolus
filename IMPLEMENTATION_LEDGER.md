@@ -5643,3 +5643,52 @@ le chemin complet : drainer jusqu'à la quiescence, **puis** retirer.
 tour, et le scheduler aurait continué de lui donner du travail en croyant l'avoir mis de côté.
 
 **Prochain item.** W16.b — les barrières par invariant menacé plutôt que par lieu.
+
+## 2026-08-18 — W16.b — Les barrières par invariant menacé plutôt que par lieu
+
+**Périmètre.** `packages/coordination/src/barrier.rs` (neuf),
+`packages/coordination/tests/barrier.rs` (neuf, 9 tests), `src/lib.rs` (les réexports), ce fichier.
+
+**Tests exécutés.** `cargo test -p locus-coordination` → 132 conformes. `npm run check` → les dix
+portes vertes. Mutation : quatorze mutants, **treize tués**, un équivalent documenté.
+
+**Décisions prises.**
+
+_Ce que la barrière par lieu rate, dans les deux sens._ `docs/13` demande des « barrières par
+invariant menacé plutôt que par lieu », et les deux tests qui comptent montrent les deux fautes que
+cela évite :
+
+- **elle bloque trop peu.** Deux reconfigurations sur des nœuds entièrement disjoints — `1 → 2` et
+  `5 → 6` — menacent le même invariant. Une barrière par lieu les aurait laissées passer toutes les
+  deux, et l'acyclicité serait tombée entre elles.
+- **elle bloque trop.** Deux reconfigurations sur **les mêmes nœuds** — `1 → 2` deux fois — dont
+  l'une ajoute une revue et l'autre une visibilité. Depuis W15.e la seconde ne menace rien : une
+  barrière par lieu les aurait sérialisées sans qu'elles puissent rien se casser.
+
+Le second test n'était pas écrivable avant W15.e : il faut deux sortes de relation pour que deux
+lots au même endroit puissent différer par ce qu'ils menacent.
+
+_La portée est dérivée, jamais déclarée._ C'est ce qui empêche la barrière par lieu de revenir
+déguisée. `Barriers::raise` **calcule** ce qu'un lot met en jeu, par le `threatens` de W15.c — le
+même calcul que le plafond de risque, donc les deux ne peuvent pas diverger. Écrire un second calcul
+aurait produit deux vérités sur la même question.
+
+_Une barrière ne nomme aucun lieu._ Elle porte un invariant et celui qui la tient, rien d'autre. Un
+accesseur qui rendrait des identités ferait écrire, un jour, « barrer aussi ceux-là ». Un test le
+tient par l'absence, sur la représentation `Debug` — et le mutant qui glisse le lot dans le champ
+`held_by` meurt dessus.
+
+_Une barrière sans invariant menacé est refusée._ Elle ne pourrait barrer que par lieu, faute
+d'autre chose à nommer : elle serait exactement ce que `docs/13` écarte. Et un lot qui ne menace
+rien n'a besoin d'aucune barrière — le lui refuser ne coûte rien et empêche la mauvaise habitude.
+
+_Le refus nomme l'invariant et qui le tient._ « Cette équipe est gelée » n'apprend rien ; «
+l'acyclicité de revue est tenue par alice » dit ce qu'il faut attendre et à qui demander.
+
+**Un mutant équivalent, et pourquoi il le restera un temps.** Remplacer `retain` par `clear` dans
+`release` ne change rien : `raise` refusant une seconde barrière sur un invariant déjà tenu, et
+l'énumération n'en comptant qu'un, le jeu n'en tient jamais plus d'une. La distinction deviendra
+observable le jour où un deuxième invariant entrera, et c'est ce jour-là qu'un test devra la tenir.
+La limitation est écrite dans le module plutôt que laissée à un survivant inexpliqué.
+
+**Prochain item.** W16.c — le plan de simulation.

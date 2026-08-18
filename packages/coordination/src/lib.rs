@@ -22,6 +22,7 @@
 //! seraient du vocabulaire que rien ne vérifie.
 
 pub mod agent;
+pub mod barrier;
 pub mod capability;
 pub mod decision;
 pub mod diff;
@@ -35,6 +36,7 @@ pub mod version;
 pub mod visibility;
 
 pub use agent::{AgentError, AgentInstance, AgentTemplate, InstanceState, TemplateStatus};
+pub use barrier::{Barrier, BarrierError, Barriers, Passage, threatened_by};
 pub use capability::{Capability, CapabilityError, Source, Sources, capabilities};
 pub use decision::{ApprovalRequest, ApprovalState, Decision, DecisionError, DecisionState};
 pub use diff::{Diff, DiffError};
