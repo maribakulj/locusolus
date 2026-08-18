@@ -14,8 +14,15 @@ const run = promisify(execFile);
  * This one cannot be read off the source: a package that quietly relies on the author's
  * `init.el` looks perfectly self-contained in a diff. So the check starts an actual Emacs with
  * no user configuration and nothing on `load-path` but the unit itself, loads each entry point,
- * and then compares `load-path` against the baseline — which catches the package that reaches
- * outside at load time instead of at read time.
+ * and then looks at two things.
+ *
+ * `load-path` against the baseline — which catches the package that reaches outside at load time
+ * instead of at read time. And `load-history`, which catches what the first check cannot see: a
+ * package that loads a foreign file by absolute path, or under a `let`-bound `load-path`, leaves
+ * `load-path` exactly as it found it. That is the realistic shape of the dependency this rule
+ * exists to forbid — the cockpit quietly using a helper from its author's configuration — and it
+ * was invisible until a mutation on W8.a's package went green here while the package's own ERT
+ * suite went red.
  */
 
 export type EmacsMode = "auto" | "required" | "off";
@@ -96,11 +103,18 @@ async function loadInIsolation(
       "--eval",
       probeForm(unit, file),
     ]);
-    return escapes(stdout).map((directory) => ({
-      rule: rule.id,
-      where,
-      message: `ajoute ${directory} à load-path au chargement : le paquet sort de son répertoire`,
-    }));
+    return [
+      ...reported(stdout, "load-path-escape:").map((directory) => ({
+        rule: rule.id,
+        where,
+        message: `ajoute ${directory} à load-path au chargement : le paquet sort de son répertoire`,
+      })),
+      ...reported(stdout, "foreign-load:").map((origin) => ({
+        rule: rule.id,
+        where,
+        message: `charge ${origin}, qui n'est ni dans le paquet ni dans l'installation d'Emacs`,
+      })),
+    ];
   } catch (error) {
     return [
       {
@@ -114,19 +128,26 @@ async function loadInIsolation(
 
 function probeForm(unit: string, file: string): string {
   return `(let ((home (file-name-as-directory (expand-file-name ${quote(unit)})))
+      (emacs (file-name-as-directory (expand-file-name (file-name-directory (directory-file-name data-directory)))))
       (baseline (mapcar (lambda (d) (file-name-as-directory (expand-file-name (or d ".")))) load-path)))
   (load ${quote(file)} nil t)
   (dolist (d load-path)
     (let ((full (file-name-as-directory (expand-file-name (or d ".")))))
       (unless (or (member full baseline) (string-prefix-p home full))
-        (princ (format "load-path-escape:%s\\n" full))))))`;
+        (princ (format "load-path-escape:%s\\n" full)))))
+  (dolist (entry load-history)
+    (let ((origin (and (stringp (car entry)) (expand-file-name (car entry)))))
+      (when (and origin
+                 (not (string-prefix-p home origin))
+                 (not (string-prefix-p emacs origin)))
+        (princ (format "foreign-load:%s\\n" origin))))))`;
 }
 
-function escapes(stdout: string): string[] {
+function reported(stdout: string, marker: string): string[] {
   return stdout
     .split("\n")
-    .filter((line) => line.startsWith("load-path-escape:"))
-    .map((line) => line.slice("load-path-escape:".length).trim());
+    .filter((line) => line.startsWith(marker))
+    .map((line) => line.slice(marker.length).trim());
 }
 
 /**

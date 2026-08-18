@@ -70,6 +70,12 @@ jobs:
       - name: Architectural boundaries
         run: npm run check:boundaries -- --require-emacs
 
+      # Même raison que ci-dessus : localement la suite peut se sauter faute
+      # d'Emacs, en CI elle ne le peut pas — une suite qui se saute en silence
+      # ressemble en tout point à une suite qui passe.
+      - name: Emacs client tests
+        run: npm run check:emacs -- --require-emacs
+
       - name: Typecheck
         run: npm run typecheck
 

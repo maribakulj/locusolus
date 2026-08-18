@@ -13,7 +13,7 @@
     "packages/*"
   ],
   "scripts": {
-    "check": "npm run check:format && npm run check:repo && npm run check:naming && npm run check:boundaries && npm run check:schemas && npm run check:generated && npm run typecheck && npm test && npm run check:rust",
+    "check": "npm run check:format && npm run check:repo && npm run check:naming && npm run check:boundaries && npm run check:emacs && npm run check:schemas && npm run check:generated && npm run typecheck && npm test && npm run check:rust",
     "check:rust": "cargo fmt --all --check && cargo clippy --all-targets --all-features -- -D warnings && cargo test --all-features",
     "check:format": "prettier --check .",
     "check:repo": "node tooling/repo/check-repo.ts",
@@ -24,7 +24,8 @@
     "test": "node --test \"tests/**/*.test.ts\"",
     "check:schemas": "node tooling/schemas/check-schemas.ts",
     "sdk": "node tooling/sdk/generate.ts",
-    "check:generated": "node tooling/sdk/generate.ts --check"
+    "check:generated": "node tooling/sdk/generate.ts --check",
+    "check:emacs": "node tooling/emacs/run-tests.ts"
   },
   "devDependencies": {
     "@types/node": "^22.15.3",

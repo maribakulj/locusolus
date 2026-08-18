@@ -3741,3 +3741,80 @@ ensuite_.
 
 **Prochain item.** W7 est terminé (a → g). Le prochain item non terminé de `docs/10` dont les
 dépendances sont satisfaites reprend la file ordinaire.
+
+---
+
+## 2026-08-18 — W8.a — Le test de séparation, au seul moment où il est gratuit
+
+**Périmètre.** `apps/emacs/` gagne son premier Elisp : `locus.el`, `locus-protocol.el`,
+`test/locus-separation-test.el`, `test/locus-protocol-test.el`, `README.md`.
+`tooling/emacs/run-tests.ts` est neuf ; `tooling/boundaries/emacs.ts`,
+`tests/boundaries/contract.test.ts`, `package.json`, `.github/workflows/ci.yml`,
+`docs/10_V1_ROADMAP.md` et `apps/emacs/SPEC.md` sont modifiés. Aucune dépendance nouvelle : le
+paquet ne dépend que d'Emacs.
+
+**Ce que le sprint établit.** La frontière 5 passe de « sans objet » à « vérifiée sur 2 fichier(s)
+». `docs/10` fixe ce commit en premier de W8 parce que la dépendance qu'on veut interdire ne
+s'ajoute jamais délibérément : elle s'installe le jour où une fonction du cockpit a besoin d'une
+chose que la configuration de l'auteur fournit déjà, et elle est alors invisible dans le diff.
+
+**Charger ne coûte rien.** Le paquet n'ouvre aucune connexion, n'arme aucun timer, ne lance aucun
+processus. C'est `SPEC.md` §7.1 et le critère qui prime dans le `CLAUDE.md` de `emacs-config` — le
+startup reste fonctionnel sans réseau et sans que Locus tourne.
+
+**Le paquet est petit exprès.** Les neuf options publiques de `SPEC.md` §5 ne sont pas déclarées :
+aucun code ne les lit encore, et une option que personne ne consulte est une promesse d'API que rien
+ne tient. Elles arriveront avec leur lecteur, comme les recommandations de §17.7 en W7.d.
+
+**Une contradiction de la spec tranchée.** §3 nommait les fichiers `locusolus-*.el` ; §5 nomme les
+options publiques `locus-*`. En Emacs Lisp le préfixe des symboles est celui du fichier d'entrée :
+les deux moitiés ne pouvaient pas être vraies ensemble, et `package-lint` refuse le décalage, donc
+les canaux d'installation que §4.4 exige de garder ouverts. L'arbitrage garde §5 **mot pour mot** —
+ce sont les options qu'une configuration consommatrice écrit, les renommer casserait des
+utilisateurs — et fait suivre les noms de fichiers. Amendement inscrit dans `SPEC.md` §3 plutôt que
+silencieux.
+
+**Ce que les mutations ont trouvé, et c'est le vrai résultat du sprint.** Deux mutations —
+`(load "/chemin/vers/la/config/perso.el")` et un `require` sous un `load-path` lié par `let` — font
+rougir la suite ERT et laissent la **garde TypeScript verte**. Elle ne comparait que `load-path`
+avant et après ; un `load` par chemin absolu, ou un `load-path` restauré en sortant du `let`, ne
+laisse aucune trace là. Or c'est exactement la forme réaliste de la dépendance que la règle 5 existe
+pour interdire. La garde lit désormais aussi `load-history` : les deux mutations la font rougir. Une
+garde dont l'angle mort couvre le cas nominal de ce qu'elle interdit ne garde rien.
+
+**Deux gardes, aucun code partagé.** La suite ERT depuis l'intérieur du paquet, la règle 5 depuis
+l'extérieur, en TypeScript. Elles vérifient maintenant la même propriété par deux implémentations
+indépendantes — ce n'est pas une redondance : la suite ERT disparaîtrait avec le paquet, la garde
+non, et l'inverse pour ce qui est de tourner sans Node.
+
+**Trois bugs de test attrapés avant de compter quoi que ce soit.** La racine du dépôt calculée à
+l'exécution, où `load-file-name` est nil et le repli remonte d'un niveau de trop. `timer-idle-list`
+exigé vide, alors qu'Emacs y met les siens — le test échouait sur le comportement d'Emacs, pas sur
+celui du client. Et surtout : `--feature-file` cherchait la `feature` comme **clé** de
+`load-history`, où elle figure en réalité sous `(provide . FEATURE)` parmi les valeurs. Il rendait
+donc toujours nil, ce qui faisait passer n'importe quelle bibliothèque tierce pour un composant
+d'Emacs : le test des dépendances était vert en ne regardant rien.
+
+**Un test de W0.3 périmé par ce sprint.** « une règle sans objet est déclarée comme telle »
+employait le dépôt lui-même comme fixture, et disait vrai tant qu'`apps/emacs` était vide. La
+prémisse est désormais construite dans un répertoire temporaire, et un test complémentaire fixe
+l'acquis : sur le dépôt réel, la règle 5 doit être `enforced`, jamais sautée.
+
+**Neuf mutations vérifiées rouges** : le client se déclarant connecté sans l'être (2 tests) ; le
+chargement armant un timer de reconnexion (1) ; le chargement sortant du répertoire du paquet (1) ;
+le client ne disant plus sa version (1) ; la version de protocole dérivant du schéma (1) ; le client
+se mettant à arbitrer la compatibilité (1) ; le paquet chargeant une bibliothèque de la config
+personnelle (1 en ERT, **et la garde TS après correction**) ; le même par `load-path` élargi en
+silence (1 en ERT, **et la garde TS après correction**). Restauration confirmée verte.
+
+**Le dixième portail.** `npm run check` compte désormais dix portes : `check:emacs` s'insère après
+`check:boundaries`. En CI elle porte `--require-emacs`, pour la même raison que la garde — une suite
+qui se saute en silence ressemble en tout point à une suite qui passe.
+
+**Écart avec la spec.** Un, nommé. `Package-Requires` déclare Emacs 30.1, comme `SPEC.md` §4.1
+l'exige, mais la CI vérifie la séparation sous l'Emacs que fournit le runner — 29.3 ici. Le paquet
+n'emploie rien qui manque à 29, donc le chargement prouve ce qu'il prouve ; épingler un runner Emacs
+30 est une question de CI, pas de code, et elle n'est pas tranchée dans ce sprint.
+
+**Prochain item.** **W8.b** — client HTTP/stream et authentification abstraite (§6). C'est le
+premier item qui lira une option publique de §5, donc le premier qui en déclarera.
