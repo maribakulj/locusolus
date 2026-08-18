@@ -11,9 +11,8 @@
 //! # Ce que les détecteurs ne font pas
 //!
 //! Ils ne concluent pas à la fraude. §13.6 demande de « détecter **et pénaliser** » : un constat est
-//! un signal chiffré, destiné à être appliqué comme une pénalité par ce qui valorisera les branches.
-//! Traiter un signal comme une preuve punirait la coïncidence ; l'ignorer récompenserait la
-//! stratégie.
+//! un signal chiffré, appliqué comme une pénalité par [`crate::value`]. Traiter un signal comme une
+//! preuve punirait la coïncidence ; l'ignorer récompenserait la stratégie.
 //!
 //! # La similarité est un port
 //!
@@ -193,9 +192,9 @@ impl Default for Thresholds {
 /// # Ce qu'il prouve, et ce qu'il ne prouve pas
 ///
 /// Qu'une branche a été **regardée**. Un criblage sans constat n'est pas l'absence de criblage, et
-/// c'est toute la différence : ce type n'a pas d'autre constructeur que [`screen`], de sorte que ce
-/// qui valorisera les branches pourra l'exiger — et qu'une branche jamais criblée n'aura pas une
-/// valeur haute, mais pas de valeur du tout.
+/// c'est toute la différence : ce type n'a pas d'autre constructeur que [`screen`], et
+/// [`crate::value`] l'exige — donc une branche jamais criblée n'a pas une valeur haute, elle n'a pas
+/// de valeur du tout.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Screening {
     findings: Vec<GamingFinding>,
