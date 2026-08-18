@@ -7148,6 +7148,23 @@ répondu » — au lieu de « bloquée ». C'est le bon verdict, et il reste un 
 refus de confiance. Une sonde ne peut pas conclure sur un hôte qui n'offre pas ce que le niveau
 permet, et le dire est mieux que de compter un filtrage réseau comme une preuve d'isolation.
 
+**Vérifié sur l'hôte réel, et c'est le point.** Le passage de CI qui suit ce commit rend
+`read_process_environment` **« bloquée → tient »**. La sonde inversée est corrigée, et elle est
+corrigée _contre un vrai conteneur_, pas contre un double. Treize sondes sur seize tiennent
+désormais, contre douze.
+
+**Ce que le constat de route a répondu, et ce qu'il ne tranche pas.** Les deux sondes réseau
+ressortent toujours « bloquées », c'est-à-dire que le constat n'a **pas** trouvé de route par
+défaut. Deux lectures possibles, et elles se réparent à des endroits opposés : soit le conteneur n'a
+réellement aucune route — et alors c'est le **driver** qui ne délivre pas le réseau que
+`NetworkMode::Full` demande à `S2`, ce qui serait une trouvaille du même ordre que le quota disque —
+soit le constat lit mal `/proc/net/route` dans ce contexte, et alors c'est la sonde. Affirmer l'un
+sans regarder serait exactement ce que cet item reproche aux sondes.
+
+Le job imprime donc désormais ce que le conteneur voit : `/proc/net/route`, `resolv.conf`, et le
+code de retour de `curl` sur les deux cibles. Une exécution répondra. Ce qui n'est pas fait ici
+n'est pas présenté comme fait.
+
 **Tests exécutés.** `cargo test -p locus-execd` → 24 conformes dans `selftest`, dont cinq neufs.
 `npm run check` → les dix portes vertes. Mutation : neuf mutants, **neuf tués** — après correction
 d'un survivant qui était un vrai trou. Le mutant remplaçait `mine=$(cut … /proc/self/cgroup …)` par
