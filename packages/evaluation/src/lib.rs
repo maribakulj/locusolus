@@ -31,6 +31,7 @@ pub mod benchmark;
 pub mod counterfactual;
 pub mod credit;
 pub mod endurance;
+pub mod evolution;
 pub mod regret;
 
 pub use benchmark::{
@@ -41,6 +42,7 @@ pub use counterfactual::{
 };
 pub use credit::{Arm, Baseline, Credit, CreditError, Factor, attribute};
 pub use endurance::{Campaign, Endurance, EnduranceError, Measure, Requirement, Shortfall};
+pub use evolution::{Evolution, EvolutionError, Improvement, Occurrence, consider};
 pub use regret::{Candidate, Regret, RegretError, regret};
 
 use std::collections::BTreeMap;

@@ -601,6 +601,14 @@ Si oui, un worker LEP séparé ; si non, on supprime le dépôt. Aucune ligne da
 `backend/cli/src/locus/` avant la réponse. · `R6` **évolution inter-exécutions** — une adaptation
 récurrente et gagnante en validation appariée propose une amélioration de template.
 
+**`R5` est le seul des six qui ne se fasse pas ici, et ce n'est pas une question technique.** Il
+demande un **dépôt jetable** — créé pour poser une question, supprimé si la réponse est non. Créer
+un dépôt engage un compte au-delà de ce chantier, et le supprimer plus encore ; c'est une décision
+qui appartient à qui possède le compte, pas à la session qui écrit le code. Sa contrainte, elle, est
+tenue sans rien faire : « aucune ligne dans `backend/cli/src/locus/` avant la réponse » est une
+**interdiction**, et elle est respectée tant que le worker LEP séparé n'est pas écrit. Les cinq
+autres items de recherche sont livrés.
+
 ---
 
 ## Règle de session
