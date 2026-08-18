@@ -272,13 +272,20 @@ Elisp, donc rien à extraire et rien à réordonner — `apps/emacs` se construi
 | # | Commit | Test de sortie |
 |---|---|---|
 | W8.a `[R]` | le test de séparation : `apps/emacs` existe, se charge sous `emacs -Q` avec sa seule `load-path` | la frontière 5 passe de « sans objet » à vérifiée ; charger le paquet n'ouvre aucune connexion, n'arme aucun timer et ne tire aucune bibliothèque hors du paquet et d'Emacs ; la version de protocole annoncée est celle de `schemas/`, lue et non recopiée |
-| W8.b `[R]` | client HTTP/stream et authentification abstraite (§6) | aucun secret hors `auth-source` ; une identité absente est une erreur actionnable, pas un plantage |
+| W8.b `[R]` | authentification abstraite (§6) | aucun secret hors `auth-source` ; une identité absente est une erreur actionnable, pas un plantage |
 | W8.c `[R]` | événements, curseurs et reprise (§14.1, §7.5) | une déconnexion ne perd ni ne duplique un événement ; un trou est marqué, pas tu ; l'élagage du tampon n'emporte jamais un événement critique |
 | W8.d `[R]` | dashboard et buffers (§9) | un buffer se reconstruit depuis le cache sans réseau |
 | W8.e `[R]` | commandes et transient (§10, §11) | toute action mutante passe par l'API avec `expected_revision` ; un conflit est rendu, pas écrasé |
 | W8.f `[R]` | artefacts et inspecteur de sandbox | un artefact non promu se distingue d'un artefact promu à l'écran |
 | W8.g `[R]` | intégrations Org/Magit/Jupyter/xiiif | chaque intégration absente dégrade sans casser le démarrage |
 | W8.h `[R]` | 3D et WebView | la 3D reste une projection ; aucune vue n'écrit dans le graphe |
+| W8.i `[R]` | le **transport** : requête HTTP construite, réponse relue, socket isolée derrière un port | une requête se construit et se relit sans réseau ; l'erreur structurée du serveur arrive au client comme une erreur structurée, pas comme un code ; un aller-retour réel contre un serveur local passe |
+
+**W8.i vient en dernier, et ce n'est pas un oubli.** La ligne W8.b portait d'abord « client HTTP/stream
+et authentification abstraite » ; seule l'authentification a été livrée, et les sept items suivants ont
+chacun déclaré le transport en écart. Le choix a payé — chaque module s'est trouvé testable sans
+serveur, donc rejouable, donc mutable — mais il laissait une ligne à moitié honorée. W8.i la finit, et
+la sépare pour que ce qui a été fait et ce qui restait dû se lisent.
 
 **W8.a en premier, et c'est la roadmap qui l'impose** : la frontière se fixe avant qu'il y ait quoi
 que ce soit à séparer — le seul moment où c'est gratuit. La dépendance qu'on veut interdire ne

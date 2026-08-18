@@ -4279,3 +4279,61 @@ sans serveur, donc rejouable, donc muté. C'est aussi la dette la plus visible d
 
 **Prochain item.** Le premier item non terminé de `docs/10` dont les dépendances sont satisfaites,
 hors W8.
+
+---
+
+## 2026-08-18 — W8.i — Le transport : construire, relire, et une seule socket
+
+**Périmètre.** `apps/emacs/locus-http.el` et `test/locus-http-test.el`, neufs. `docs/10` : la ligne
+W8.b portait « client HTTP/stream **et** authentification abstraite » ; seule l'authentification
+avait été livrée, et les sept items suivants ont chacun déclaré le transport en écart. La ligne est
+recadrée sur ce qu'elle a livré, et W8.i porte ce qui restait dû. 114 tests ERT sur le paquet.
+
+**Trois responsabilités, séparées exprès.** Construire une requête, relire une réponse, parler à une
+socket. Les deux premières sont **pures** — et c'est là que vivent les fautes : en-tête mal formé,
+corps mal cadré, statut mal interprété. Elles s'éprouvent donc au cas par cas, sans serveur. Un
+client qui mélangerait les trois se testerait à travers une socket : lentement, par intermittence,
+et jamais sur le cas rare.
+
+**Mais la socket est éprouvée aussi.** Deux tests montent un vrai serveur sur `localhost` et font un
+vrai aller-retour, dans les deux sens : la réponse est relue, et le serveur reçoit bien ce qui a été
+construit. Sans eux, le module serait vérifié partout sauf là où il touche le monde — et une requête
+bien construite mal envoyée est indistinguable, côté client, d'une requête mal construite.
+
+**L'erreur structurée n'est pas un code.** `packages/protocol` fait de l'erreur une enveloppe —
+catégorie, code, politique de reprise. Rendre « 409 » jetterait tout cela pour garder le seul
+chiffre. Et la reprise se lit **dans l'enveloppe**, jamais déduite du statut : un 409 de conflit de
+révision ne se réessaie jamais (§11.3), un 409 de verrou temporaire se réessaie, et le chiffre ne
+les distingue pas. Un serveur qui rend une erreur nue ne dit rien de la reprise — la supposer
+possible ferait boucler sur une faute définitive.
+
+**Deux fautes que seule la sérialisation révèle.** `json-serialize` rend le mot-clé `:a` comme
+`":a"` — **avec le deux-points** — c'est-à-dire un champ que le serveur ne reconnaîtra jamais, et
+l'échec apparaîtrait comme un 400 énigmatique loin d'ici. Les clés mot-clé sont donc refusées plutôt
+que converties : convertir supposerait une correspondance entre les mots-clés d'Elisp et les noms du
+fil, et cette correspondance serait une seconde définition du protocole — celle qui dérive.
+
+Et `Content-Length` se compte en **octets**, pas en caractères. Une longueur fausse fait attendre le
+serveur ou tronque le corps ; c'est la faute qu'un accent révèle et qu'une suite en ASCII rate. Le
+test emploie « évaluation » exprès.
+
+**Ce que la suite a cassé chez les autres.** Les serveurs de test laissaient leurs **connexions
+acceptées** derrière eux, et trois tests du paquet affirment qu'aucun processus ne tourne : ils ont
+échoué au premier essai. Le nettoyage porte désormais sur la descendance, pas seulement sur le
+serveur. Une suite qui salit l'état global fait échouer les tests des autres, et c'est le genre de
+rouge qu'on impute d'abord au mauvais endroit.
+
+**Douze mutations vérifiées rouges** : la longueur comptée en caractères (1 test) ; les clés mot-clé
+passant en silence (1) ; la clé d'idempotence ne partant plus (2) ; un GET annonçant une longueur de
+zéro (6) ; la ligne de statut non vérifiée (1) ; un corps illisible devenu une panne de transport
+(1) ; les en-têtes gardant la casse du serveur (1) ; l'enveloppe d'erreur jetée (2) ; l'enveloppe
+lue même sur un succès (1) ; la reprise déduite du statut (1) ; une erreur sans enveloppe supposée
+réessayable (1) ; le transport ajoutant l'autorisation (1). Restauration confirmée verte, aucune
+muette.
+
+**Écart avec la spec.** Un, nommé. Le **stream** de §14 n'est pas là : ce sprint livre la requête et
+la réponse, pas la connexion longue. Le pli d'un flux existe depuis W8.c et se branchera dessus ;
+les écrire ensemble aurait mêlé deux protocoles de cadrage dans un même fichier, et c'est le second
+qu'on aurait mal fait.
+
+**Prochain item.** Le premier item non terminé de `docs/10` dont les dépendances sont satisfaites.
