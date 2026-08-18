@@ -4452,3 +4452,59 @@ sont le contenu de W10.8. Ce qui est livré ici est le contrat que xiiif écrira
 **Prochain item.** W10.8 — xiiif produit ce finding : les quatre verdicts et le commentaire libre
 enregistrés depuis la visionneuse, sans importer une ligne de Locus, avec sa propre implémentation
 des refus.
+
+## 2026-08-18 — W9.a — La vue de visualisation : versionnée, hashée, et jamais le graphe
+
+W9 était en prose et ne portait aucun item. Décomposée en quatre lignes (W9.a–d) avant d'écrire : ce
+qui n'a pas de test de sortie n'a pas d'état, et une section « à faire » sans items se re-découvre
+indéfiniment.
+
+**Périmètre.** `packages/visualization/` (neuf : `Cargo.toml`, `src/lib.rs`, `tests/view.rs` avec 14
+tests), `Cargo.toml` du workspace, `docs/10_V1_ROADMAP.md` (décomposition de W9), ce fichier.
+
+**Tests exécutés.** `cargo test -p locus-visualization` → 14 conformes. `npm run check` → les dix
+portes vertes. Mutation : quatorze mutants, **quatorze tués, aucun survivant**.
+
+**Décisions prises.**
+
+_« Jamais une copie mutable du graphe » se teste comme une identité, pas comme une interdiction._
+Aucun test ne peut vérifier qu'une méthode n'existe pas. En revanche, une vue dont on a changé un
+nœud n'a plus la même forme canonique, donc plus le même condensat, donc elle ne peut plus être
+présentée comme la projection dont elle vient. Un frontend peut travailler sur ce qu'il a reçu ; il
+ne peut pas faire passer le résultat pour la source. C'est la formulation qui survit à une
+réécriture.
+
+_L'ordre d'insertion est un accident du producteur._ Un rebuild complet et un rattrapage incrémental
+ne remplissent pas leurs vecteurs de la même façon. S'il entrait dans la forme canonique, deux
+viewers montrant la même chose ne pourraient pas le prouver — d'où le tri, et d'où un test qui
+construit la même vue dans deux ordres.
+
+_Le condensat est un port, pas une dépendance._ Le crate ne hache rien : il produit la forme
+canonique et confie le reste à `Digest`. Le jour où l'algorithme change, rien ici ne bouge. La
+fixture de test ne hache pas non plus — elle enregistre ce qu'on lui donne, ce qui permet de
+vérifier que le port voit **la forme canonique et rien d'autre**, là où un vrai algorithme
+n'ajouterait qu'une couche opaque entre le test et ce qu'il vérifie.
+
+_La forme canonique est lisible._ Une vue qui se prétend hashée doit pouvoir dire de **quoi** : deux
+implémentations dont les condensats diffèrent ne peuvent, sans cela, que constater leur désaccord.
+Elle porte aussi sa version (`view/1`), le genre et le watermark — deux vues de genres différents
+sur la même matière seraient sinon interchangeables dans un cache.
+
+_Trois états de fraîcheur, pas deux._ « En retard » et « à jour » ne couvrent pas le cas où le point
+de comparaison est **antérieur** à la vue : le journal ne recule pas, donc c'est l'appelant qui
+compare à un état périmé. Répondre `Current` ferait passer sa méprise pour un accord. `Inconsistent`
+est produit par un test, pas réservé pour plus tard.
+
+_Deux refus de forme._ Une arête vers un nœud absent est refusée — une visualisation rend
+irrésistible l'inférence d'un objet qu'on voit au bout d'un trait — et dans les deux sens, une arête
+qui _vient_ de nulle part se lisant aussi mal. Deux nœuds de même identité aussi : §23 demande des
+IDs stables parce qu'une sélection doit désigner la même chose d'un rendu à l'autre, et l'ambiguïté
+se résoudrait autrement selon le viewer.
+
+**Écart avec la spec.** §23.3 nomme les huit projections ; ce commit livre le **type** de vue et sa
+forme canonique, pas les producteurs qui les remplissent depuis le graphe. Chaque genre attend la
+projection correspondante de §9.3, dont quatre existent (W1). Écrire les huit producteurs maintenant
+produirait six vues qu'aucune donnée ne traverse.
+
+**Prochain item.** W9.b — `ArtifactViewerRegistry` de §23.5 : l'artefact suggère, le client choisit,
+et l'absence de tout viewer laisse l'artefact atteignable.
