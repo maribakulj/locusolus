@@ -593,7 +593,7 @@ donc elle attend cet ADR comme W15.f.
 | W16.b `[R]` | les **barrières par invariant menacé** plutôt que par lieu | une reconfiguration ne barre que les nœuds dont elle menace un invariant, et le refus nomme l'invariant, pas le lieu ; deux reconfigurations qui ne menacent pas le même invariant ne se bloquent pas l'une l'autre ; une barrière posée sans invariant menacé est refusée |
 | W16.c `[R]` | le plan de simulation : rejeu déterministe, substitut d'environnement enregistré, ombre en sandbox réelle, canari facultatif | deux rejeux de la même trace rendent le même résultat ; un substitut d'environnement qui n'a pas la réponse le **dit** au lieu d'en inventer une ; un objet simulé n'existe **pas** comme type dans le domaine épistémique, et un test le tient par l'absence |
 | W16.d `[M]` **bloqué** | visibilité institutionnelle facultative des sous-agents internes du harnais — **tranche 4 du mineur `lep/1.1`** (ADR 0017 §5.4) | l'ADR est écrit ; **le blocage a changé de nature** et n'est plus une décision mais un consommateur, qui n'existe pas. Ce que l'institution voit d'un sous-agent reste à trancher, et ce trait traverse l'invariant 11 : voir qu'un sous-agent existe et voir son contexte sont deux choses, et un reviewer interne au harnais ne doit pas devenir le chemin par lequel le raisonnement privé du générateur remonte |
-| W16.e `[R]` **bloqué** | epochs, messages tardifs et transfert d'état | attend une messagerie inter-agents, qui n'existe pas |
+| W16.e `[R]` **reporté** | epochs, messages tardifs et transfert d'état | attend une messagerie inter-agents, qui n'existe pas — et la construire pour débloquer l'item serait construire une fonctionnalité afin de justifier un test. Voir « Ce qui est reporté » |
 
 W16.a avant W16.b : une barrière borne des transitions, donc les transitions d'abord. W16.c ne
 dépend d'aucun des deux.
@@ -627,7 +627,7 @@ elles ne sont pas redemandées ici.
 | W17.c `[R]` | deux retrievals séparés, épistémique et organisationnel, **sans conversion** | les deux répondent à des questions différentes sur des types disjoints ; **aucune conversion n'est écrivable**, parce que le préfixe fait partie de l'identité (`packages/protocol`) et qu'une conversion devrait fabriquer une identité qu'elle n'a pas ; aucun trait générique ne les factorise |
 | W17.d `[R]` | déduplication non automatique (§16.4) et compaction (§16.5) | un duplicata exact par hash est détecté ; un candidat **sémantique** n'est jamais fusionné automatiquement, et sa résolution porte confiance et provenance ; une fusion se défait par une nouvelle décision ; une compaction signale ce qu'elle a omis et ne transforme jamais un objet non validé en connaissance établie |
 | W17.e `[R]` | les quatre vues du cockpit et la sélection synchronisée par `Id<Agent>` ; le canvas produit une **commande**, jamais une écriture | une sélection dans une vue désigne le même agent dans les trois autres ; un geste de canvas rend une commande que rien n'applique sur place, et aucun chemin de type ne permet à une vue d'écrire |
-| W17.f `[M]` **bloqué** | `/branches/:id/diff`, la preview, l'ombre, l'approbation, le rollback et la navigation dans le temps | attend `locusd`, qui n'existe pas |
+| W17.f `[M]` **bloqué** | `/branches/:id/diff`, la preview, l'ombre, l'approbation, le rollback et la navigation dans le temps | attend `locusd`, décomposé en **W20** — la logique des six est écrite, il ne leur manque qu'une façade |
 
 W17.a avant W17.b : un retrieval cherche dans des niveaux. W17.c après W17.b, pour la même raison
 que W15.d après le reste : la conversion ne devient tentante qu'une fois les deux moitiés écrites.
@@ -663,7 +663,7 @@ un hôte réel**, et elle attend pour exactement la raison de W5.f.
 | W18.c `[R]` | `bounded` et `operator`, les deux barreaux manquants de l'ADR 0016 décision 8, avec la classe de risque **dérivée** des invariants menacés | la classe de risque ne se déclare pas — elle se calcule de `region::threatens`, et un proposeur n'a nulle part où l'écrire ; en `bounded` une opération dont la classe dépasse le plafond est refusée **en nommant l'invariant**, pas le plafond ; `operator` n'est jamais tenu par un agent, et `Author::Agent` n'a pas de chemin vers lui |
 | W18.d `[R]` | l'admission de capacité comme gouvernance : proposition, politique, approbation, et le blueprint publié comme **seule** entrée | une capacité nouvelle n'entre que par un `Published` de W5.b, et aucun constructeur ne la fabrique depuis autre chose ; le refus nomme laquelle des conditions manque plutôt que de dire « non » ; du code injecté n'est pas une valeur exprimable, et c'est un test d'absence qui le dit |
 | W18.e `[R]` | la métrique d'acceptation : taux d'annulation **humaine** des adaptations agentiques | le taux ne compte que des annulations humaines, et une annulation par le système ne le fait pas monter ; une adaptation que personne n'a regardée est déclarée **hors mesure**, jamais comptée comme acceptée — le silence n'est pas un accord ; une adaptation d'auteur humain n'entre pas dans la mesure |
-| W18.f `[M]` **bloqué** | l'admission exercée de bout en bout contre une sandbox `S3`/`S4` réellement attestée | attend un hôte capable, comme W5.f |
+| W18.f `[M]` **reporté** | l'admission exercée de bout en bout contre une sandbox `S3`/`S4` réellement attestée | attend un hôte capable, et `W5.f` a rendu la condition précise : un système de fichiers qui porte les quotas, une isolation réseau, une micro-VM, et de quoi **attester**. Voir « Ce qui est reporté » |
 
 W18.a avant W18.b : la boucle lente propose un spawn, donc la proposition d'abord. W18.c après W18.b :
 `bounded` est un mode de la boucle lente. W18.d ne dépend d'aucun des trois. W18.e en dernier : elle
@@ -701,6 +701,65 @@ W15.f (tranche 1) avant les deux : elle porte les deux tests qui **définissent*
 veut dire ici — un document `1.1` accepté par un consommateur `1.0`, et un champ nouveau laissé
 **absent** plutôt que rempli par un défaut lorsqu'un document `1.0` arrive chez un consommateur `1.1`.
 Ces tests ont besoin d'un champ pour être écrits, et un seul suffit.
+
+## W20 — `locusd` — le daemon, et la porte qui manque au bâtiment
+
+Tout ce qui précède est une **bibliothèque**. Vingt-quatre crates savent décrire ce qui est cru,
+qui travaille, ce qui est réservé, ce qui est confiné — et rien n'expose quoi que ce soit à un
+client. `apps/` porte `emacs`, `locus-execd` et `web` ; le daemon n'existe pas. C'est le plus gros
+morceau restant de la V1, et il bloque `W17.f`.
+
+**Deux constats avant de décomposer.**
+
+Le premier est mesurable : la **règle 4 de `boundaries.json`** — « `apps/locusd` n'importe aucun SDK
+de runtime de containers » — est aujourd'hui « vérifiée sur **0 fichier(s)** ». Elle garde le vide, et
+l'outil le dit à chaque passage plutôt que de l'afficher comme un succès. La première livraison qui
+crée `apps/locusd` la rend non vide, et c'est un jalon plus honnête qu'un compte de lignes.
+
+Le second est une dépendance : `Cargo.toml` ne déclare que `serde` et `serde_json` comme dépendances
+d'espace de travail. Faire entrer un runtime asynchrone et un cadre HTTP est le plus gros choix de
+dépendance depuis l'ADR 0011, et il a **son propre ADR** — même forme que le langage de `locusd` et
+que le backend de workflow.
+
+**Mais rien de tout cela ne bloque le début.** `W20.a` et `W20.b` sont du domaine pur, sans transport,
+et c'est exactement l'ordre que `CLAUDE.md` impose : « construire domain/protocol/event-store d'abord,
+avec des ports purs ». Le daemon commence donc **avant** l'ADR du transport, et pas après.
+
+| #                | Commit                                                                                                                                                                        | Test de sortie                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| W20.a `[R]` | le `CommandEnvelope` de §22.2 et les huit familles d'erreurs typées de §22.5, **sans transport** | une commande mutante sans `expected_revision` n'est pas constructible, et le refus nomme le champ ; les huit familles — validation, authorization, conflict, unavailable, budget, policy, security, internal — sont une liste close lue sous leur nom, et une neuvième n'existe pas ; un conflit rend l'**état courant** et un code structuré, jamais un entier nu, parce qu'un client qui doit relire pour retenter a besoin de ce qu'il relit ; aucune variante ne permet à un refus de ressembler à un succès |
+| W20.b `[R]` | le **handler transactionnel comme port**, et la règle « toute mutation passe par un command handler transactionnel » rendue opposable | aucun chemin de type ne permet d'écrire dans l'event store sans passer par un handler, et un test le tient par l'absence ; un handler qui échoue ne laisse **aucun** événement écrit ; une resoumission de la même clé d'idempotence rend le même résultat sans second effet, et deux portées différentes portant la même clé ne se confondent pas ; un lot n'est atomique que s'il se déclare tel |
+| W20.c `[M]` | **ADR du transport** : runtime asynchrone et cadre HTTP | l'ADR décide, énonce ses conditions comme l'ADR 0011 énonce les siennes, et porte un plan de rollback ; `Cargo.toml` ne gagne sa première dépendance hors `serde` **qu'après** lui, et le diff qui l'ajoute cite l'ADR |
+| W20.d `[R]` | `apps/locusd` : le composition root, sans surface HTTP | le binaire démarre et câble event-store, projections et moteur de politique ; **la règle 4 de `boundaries.json` cesse d'être vide** — elle passe de « 0 fichier(s) » à un compte réel, et un import de SDK de runtime la fait échouer, vérifié en rouge d'abord |
+| W20.e `[R]` | les queries de §22.4 et les cursors de §22.6 | chaque collection rend un cursor **opaque** et stable dans une fenêtre cohérente ; une reprise depuis une séquence connue rend exactement la suite, sans trou ni doublon ; un cursor d'une autre collection est **refusé** au lieu d'être interprété, parce qu'un cursor mal interprété saute des pages en silence |
+| W20.f `[R]` | les événements clients de §22.1 — WebSocket/SSE avec cursor | un client qui se reconnecte reprend depuis sa séquence et ne perd rien ; un client lent ne fait perdre aucun événement au journal, et ce qu'il n'a pas pu recevoir se relit — la coalescence de W2.12 vaut pour le fil client comme pour le fil worker |
+
+`W20.a` avant `W20.b` : un handler reçoit une enveloppe. `W20.c` peut se faire en parallèle des deux
+premiers et **doit** précéder `W20.d`. `W20.e` et `W20.f` après `W20.d`, qui est ce qu'elles exposent.
+
+**Ce que `W20` débloque :** `W17.f` — `/branches/:id/diff`, la preview, l'ombre, l'approbation, le
+rollback et la navigation dans le temps — dont la logique est déjà écrite et à qui il ne manque
+qu'une façade.
+
+## Ce qui est reporté, et pourquoi c'est écrit ici plutôt que deviné
+
+Deux items de cette roadmap ne se feront pas en V1, et les laisser marqués « bloqué » sans dire
+combien de temps ferait croire à une attente courte.
+
+**`W16.e` — epochs, messages tardifs, transfert d'état — est reporté sans regret.** Il attend une
+messagerie inter-agents, et il n'y en a pas : aujourd'hui les agents parlent à l'institution, pas
+entre eux. Epochs et messages tardifs n'ont un problème réel à résoudre qu'une fois que A envoie à B
+et que B a changé d'état entre-temps. Construire la messagerie **pour** débloquer l'item reviendrait à
+construire une fonctionnalité afin de justifier un test. C'est le seul item de la roadmap qui soit
+bloqué correctement **et** définitivement pour cette version.
+
+**`W18.f` — l'admission exercée de bout en bout contre une sandbox `S3`/`S4` réellement attestée — est
+reporté faute d'hôte**, et `W5.f` a rendu la condition précise. Il ne s'agit plus de « un hôte
+capable » : il faut un hôte dont le système de fichiers porte les quotas (XFS avec pquota, faute de
+quoi `podman create` refuse), qui sache isoler le réseau (`S3`) et démarrer une micro-VM (`S4`), et qui
+sache **attester** ce qu'il a fait. Un runner GitHub n'en tient aucun des trois derniers et échoue sur
+le premier. La condition est donc une machine dédiée, et son absence est un fait de déploiement, pas
+une dette de code.
 
 ## Recherche — sans dépendance de chemin critique, abandonnable sans coût
 
