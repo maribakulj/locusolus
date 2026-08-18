@@ -28,8 +28,10 @@
 //! rendent la même valeur, et un test le vérifie par égalité — la fuite d'un nom d'hôte interne
 //! serait une carte du réseau offerte à qui n'en a pas besoin.
 
+pub mod backup;
 pub mod config;
 
+pub use backup::{Backup, BackupError, BackupPart, Coherence, KeyHandling, Restorability};
 pub use config::{ConfigError, DeploymentConfig, SecretRef, SecretScheme};
 
 use std::collections::{BTreeMap, BTreeSet};
