@@ -53,8 +53,6 @@ personnelle dans un fichier de configuration partagé."
   :type '(choice (const :tag "n'importe lequel" nil) string)
   :group 'locus)
 
-(define-error 'locus-error "Erreur Locus Solus")
-
 (define-error 'locus-auth-missing
               "Aucun credential Locus Solus trouvé dans auth-source"
               'locus-error)

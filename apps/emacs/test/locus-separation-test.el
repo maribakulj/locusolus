@@ -171,6 +171,37 @@ l'est pas.  C'est le premier diagnostic utile quand rien ne répond."
                             (locus-describe)))
     (should (string-match-p "non connecté" (locus-describe)))))
 
+;; ------------------------------------------------------------------------
+;; La hiérarchie d'erreurs ne dépend pas de l'ordre de chargement
+;; ------------------------------------------------------------------------
+
+(ert-deftest locus-separation-toute-erreur-du-paquet-derive-de-error ()
+  "Chaque condition `locus-*' contient `locus-error' **et** `error'.
+
+Sans `error' dans ses conditions, une erreur échappe à tout `condition-case'
+ordinaire : elle traverse les gardes qui existaient pour l'attraper.  Le défaut
+est arrivé — `locus-error' vivait dans `locus-auth', et les modules qui en
+héritent ne requièrent que `locus' — et il ne se voyait pas, parce que l'ordre
+alphabétique des fichiers de test chargeait `locus-auth' en premier.  Une
+correction qui dépend de l'ordre de chargement n'en est pas une, et ce test est
+ce qui empêche la suivante d'en dépendre."
+  (let (offenders)
+    (mapatoms
+     (lambda (symbol)
+       (let ((conditions (get symbol 'error-conditions)))
+         (when (and conditions
+                    (string-prefix-p "locus-" (symbol-name symbol))
+                    (not (eq symbol 'locus-error))
+                    (or (not (memq 'error conditions))
+                        (not (memq 'locus-error conditions))))
+           (push symbol offenders)))))
+    (should (null offenders))))
+
+(ert-deftest locus-separation-la-racine-est-au-point-d-entree ()
+  "`locus-error' est définie par `locus.el', que tout module requiert — c'est ce
+qui rend la hiérarchie vraie quel que soit ce qui est chargé."
+  (should (memq 'error (get 'locus-error 'error-conditions))))
+
 (provide 'locus-separation-test)
 
 ;;; locus-separation-test.el ends here
