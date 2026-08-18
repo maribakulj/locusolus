@@ -240,6 +240,109 @@ test("un résultat tardif qui ne se déclare pas est pris", async () => {
   assert.deepEqual((await runConformance(declared, MISSION, LEASE)).findings, []);
 });
 
+//
+// W0.9-bis — les trois identités que le harnais ne regardait pas.
+//
+// Trouvées par la sonde `R5` : un flux dont le rang d'attempt est faux, dont le `worker_id` est un
+// `attempt_id` substitué et dont le `task_id` désigne une autre tâche passait les huit
+// vérifications d'origine. §11.1 : « aucune de ces identités ne doit être substituée aux autres. »
+//
+
+test("un rang d'attempt qui n'est pas celui de la lease est pris", async () => {
+  const wrong = conformant([
+    event(1, "attempt.started", { attempt: 99 }),
+    event(2, "heartbeat"),
+    event(3, "attempt.completed"),
+  ]);
+  const report = await runConformance(wrong, MISSION, LEASE);
+  const identity = report.findings.filter((f) => f.rule === "identity");
+  assert.equal(identity.length, 1);
+  assert.match(identity[0]?.message ?? "", /attempt vaut 99 alors que la lease dit 1/);
+});
+
+test("un `worker_id` qui n'est pas celui du manifeste est pris", async () => {
+  const wrong = conformant([
+    // La substitution que §11.1 nomme : un `attempt_id` mis à la place du `worker_id`.
+    event(1, "attempt.started", { worker_id: MISSION.attempt_id }),
+    event(2, "heartbeat"),
+    event(3, "attempt.completed"),
+  ]);
+  const report = await runConformance(wrong, MISSION, LEASE);
+  const identity = report.findings.filter((f) => f.rule === "identity");
+  assert.equal(identity.length, 1);
+  assert.match(identity[0]?.message ?? "", /worker_id vaut .* alors que le manifeste dit/);
+});
+
+test("un `task_id` qui n'est pas celui de la mission est pris", async () => {
+  const wrong = conformant([
+    event(1, "attempt.started", { task_id: "task-une-autre" }),
+    event(2, "heartbeat"),
+    event(3, "attempt.completed"),
+  ]);
+  const report = await runConformance(wrong, MISSION, LEASE);
+  const identity = report.findings.filter((f) => f.rule === "identity");
+  assert.equal(identity.length, 1);
+  assert.match(identity[0]?.message ?? "", /task_id vaut task-une-autre alors que la mission dit/);
+});
+
+test("chaque constat nomme l'identité substituée, jamais « incohérent »", async () => {
+  // Une vérification unique qui dirait « identités incohérentes » enverrait comparer trois paires
+  // à la main — et c'est précisément le travail que la substitution rend difficile, les trois
+  // valeurs étant toutes des identifiants préfixés qui se ressemblent.
+  const wrong = conformant([
+    event(1, "attempt.started", {
+      attempt: 99,
+      worker_id: MISSION.attempt_id,
+      task_id: "task-une-autre",
+    }),
+    event(2, "heartbeat"),
+    event(3, "attempt.completed"),
+  ]);
+  const report = await runConformance(wrong, MISSION, LEASE);
+  const identity = report.findings.filter((f) => f.rule === "identity");
+  assert.equal(identity.length, 3, "trois substitutions, trois constats");
+  for (const field of ["attempt", "worker_id", "task_id"]) {
+    assert.ok(
+      identity.some((f) => f.message.startsWith(`${field} vaut`)),
+      `aucun constat ne nomme ${field}`,
+    );
+  }
+  // Et chacun dit où aller relire l'identité de référence.
+  for (const source of ["la lease", "le manifeste", "la mission"]) {
+    assert.ok(
+      identity.some((f) => f.message.includes(source)),
+      source,
+    );
+  }
+});
+
+test("un champ d'identité absent n'est pas une substitution", async () => {
+  // Les trois champs sont facultatifs dans le schéma. Exiger leur présence ici ferait du harnais un
+  // vérificateur de complétude que LEP ne demande pas — et les deux fautes ne se réparent pas
+  // pareil : l'une en corrigeant une valeur, l'autre en décidant d'un mineur de protocole.
+  const bare: Event = {
+    protocol: "lep/1.0",
+    event_type: "attempt.started",
+    sequence: 1,
+    occurred_at: "2026-08-13T09:30:00.000Z",
+    idempotency_key: "idem-1",
+  };
+  const silent = conformant([bare, event(2, "heartbeat"), event(3, "attempt.completed")]);
+  const report = await runConformance(silent, MISSION, LEASE);
+  assert.deepEqual(
+    report.findings.filter((f) => f.rule === "identity"),
+    [],
+  );
+});
+
+test("le worker conforme ne déclenche aucun constat d'identité", async () => {
+  const report = await runConformance(conformant(), MISSION, LEASE);
+  assert.deepEqual(
+    report.findings.filter((f) => f.rule === "identity"),
+    [],
+  );
+});
+
 test("chaque vérification porte un identifiant et un énoncé", async () => {
   // Un harnais dont on ne peut pas citer les règles ne se conteste pas.
   for (const verification of VERIFICATIONS) {
