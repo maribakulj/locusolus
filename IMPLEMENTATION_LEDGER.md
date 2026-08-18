@@ -4508,3 +4508,61 @@ produirait six vues qu'aucune donnée ne traverse.
 
 **Prochain item.** W9.b — `ArtifactViewerRegistry` de §23.5 : l'artefact suggère, le client choisit,
 et l'absence de tout viewer laisse l'artefact atteignable.
+
+## 2026-08-18 — W9.b — `ArtifactViewerRegistry` : la capacité admet, la suggestion ordonne
+
+**Périmètre.** `packages/visualization/src/registry.rs` (neuf),
+`packages/visualization/tests/registry.rs` (neuf, 15 tests), `src/lib.rs` (les réexports), ce
+fichier.
+
+**Tests exécutés.** `cargo test -p locus-visualization` → 29 conformes (14 + 15). `npm run check` →
+les dix portes vertes. Mutation : douze mutants, **douze tués** — après correction de deux trous
+réels dans la suite (voir plus bas).
+
+**Décisions prises.**
+
+_Une seule règle tient §23.5 et l'invariant 10 : la capacité admet, la suggestion ordonne._ Un hint
+ne peut que reclasser des viewers qui savent déjà rendre le media type ; il ne peut jamais en faire
+entrer un qui ne le sait pas. Un artefact ne peut donc pas forcer l'ouverture de xiiif — le seul
+pouvoir qu'il a est de trier une liste que le client a constituée. Si la suggestion pouvait
+_admettre_, un producteur d'artefacts déciderait à distance de ce qui s'ouvre chez un lecteur, et «
+le client choisit » serait faux.
+
+_Choisir ne rend pas de `Result`._ Ce n'est pas une commodité de signature : un artefact qu'aucun
+viewer ne sait rendre reste **atteignable** — on le télécharge, on l'ouvre ailleurs. Rendre une
+erreur ferait d'une absence de confort une panne, et un appelant qui propage afficherait « échec »
+là où il fallait afficher un lien. Le media type voyage avec le refus pour que l'appelant ait de
+quoi proposer autre chose.
+
+_Deux ordres, deux propriétaires._ L'ordre des hints appartient à l'artefact — c'est sa préférence.
+L'ordre de déclaration appartient au client — c'est la sienne, et c'est la moitié de « le client
+choisit » qui n'est pas dans les hints. Le premier départage entre suggestions, le second entre
+viewers à suggestion égale.
+
+_La table de `docs/07` est exécutable._ `ArtifactViewerRegistry::reference()` la porte, et un test
+parcourt les dix familles. Une table de routage que rien n'exécute se désaccorde du code sans que
+personne ne le voie.
+
+**Deux trous réels trouvés par mutation.**
+
+1. `candidates.first()` → `candidates.last()` a **survécu** : le test d'ordre de déclaration
+   n'éprouvait que la branche où une suggestion est honorée, jamais celle du repli. Une préférence
+   client inversée sur le chemin le plus fréquent passait inaperçue. Test ajouté.
+2. Donner à Potree la capacité glTF a **survécu** aussi, parce que Three.js est déclaré avant lui :
+   le premier candidat restait le bon. Un viewer qui s'étend sur le territoire d'un autre est donc
+   invisible tant que l'autre est déclaré en premier — et le jour où l'ordre change, la destination
+   change. Un test vérifie maintenant que chaque media type de la table de référence n'a **qu'un**
+   viewer capable.
+
+Le second est le plus instructif : ce n'était pas une garde manquante mais une propriété de la table
+— l'exclusivité — que rien ne tenait. Une table de routage à recouvrements n'est pas une table de
+routage, c'est un ordre de priorité déguisé.
+
+**Écart avec la spec.** Les media types du registre de référence sont ceux que `docs/07` implique ;
+trois d'entre eux (`application/vnd.locus.graph+json`, `application/vnd.laszip`,
+`application/vnd.vtk`) sont des noms de convenance, faute de type enregistré. Ils sont ici pour que
+le routage soit exécutable, pas pour figer un contrat de fil ; le jour où un artefact réel en porte
+un autre, c'est le registre du client qui l'accueille, pas ce défaut.
+
+**Prochain item.** W9.c — l'interaction de §23 : `focus`, `filter`, `select` vers le viewer,
+`node_selected` en retour, et aucun chemin par lequel un événement de viewer devienne une mutation.

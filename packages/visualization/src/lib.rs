@@ -27,6 +27,10 @@
 //! comparaient l'ordre dans lequel un producteur a rempli un vecteur, ils différeraient sans que
 //! rien n'ait changé.
 
+pub mod registry;
+
+pub use registry::{ArtifactViewerRegistry, Choice, RegistryError, Viewer, ViewerRequest};
+
 use std::collections::BTreeSet;
 use std::fmt;
 use std::fmt::Write as _;
