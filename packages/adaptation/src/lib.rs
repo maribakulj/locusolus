@@ -21,8 +21,14 @@
 //! un [`spawn::Admitted`] le sait, et le seul producteur d'`Admitted` est [`spawn::dispose`], qui
 //! exige un verdict de moteur de politique.
 
+pub mod fast;
+pub mod slow;
 pub mod spawn;
 
+pub use fast::{Adaptation, Adjustment, Fast, FastError};
 pub use spawn::{
     Admitted, Disposition, Draft, SpawnError, SpawnProposal, Trigger, Undecided, dispose,
 };
+// `slow::adapt` et `slow::justify` ne sont **pas** remontés ici. Une adaptation lente est une
+// `coordination::Proposal` ; la remonter au même niveau que `Fast` suggérerait deux objets de même
+// rang, alors que l'un est un état local et l'autre une décision institutionnelle.

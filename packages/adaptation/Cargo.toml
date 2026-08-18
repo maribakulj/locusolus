@@ -1,6 +1,6 @@
 [package]
 name = "locus-adaptation"
-description = "L'adaptation automatique : les déclencheurs de spawn de SPEC_V1 §14.5 et la borne que le moteur de politique leur oppose."
+description = "L'adaptation automatique : boucle rapide sur la capacité, boucle lente sur la structure, et les déclencheurs de spawn de SPEC_V1 §14.5."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -13,4 +13,6 @@ workspace = true
 [dependencies]
 locus-budget = { path = "../budget" }
 locus-coordination = { path = "../coordination" }
+locus-domain = { path = "../domain" }
 locus-policy = { path = "../policy" }
+locus-protocol = { path = "../protocol" }
