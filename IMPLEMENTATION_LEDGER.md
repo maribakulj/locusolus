@@ -5297,3 +5297,90 @@ aucun cas particulier à se tromper. Le test l'affirme quand même, parce que le
 ajoutera ce cas particulier, c'est lui qui le rattrapera.
 
 **Prochain item.** W15.c — les régions mutables bornées de GRAFT.
+
+## 2026-08-18 — W15.c — Les régions mutables bornées de GRAFT
+
+**Périmètre.** `packages/coordination/src/region.rs` (neuf), `packages/coordination/tests/region.rs`
+(neuf, 17 tests), `src/lib.rs` (les réexports), `docs/10_V1_ROADMAP.md` (précision du test de
+sortie), ce fichier.
+
+**Tests exécutés.** `cargo test -p locus-coordination` → 91 conformes. `npm run check` → les dix
+portes vertes. Mutation : vingt-sept mutants, **vingt-sept tués, aucun survivant**.
+
+**Décisions prises.**
+
+_Le veto n'est pas un second critère local, et c'est tout le dispositif._ C'est le seul endroit où
+GRAFT peut être implémenté de travers sans que rien ne le montre. Le test qui le tient : la région
+contient `1`, `2` et `3` ; l'organisation porte déjà `2 → 4 → 1` avec `agent(4)` **dehors** ;
+ajouter `1 → 2` ne touche que des nœuds de la région, donc le critère local accepte — et le cycle
+`1 → 2 → 4 → 1` vient de se fermer. Trois agents qui se relisent en rond ne sont relus par personne.
+Un veto qui ne regarderait que la région serait un critère local écrit deux fois, et coûterait
+exactement la garantie qu'on croyait avoir. Deux mutants le vérifient, dont un qui remplace le veto
+par une constante « cohérent ».
+
+_Quatre bornes interdisent, deux obligent._ `docs/13` en donne six. `allowed_ops`, `risk_ceiling`,
+`max_nodes_delta` et `max_edges_delta` refusent ; `approval_mode` et `require_shadow` **exigent**.
+Les mélanger ferait croire qu'une région à `require_shadow` bloque une proposition, alors qu'elle
+demande une étape de plus — et un opérateur qui attend un refus qui ne vient jamais finit par croire
+que la borne n'existe pas. Le test de sortie a été précisé en ce sens : il disait « laquelle des six
+bornes mord », ce qui aurait poussé à fabriquer deux refus qui n'ont pas lieu d'être. Un test
+énumère les bornes qui peuvent mordre et vérifie **par l'absence** que les deux obligations n'y sont
+pas.
+
+_« Delta » se mesure en différence symétrique, pas en solde._ Un solde net est jouable : ajouter
+cinq agents et en retirer cinq passe sous un plafond de zéro alors que dix identités ont changé. Ce
+que GRAFT veut borner est le rayon d'explosion. Deux tests montrent le solde nul avant de constater
+le refus — un pour les nœuds, un pour les arêtes, parce que le premier seul laissait survivre le
+mutant du second.
+
+_Le risque est dérivé, jamais déclaré._ `docs/10` W18 demande une classe de risque « **dérivée** des
+invariants menacés ». Un risque que le proposeur déclarerait serait une auto-évaluation sous
+plafond, c'est-à-dire la définition d'une borne qu'on contourne. Ici le risque d'une opération est
+le **nombre d'invariants globaux qu'elle peut menacer**. Aujourd'hui zéro ou un ; l'échelle
+s'élargira d'elle-même quand un deuxième invariant entrera. C'est peu, et c'est vrai.
+
+Seules deux opérations peuvent fermer un cycle, et le constater a demandé de le vérifier une par une
+: ajouter une arête, évidemment ; et **fusionner**, qui rapproche deux extrémités — `A → B → C`
+fusionné sur `A` et `C` devient un cycle de longueur deux **sans qu'aucune arête n'ait été
+ajoutée**. Retirer ne crée aucun chemin, remplacer est un isomorphisme, scinder ne fait que répartir
+des arêtes existantes.
+
+_Un seul invariant global._ `ReviewAcyclicity`, avec un vérificateur exécutable et testé, pour la
+même raison que `RelationKind` n'a qu'une valeur. En nommer d'autres produirait un veto qui aurait
+l'air de protéger ce que rien ne regarde. C'est le consensus circulaire de §16.6 transposé au
+domaine de la coordination : chacun est relu, le groupe ne l'est par personne, et l'invariant 11 est
+vidé de son sens.
+
+_Le veto nomme les agents pris dans le cycle._ La détection est itérative — élimination des nœuds
+sans arête entrante, à la Kahn — et ce qui reste **est** exactement l'ensemble des nœuds pris dans
+un cycle. Le rendre coûte zéro et évite de le chercher à la main. Un veto qui dirait « il y a un
+cycle » sans dire lequel ne se corrige pas.
+
+_L'acceptation locale n'expose rien qui commite._ `Acceptance` énonce ce qui reste à obtenir —
+l'approbation, et l'ombre si la région l'exige — et n'a aucune méthode d'écriture. La garantie est
+dans le type, pas dans une discipline d'appel, comme la `Simulation` de W14.d. Un lot **vetoé**
+garde son acceptation : la perdre ferait croire à une borne de région trop lâche alors que la région
+a fait son travail, et la version corrigée repartirait sans ombre ni approbation.
+
+_Une région ne se prononce pas sur un lot qui ne s'applique pas._ `admits` rejoue d'abord ; si le
+rejeu échoue, la région ne dit rien. Elle parlerait d'un état qui n'existera jamais, et son verdict
+serait cité comme s'il portait sur quelque chose.
+
+_Une région ne peut pas autoriser une opération qui n'existe pas._ `SET_ROLE` attend son lecteur en
+W15.e ; l'accepter dans `allowed_ops` ne permettrait rien pendant que l'auteur de la région croirait
+le contraire — le pire des deux états.
+
+**Une décision assumée sur le périmètre d'une scission.** Les nœuds « touchés » par une opération
+sont ceux dont l'appartenance change, plus les extrémités des arêtes qu'elle nomme. La **partition**
+d'une scission n'y entre pas : exiger que tout le voisinage d'un agent soit dans la région rendrait
+toute région inutile dès qu'un agent est relu depuis l'extérieur, ce qui est le cas courant. Les
+conséquences externes d'une scission sont ce que le veto global attrape — c'est exactement le
+partage du travail que GRAFT décrit.
+
+**Trois trous trouvés par la mutation, tous de la même forme.** Une opération peut faire **entrer**
+une identité hors de la région : la cible d'une arête, le remplaçant d'un `REPLACE_NODE`, l'identité
+produite par une fusion. Vérifier la source d'une arête sans vérifier sa cible laisserait une région
+recâbler vers n'importe qui. Un test couvre les trois cas ensemble, parce qu'ils se ratent
+séparément.
+
+**Prochain item.** W15.d — la contestabilité d'une décision de coordination.
