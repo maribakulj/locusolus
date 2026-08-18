@@ -4737,3 +4737,47 @@ aurait produit des constats que rien ne lit.
 
 **Prochain item.** W11.b — `deployment.yaml` : le schéma, les secrets dehors,
 `locus deployment explain`.
+
+## 2026-08-18 — W11.b — `deployment.yaml` : les secrets sont dehors, et il n'y a pas d'endroit où les mettre
+
+**Périmètre.** `schemas/deployment/1.0/deployment.schema.json` (neuf, et une famille de schémas
+neuve), deux exemples, `schemas/registry.json`, `packages/deployment/src/config.rs` (neuf),
+`packages/deployment/tests/config.rs` (neuf, 12 tests), `Cargo.toml` du paquet, les deux SDK
+régénérés, ce fichier.
+
+**Tests exécutés.** `cargo test -p locus-deployment` → 25 conformes (13 + 12). `npm run check` → les
+dix portes vertes. Mutation : douze mutants, **douze tués, aucun survivant**.
+
+**Décisions prises.**
+
+_« Les secrets sont externes » n'est pas une consigne d'hygiène, c'est une propriété du format._ Le
+document n'offre **aucun champ** où écrire une valeur : `secret_refs` ne prend que des références,
+le motif du schéma refuse ce qui n'en est pas une, et `additionalProperties: false` ferme la porte à
+un `password` ajouté à la main. La raison est qu'un secret écrit dans un fichier de configuration ne
+s'arrête pas là — il part dans un dépôt, dans une sauvegarde, dans un rapport de bug, dans le
+presse-papier de qui diagnostique, et aucune de ces copies ne se révoque.
+
+_`explain` dit où chercher, jamais ce que ça vaut._ Savoir qu'un déploiement lit son mot de passe
+dans `env:LOCUS_PGPASSWORD` fait partie du diagnostic ; le résoudre « pour aider » le mettrait sur
+le terminal de qui lance la commande, et dans le journal de session qui va avec. Ce module ne résout
+donc rien, et un test vérifie que tout ce qui suit la flèche est une référence.
+
+_Une liste d'adaptateurs, pas un objet._ Un objet JSON aurait laissé un rôle déclaré deux fois
+écraser le premier **sans bruit**, et personne n'aurait su lequel des deux backends était actif — la
+question exacte que `explain` existe pour trancher. La liste rend le doublon détectable, et le
+domaine le refuse.
+
+_Un schéma de secret inconnu est refusé, pas accepté en espérant._ `s3:bucket/key` ressemble à une
+référence sans en être une ici ; l'accepter ferait échouer le déploiement au premier démarrage
+plutôt qu'à la lecture, c'est-à-dire loin de la ligne fautive.
+
+_`explain` nomme « exactement » les backends actifs_ (§27.2) : un test compare le nombre de lignes
+au nombre d'adaptateurs. Un backend oublié à l'écran est un backend qu'on croit absent.
+
+**Écart avec la spec.** Le format est décrit en JSON Schema et relu depuis JSON ; `docs/05` parle
+d'un `deployment.yaml`. Aucun lecteur YAML n'est ajouté : YAML est une surface d'entrée, pas un
+contrat, et le contrat est celui du schéma. Le jour où la CLI lit un fichier, elle convertira avant
+de valider — et c'est le bon ordre.
+
+**Prochain item.** W11.c — la sauvegarde cohérente de §27.4 et la restauration sur un backend
+différent.

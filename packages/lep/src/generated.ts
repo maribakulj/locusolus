@@ -829,6 +829,40 @@ export type RemoteArtifactRef = {
   readonly viewer_hint?: "iiif" | "image" | "pdf" | "none" | undefined;
 };
 
+export type DeploymentAdaptersItem = {
+  readonly role: string;
+  readonly implementation: string;
+};
+
+export type DeploymentSecretRefsItem = {
+  readonly name: string;
+  readonly reference: string;
+};
+
+export type Deployment = {
+  /**
+   * Lequel des cinq profils obligatoires de §27.1.
+   */
+  readonly profile:
+    "personal-local" | "personal-node" | "single-node-vm" | "cloud-platform" | "distributed-hybrid";
+  /**
+   * L'URL Locus à laquelle les clients se connectent. C'est tout ce qu'ils voient de la topologie.
+   */
+  readonly endpoint: string;
+  /**
+   * Quel rôle est tenu par quelle implémentation. Une liste plutôt qu'un objet : le domaine refuse un rôle déclaré deux fois, ce qu'un objet JSON rendrait indétectable — le second écraserait le premier en silence.
+   */
+  readonly adapters: readonly DeploymentAdaptersItem[];
+  /**
+   * Les limites du déploiement, déclarées plutôt que contournées (§27.1).
+   */
+  readonly capabilities?: readonly string[] | undefined;
+  /**
+   * Où trouver un secret, jamais le secret. Le motif refuse une valeur en clair : `hunter2` n'est pas une référence.
+   */
+  readonly secret_refs?: readonly DeploymentSecretRefsItem[] | undefined;
+};
+
 export type ViewNodesItem = {
   readonly id: string;
   readonly kind: string;
@@ -912,6 +946,7 @@ export const LEP_DOCUMENTS = [
   "Lease",
   "EpistemicCommit",
   "RemoteArtifactRef",
+  "Deployment",
   "View",
   "HumanReviewFinding",
 ] as const;

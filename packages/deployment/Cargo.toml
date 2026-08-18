@@ -11,3 +11,7 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+locus-lep = { path = "../lep" }
+
+[dev-dependencies]
+serde_json = { workspace = true }
