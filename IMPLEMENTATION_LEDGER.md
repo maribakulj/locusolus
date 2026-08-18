@@ -3538,3 +3538,62 @@ un méta-relecteur humain rapporte une recommandation — alors qu'une variante 
 que du code.
 
 **Prochain item.** **W7.e** — budgets : réservation avant exécution, dépassement (§17, invariant 6).
+
+---
+
+## 2026-08-18 — W7.e — Le budget : ce qui empêche, et ce qui constate
+
+**Périmètre.** `packages/budget`, neuf : `dimension.rs`, `limits.rs`, `ledger.rs`, `account.rs`,
+`tests/budget.rs`. `packages/protocol/src/id.rs` gagne deux préfixes provisoires (`budg`, `resv`),
+comme W13.c l'avait fait pour `task`, `team`, `dec` et `apr` — §10.1 n'en donne pas d'exemple.
+Aucune dépendance nouvelle : le crate ne dépend que de `locus-protocol`.
+
+**Deux rôles, et il faut les deux.** La **réservation** empêche : elle est refusée quand la borne ne
+suit pas. Le **registre** constate : il écrit ce qui a été dépensé, y compris au-delà de ce qui
+était retenu. Les confondre casse l'un des deux — un registre qui empêche ment sur le passé, une
+réservation qui constate n'empêche rien. C'est pour cela que le dépassement s'**écrit** : refuser
+l'écriture laisserait le journal en désaccord avec le monde, les ressources ayant bien été
+dépensées, et rendrait le dépassement invisible là où il fallait le voir.
+
+**Le budget est un registre, pas un compteur.** §7.2 ouvre par cette phrase et elle décide de la
+forme du type : aucun solde n'est un champ. `allocated`, `held` et `spent` se déduisent des
+écritures à chaque lecture. Un compteur entretenu à côté du journal serait une seconde vérité, et
+c'est toujours la seconde qui ment.
+
+**`Reservation` n'a pas de constructeur public.** Invariant 6 — « les ressources sont réservées
+avant exécution » — devient indéfaisable plutôt que documenté : seul `BudgetAccount::reserve`
+produit la valeur, et `consume`/`release` la prennent **par valeur**, donc une retenue se solde une
+fois. Clippy propose une référence ; l'`#[expect]` dit pourquoi c'est non : par valeur, la double
+dépense est une erreur de compilation, par référence elle ne serait qu'une erreur d'exécution.
+
+**Ce qui n'est pas nommé n'est pas libre.** Une dimension hors des bornes du compte n'est pas «
+illimitée », elle est **hors budget** : rien ne peut y être réservé. C'est la moitié de l'invariant
+6 qu'on perd le plus facilement — borner deux ressources sur six et croire les six bornées. De même,
+une borne n'est pas une dotation : rien n'est disponible avant d'avoir été alloué.
+
+**Une correction ne réécrit rien.** `reconcile` compare la consommation enregistrée aux métriques du
+worker et écrit l'écart : `adjustment` à la hausse, `refund` à la baisse. Un test relit l'écriture
+corrigée **après** la correction et la trouve intacte — sans quoi un budget dépassé puis corrigé
+serait indistinguable d'un budget jamais dépassé.
+
+**Ce que la roadmap disait de travers.** La ligne W7.e renvoyait à « §17 » ; §17 est le système de
+revue, que W7.a–W7.d viennent de construire. Les budgets sont en **§7.2**. La référence venait de la
+numérotation de Canterel, où W2.13 portait le budget local sous §17. Corrigée dans `docs/10`.
+
+**Seize mutations vérifiées rouges** : un compte sans borne qui s'ouvre (1 test) ; une dimension non
+bornée devenue illimitée (1) ; une retenue vide acceptée (1) ; un identifiant de retenue réemployé
+(1) ; la retenue ouverte ne comptant plus contre la borne (2) ; l'allocation dépassant la borne dure
+(1) ; la borne devenue dotation (1) ; le dépassement non rapporté (1) ; le dépassement rendu
+réessayable (1) ; le code d'erreur cessant d'être `budget_exhausted` (1) ; l'erreur de budget rendue
+sensible (1) ; la retenue d'un autre compte acceptée (1) ; la correction réécrivant au lieu de
+compenser (1) ; un rapprochement qui confirme écrivant quand même (3) ; le rapprochement d'une
+retenue jamais consommée (1) ; le franchissement de borne cessant d'être visible (1). Restauration
+confirmée verte.
+
+**Écart avec la spec.** Aucun. §7.2 porte six champs `limit_*` : les six dimensions existent. Les
+six écritures obligatoires existent. `currency` et `policy_id` ne sont pas modélisés — aucun
+consommateur exécutable ne les lit encore, et `Dimension::Amount` compte en micro-unités de la
+devise du compte sans avoir à la nommer tant que rien ne convertit.
+
+**Prochain item.** **W7.f** — portefeuille : les indicateurs de §13, et **l'anti-gaming de §13.6
+d'abord**. L'ordre est inscrit dans la roadmap et il est le point du sprint.

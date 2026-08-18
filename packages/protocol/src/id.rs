@@ -280,5 +280,9 @@ pub mod provisional {
         Decision => "dec",
         /// Une demande d'approbation humaine (§7.1, §20). Préfixe provisoire — W13.c.
         Approval => "apr",
+        /// Un compte de budget (§7.2). Préfixe provisoire — W7.e.
+        BudgetAccount => "budg",
+        /// Une réservation de budget (§7.1 `budget_reservation_id`, §7.2). Préfixe provisoire — W7.e.
+        Reservation => "resv",
     }
 }

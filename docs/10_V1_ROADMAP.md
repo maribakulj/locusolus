@@ -249,7 +249,7 @@ produit un système qui a l'air de fonctionner.
 | W7.b `[R]` | prévention de contamination (§16.6), par **cas adverses** | cinq cas, un par forme nommée : transcript du générateur atteignant un relecteur aveugle ; claim réfuté propagé comme contexte par défaut ; donnée confidentielle atteignant un worker non autorisé ; consensus circulaire sans source externe ; contradiction perdue à la synthèse. Chacun échoue **avant** le correctif |
 | W7.c `[R]` | `ContextView` : ce qui a été vu, arrêté par hash et par watermark (§16.2) | deux vues du même instant du journal ont le même hash ; une vue qui aurait vu un événement postérieur à son watermark est refusée |
 | W7.d `[R]` | rebuttal et méta-revue (§17.6, §17.7) | un rebuttal ne s'écrit pas sans finding ; une méta-revue ne relit pas sa propre revue ; le désaccord survit à la synthèse |
-| W7.e `[R]` | budgets : réservation avant exécution, dépassement (§17, invariant 6) | une mission sans borne n'est pas admissible ; une réservation refusée n'exécute rien ; un dépassement arrête proprement et le dit |
+| W7.e `[R]` | budgets : réservation avant exécution, dépassement (§7.2, invariant 6) | une mission sans borne n'est pas admissible ; une réservation refusée n'exécute rien ; un dépassement arrête proprement et le dit |
 | W7.f `[R]` | portefeuille : indicateurs de §13, et **l'anti-gaming de §13.6 d'abord** | une stratégie qui optimise l'indicateur sans produire de connaissance est détectée par un test qui la met en œuvre ; l'anti-gaming précède la fonction de valeur dans l'ordre des commits, et un test l'atteste |
 | W7.g `[R]` | scheduler qualité-diversité | deux propositions de valeur égale et de diversité inégale ne sont pas départagées au hasard ; le choix est reproductible |
 
