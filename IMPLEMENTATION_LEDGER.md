@@ -5145,3 +5145,86 @@ dry-run est livré ; la simulation contrefactuelle attend un consommateur, et l'
 une API que rien n'appelle. W14 est couvert pour ce que §20 exige et que le dépôt peut éprouver.
 
 **Prochain item.** W15 — le cœur du graphe agentique et la contestabilité.
+
+## 2026-08-18 — W15.a — La version canonique immuable et les sept opérations qui ont un lecteur
+
+**Périmètre.** `docs/10_V1_ROADMAP.md` (décomposition de W15 en six items),
+`packages/coordination/src/version.rs` (neuf), `packages/coordination/tests/version.rs` (neuf, 20
+tests), `src/lib.rs` (les réexports), `src/proposal.rs` (`Ord` sur `Relation` et `RelationKind`,
+pour l'ordre canonique), ce fichier.
+
+**Tests exécutés.** `cargo test -p locus-coordination` → 60 conformes. `npm run check` → les dix
+portes vertes. Mutation : vingt-sept mutants, **vingt-six tués**, un équivalent devenu un test.
+
+**Décisions prises.**
+
+_Deux hashes, et c'est tout le sujet._ Une version porte un hash de **contenu** — qui ne dépend que
+de ce qu'elle contient — et un hash de **version**, qui ajoute le parent. La séparation rend
+testable la phrase de l'ADR 0016 décision 5 : défaire une opération rend le **même contenu** et une
+**autre version**. L'état revient, l'histoire non. Avec un seul hash il aurait fallu choisir : ou
+bien défaire ramène littéralement à la version d'avant, et l'histoire devient fausse — on ne
+pourrait plus dire qu'une mission a tourné sous une organisation qui, désormais, n'aurait jamais
+existé ; ou bien défaire produit un état que personne ne peut reconnaître comme celui d'avant, et
+plus rien ne vérifie qu'une annulation a annulé. Deux assertions par opération dans le test, et
+l'une sans l'autre serait fausse.
+
+_L'identité tient aux deux bouts._ Un mutant retirant le contenu de l'identité a d'abord survécu :
+rien n'éprouvait deux opérations différentes menées depuis la même base. C'est pourtant le cas qui
+compte — deux organisations distinctes se seraient citées sous le même nom.
+
+_Sept opérations, pas onze, et la règle qui tranche._ `docs/13` nomme onze opérations cibles. La
+règle « aucune sémantique inerte » (décision 4) vaut pour une opération comme pour une sorte de
+relation, et elle trace ici une frontière nette : une opération **structurelle** a son effet
+entièrement défini par l'état que ce crate détient, donc un consommateur exécutable et testé, qui
+est `Version::apply` ; une opération **attributaire** écrit un champ dont le lecteur vit ailleurs.
+`SET_ROLE` attend l'overlay additif du worker, `SET_VISIBILITY` la construction de `ContextView`,
+`SET_VALIDATOR` qu'un validateur soit un nœud, et `SET_EXECUTION_ORDER` qu'une chose ordonne des
+attempts entre instances d'agent — ce que la décision 4 a déjà vérifié absent en instruisant
+`dependency`. Un test tient les quatre par l'absence, en les nommant, pour que l'échec dise
+**laquelle** est entrée sans son consommateur.
+
+_Aucune cascade._ Retirer un nœud qui porte encore des arêtes est **refusé**, pas exécuté en
+emportant les arêtes. Une cascade est un script : elle fait au commit des choses que le diff ne
+montrait pas, et l'approbation aurait porté sur autre chose que ce qui s'applique. C'est aussi ce
+qui rend `ADD_NODE` et `REMOVE_NODE` exactement inverses l'un de l'autre.
+
+_Fusionner se compense, ne se défait pas._ Six opérations sur sept ont un inverse exact ; la fusion
+n'en a pas, et la raison se lit dans sa définition : elle perd la partition. Deux arêtes
+`X → premier` et `X → second` deviennent une seule, et aucune scission ne saurait dire laquelle
+était laquelle. La scission, elle, **énonce** sa partition, donc sa fusion inverse la restitue —
+l'asymétrie est réelle et deux tests la montrent plutôt que de l'affirmer. `Undo::Compensating` la
+nomme au lieu de la cacher derrière une fonction qui rendrait une scission plausible, et
+`Undo::exact()` rend `None` : il n'existe dans le module aucune fonction qui prétende défaire une
+fusion.
+
+_Un refus qui n'était pas prévu : fusionner un relecteur avec son relu._ La substitution en ferait
+une relation d'un agent vers lui-même — un agent qui se relit, obtenu sans qu'aucune opération ne
+l'ait demandé, contre §14.4 et l'invariant 11. La fusion est refusée et l'appelant retire l'arête
+d'abord, dans le diff, où l'approbateur la voit. Un mutant n'examinant qu'un seul sens a survécu au
+premier tour : le test ne fusionnait que dans l'ordre où l'arête est écrite.
+
+_Les identités produites sont neuves des deux côtés._ Une scission ne réutilise pas l'identité du
+nœud scindé, une fusion ne reprend pas celle de l'un des deux absorbés. Sinon l'histoire ne
+distinguerait plus « ils ont fusionné » de « l'autre a été retiré », et rien en aval ne saurait
+laquelle des deux moitiés d'une scission est l'originale.
+
+**Un mutant équivalent, devenu un test.** Échanger les deux moitiés dans l'inverse d'une scission ne
+change rien, parce que la fusion ne distingue pas ses deux absorbés. Ce n'était donc pas un trou de
+test — mais la propriété n'est pas gratuite : elle tient tant que la substitution envoie les deux
+vers `into` et que le refus de l'auto-relation examine les deux sens. Elle est désormais affirmée
+par `merging_does_not_distinguish_its_two_nodes` plutôt que laissée à un survivant inexpliqué.
+
+**Sur la frontière.** `packages/coordination` n'importe pas `packages/graph`, et n'en a pas eu
+besoin : les nœuds sont des `Id<Agent>`, les arêtes la `Relation` de W13.e. La sixième frontière
+tient sans effort, ce qui est le signe qu'elle passait au bon endroit.
+
+**Sur le nom.** Aucun type collectif n'est introduit — pas de `CoordinationGraph`, pas de
+`Topology`. `Version` porte ses membres et ses relations directement, comme la décision 10 le
+demande : les types sont nommés individuellement, et le nom du domaine reste en aval de la thèse.
+
+**Écart avec la spec.** Le hachage reste un **port** : ce crate produit la forme canonique et confie
+le condensat à `Digest`, comme `packages/artifacts` et `packages/visualization` avant lui. Le test
+en fournit un jouet ; ce qui est vérifié est la stabilité de la forme canonique, figée octet pour
+octet en fixture.
+
+**Prochain item.** W15.b — le diff comme objet de première classe.

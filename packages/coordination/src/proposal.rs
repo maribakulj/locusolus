@@ -31,7 +31,7 @@ use crate::team::CoordinationMode;
 /// n'entre dans cette énumération que lorsqu'un consommateur exécutable et testé existe. `review`
 /// en a un : l'indépendance de §14.4 et l'invariant 11 s'y appuient. `mentors`, `delegates_to`,
 /// `supervises` n'en ont pas, et les écrire ici en ferait du vocabulaire que rien ne vérifie.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum RelationKind {
     /// « relit », au sens de §14.4 et de l'invariant 11.
     Review,
@@ -63,7 +63,7 @@ impl fmt::Display for RelationKind {
 }
 
 /// Une relation entre deux agents.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Relation {
     /// Qui.
     pub from: Id<Agent>,
