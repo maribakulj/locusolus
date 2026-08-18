@@ -6766,3 +6766,98 @@ passage B, le flux piloté par le plan. La réponse de `R5` tient donc toujours,
 fermé.
 
 **La sonde a été supprimée**, sa réponse étant consignée. C'est ce que « dépôt jetable » veut dire.
+
+---
+
+## 2026-08-18 — ADR 0017 — Le mineur `lep/1.1` : ouvert une fois, livré par tranches
+
+**Périmètre.** `docs/adr/0017-lep-1-1-le-mineur.md` (neuf) et `docs/10_V1_ROADMAP.md`. **Aucun
+schéma n'est modifié**, aucun SDK régénéré, aucune fixture touchée. Cet ADR décide ce que le mineur
+a le droit de faire ; il n'ajoute pas un champ.
+
+**Ce qui l'a déclenché.** Quatre besoins attendaient le même feu vert, depuis des dates différentes
+: deux nommés par l'ADR 0016 dans ses conséquences — la permission de fonctionnement hors ligne et
+les codes de refus d'admission sur le fil, avec la phrase « ce mineur a son propre ADR » — un
+troisième trouvé par `W15.f` en s'y cassant les dents, un quatrième par `W16.d`. Le péage d'une
+ouverture de protocole est presque entièrement **fixe** : régénération du SDK dans les deux
+langages, entrée de registre, fixtures, harnais. Quatre ouvertures pour quatre champs, c'est le
+payer quatre fois.
+
+**Décisions prises.**
+
+_Le numéro une fois, les champs un par un._ Un seul `lep/1.1` pour les quatre ajouts, et aucun champ
+n'entre avant que quelque chose d'exécutable et de testé le lise. C'est la décision 4 de l'ADR 0016
+— « aucune sémantique inerte » — appliquée au protocole plutôt qu'à une énumération de relations. La
+conséquence n'est pas confortable et elle est écrite comme telle : l'ADR ne débloque pas les quatre
+items d'un coup.
+
+_Aucun répertoire `schemas/lep/1.1/`, et ce n'est pas une interprétation._ La ligne `1.x` est
+ouverte depuis `W0.5` : `protocol_version` est un motif `^lep/1\.[0-9]+$` et non un `const`, avec la
+raison écrite en commentaire dans le schéma ; `schemas/README.md` pose « les documents restent
+ouverts » ; et `grep -rl additionalProperties schemas/lep/1.0/` ne rend **rien**, zéro fichier sur
+douze. La règle n'est pas seulement énoncée, elle est tenue. Dupliquer douze fichiers dont huit ne
+changeraient pas serait la duplication de contrats que `CLAUDE.md` interdit, appliquée au protocole
+contre lui-même, et sa dérive serait silencieuse.
+
+_Le répertoire garde son nom._ `1.0` nomme la version **fondatrice de la ligne**. Le renommer en
+`1.x` ne changerait rien de ce qu'un pair voit — les `$id` sont des URN, indépendantes du chemin —
+tout en touchant chaque chemin de la chaîne d'outils. Le prix serait payé pour un gain nul ;
+`x-since` sur chaque champ ajouté rattrape la confusion à l'endroit exact où elle se produirait.
+
+_Un mineur ajoute des champs, jamais des valeurs._ L'interdit qui ne va pas de soi. `docs/06` écrit
+« minor = champs optionnels compatibles » ; le mot **champs** se lit strictement, parce que
+`packages/lep/src/generated.rs` émet des `enum` Rust **fermés, sans variante fourre-tout** —
+`SandboxLevel`, `NetworkMode`, `AcceleratorType`, `Os`, `Arch`, `DataClass`, `ContainmentResult`,
+`LimitResult`. Ajouter `"S6"` à `sandbox_level` ferait échouer la désérialisation chez tout
+consommateur `1.0`, en silence pour l'émetteur. Ce n'est pas une préférence de style : c'est la
+forme du SDK qui force la règle, et les quatre ajouts s'y conforment sans effort — trois champs
+nouveaux et un document nouveau.
+
+_Le mineur se teste, il ne se constate pas._ Deux tests le **définissent**, et le second est le plus
+important. Un document `1.1` accepté par un consommateur `1.0` : la moitié facile, écrite pour que
+refermer un document devienne un échec bruyant. Et un document `1.0` reçu par un consommateur `1.1`
+qui laisse le champ nouveau **absent**, jamais rempli par un défaut — un `role` valant `research`
+faute de mieux rendrait « l'institution n'a pas dit » indiscernable de « l'institution a dit
+`research` », et c'est le second qui se croit tenu. Même règle que `SandboxLevel::parse`, qui rend
+`None` plutôt qu'un niveau par défaut. Ici l'aveu s'appelle l'absence.
+
+_Le rôle ne prend jamais le pas sur l'invariant 11._ `selectOverlay` envoie déjà toute revue
+`independent` vers `reviewer` « quelles que soient les capacités demandées ». Un `role` qui pourrait
+renvoyer une revue indépendante vers le profil du générateur reconstruirait exactement le trou que
+ce test bouche. L'ordre est fixé dans l'ADR : politique de revue, **puis** rôle, **puis** capacités.
+
+_Deux distinctions à ne pas perdre en traduisant les refus sur le fil._ Jamais un seul motif à la
+fois — `admit` accumule et rend `Refused { reasons }` au pluriel, et un fil qui ne transmettrait que
+le premier ferait corriger une condition pour retomber aussitôt sur la suivante. Et
+`LevelNotAttested` n'est pas `LevelUnavailable` : « l'hôte ne sait pas faire » et « l'hôte l'annonce
+sans l'avoir prouvé » envoient chercher deux choses différentes, et les fondre ferait acheter du
+matériel pour un problème d'attestation.
+
+_Ce qui reste ouvert délibérément._ Ce que l'institution voit d'un sous-agent (tranche 4). Le voir
+exister et voir son contexte sont deux choses, et la seconde traverse l'invariant 11. Trancher cela
+sans consommateur sous les yeux serait de la spéculation ; le sprint le tranchera avec son test de
+sortie.
+
+**Clause de falsification.** L'ADR affirme que le coût d'un mineur est **fixe** — le péage, pas le
+champ. `W19.a` est le test : elle ajoute un **document** là où la tranche 1 n'ajoute qu'une
+**propriété**. Si elle coûte à peu près la même chose hors rédaction du document, la décision de
+grouper tient ; si elle coûte substantiellement plus **par nature**, alors quatre ajouts hétérogènes
+auront été groupés sous un numéro à tort, et la décision 1 est rouverte pour les mineurs suivants.
+Le constat s'écrit ici **dans un sens ou dans l'autre**.
+
+**Ce que ça débloque, et ce que ça ne débloque pas.** `W15.f` est débloqué : c'est la tranche 1, son
+lecteur — `selectOverlay` dans `canterel` — existe et est testé. `W16.d` **reste bloqué, mais le
+blocage a changé de nature** : il n'attend plus une décision, il attend un consommateur. C'est un
+blocage qui se lève par du travail plutôt que par un arbitrage, et le distinguer importe — le
+premier attendait quelqu'un, le second attend quelque chose.
+
+**Vérifications faites avant d'écrire, pas après.** L'ADR repose sur trois faits, tous vérifiés dans
+le dépôt : aucun `additionalProperties` sous `schemas/lep/1.0/` (0 fichier sur 12) ; le motif de
+`protocol_version` couvre la ligne `1.x` ; les `enum` générés en Rust sont fermés. Si le premier
+avait été faux, la décision 3 l'aurait été aussi — c'est exactement le genre de chose à découvrir
+avant d'empiler quatre décisions dessus.
+
+**Roadmap.** `W19` est créé pour les deux tranches qui n'avaient pas d'item — `W19.a` les codes de
+refus, `W19.b` la permission hors ligne. Les tranches 1 et 4 restent chez `W15.f` et `W16.d`.
+`W19.a` avant `W19.b` parce qu'elle porte la clause de falsification, et `W15.f` avant les deux
+parce qu'elle porte les deux tests qui définissent le mineur.
