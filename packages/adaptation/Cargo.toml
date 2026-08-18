@@ -1,0 +1,16 @@
+[package]
+name = "locus-adaptation"
+description = "L'adaptation automatique : les déclencheurs de spawn de SPEC_V1 §14.5 et la borne que le moteur de politique leur oppose."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+locus-budget = { path = "../budget" }
+locus-coordination = { path = "../coordination" }
+locus-policy = { path = "../policy" }

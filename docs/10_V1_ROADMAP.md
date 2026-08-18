@@ -559,6 +559,31 @@ injecté. Attend W5, W6 et S3/S4 attesté.
 
 Métrique d'acceptation propre : le taux d'annulation humaine des adaptations agentiques.
 
+Décomposée ici. Deux moitiés de la prose sont **déjà livrées** et ne sont pas redemandées : les
+indicateurs de §13.2 vivent dans `portfolio::Indicators` depuis W14 — dix des quinze, les cinq autres
+appartenant à la qualité-diversité de §13.3, et le module le dit —, et l'anti-gaming de §13.6 dans
+`portfolio::gaming`, dont l'ADR 0016 décision 8 fait la condition du mode `bounded`. Les deux
+conditions de `bounded` — W14 et W16 — sont donc satisfaites, et le mode s'ouvre ici.
+
+L'admission de capacité se coupe en deux, et l'ADR 0016 décision 8 dit où : « Locusolus possède déjà
+le blueprint, l'artefact, l'attestation et le refus nommant toutes ses conditions. Ce qui manque est
+la proposition, la politique et l'approbation : **du travail de gouvernance**. » Ce travail-là ne
+demande pas d'hôte. Ce qui attend `S3`/`S4` attesté est l'admission **exercée de bout en bout contre
+un hôte réel**, et elle attend pour exactement la raison de W5.f.
+
+| # | Commit | Test de sortie |
+|---|---|---|
+| W18.a `[R]` | `packages/adaptation` : les onze déclencheurs de §14.5 comme liste close, la proposition de spawn avec ses neuf champs, et les quatre réponses du moteur de politique | les onze se lisent sous leur nom et un douzième n'existe pas ; une proposition à qui il manque un champ n'est pas construite, et le refus nomme le champ ; **aucun chemin** ne mène d'un déclencheur à une flotte sans passer par la réponse du moteur, et un test le tient par l'absence de constructeur |
+| W18.b `[R]` | boucle **rapide** sur la capacité — routage de modèle, choix d'outil, sélection de skill, retry, routes éphémères — et boucle **lente** sur la structure | une adaptation rapide ne produit aucune opération de coordination et aucun chemin de type ne le permet ; une adaptation lente est une `Proposal` de W13 et suit son chemin entier ; une route éphémère **expire**, et deux adaptations rapides ne s'accumulent jamais en une structure que personne n'a approuvée |
+| W18.c `[R]` | `bounded` et `operator`, les deux barreaux manquants de l'ADR 0016 décision 8, avec la classe de risque **dérivée** des invariants menacés | la classe de risque ne se déclare pas — elle se calcule de `region::threatens`, et un proposeur n'a nulle part où l'écrire ; en `bounded` une opération dont la classe dépasse le plafond est refusée **en nommant l'invariant**, pas le plafond ; `operator` n'est jamais tenu par un agent, et `Author::Agent` n'a pas de chemin vers lui |
+| W18.d `[R]` | l'admission de capacité comme gouvernance : proposition, politique, approbation, et le blueprint publié comme **seule** entrée | une capacité nouvelle n'entre que par un `Published` de W5.b, et aucun constructeur ne la fabrique depuis autre chose ; le refus nomme laquelle des conditions manque plutôt que de dire « non » ; du code injecté n'est pas une valeur exprimable, et c'est un test d'absence qui le dit |
+| W18.e `[R]` | la métrique d'acceptation : taux d'annulation **humaine** des adaptations agentiques | le taux ne compte que des annulations humaines, et une annulation par le système ne le fait pas monter ; une adaptation que personne n'a regardée est déclarée **hors mesure**, jamais comptée comme acceptée — le silence n'est pas un accord ; une adaptation d'auteur humain n'entre pas dans la mesure |
+| W18.f `[M]` **bloqué** | l'admission exercée de bout en bout contre une sandbox `S3`/`S4` réellement attestée | attend un hôte capable, comme W5.f |
+
+W18.a avant W18.b : la boucle lente propose un spawn, donc la proposition d'abord. W18.c après W18.b :
+`bounded` est un mode de la boucle lente. W18.d ne dépend d'aucun des trois. W18.e en dernier : elle
+mesure des adaptations, et il en faut.
+
 ## Recherche — sans dépendance de chemin critique, abandonnable sans coût
 
 `R1` **consensus circulaire** — cycle de `Cites` sans `AnchoredIn` externe, exigé par §16.6, calculable
