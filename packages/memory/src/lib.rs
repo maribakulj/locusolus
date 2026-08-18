@@ -20,6 +20,10 @@
 
 pub mod level;
 pub mod retrieval;
+pub mod separated;
 
 pub use level::{Entry, Level, MemoryError, Shelf, Substance};
 pub use retrieval::{Candidate, Excluded, Ranking, Results, RetrievalError, Signal, retrieve};
+pub use separated::{
+    EpistemicEntry, EpistemicHit, OrganisationalEntry, OrganisationalHit, epistemic, organisational,
+};
