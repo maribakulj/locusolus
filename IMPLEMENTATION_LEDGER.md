@@ -6604,3 +6604,66 @@ mesure, le type change et **tous** les appelants sont forcés de regarder ; un c
 déjà la valeur les en aurait dispensés.
 
 **Prochain item.** `R5` — prototype externe de harnais tiers — ou `R6`.
+
+---
+
+## 2026-08-18 — R6 — L'évolution inter-exécutions, et R5 qui ne se fait pas ici
+
+**Périmètre.** `packages/evaluation/src/evolution.rs`, `packages/evaluation/src/lib.rs`,
+`packages/evaluation/tests/evolution.rs`, `docs/10_V1_ROADMAP.md` (note sur `R5`).
+
+**Tests exécutés.** `cargo test -p locus-evaluation` → 15 conformes pour cet item. `npm run check` →
+les dix portes vertes. Mutation : douze mutants, **douze tués**.
+
+### `R6`
+
+« Une adaptation **récurrente** et **gagnante en validation appariée** propose une amélioration de
+template. » Trois mots, trois bornes.
+
+_Récurrente._ Vue dans plusieurs exécutions **distinctes**, et le seuil ne peut pas descendre sous
+deux — accepter un seuil de un ferait promouvoir le tirage d'une observation unique. La même
+exécution consignée trois fois reste une exécution : un mutant qui les distingue par leur rang
+meurt.
+
+_Gagnante en validation appariée._ Chaque occurrence est un `Credit::Attributed` de `R2`, avec un
+gain positif. Ce module **ne rejuge rien** : il compte des verdicts déjà rendus. Refaire
+l'attribution ici serait une seconde attribution, avec sa propre bande de bruit, qui divergerait de
+la première — un test refuse `Baseline`, `fn attribute`, `band`, `utility` dans le source. Le bruit
+ne compte donc pas, et un autre facteur n'est ni au numérateur ni au dénominateur.
+
+_Propose._ Le résultat est une `Improvement`, et il n'existe aucun chemin qui l'applique. Même forme
+que la boucle lente de W18.b. Elle **nomme** les exécutions plutôt que de les compter : une
+proposition de template se conteste, et la contester demande de pouvoir aller relire ce qui est
+cité.
+
+_Ce qui ne se moyenne pas._ Deux exécutions qui gagnent et une qui régresse ne font pas «
+globalement positif » : `Evolution::Contradictory` les rend telles quelles. Moyenner reviendrait à
+supprimer un résultat négatif pour rendre le dossier lisible — invariant 12 — et à promouvoir un
+template dont on sait qu'il a déjà nui une fois, sans savoir pourquoi. La contradiction l'emporte
+même quand les gains dépassent largement le seuil : c'est le cas où l'oubli serait le plus tentant.
+
+_Deux absences distinctes._ `NothingAttributed` — le facteur n'a jamais rien gagné — n'est pas
+`NotRecurrent` — il gagnait, sans assez d'exécutions. Les confondre ferait attendre d'autres
+exécutions d'un facteur que personne n'a vu marcher.
+
+**Un test corrigé.** Le compte des sites de construction retirait la déclaration et le bloc `impl`,
+mais pas `impl fmt::Display for Improvement`. Corrigé par le préfixe plutôt qu'en ajustant le
+nombre, qu'un ajout ultérieur ferait « corriger » sans réfléchir. Même correction qu'en W18.a.
+
+### `R5` — pourquoi il ne se fait pas ici
+
+`R5` demande un **dépôt jetable** : créé pour poser une seule question, supprimé si la réponse est
+non. Créer un dépôt engage un compte au-delà de ce chantier, et le supprimer plus encore ; c'est une
+décision qui appartient à qui possède le compte, pas à la session qui écrit le code. Le faire dans
+`locusolus` contredirait « jetable » — le code resterait —, et dans `canterel` cela violerait deux
+règles à la fois : « tout le code local vit sous `backend/cli/src/locus/**` » et l'interdiction de
+`R5` lui-même.
+
+Sa contrainte, en revanche, est tenue sans rien faire : « aucune ligne dans `backend/cli/src/locus/`
+avant la réponse » est une **interdiction**, et elle est respectée tant que le worker LEP séparé
+n'est pas écrit. Le constat est écrit dans `docs/10`, à côté de l'item.
+
+**État de la roadmap.** W13 à W18 sont livrés pour ce qui est faisable, avec cinq items bloqués et
+leur raison écrite : W15.f et W16.d attendent le mineur `lep/1.1` et son ADR, W16.e une messagerie
+inter-agents, W17.f `locusd`, W5.f et W18.f un hôte capable d'attester une sandbox. Des six items de
+recherche, cinq sont livrés et `R5` attend une décision qui n'est pas technique.
