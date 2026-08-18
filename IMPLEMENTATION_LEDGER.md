@@ -5847,3 +5847,53 @@ changerait l'ordre ne se verrait pas : les deux copies se recoupent exprès, dan
 double liste de coalescence du worker. Un mutant qui inverse l'ordre ici meurt.
 
 **Prochain item.** W17.c — deux retrievals séparés, épistémique et organisationnel, sans conversion.
+
+## 2026-08-18 — W17.c — Deux retrievals séparés, et la conversion qui n'est pas écrivable
+
+**Périmètre.** `packages/memory/src/separated.rs` (neuf), `packages/memory/tests/separated.rs`
+(neuf, 7 tests), `src/lib.rs` (les réexports), `docs/10_V1_ROADMAP.md` (correction du test de
+sortie), ce fichier.
+
+**Tests exécutés.** `cargo test -p locus-memory` → 26 conformes. `npm run check` → les dix portes
+vertes. Mutation : onze mutants, **onze tués**.
+
+**Correction du test de sortie, et pourquoi.** Il annonçait que « la septième frontière l'étend à ce
+cas ». En l'écrivant, il est apparu que la frontière n'est **pas** le bon outil ici : les deux
+familles vivent dans le **même crate**, donc le module qui les expose doit forcément voir les deux,
+et la règle aurait exigé une exception sur la racine — une garde qui s'excepte à l'endroit exact où
+la faute s'écrirait ne garde rien.
+
+Ce qui tient la séparation est plus fort. `packages/protocol` fait du **préfixe une partie de
+l'identité** — « `evt_01ARZ…` et `cmd_01ARZ…` ne sont pas le même identifiant, et le type les
+empêche d'être confondus à la compilation » — et `Id::parse` refuse un préfixe étranger. Une
+conversion devrait fabriquer une identité qu'elle n'a pas : ni directement, puisque les types
+diffèrent, ni par un aller-retour en chaîne de caractères, puisque `rev_…` ne se relit pas comme un
+`agent_…`. C'est une **impossibilité à la compilation** là où la frontière n'aurait été qu'un motif
+cherché dans du texte. La garantie était déjà là, posée par W0.4.
+
+**Décisions prises.**
+
+_Partager le calcul, séparer les réponses._ Le moteur — habilitation, budget, classement de W17.b —
+est commun. Deux moteurs divergeraient, et l'un des deux finirait par laisser passer ce que l'autre
+refuse : c'est la faute que la duplication doit **éviter**, à l'opposé de celle qu'elle sert à
+éviter pour les résultats. Quatre mutants le vérifient, un par borne et par côté — vérifier d'un
+seul côté laisserait l'autre s'en affranchir, et c'est exactement ce que le premier tour a montré.
+
+_Les identités reviennent d'une table, jamais d'une clé relue._ Le retour se fait par lecture d'une
+table construite à l'aller. Reparser la clé aurait rendu la conversion écrivable pour de bon : il
+aurait suffi de reparser avec l'autre type. Un test lit le source pour l'exiger.
+
+_Aucun trait ne les factorise._ Un trait « ce qui peut être cherché et classé » serait la conversion
+reconstruite : dès qu'un appelant écrit une fonction sur `impl Searchable`, les deux domaines se
+retraversent sans qu'aucune ligne ne s'appelle « convertir ». C'est l'argument de l'ADR 0016
+décision 9 pour les familles d'objection, et il vaut mot pour mot ici.
+
+**Un défaut réel trouvé par la mutation.** Un mutant qui forçait `is_negative` à `true` a survécu —
+non pas parce qu'un test manquait, mais parce que **le champ ne servait à rien** : la signature du
+corpus ne permettait même pas d'exprimer un résultat négatif, et les deux retrievals l'aplatissaient
+à `false`. Le signal `NegativeResults` de W17.b et l'invariant 12 étaient donc perdus une couche
+au-dessus du moteur, là où plus personne ne regarde, sans qu'aucun filtre ne s'écrive. Le corpus
+prend désormais des entrées nommées — `EpistemicEntry`, `OrganisationalEntry` — qui portent la
+marque, et elle traverse entière jusqu'au résultat. Trois mutants la tiennent.
+
+**Prochain item.** W17.d — déduplication non automatique et compaction.
