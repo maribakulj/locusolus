@@ -208,8 +208,9 @@ porte `version:` ni `image:`, tous deux obligatoires au schéma, et `ml-mps.yaml
 | W5.d `[R]` | les sondes voyagent avec le harnais : plus aucun binaire attendu dans l'image | aucune sonde ne nomme un chemin de l'image, chacune est du shell que `sh -n` accepte, et une sonde qui n'a pas pu conclure est `NotRun` |
 | W5.e `[R]` | le driver de build derrière un port, dans `apps/locus-execd` | le digest vient de la sortie du runtime et non du blueprint ; un build muet n'est pas un succès ; le driver ne sait pas dépasser le deuxième maillon de la chaîne |
 | W5.f `[R]` | validation **sémantique** des sondes contre une sandbox réelle | sur un hôte capable de `S2`, chaque sonde produit le verdict que son `contained_from` annonce — c'est la seule chose que ni `sh -n` ni un double ne peuvent dire |
-| W5.g `[R]` | le **quota disque comme fait d'hôte lu**, et non appris en échouant — trouvé par le premier passage de W5.f | un hôte dont le système de fichiers ne peut pas porter `--storage-opt size=` est constaté **avant** toute création, et une mission qui réserve du disque y est refusée à l'**admission**, par un motif qui nomme le système de fichiers ; le refus est distinct de `CapacityExceeded` — « la capacité manque » et « la borne n'est pas applicable ici » n'envoient pas chercher la même chose ; aucun chemin ne laisse `podman create` être l'endroit où on l'apprend |
+| W5.g `[R]` **fait** | le **quota disque comme fait d'hôte lu**, et non appris en échouant — trouvé par le premier passage de W5.f | un hôte dont le système de fichiers ne peut pas porter `--storage-opt size=` est constaté **avant** toute création, et une mission qui réserve du disque y est refusée à l'**admission**, par un motif qui nomme le système de fichiers ; le refus est distinct de `CapacityExceeded` — « la capacité manque » et « la borne n'est pas applicable ici » n'envoient pas chercher la même chose ; aucun chemin ne laisse `podman create` être l'endroit où on l'apprend |
 | W5.h `[R]` | **les sondes que le premier hôte réel a démenties** — trois faites, deux restent | `read_process_environment` ne vise plus `/proc/1`, qui dans un namespace PID désigne l'init **du conteneur** : la sonde réussissait précisément parce que le confinement était correct, et comme elle est `critical`, tout hôte bien configuré se voyait refuser la confiance. Le discriminant est désormais le cgroup — un processus dont le cgroup diffère du nôtre est un processus que cette sandbox n'a pas créé. Les deux sondes réseau constatent l'absence de **route par défaut** avant de conclure : sans ce constat, un `curl` qui échoue ne distingue pas « la sandbox a coupé le réseau » de « l'hôte ne mène nulle part ». Un code réservé de plus, `121`, dit « ce que je devais **atteindre** n'a pas répondu » — distinct de `120`, « ce que je devais **lire** n'était pas là » : deux ignorances, deux réparations |
+| W5.j `[M]` | **où le quota disque s'applique**, quand la racine est en lecture seule | `W5.g` a rendu le quota **lisible** ; reste à le rendre **applicable**. À `S2` la racine est montée en lecture seule, donc `--storage-opt size=` dimensionne une couche que personne n'écrit : le seul endroit inscriptible est l'espace de travail monté, et un bind mount hérite du système de fichiers de l'hôte, non borné. L'arbitrage nomme le mécanisme — volume dimensionné, tmpfs borné, ou renoncement déclaré — et `exceed_disk_quota` écrit ensuite là où le quota mord : sans quota déclaré elle doit **réussir**, avec quota être bloquée. Aujourd'hui elle est bloquée par la racine en lecture seule dans les deux cas, donc elle passe un test qu'elle ne fait pas tourner |
 | W5.i `[M]` | **ce que `S4` promet**, et la sonde qui doit le constater | `reach_host_kernel_interfaces` constate que le noyau atteint **n'est pas celui de l'hôte**, et non qu'une lecture est refusée : un conteneur partage le noyau, une micro-VM en apporte un autre, et « je n'ai pas le droit de lire » ne distingue pas les deux. L'arbitrage nomme ce qui est observable de l'intérieur — version, `boot_id`, ou autre chose — et le refus de lecture, s'il subsiste, devient `NotRun` avec sa raison plutôt qu'un blocage |
 
 **L'épreuve est écrite ; ce qui manque est l'hôte, et on va savoir si la CI en est un.**
@@ -276,6 +277,18 @@ s'applique, et le premier hôte réel a montré que la réponse n'est pas celle 
 racine est montée en lecture seule, donc `--storage-opt size=` dimensionne une couche inscriptible que
 personne n'écrit. Déplacer la sonde vers l'espace de travail sans déplacer le quota ferait mesurer un
 système de fichiers hôte non borné. La sonde suit le quota ; le quota d'abord.
+
+**`W5.g` est faite, et elle a réglé la moitié « lecture ».** L'hôte dit désormais, **avant toute
+création**, si le système de fichiers qui portera le stockage sait tenir un quota de projet :
+`HostFacts` lit `/proc/self/mountinfo`, retient le montage effectivement traversé — le plus long
+préfixe, pas le premier venu — et rend `Available`, `Unavailable` ou `Undetermined`. L'admission
+refuse une mission qui réserve du disque sur un hôte qui ne sait pas la borner, par un motif
+`DiskQuotaNotEnforceable` **distinct** de `CapacityExceeded` : « la capacité manque » envoie libérer
+de la place, « la borne n'est pas applicable ici » envoie changer de machine, et réduire la
+réservation ne changerait rien.
+
+Ce qui reste dû à `exceed_disk_quota` n'est donc plus un fait mais une **décision de driver** : où le
+quota s'applique quand la racine est en lecture seule. C'est le sujet de `W5.j`.
 
 `reach_host_kernel_interfaces` demande un **arbitrage sur ce que `S4` promet**, et devient `W5.i`.
 Elle lit `/sys/kernel/vmcoreinfo`, réservé à root — elle échoue donc pour cette raison-là, sur tout

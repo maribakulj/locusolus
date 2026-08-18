@@ -35,10 +35,13 @@ pub mod placement;
 pub mod reroute;
 pub mod runtime;
 
-pub use admission::{AcceleratorReach, Admission, HostCapabilities, RefusalReason, admit};
+pub use admission::{
+    AcceleratorReach, Admission, DiskQuota, HostCapabilities, RefusalReason, admit,
+};
 pub use build::{BuildContext, BuildDriver, BuildDriverError, build_arguments};
 pub use linux::Missing;
 pub use linux::{ConfinementPlan, HostFacts, PlanError, PodmanBackend, Workload, plan};
+pub use linux::{NO_STORAGE_DECLARED, PROJECT_QUOTA_OPTIONS, QUOTA_CAPABLE_FILESYSTEMS, Support};
 pub use macos::{MachineFacts, MachineState};
 pub use placement::{Candidate, Placement, place};
 pub use reroute::{Attempt, RerouteError, Rerouting, reroute};

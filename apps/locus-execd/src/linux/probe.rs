@@ -65,6 +65,7 @@ pub struct HostFacts {
     controllers: BTreeSet<String>,
     unprivileged_userns: Support,
     seccomp: Support,
+    disk_quota: Support,
 }
 
 impl HostFacts {
@@ -83,7 +84,38 @@ impl HostFacts {
             controllers,
             unprivileged_userns: userns(reader),
             seccomp: seccomp(reader),
+            // Indéterminé tant que personne n'a dit **où** vivra la couche inscriptible : un quota
+            // disque est une propriété d'un système de fichiers, pas d'un hôte en général, et
+            // deviner un chemin de stockage rendrait un fait sur autre chose que ce qui sera écrit.
+            disk_quota: Support::Undetermined {
+                reason: NO_STORAGE_DECLARED.to_owned(),
+            },
         }
+    }
+
+    /// Établir en plus si le système de fichiers qui portera le stockage peut tenir un quota.
+    ///
+    /// # Pourquoi c'est une seconde étape et non un champ de plus dans [`HostFacts::probe`]
+    ///
+    /// Les autres faits se lisent sur le noyau : cgroup v2 est monté ou non, seccomp existe ou non.
+    /// Le quota disque, lui, est une propriété **du chemin** où le runtime écrira. Sans ce chemin,
+    /// il n'y a pas de question bien posée, et un chemin deviné rendrait un fait sur un autre
+    /// système de fichiers que celui qui sera réellement écrit.
+    ///
+    /// # Ce que ce fait a coûté à découvrir
+    ///
+    /// `W5.f` a fait tourner la suite de sondes contre un vrai Podman rootless, et `podman create`
+    /// a rendu 125 : « storage option overlay.size and overlay.inodes only supported for backingFS
+    /// XFS. Found extfs ». `ConfinementPlan::disk_bytes` devient un `--storage-opt size=`, que
+    /// Podman ne sait appliquer que sur XFS. L'en-tête de ce module dit pourtant qu'« un broker qui
+    /// apprendrait ses limites en échouant les découvrirait après avoir créé la moitié d'une
+    /// sandbox » : c'était vrai de tous les faits sauf celui-là, et `REQUIRED_CONTROLLERS` frôlait
+    /// le sujet — « le quatrième, le disque, ne se borne pas par cgroup » — sans en tirer la
+    /// conséquence.
+    #[must_use]
+    pub fn with_storage<R: Reader + ?Sized>(mut self, reader: &R, storage_root: &str) -> Self {
+        self.disk_quota = disk_quota(reader, storage_root);
+        self
     }
 
     /// Lire un système de fichiers local à partir d'une racine.
@@ -125,6 +157,34 @@ impl HostFacts {
     #[must_use]
     pub const fn seccomp(&self) -> &Support {
         &self.seccomp
+    }
+
+    /// L'état du quota disque sur le stockage déclaré.
+    #[must_use]
+    pub const fn disk_quota(&self) -> &Support {
+        &self.disk_quota
+    }
+
+    /// Le système de fichiers à nommer dans un refus, quand le quota disque **n'est pas** tenable.
+    ///
+    /// # Le doute ne s'arrondit pas vers le haut, ici non plus
+    ///
+    /// `Undetermined` rend `Some` comme `Unavailable` : « je n'ai pas su regarder » ne vaut pas
+    /// « c'est disponible ». Les deux mènent au même refus — mais pas au même texte, parce qu'ils
+    /// ne s'inspectent pas au même endroit. C'est la règle que [`HostFacts::ceiling`] applique
+    /// déjà aux autres faits.
+    ///
+    /// C'est ce que [`crate::HostCapabilities::without_disk_quota`] attend : la lecture devient
+    /// une déclaration, et l'admission décide sur la déclaration. Sans ce pont, le fait serait lu
+    /// et jamais consulté, ce qui reviendrait exactement à ne pas le lire.
+    #[must_use]
+    pub fn unenforceable_disk_quota(&self) -> Option<String> {
+        match &self.disk_quota {
+            Support::Available => None,
+            Support::Unavailable { reason } | Support::Undetermined { reason } => {
+                Some(reason.clone())
+            }
+        }
     }
 
     /// Ce qui manque pour honorer ce niveau, éventuellement rien.
@@ -207,6 +267,7 @@ impl HostFacts {
                 describe(&self.unprivileged_userns)
             ),
             format!("seccomp : {}", describe(&self.seccomp)),
+            format!("quota disque : {}", describe(&self.disk_quota)),
         ]
     }
 }
@@ -261,6 +322,112 @@ impl fmt::Display for Missing {
             }
         }
     }
+}
+
+/// Ce qui est dit quand personne n'a déclaré de racine de stockage.
+pub const NO_STORAGE_DECLARED: &str = "aucune racine de stockage n'a été déclarée : on ne sait pas quel système de fichiers portera \
+     la couche inscriptible";
+
+/// Les systèmes de fichiers sur lesquels un quota de projet s'applique.
+///
+/// Un seul, et c'est Podman qui le dit : « storage option overlay.size and overlay.inodes only
+/// supported for backingFS XFS ». La liste est une constante nommée plutôt qu'un `==` en ligne
+/// pour qu'en ajouter un soit un acte visible, avec la vérification qui va avec.
+pub const QUOTA_CAPABLE_FILESYSTEMS: [&str; 1] = ["xfs"];
+
+/// Les options de super-bloc qui disent qu'un quota de projet est **activé**.
+///
+/// XFS sans elles est un `xfs` sur lequel `--storage-opt size=` échouera quand même, plus tard et
+/// ailleurs. Les exiger est la même règle que partout ici : ce qui n'a pas été constaté n'est pas
+/// acquis.
+pub const PROJECT_QUOTA_OPTIONS: [&str; 2] = ["prjquota", "pquota"];
+
+/// Le système de fichiers qui portera `storage_root`, et s'il sait tenir un quota de projet.
+///
+/// # Ce qui est lu
+///
+/// `/proc/self/mountinfo`, et le montage retenu est celui dont le point de montage est le **plus
+/// long préfixe** du chemin de stockage — c'est-à-dire le montage effectivement traversé. Prendre
+/// le premier qui correspond rendrait `/` pour un stockage sur un volume monté plus bas, donc un
+/// verdict sur le mauvais système de fichiers.
+fn disk_quota<R: Reader + ?Sized>(reader: &R, storage_root: &str) -> Support {
+    let Some(content) = reader.read("/proc/self/mountinfo") else {
+        return Support::Undetermined {
+            reason: "proc/self/mountinfo est illisible".to_owned(),
+        };
+    };
+    let Some(mount) = backing_mount(&content, storage_root) else {
+        return Support::Undetermined {
+            reason: format!("aucun montage de proc/self/mountinfo ne porte « {storage_root} »"),
+        };
+    };
+    if !QUOTA_CAPABLE_FILESYSTEMS.contains(&mount.filesystem.as_str()) {
+        return Support::Unavailable {
+            reason: format!(
+                "« {storage_root} » est sur « {} » ; un quota de projet n'existe que sur {}",
+                mount.filesystem,
+                QUOTA_CAPABLE_FILESYSTEMS.join(", ")
+            ),
+        };
+    }
+    if !PROJECT_QUOTA_OPTIONS
+        .iter()
+        .any(|option| mount.options.iter().any(|present| present == option))
+    {
+        return Support::Unavailable {
+            reason: format!(
+                "« {storage_root} » est sur « {} » mais monté sans {} : le quota de projet n'est pas activé",
+                mount.filesystem,
+                PROJECT_QUOTA_OPTIONS.join(" ni ")
+            ),
+        };
+    }
+    Support::Available
+}
+
+/// Le montage traversé pour atteindre ce chemin.
+struct Mount {
+    filesystem: String,
+    options: Vec<String>,
+}
+
+fn backing_mount(mountinfo: &str, path: &str) -> Option<Mount> {
+    let mut best: Option<(usize, Mount)> = None;
+    for line in mountinfo.lines() {
+        // `mountinfo` sépare les champs fixes des champs variables par un « - » isolé. Découper
+        // dessus est ce qui rend la lecture insensible au nombre de champs optionnels, qui varie.
+        let (head, tail) = line.split_once(" - ")?;
+        let point = head.split_whitespace().nth(4)?;
+        let mut rest = tail.split_whitespace();
+        let filesystem = rest.next()?;
+        let options = rest.nth(1).unwrap_or_default();
+        if !covers(point, path) {
+            continue;
+        }
+        if best.as_ref().is_none_or(|(len, _)| point.len() > *len) {
+            best = Some((
+                point.len(),
+                Mount {
+                    filesystem: filesystem.to_owned(),
+                    options: options.split(',').map(str::to_owned).collect(),
+                },
+            ));
+        }
+    }
+    best.map(|(_, mount)| mount)
+}
+
+/// Ce point de montage est-il traversé pour atteindre ce chemin ?
+///
+/// `/var` couvre `/var/lib/containers` mais pas `/variable` : la comparaison se fait au **segment**,
+/// pas au caractère, sans quoi un répertoire dont le nom commence par celui d'un montage passerait
+/// pour être dessous.
+fn covers(point: &str, path: &str) -> bool {
+    if point == "/" || point == path {
+        return true;
+    }
+    path.strip_prefix(point)
+        .is_some_and(|rest| rest.starts_with('/'))
 }
 
 /// cgroup v2, et les contrôleurs délégués au cgroup de **ce** processus.

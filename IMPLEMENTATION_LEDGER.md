@@ -7172,3 +7172,82 @@ d'un survivant qui était un vrai trou. Le mutant remplaçait `mine=$(cut … /p
 corresponde, et lisait le premier venu — elle serait redevenue un échappement systématique. Le test
 n'exigeait que la présence du mot « cgroup » ; il exige maintenant que la sonde lise **son propre**
 cgroup, sans quoi la comparaison n'a qu'un côté.
+
+---
+
+## 2026-08-18 — W5.g — Le quota disque devient un fait lu, et un refus qui nomme le système de fichiers
+
+**Périmètre.** `apps/locus-execd/src/linux/probe.rs` (la lecture),
+`apps/locus-execd/src/admission.rs` (la décision), `apps/locus-execd/tests/linux.rs` (huit tests
+neufs, deux mis à jour).
+
+**Ce que l'item réparait.** L'en-tête de `probe.rs` pose la doctrine : « ce que l'hôte permet
+réellement — lu, jamais supposé », parce qu'« un broker qui apprendrait ses limites en échouant les
+découvrirait après avoir créé la moitié d'une sandbox ». C'était vrai de tous les faits **sauf un**.
+`ConfinementPlan::disk_bytes` devient un `--storage-opt size=` que Podman n'applique que sur XFS, et
+personne ne le vérifiait : `W5.f` l'a appris de `podman create`, qui a rendu 125 après avoir
+commencé à configurer le stockage. `REQUIRED_CONTROLLERS` frôlait le sujet — « le quatrième, le
+disque, ne se borne pas par cgroup » — sans en tirer la conséquence.
+
+**Décisions prises.**
+
+_Le quota est une propriété d'un chemin, pas d'un hôte._ D'où `with_storage(reader, storage_root)`
+plutôt qu'un champ de plus dans `probe`. Les autres faits se lisent sur le noyau — cgroup v2 est
+monté ou non, seccomp existe ou non. Sans racine de stockage déclarée, il n'y a pas de question bien
+posée, et un chemin deviné rendrait un fait sur un autre système de fichiers que celui qui sera
+écrit. Le défaut est donc `Undetermined`, avec sa raison.
+
+_Le doute ne s'arrondit pas vers le haut, ici non plus._ `unenforceable_disk_quota` rend `Some` pour
+`Undetermined` comme pour `Unavailable` : « je n'ai pas su regarder » ne vaut pas « c'est disponible
+». Les deux mènent au même refus, pas au même texte, parce qu'ils ne s'inspectent pas au même
+endroit. Un mutant qui les sépare meurt.
+
+_Le montage retenu est le plus long préfixe._ Prendre le premier qui correspond rendrait `/` pour un
+stockage vivant sur un volume monté plus bas — donc un verdict sur le mauvais système de fichiers,
+et un verdict flatteur. La comparaison se fait au **segment** : `/var` couvre `/var/lib` mais pas
+`/variable`.
+
+_Deux conditions indépendantes, et c'est un mutant qui l'a établi._ Le système de fichiers doit être
+XFS **et** le montage porter `prjquota`. Le premier passage de mutation a laissé survivre « ext4
+passe pour capable » : désactiver le contrôle de système de fichiers ne cassait rien, parce que
+toutes les fixtures ext4 étaient **aussi** sans `prjquota` et tombaient sur l'autre refus. Or ext4
+avec `prjquota` est une configuration réelle et ordinaire, que Podman refuse quand même. Un test la
+couvre maintenant, et il vérifie en plus que le refus **ne parle pas** de `prjquota` : le quota de
+projet est activé là, et le dire manquant enverrait remonter un volume avec une option qu'il porte
+déjà.
+
+_Le refus est distinct de `CapacityExceeded`, et la distinction n'est pas cosmétique._ « La capacité
+manque » envoie libérer de la place ou réduire la réservation ; « la borne n'est pas applicable ici
+» envoie changer de système de fichiers, ou de machine. Les fondre ferait réduire une réservation
+qui aurait échoué de la même façon à un octet. Le test le tient dans les deux sens : le motif de
+quota est présent, `CapacityExceeded` est absent, et la **même mission sans réservation de disque
+est admise** — c'est la borne qui est refusée, pas l'hôte.
+
+_« Aucun chemin ne laisse `podman create` être l'endroit où on l'apprend » se tient par l'absence._
+Suivre les appels n'y suffirait pas : il en suffirait d'un, ajouté plus tard, pour rouvrir le trou.
+Le test lit le code d'`admission.rs`, commentaires retirés, et refuse `Runner`, `PodmanBackend`,
+`RuntimePort`, `process::Command`, `podman`, `storage-opt`. Le module ne peut donc pas apprendre en
+essayant, quelle que soit la bonne volonté de son prochain lecteur.
+
+_La preuve gagne un cinquième constat._ §21.6 veut un témoignage, pas une affirmation. Un fait lu
+qui n'apparaîtrait pas dans `evidence()` serait un fait que l'attestation tait, donc un fait que
+personne ne peut contester. Le test qui comptait quatre lignes en compte cinq, et vérifie que celle
+du quota y est.
+
+**Le pont lu → déclaré → refusé, et pourquoi il est nommé.** `HostFacts` lit,
+`HostCapabilities::without_disk_quota(why)` déclare, `admit` décide. Sans ce pont le fait serait lu
+et jamais consulté, ce qui reviendrait exactement à ne pas le lire. Le paramètre est la **raison**
+et non un booléen : un refus qui dirait seulement « pas de quota disque » enverrait chercher une
+option de configuration là où c'est le système de fichiers qui décide. Un test parcourt la chaîne
+entière sur une fixture ext4.
+
+**Ce que ça ne fait pas, et qui devient `W5.j`.** Le quota est maintenant **lisible** ; il n'est pas
+**applicable**. À `S2` la racine est montée en lecture seule, donc `--storage-opt size=` dimensionne
+une couche que personne n'écrit, et le seul endroit inscriptible est l'espace de travail monté — un
+bind mount, qui hérite du système de fichiers de l'hôte, non borné. Autrement dit : même sur un hôte
+XFS avec `prjquota`, il n'est pas établi que le quota morde. C'est une décision de driver — volume
+dimensionné, tmpfs borné, ou renoncement déclaré — et `exceed_disk_quota` la suivra.
+
+**Tests exécutés.** `cargo test -p locus-execd --test linux` → 31 conformes, dont huit neufs.
+`npm run check` → les dix portes vertes. Mutation : onze mutants, **onze tués** — après correction
+du survivant décrit plus haut, qui était un vrai trou.
