@@ -13,10 +13,12 @@
 
 mod activity;
 mod gaming;
+mod scheduler;
 mod value;
 
 pub use activity::{ArtifactRecord, BranchActivity, ClaimRecord, ReviewRecord};
 pub use gaming::{
     Gaming, GamingFinding, LexicalSimilarity, Screening, Similarity, Thresholds, screen,
 };
+pub use scheduler::{Candidate, Policy, Reason, Selection, Slot, schedule};
 pub use value::{Indicators, Valuation, ValueError, Weights, value};

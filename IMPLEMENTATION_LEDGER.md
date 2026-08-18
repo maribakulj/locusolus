@@ -3673,3 +3673,71 @@ modélisée. §13.5 (les dix actions) n'est pas dans ce sprint.
 
 **Prochain item.** **W7.g** — scheduler qualité-diversité : deux propositions de valeur égale et de
 diversité inégale ne se départagent pas au hasard, et le choix est reproductible.
+
+---
+
+## 2026-08-18 — W7.g — Le scheduler qualité-diversité : rien n'est départagé au hasard
+
+**Périmètre.** `packages/portfolio/src/scheduler.rs` et `tests/scheduler.rs`, neufs ; `src/lib.rs`
+les expose. Aucune dépendance nouvelle. W7 est terminé.
+
+**La phrase qui interdit le tri simple.** §13.3 : « La V1 **NE DOIT PAS** sélectionner uniquement
+les branches au score moyen le plus élevé. » Un scheduler qui trierait par `V(b)` et couperait à N
+serait conforme à §13.4 et en violation de §13.3 — et c'est le code qu'on écrit sans y penser, parce
+qu'il est le plus simple à écrire et le plus facile à défendre ligne à ligne.
+
+**« Reproductible » demande plus que « déterministe ».** Un scheduler qui garde le premier arrivé en
+cas d'égalité est déterministe : la même liste donne le même résultat. Il n'est pas reproductible
+pour autant — c'est l'**ordre d'arrivée** qui décide, en silence. L'ordre de sélection est donc
+total : valeur décroissante, diversité décroissante, identifiant croissant. Le dernier barreau ne
+dit rien de scientifique, et c'est exactement son rôle. Le test central mélange la liste d'entrée —
+toutes les rotations, plus l'ordre inverse — et exige le même portefeuille.
+
+**Trois phases, dans cet ordre.** La part d'exploitation au meilleur score ajusté ; la réserve
+exploratoire au plus **loin** de ce qui est retenu, sans regarder le score ; le devoir de
+falsification, qui déplace au besoin. La réserve après l'exploitation parce qu'une réserve remplie
+en premier serait remplie contre rien ; le devoir en dernier parce qu'il faut savoir quelles
+hypothèses sont finalement retenues.
+
+**Un plancher trouvé par un test rouge.** Avec une seule place, `1 × 60 / 100` donne zéro place
+d'exploitation : le portefeuille devenait **entièrement** exploratoire, l'inverse de « une part
+d'exploitation ». Au moins une place d'exploitation dès qu'il y a une place ; la réserve apparaît à
+partir de deux. À une seule place, les deux exigences ne peuvent pas tenir ensemble et c'est
+l'exploitation qui l'emporte — c'est écrit dans le code plutôt que subi.
+
+**Un bug attrapé par le premier essai.** `max_by` avec un comparateur inversé rend le **minimum** :
+le scheduler choisissait la pire branche à chaque place. Six tests rouges d'un coup. La forme juste
+est `min_by` avec le comparateur inversé — le « minimum » est alors le meilleur score, et `min_by`
+rend le **premier**, donc le mieux classé. Une mutation le refixe : la remettre en `max_by` fait
+rougir sept tests.
+
+**Ce qui manque est rendu.** Quand aucun candidat ne falsifie une hypothèse retenue, l'exigence de
+§13.3 ne peut pas être tenue : `unfalsified_hypotheses()` la nomme. La taire ferait passer un
+portefeuille incomplet pour un portefeuille conforme. Et une hypothèse **non retenue** n'entraîne
+aucun devoir — le portefeuille ne doit pas de contradiction à une piste qu'il n'a pas prise.
+
+**Ce que les mutations ont trouvé.** Cinq gardes étaient muettes, et toutes pour la **même** raison
+: la limite de concentration écartait déjà le candidat que le test croyait voir écarté par la
+corrélation ou par le critère de la réserve. Les familles des fixtures étaient trop semblables. Les
+tests ont été refaits avec des familles distinctes et un nombre de places suffisant, de sorte que
+chaque garde soit seule à décider — c'est le même piège que W7.f : un test qui passe pour la
+mauvaise raison passe quand même.
+
+**Quatorze mutations vérifiées rouges** : l'égalité cessant d'être tranchée par la diversité (1
+test) ; le dernier barreau de l'ordre disparu (1) ; la valeur cessant de primer sur la diversité (1)
+; la réserve devenue une seconde exploitation (1) ; toutes les places données à l'exploitation (2) ;
+la limite de concentration disparue (1) ; la pénalité de corrélation débranchée (2) ; la corrélation
+ignorant la famille de méthode (1) puis les niches (3) ; la prime au négatif informatif disparue (1)
+; le devoir de falsification non servi (2) ; l'hypothèse non falsifiée non signalée (1) ; le devoir
+valant aussi pour les hypothèses non retenues (1) ; `min_by` redevenu `max_by` (7). Restauration
+confirmée verte.
+
+**Écart avec la spec.** Aucun. Les sept exigences de §13.3 sont tenues : part d'exploitation,
+réserve exploratoire, niches méthodologiques (elles entrent dans la corrélation et dans l'ordre),
+branche de falsification par hypothèse majeure, pénalité de corrélation, prime aux négatifs
+informatifs, limite de concentration par famille de modèle **et** de méthode. §13.5 — les dix
+actions du portefeuille — reste hors de W7 : le scheduler dit _quoi retenir_, pas _quoi faire
+ensuite_.
+
+**Prochain item.** W7 est terminé (a → g). Le prochain item non terminé de `docs/10` dont les
+dépendances sont satisfaites reprend la file ordinaire.
