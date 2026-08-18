@@ -4781,3 +4781,52 @@ de valider — et c'est le bon ordre.
 
 **Prochain item.** W11.c — la sauvegarde cohérente de §27.4 et la restauration sur un backend
 différent.
+
+## 2026-08-18 — W11.c — Sauvegarde cohérente et restauration ailleurs
+
+**Périmètre.** `packages/deployment/src/backup.rs` (neuf), `packages/deployment/tests/backup.rs`
+(neuf, 11 tests), `src/lib.rs` (les réexports), ce fichier.
+
+**Tests exécutés.** `cargo test -p locus-deployment` → 36 conformes (13 + 12 + 11). `npm run check`
+→ les dix portes vertes. Mutation : dix mutants, **dix tués, aucun survivant**.
+
+**Décisions prises.**
+
+_« Cohérente » se calcule, jamais ne se déclare._ Il n'existe aucun champ qu'un producteur pourrait
+cocher. Une sauvegarde qui se dirait complète le resterait jusqu'au jour où on la restaure —
+c'est-à-dire le seul jour où c'est trop tard. Le test éprouve les cinq parties **séparément** :
+chacune retirée seule suffit, ce qui empêche qu'une devienne facultative sans que personne ne s'en
+aperçoive.
+
+_Les clés sont à part, mais jamais silencieuses._ §27.4 les subordonne à une procédure plutôt qu'à
+la liste des cinq. « Selon procédure » n'autorise pourtant pas le silence : une sauvegarde d'où les
+clés sont absentes **sans qu'on sache pourquoi** est indiscernable d'une sauvegarde où on les a
+oubliées, et les deux se restaurent pareil. `KeyHandling` force à nommer la procédure dans les deux
+sens — incluses ou exclues sont deux décisions, pas une présence et une absence.
+
+_Les sandboxes sont refusées nommément._ §27.4 les exclut ; le refus est explicite plutôt
+qu'implicite, parce que quelqu'un essaiera de les inclure en croyant être exhaustif. Une sauvegarde
+qui porte l'état d'une sandbox invite à la restaurer, donc à traiter du jetable comme une source.
+
+_Restaurer ailleurs se déclare, ne se fait pas._ §27.5 pose la réserve : « sous réserve des
+capabilities requises par ses runs historiques ». Restaurer sur un hôte qui n'a pas ce que les runs
+exigeaient produirait une campagne qu'on croit intacte et qui ne se rejoue pas — l'écart ne se
+verrait qu'à la première reproduction, des semaines plus tard.
+
+_Troisième occurrence de la même distinction dans ce paquet._ Une sauvegarde qui n'a pas relevé ce
+que ses runs exigeaient rend `RequirementsUnknown`, pas `Ready`. Après `Presence::Unknown` (W11.a)
+et l'ignorance des sondes, c'est la même règle : personne n'a regardé n'est pas rien à signaler. Et
+relever une liste **vide** est une réponse, elle — le test tient les deux cas côte à côte.
+
+_L'incohérence se dit avant l'hôte._ Une sauvegarde à qui il manque l'event store ne se juge pas sur
+le GPU de la machine cible : répondre « il manque un GPU » ferait chercher du matériel quand il
+manque une base.
+
+**Écart avec la spec.** Rien ici ne prend ni ne restaure quoi que ce soit : le module dit ce qu'une
+sauvegarde **est** et à quelles conditions elle se restaure ailleurs. Les procédures elles-mêmes
+appartiennent aux adaptateurs, qui n'existent pas encore. §27.5 demande aussi que chaque release
+majeure soit testée sur macOS local et Linux VM — c'est une exigence de CI, pas de code, et elle n'a
+pas d'item.
+
+**Prochain item.** W11 est couvert. La suite vient de W12 (évaluation et release) ou de la 3D de
+§23.4, qui demande d'abord de décider comment on la vérifie.
