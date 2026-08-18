@@ -6861,3 +6861,76 @@ avant d'empiler quatre décisions dessus.
 refus, `W19.b` la permission hors ligne. Les tranches 1 et 4 restent chez `W15.f` et `W16.d`.
 `W19.a` avant `W19.b` parce qu'elle porte la clause de falsification, et `W15.f` avant les deux
 parce qu'elle porte les deux tests qui définissent le mineur.
+
+---
+
+## 2026-08-18 — W5.f — L'épreuve des seize sondes contre une sandbox réelle, et la question posée à la CI
+
+**Périmètre.** `apps/locus-execd/tests/host_sandbox.rs` (neuf), un job `sandbox` dans
+`.github/workflows/ci.yml`, `docs/10_V1_ROADMAP.md`. Aucun code de production modifié : tout ce que
+l'item demande existait déjà — `SUITE`, `PROBE_COMMANDS`, `run_suite`, `judge`, `standing`,
+`SystemRunner`. Ce qui manquait était **un hôte**, et de quoi savoir si la CI en est un.
+
+**Ce que les autres tests ne pouvaient pas dire.** `tests/podman.rs` pilote un `ScriptedRunner` et
+l'écrit lui-même : c'est ce qui permet de vérifier les arguments et les chemins d'erreur « là où
+aucun runtime rootless n'est garanti — c'est-à-dire en CI ». Un double rend ce qu'on lui a dit de
+rendre. Il ne sait pas si `cpu.max` mord, si `--userns` ferme la vue sur les processus de l'hôte, ni
+si le profil seccomp refuse `unshare`. Et `sh -n` vérifie une syntaxe :
+`[ "${after:-0}" -eq "${before:-0}" ]` se parse parfaitement et ne prouve rien tant que personne n'a
+vu `nr_throttled` bouger. Le module le disait déjà comme dette nommée — « c'est le premier travail
+d'un hôte capable de S2 ».
+
+**Décisions prises.**
+
+_Le test est `#[ignore]`, pas conditionnel._ Un test qui se sauterait tout seul quand l'hôte ne
+convient pas ressemblerait en tout point à un test qui passe — la leçon que `--require-emacs` a déjà
+coûtée. `ignored` apparaît dans la sortie de `cargo test` ; « sauté en silence » n'y apparaît pas.
+
+_La table s'imprime avant les assertions._ Un échec doit dire **laquelle** des seize n'a pas tenu et
+**comment**. C'est la moitié utile d'un premier passage sur un hôte qu'on ne connaît pas : le
+verdict agrégé ne se lit qu'après coup, la table se lit tout de suite.
+
+_Trois états qui ne se réparent pas pareil._ Pas de runtime rootless, un runtime sans cgroups v2, un
+confinement qui ne tient pas. La première assertion du test est donc qu'**au moins une sonde a
+tourné** — sans elle, seize `NotRun` produiraient un `NotTrusted` qu'on lirait comme une faille
+alors qu'il manque une machine. Le job imprime en plus, avant toute tentative, ce que l'hôte annonce
+: noyau, version de podman, type de `/sys/fs/cgroup`, contrôleurs, plages `subuid`.
+
+_`NetworkMode::Full` et non `Deny`._ `plan` refuse explicitement autre chose que `full` en deçà de
+`S3` — « un processus rootless sans namespace réseau voit le réseau de l'hôte, et dire "deny"
+là-dessus serait un mensonge ». Les deux sondes réseau sont donc `Allowed` à `S2` et **doivent
+réussir** ; les compter comme contenues ferait de `S2` un `S3`.
+
+_Un profil seccomp écrit par le test, dans un fichier temporaire._ `S2` exige la posture
+`Restricted`, donc un profil sur disque. `tests/seccomp.rs` explique pourquoi le dépôt **ne livre
+pas** de profil : « en écrire un sans hôte pour l'éprouver produirait soit une sandbox qui casse
+tout, soit une sandbox qui autorise ce qu'elle prétend refuser ». Celui du test ne prétend pas être
+celui-là : il est défaut-permissif et refuse nommément les huit appels de `MUST_DENY`, la posture
+exacte que `RestrictedProfile` vérifie et rien de plus. Il vit dans un fichier temporaire plutôt que
+dans le dépôt, précisément pour que personne ne le prenne pour le profil de production.
+
+_L'image porte un digest et `curl`._ `Workload::new` refuse une image par tag, et il a raison : une
+attestation qui nomme un tag n'atteste de rien de reproductible. `curl` est nécessaire parce que les
+deux sondes réseau rendent `120` sans lui, que le harnais lit comme `NotRun` — honnête et inutile,
+on saurait que la sonde n'a pas conclu, pas si le réseau est joignable. D'où une image
+**construite** dans le job, sans `ENTRYPOINT` qui se substituerait à la commande du workload, avec
+un repli déclaré si la référence locale par digest ne se résout pas.
+
+**`continue-on-error: true`, délibéré et temporaire.** Ce job est une question, pas une garde.
+Personne ne sait encore ce qu'un runner GitHub sait confiner, et un job rouge pour cette raison
+ferait rejeter des PR qui n'y sont pour rien. Le commentaire du workflow écrit l'arbitrage à faire
+au passage suivant plutôt que de le laisser à la mémoire : vert → `continue-on-error` tombe et
+`W5.f` est clos ; rouge → la table dit pourquoi, et l'item part vers une VM dédiée ou un report
+écrit.
+
+**Une question sémantique que ce passage va trancher, et qu'aucun test ne pouvait poser avant.**
+`read_host_filesystem` lit `/host-root/etc/hostname`. À `S2` elle doit être contenue, et elle le
+sera — rien ne monte `/host-root`. Mais en dessous elle doit **réussir**, et si aucun profil ne
+monte jamais la racine de l'hôte à cet endroit, la sonde ne peut réussir à aucun niveau : elle
+serait « contenue » partout, y compris là où le niveau ne promet rien. C'est exactement le genre de
+chose qu'un double ne peut pas dire, et c'est pourquoi l'item existe. Le constat sera écrit ici
+quand le job aura tourné.
+
+**Ce que ce sprint ne prétend pas.** `W5.f` n'est pas clos. Ce qui est livré est l'épreuve et la
+question ; la réponse vient du prochain passage de CI, et l'arbitrage qu'elle appelle est écrit
+d'avance pour qu'il ne dépende pas de qui le lit.

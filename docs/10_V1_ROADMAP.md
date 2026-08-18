@@ -209,6 +209,25 @@ porte `version:` ni `image:`, tous deux obligatoires au schéma, et `ml-mps.yaml
 | W5.e `[R]` | le driver de build derrière un port, dans `apps/locus-execd` | le digest vient de la sortie du runtime et non du blueprint ; un build muet n'est pas un succès ; le driver ne sait pas dépasser le deuxième maillon de la chaîne |
 | W5.f `[R]` | validation **sémantique** des sondes contre une sandbox réelle | sur un hôte capable de `S2`, chaque sonde produit le verdict que son `contained_from` annonce — c'est la seule chose que ni `sh -n` ni un double ne peuvent dire |
 
+**L'épreuve est écrite ; ce qui manque est l'hôte, et on va savoir si la CI en est un.**
+`apps/locus-execd/tests/host_sandbox.rs` fait tourner les seize sondes dans un conteneur rootless
+réel à `S2`, imprime la table complète — sonde, attente, observation, verdict — **avant** toute
+assertion, puis affirme que chacune tient et que le `Standing` est `Trusted`. Le test est
+`#[ignore]` : un test qui se sauterait tout seul quand l'hôte ne convient pas ressemblerait en tout
+point à un test qui passe, et `ignored` apparaît dans la sortie de `cargo test` là où « sauté en
+silence » n'apparaît pas.
+
+Le job de CI `sandbox` le lance, et il est **`continue-on-error: true` délibérément et
+temporairement** : personne ne sait encore ce qu'un runner GitHub sait confiner, et un job rouge
+pour cette raison ferait rejeter des PR qui n'y sont pour rien. Le passage suivant est un
+arbitrage, pas une habitude — s'il devient vert, `continue-on-error` tombe et `W5.f` est clos ;
+s'il reste rouge, la table dit **pourquoi**, et l'item part vers une VM dédiée ou un report écrit.
+
+Trois états se distinguent, et ils ne se réparent pas pareil : pas de runtime rootless (il manque
+une machine), un runtime mais pas de cgroups v2 (il manque une configuration), un confinement qui
+ne tient pas (il manque une garantie). Le test affirme d'abord qu'**au moins une sonde a tourné**,
+précisément pour que le premier ne se lise pas comme le troisième.
+
 ## W6 — Artifact / reproductibilité
 
 Object store, manifests, quarantaine/promotion, `RunManifest`, workflows de reproduction.

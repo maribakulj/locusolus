@@ -141,3 +141,99 @@ jobs:
 
       - name: Tests
         run: cargo test --all-features
+
+  # `W5.f` : la validation SÉMANTIQUE des sondes de sandbox, la seule chose que ni `sh -n` ni un
+  # double ne peuvent dire. `tests/podman.rs` pilote un `ScriptedRunner` parce qu'« aucun runtime
+  # rootless n'est garanti — c'est-à-dire en CI » ; ce job va vérifier si cette phrase est encore
+  # vraie sur les images de runner d'aujourd'hui.
+  #
+  # `continue-on-error: true` est DÉLIBÉRÉ ET TEMPORAIRE. Ce job est une question, pas une garde :
+  # personne ne sait encore ce qu'un runner GitHub sait confiner, et un job rouge pour cette raison
+  # ferait rejeter des PR qui n'y sont pour rien. Le passage suivant est un arbitrage, pas une
+  # habitude :
+  #
+  #   - s'il devient vert, `continue-on-error` tombe et `W5.f` est clos ;
+  #   - s'il reste rouge, la table imprimée dit POURQUOI — pas de runtime, pas de cgroups, ou un
+  #     confinement qui ne tient pas — et `W5.f` part vers une VM dédiée ou un report écrit.
+  #
+  # Le job imprime donc beaucoup et n'affirme rien qu'il ne puisse montrer.
+  sandbox:
+    name: sandbox
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      # Ce que l'hôte annonce, avant toute tentative. Un job qui échoue plus loin doit pouvoir se
+      # relire ici : « pas de podman » et « podman mais pas de cgroups v2 » ne se réparent pas
+      # pareil, et la table des sondes ne les distingue pas.
+      - name: Ce que l'hôte annonce
+        run: |
+          echo "## Ce que l'hôte annonce" >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo '```'
+            echo "noyau        : $(uname -r)"
+            echo "podman       : $(podman --version 2>&1 || echo absent)"
+            echo "cgroup fstype: $(stat -fc %T /sys/fs/cgroup)"
+            echo "cgroup v2    : $([ -f /sys/fs/cgroup/cgroup.controls ] && cat /sys/fs/cgroup/cgroup.controls || echo 'absent')"
+            echo "subuid       : $(grep "^$(id -un):" /etc/subuid 2>/dev/null || echo 'aucune plage')"
+            echo "unprivileged_userns_clone: $(cat /proc/sys/kernel/unprivileged_userns_clone 2>/dev/null || echo 'n/a')"
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+      # L'image doit porter un digest — `Workload::new` refuse une image par tag, et il a raison :
+      # une attestation qui nomme un tag n'atteste de rien de reproductible.
+      #
+      # Elle doit aussi porter `curl` : les deux sondes réseau rendent 120 sans lui, ce que le
+      # harnais lit comme `NotRun`. Ce serait honnête et inutile — on saurait que la sonde n'a pas
+      # conclu, pas si le réseau est joignable. D'où une image construite ici plutôt que tirée
+      # telle quelle, et sans ENTRYPOINT, qui se substituerait à la commande du workload.
+      - name: Image de sonde
+        run: |
+          set -x
+          # Le contexte est un répertoire vide et non `.` : le dépôt entier serait envoyé au
+          # démon de build pour une image qui ne copie rien.
+          context=$(mktemp -d)
+          podman build -t locus-probe -f - "$context" <<'CONTAINERFILE'
+          FROM docker.io/library/alpine:3.20
+          RUN apk add --no-cache curl
+          CONTAINERFILE
+          digest=$(podman image inspect --format '{{.Digest}}' locus-probe)
+          reference="localhost/locus-probe@${digest}"
+          # Une référence par digest sur le stockage local n'est pas garantie de se résoudre. On
+          # l'éprouve ici plutôt que de le découvrir dans la table des sondes, où l'échec
+          # ressemblerait à un problème de confinement.
+          if podman create --name locus-probe-smoke "$reference" true >/dev/null 2>&1; then
+            podman rm -f locus-probe-smoke >/dev/null 2>&1 || true
+          else
+            echo "la référence locale par digest ne se résout pas — repli sur alpine sans curl"
+            podman pull docker.io/library/alpine:3.20
+            reference=$(podman image inspect --format '{{index .RepoDigests 0}}' docker.io/library/alpine:3.20)
+          fi
+          echo "LOCUS_PROBE_IMAGE=$reference" >> "$GITHUB_ENV"
+          echo "image de sonde : $reference" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Toolchain
+        run: rustup show active-toolchain || rustup toolchain install
+
+      - uses: Swatinem/rust-cache@v2
+
+      # `--ignored` est ce qui lance le test, et `--nocapture` ce qui laisse passer la table. Sans
+      # elle, un échec dirait « le niveau n'est pas tenu » sans dire laquelle des seize.
+      - name: Les seize sondes à S2
+        run: |
+          cargo test -p locus-execd --test host_sandbox -- --ignored --nocapture 2>&1 | tee sondes.txt
+          exit "${PIPESTATUS[0]}"
+
+      # La table est le produit de ce job, verte ou rouge. Elle doit être lisible sans ouvrir les
+      # logs bruts, sinon personne ne la lira et l'arbitrage se fera de mémoire.
+      - name: La table, dans le résumé
+        if: always()
+        run: |
+          {
+            echo "## Les seize sondes à S2"
+            echo '```'
+            cat sondes.txt 2>/dev/null || echo "le test n'a rien produit"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
