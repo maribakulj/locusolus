@@ -71,7 +71,7 @@ pub const PROBE_COMMANDS: [(&str, &[&str]); 16] = [
     ),
     (
         "read_process_environment",
-        &["sh", "-c", "head -c 1 /proc/1/environ"],
+        &["sh", "-c", PROCESS_ENVIRONMENT],
     ),
     (
         "access_container_runtime_socket",
@@ -121,11 +121,34 @@ pub const UNRUNNABLE_EXIT_CODES: [(i32, &str); 3] = [
 /// 120 est hors des plages que POSIX (126, 127), les signaux (128+) et Podman (125) réservent.
 pub const INCONCLUSIVE_EXIT_CODE: i32 = 120;
 
+/// Le code qu'une sonde rend quand **ce qu'elle voulait atteindre** n'a pas répondu.
+///
+/// # Une ignorance de plus, et elle ne se confond pas avec les autres
+///
+/// [`INCONCLUSIVE_EXIT_CODE`] dit « ce que je devais **lire** n'était pas là » — un `cpu.stat`
+/// absent, un `curl` manquant. Celui-ci dit « ce que je devais **atteindre** n'a pas répondu » : un
+/// hôte dont le réseau n'ouvre pas la route, un service que le déploiement filtre. Les deux sont
+/// des ignorances, aucune n'est un blocage, et elles ne se réparent pas pareil — la première en
+/// complétant l'image, la seconde en changeant d'hôte ou en renonçant à la mesure.
+///
+/// # Pourquoi il a fallu un hôte réel pour le trouver
+///
+/// `W5.f` a fait tourner la suite dans un conteneur rootless. Trois sondes « permises à `S2` » sont
+/// ressorties **bloquées**, c'est-à-dire lues comme une preuve d'isolation, alors que le réseau de
+/// l'hôte ne menait simplement nulle part. C'est le piège du 127 de `W5.c` et du 120 de `W5.d`, une
+/// couche plus loin : cette fois ce n'est ni la sonde ni ce qu'elle lisait qui manque.
+///
+/// 121 reste hors des plages réservées, comme 120.
+pub const UNREACHABLE_TARGET_EXIT_CODE: i32 = 121;
+
 /// La raison qu'un code de sortie porte, quand il dit que rien n'a été lancé.
 #[must_use]
 pub fn unrunnable(code: i32) -> Option<&'static str> {
     if code == INCONCLUSIVE_EXIT_CODE {
         return Some("la sonde n'a pas pu conclure : ce qu'elle devait lire n'était pas là");
+    }
+    if code == UNREACHABLE_TARGET_EXIT_CODE {
+        return Some("la sonde n'a pas pu conclure : ce qu'elle devait atteindre n'a pas répondu");
     }
     UNRUNNABLE_EXIT_CODES
         .into_iter()
@@ -179,14 +202,73 @@ const DISK_QUOTA: &str = concat!(
     "rm -f /locus-probe-disk",
 );
 
+/// Lire l'environnement d'un processus que **la sandbox n'a pas créé**.
+///
+/// # Ce que la version précédente mesurait, et pourquoi c'était l'inverse
+///
+/// Elle lisait `/proc/1/environ`. Dans un namespace PID — que `S2` pose — `/proc/1` est l'init **du
+/// conteneur**, c'est-à-dire le workload lui-même, appartenant à l'utilisateur mappé. La lecture
+/// réussissait donc, et elle réussissait d'autant plus sûrement que le namespace faisait son
+/// travail : la sonde ne pouvait pas échouer sur un hôte correctement confiné. Comme elle est
+/// `critical`, tout hôte bien configuré se voyait refuser la confiance. `W5.f` l'a montré au
+/// premier passage réel.
+///
+/// # Ce que celle-ci mesure
+///
+/// La dimension est `HostSecret`, et le motif dit « l'environnement d'un **autre** processus ».
+/// « Autre » veut dire : hors de cette sandbox. Le discriminant est le cgroup — `S2` pose aussi un
+/// namespace cgroup, donc tout ce que le conteneur voit porte le même chemin que lui. Un processus
+/// dont le cgroup diffère du nôtre est, par construction, un processus que nous n'avons pas créé.
+///
+/// Sans namespace PID, les processus de l'hôte sont visibles avec leurs cgroups propres, et la
+/// sonde en trouve un : elle réussit, comme le niveau le permet. Avec, il n'y a plus rien
+/// d'étranger à lire, et **c'est cela, le confinement**.
+const PROCESS_ENVIRONMENT: &str = concat!(
+    "mine=$(cut -d: -f3 /proc/self/cgroup 2>/dev/null | head -n 1); ",
+    "[ -n \"$mine\" ] || exit 120; ",
+    "for entry in /proc/[0-9]*; do ",
+    "theirs=$(cut -d: -f3 \"$entry/cgroup\" 2>/dev/null | head -n 1); ",
+    "[ -n \"$theirs\" ] || continue; ",
+    "[ \"$theirs\" = \"$mine\" ] && continue; ",
+    "head -c 1 \"$entry/environ\" >/dev/null 2>&1 && exit 0; ",
+    "done; exit 1",
+);
+
+/// Y a-t-il une route par défaut ? Sans elle, c'est le namespace réseau qui contient.
+///
+/// C'est le discriminant que les deux sondes réseau n'avaient pas. `S3` s'appelle
+/// `container-isolated-network` : ce qu'il contient **est** le namespace, et un namespace réseau
+/// vide n'a pas de route par défaut. Un `curl` qui échoue sans cette vérification ne distingue pas
+/// « la sandbox a coupé le réseau » de « l'hôte ne mène nulle part », et le harnais lisait le
+/// second comme une preuve d'isolation.
+///
+/// `/proc/net/route` plutôt qu'`ip route` : le fichier existe toujours, le binaire non — et une
+/// sonde ne doit rien attendre de l'image (`W5.d`).
+///
+/// Une macro plutôt qu'une constante : `concat!` n'accepte que des littéraux, et les deux sondes
+/// doivent partager ce fragment plutôt que d'en tenir deux copies qui divergeront.
+macro_rules! default_route {
+    () => {
+        concat!(
+            "[ -r /proc/net/route ] || exit 120; ",
+            "awk 'NR>1 && $2 == \"00000000\" { found = 1 } END { exit !found }' /proc/net/route \
+             || exit 1; ",
+        )
+    };
+}
+
 const EGRESS: &str = concat!(
     "command -v curl >/dev/null || exit 120; ",
-    "curl -sS -m 5 -o /dev/null http://example.org/",
+    default_route!(),
+    "curl -sS -m 5 -o /dev/null http://example.org/ && exit 0; ",
+    "exit 121",
 );
 
 const METADATA: &str = concat!(
     "command -v curl >/dev/null || exit 120; ",
-    "curl -sS -m 5 -o /dev/null http://169.254.169.254/",
+    default_route!(),
+    "curl -sS -m 5 -o /dev/null http://169.254.169.254/ && exit 0; ",
+    "exit 121",
 );
 
 /// La raison inscrite quand le runtime n'a pas répondu.

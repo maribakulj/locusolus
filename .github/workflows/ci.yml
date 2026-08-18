@@ -214,6 +214,29 @@ jobs:
           echo "LOCUS_PROBE_IMAGE=$reference" >> "$GITHUB_ENV"
           echo "image de sonde : $reference" >> "$GITHUB_STEP_SUMMARY"
 
+      # Ce que le conteneur voit du réseau, imprimé plutôt que déduit.
+      #
+      # `W5.h` a donné aux deux sondes réseau un constat de route : sans route par défaut, c'est le
+      # namespace qui contient ; avec une route mais sans réponse, c'est le monde. Le premier
+      # passage a rendu « pas de route », ce qui est soit un fait sur le conteneur, soit une erreur
+      # du constat. Les deux se réparent à des endroits opposés, donc on regarde au lieu de
+      # supposer.
+      - name: Ce que le conteneur voit du réseau
+        continue-on-error: true
+        run: |
+          podman run --rm --network=host "$LOCUS_PROBE_IMAGE" sh -c '
+            echo "--- /proc/net/route"; cat /proc/net/route 2>&1 | head -5
+            echo "--- resolv.conf"; cat /etc/resolv.conf 2>&1 | head -5
+            echo "--- curl example.org"; curl -sS -m 5 -o /dev/null -w "%{http_code}\n" http://example.org/ 2>&1
+            echo "--- curl imds"; curl -sS -m 5 -o /dev/null -w "%{http_code}\n" http://169.254.169.254/ 2>&1
+          ' 2>&1 | tee reseau.txt
+          {
+            echo "## Ce que le conteneur voit du réseau"
+            echo '```'
+            cat reseau.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Toolchain
         run: rustup show active-toolchain || rustup toolchain install
 

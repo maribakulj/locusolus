@@ -209,7 +209,8 @@ porte `version:` ni `image:`, tous deux obligatoires au schéma, et `ml-mps.yaml
 | W5.e `[R]` | le driver de build derrière un port, dans `apps/locus-execd` | le digest vient de la sortie du runtime et non du blueprint ; un build muet n'est pas un succès ; le driver ne sait pas dépasser le deuxième maillon de la chaîne |
 | W5.f `[R]` | validation **sémantique** des sondes contre une sandbox réelle | sur un hôte capable de `S2`, chaque sonde produit le verdict que son `contained_from` annonce — c'est la seule chose que ni `sh -n` ni un double ne peuvent dire |
 | W5.g `[R]` | le **quota disque comme fait d'hôte lu**, et non appris en échouant — trouvé par le premier passage de W5.f | un hôte dont le système de fichiers ne peut pas porter `--storage-opt size=` est constaté **avant** toute création, et une mission qui réserve du disque y est refusée à l'**admission**, par un motif qui nomme le système de fichiers ; le refus est distinct de `CapacityExceeded` — « la capacité manque » et « la borne n'est pas applicable ici » n'envoient pas chercher la même chose ; aucun chemin ne laisse `podman create` être l'endroit où on l'apprend |
-| W5.h `[R]` | **les quatre sondes que le premier hôte réel a démenties**, et la cinquième qui tenait pour la mauvaise raison | `read_process_environment` ne lit plus `/proc/1/environ`, qui dans un namespace PID désigne l'init **du conteneur** : la sonde réussissait donc précisément parce que le confinement était correct, et un hôte bien configuré produisait un échappement critique. `exceed_disk_quota` écrit dans l'espace de travail montré et non à la racine : sans quota déclaré elle doit **réussir**, avec quota être bloquée — aujourd'hui elle est bloquée par la racine en lecture seule, quota ou pas, donc elle passe un test qu'elle ne fait pas tourner. Les trois sondes « permises à `S2` » — `open_outbound_connection`, `reach_cloud_metadata_service`, `reach_host_kernel_interfaces` — distinguent « la sandbox a bloqué » de « le monde n'a pas répondu » : un résolveur absent, une route inexistante ou un fichier que l'hôte lui-même refuse rendent `NotRun` avec leur raison, jamais `Blocked`. C'est la distinction que 120, 125, 126 et 127 font déjà une couche plus bas, appliquée cette fois à ce que la sonde atteint |
+| W5.h `[R]` | **les sondes que le premier hôte réel a démenties** — trois faites, deux restent | `read_process_environment` ne vise plus `/proc/1`, qui dans un namespace PID désigne l'init **du conteneur** : la sonde réussissait précisément parce que le confinement était correct, et comme elle est `critical`, tout hôte bien configuré se voyait refuser la confiance. Le discriminant est désormais le cgroup — un processus dont le cgroup diffère du nôtre est un processus que cette sandbox n'a pas créé. Les deux sondes réseau constatent l'absence de **route par défaut** avant de conclure : sans ce constat, un `curl` qui échoue ne distingue pas « la sandbox a coupé le réseau » de « l'hôte ne mène nulle part ». Un code réservé de plus, `121`, dit « ce que je devais **atteindre** n'a pas répondu » — distinct de `120`, « ce que je devais **lire** n'était pas là » : deux ignorances, deux réparations |
+| W5.i `[M]` | **ce que `S4` promet**, et la sonde qui doit le constater | `reach_host_kernel_interfaces` constate que le noyau atteint **n'est pas celui de l'hôte**, et non qu'une lecture est refusée : un conteneur partage le noyau, une micro-VM en apporte un autre, et « je n'ai pas le droit de lire » ne distingue pas les deux. L'arbitrage nomme ce qui est observable de l'intérieur — version, `boot_id`, ou autre chose — et le refus de lecture, s'il subsiste, devient `NotRun` avec sa raison plutôt qu'un blocage |
 
 **L'épreuve est écrite ; ce qui manque est l'hôte, et on va savoir si la CI en est un.**
 `apps/locus-execd/tests/host_sandbox.rs` fait tourner les seize sondes dans un conteneur rootless
@@ -267,6 +268,22 @@ pas dire.
 quota**. Elle écrit à la racine, que `S2` monte en lecture seule ; elle mesure donc la racine, pas le
 quota. Une sonde qui passe sans que ce qu'elle teste existe est le pire des trois états, parce qu'elle
 ne se plaint jamais.
+
+**`W5.h` est faite pour trois sondes sur cinq ; les deux autres attendent, et pas par paresse.**
+
+`exceed_disk_quota` appartient à **`W5.g`**. La corriger demande de savoir **où** un quota disque
+s'applique, et le premier hôte réel a montré que la réponse n'est pas celle du code actuel : à `S2` la
+racine est montée en lecture seule, donc `--storage-opt size=` dimensionne une couche inscriptible que
+personne n'écrit. Déplacer la sonde vers l'espace de travail sans déplacer le quota ferait mesurer un
+système de fichiers hôte non borné. La sonde suit le quota ; le quota d'abord.
+
+`reach_host_kernel_interfaces` demande un **arbitrage sur ce que `S4` promet**, et devient `W5.i`.
+Elle lit `/sys/kernel/vmcoreinfo`, réservé à root — elle échoue donc pour cette raison-là, sur tout
+hôte, à tout niveau. Mais la corriger vers une interface lisible ne suffit pas : `S4` apporte **un
+autre noyau**, ce qui n'empêche personne de lire les interfaces de ce noyau-là. Ce que la sonde doit
+constater est donc que le noyau atteint **n'est pas celui de l'hôte**, ce qui est une autre mesure que
+« la lecture est refusée ». Trancher cela change ce que `microvm-high-risk` veut dire, et ne se fait
+pas en corrigeant une commande shell.
 
 **Ce que cela ouvre.** Une fois `W5.h` faite, le second test peut devenir **vert et bloquant en CI** :
 quinze sondes de sandbox réellement exercées à chaque passage, sur un runner ordinaire. `W5.f` — les

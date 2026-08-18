@@ -12,8 +12,8 @@ use std::sync::Mutex;
 
 use locus_execd::linux::{
     Execution, INCONCLUSIVE_EXIT_CODE, PROBE_COMMANDS, PodmanBackend, RestrictedProfile, Runner,
-    SeccompProfiles, UNREACHABLE_RUNTIME, UNRUNNABLE_EXIT_CODES, Workload, assess, certify,
-    exec_arguments, probe_command, run_suite, unrunnable,
+    SeccompProfiles, UNREACHABLE_RUNTIME, UNREACHABLE_TARGET_EXIT_CODE, UNRUNNABLE_EXIT_CODES,
+    Workload, assess, certify, exec_arguments, probe_command, run_suite, unrunnable,
 };
 use locus_execd::{RuntimeError, RuntimePort, SandboxId};
 use locus_execution::{
@@ -594,4 +594,103 @@ fn une_sonde_qui_n_a_pas_pu_conclure_est_notrun() {
         assess(&execd, &id, SandboxLevel::S3),
         Standing::NotTrusted { .. }
     ));
+}
+
+// ---------------------------------------------------------------------------------------------
+// W5.h — les sondes que le premier hôte réel a démenties
+// ---------------------------------------------------------------------------------------------
+
+/// **Deux ignorances, jamais une.** 120 et 121 ne disent pas la même chose et ne se réparent pas
+/// pareil.
+///
+/// 120 : « ce que je devais **lire** n'était pas là » — un `cpu.stat` absent, un `curl` manquant.
+/// On répare en complétant l'image. 121 : « ce que je devais **atteindre** n'a pas répondu » — un
+/// réseau qui ne mène nulle part, un service que le déploiement filtre. On répare en changeant
+/// d'hôte, ou en renonçant à la mesure.
+///
+/// Les fondre rendrait la seconde invisible, et c'est très exactement l'erreur que `W5.f` a trouvée
+/// sur un hôte réel : trois sondes lues comme **bloquées**, donc comme une preuve d'isolation,
+/// alors que le réseau de l'hôte ne menait nulle part.
+#[test]
+fn lire_ce_qui_manque_et_atteindre_ce_qui_ne_repond_pas_sont_deux_ignorances() {
+    let unread = unrunnable(INCONCLUSIVE_EXIT_CODE).expect("120 est réservé");
+    let unreached = unrunnable(UNREACHABLE_TARGET_EXIT_CODE).expect("121 est réservé");
+    assert_ne!(
+        unread, unreached,
+        "les fondre ferait disparaître la seconde, et c'est celle qu'un hôte réel produit"
+    );
+    assert_ne!(INCONCLUSIVE_EXIT_CODE, UNREACHABLE_TARGET_EXIT_CODE);
+}
+
+/// Ni l'un ni l'autre n'est un blocage : les deux portent une raison, et c'est cette raison qui
+/// empêche `judge` d'en faire une preuve d'isolation.
+#[test]
+fn aucune_des_deux_ignorances_ne_vaut_un_blocage() {
+    for code in [INCONCLUSIVE_EXIT_CODE, UNREACHABLE_TARGET_EXIT_CODE] {
+        assert!(
+            unrunnable(code).is_some(),
+            "{code} doit porter sa raison, sans quoi il se lit comme un blocage"
+        );
+    }
+}
+
+/// **La sonde inversée.** `read_process_environment` ne vise plus `/proc/1`.
+///
+/// Dans un namespace PID, `/proc/1` est l'init **du conteneur** : la sonde réussissait d'autant
+/// plus sûrement que le confinement était correct, et comme elle est `critical`, tout hôte bien
+/// configuré se voyait refuser la confiance. Le test tient la correction par l'**absence** de
+/// l'ancienne cible, parce que c'est elle qui portait la faute.
+#[test]
+fn la_sonde_d_environnement_ne_vise_plus_l_init_du_conteneur() {
+    let command = probe_command("read_process_environment")
+        .expect("la sonde existe")
+        .join(" ");
+    assert!(
+        !command.contains("/proc/1/environ"),
+        "« /proc/1 » désigne l'init du conteneur dès qu'un namespace PID existe : {command}"
+    );
+    assert!(
+        command.contains("/proc/self/cgroup"),
+        "le discriminant est le cgroup **du processus lui-même** : sans le lire, la sonde n'a rien \
+         à quoi comparer et le premier processus venu passe pour étranger — {command}"
+    );
+    assert!(
+        command.contains("/cgroup"),
+        "et elle doit lire celui de chaque processus candidat, sans quoi la comparaison n'a qu'un \
+         côté : {command}"
+    );
+}
+
+/// **Les deux sondes réseau constatent d'abord s'il y a une route.**
+///
+/// Sans ce constat, un `curl` qui échoue ne distingue pas « la sandbox a coupé le réseau » de
+/// « l'hôte ne mène nulle part ». `S3` s'appelle `container-isolated-network` : ce qu'il contient
+/// **est** le namespace, et un namespace réseau vide n'a pas de route par défaut.
+#[test]
+fn les_sondes_reseau_distinguent_le_namespace_du_monde() {
+    for name in ["open_outbound_connection", "reach_cloud_metadata_service"] {
+        let command = probe_command(name).expect("la sonde existe").join(" ");
+        assert!(
+            command.contains("/proc/net/route"),
+            "« {name} » doit constater l'absence de route avant de conclure : {command}"
+        );
+        assert!(
+            command.contains("exit 121"),
+            "« {name} » doit pouvoir dire que la cible n'a pas répondu, plutôt que « bloquée » : \
+             {command}"
+        );
+    }
+}
+
+/// Et elle n'attend aucun binaire de l'image pour cela — `W5.d` vaut aussi pour la correction.
+#[test]
+fn le_constat_de_route_ne_demande_rien_a_l_image() {
+    for name in ["open_outbound_connection", "reach_cloud_metadata_service"] {
+        let command = probe_command(name).expect("la sonde existe").join(" ");
+        assert!(
+            !command.contains("ip route"),
+            "« ip » est un binaire que l'image peut ne pas porter ; « /proc/net/route » existe \
+             toujours : {command}"
+        );
+    }
 }
