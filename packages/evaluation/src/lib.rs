@@ -27,6 +27,10 @@
 //! l'attestation de sandbox, le digest de build, le niveau de reproductibilité, l'attestation
 //! d'indépendance et le verdict de `locus doctor`.
 
+pub mod endurance;
+
+pub use endurance::{Campaign, Endurance, EnduranceError, Measure, Requirement, Shortfall};
+
 use std::collections::BTreeMap;
 use std::fmt;
 
