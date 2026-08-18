@@ -3818,3 +3818,69 @@ n'emploie rien qui manque à 29, donc le chargement prouve ce qu'il prouve ; ép
 
 **Prochain item.** **W8.b** — client HTTP/stream et authentification abstraite (§6). C'est le
 premier item qui lira une option publique de §5, donc le premier qui en déclarera.
+
+---
+
+## 2026-08-18 — W8.b — L'identité : le credential est prêté, jamais gardé
+
+**Périmètre.** `apps/emacs/locus-auth.el` et `test/locus-auth-test.el`, neufs ; `locus.el` déclare
+`locus-endpoint`, sa première option publique de `SPEC.md` §5 — parce qu'un lecteur existe
+désormais. Aucune dépendance nouvelle : `auth-source` et `url-parse` sont dans Emacs.
+
+**La forme du module vient de sa liste d'interdits.** §6.2 énumère quatre choses qui ne doivent pas
+arriver : aucun token dans Git, dans `custom-file`, dans un message de debug, dans le kill-ring. Les
+quatre ont la même cause — un secret rangé dans une variable finit par être sauvegardé, affiché ou
+copié, parce que c'est ce qu'on fait des variables. Le module ne les traite donc pas un par un : il
+ne garde jamais le secret. `locus-auth-call-with-credential` le **prête** le temps d'un appel au
+lieu de le rendre. Un `locus-auth-credential` qui renverrait la chaîne serait plus commode et ferait
+dépendre les quatre interdits de la discipline de chaque appelant.
+
+**Une identité absente n'est pas une panne.** C'est le cas le plus fréquent — première installation,
+machine neuve, entrée expirée — et le pire endroit pour un backtrace. `locus-auth-missing` nomme le
+fichier et donne la ligne à y écrire. « Actionnable » se teste : le message contient le geste
+suivant.
+
+**Le refus de changement d'origine est dans le code, pas dans une invite.** §6.2 demande une
+confirmation si l'endpoint change d'origine ; `locus-auth-check-endpoint` **signale**, et c'est
+l'appelant qui rattrape pour demander. Une invite qu'un appelant oublie d'afficher n'empêche rien,
+alors qu'une erreur non rattrapée s'entend. L'origine comprend le schéma et le port : passer de
+`https` à `http` ou changer de port change l'interlocuteur autant que changer de domaine, et c'est
+le cas qu'une comparaison de noms d'hôte rate. Symétriquement, le port implicite vaut le port écrit
+— une confirmation qui se déclenche pour rien finit par être cliquée sans être lue.
+
+**Ce que les mutations ont trouvé, en trois temps.** La mutation « le secret est mis en cache » est
+passée **verte deux fois** avant d'être rouge, et chaque échec disait quelque chose de différent.
+
+1. Le balayage ne regardait que les symboles déclarés par les fichiers du paquet, via
+   `load-history`. Un cache créé par `setq` sans `defvar` n'y entre pas — et c'est la façon négligée
+   d'ajouter un cache, donc exactement celle qu'il faut attraper. Le balayage réunit désormais deux
+   critères : l'emplacement, qui attrape ce que le paquet déclare quel que soit son nom, et le
+   préfixe, qui attrape ce qu'un `setq` fabrique.
+2. Le test ne cherchait que des **chaînes**. Or `auth-source` rend le credential sous forme d'une
+   **fonction** d'accès : mettre l'accesseur en cache ne stocke aucun texte, et c'est pourtant
+   garder le secret — il suffit de l'appeler. C'est même le cache le plus naturel à écrire, puisque
+   c'est la valeur que `auth-source` pose sous la main. Le test appelle donc les fonctions qu'il
+   croise.
+3. Trois mutations le vérifient maintenant séparément : l'accesseur caché par `setq`, l'accesseur
+   caché par `defvar`, et le secret résolu caché.
+
+**La même leçon que W8.a, sous un autre jour.** Là, le critère d'appartenance au paquet devait être
+l'emplacement plutôt qu'une liste de noms. Ici, c'est l'inverse qui manquait : l'emplacement seul ne
+voit pas ce qui n'est pas déclaré. Aucun des deux critères ne suffit ; c'est leur réunion qui tient.
+
+**Douze mutations vérifiées rouges** : l'identité absente devenue un plantage ordinaire (2 tests) ;
+le message d'erreur cessant d'être actionnable (1) ; l'expurgation débranchée (2) ; l'expurgation
+réduite à `Authorization` (1) ; l'expurgation devenue sensible à la casse (2) ; l'origine réduite à
+l'hôte (1) ; le port implicite non appliqué (1) ; le changement d'origine non refusé (2) ; le
+principal rendant le secret (1) ; l'accesseur mis en cache par `setq` (1) puis par `defvar` (1) ; le
+secret résolu mis en cache (1). Restauration confirmée verte.
+
+**Écart avec la spec.** Un, nommé. Le **transport** n'est pas dans ce sprint : `locus-auth` produit
+une requête autorisée, personne ne l'envoie encore. C'est l'ordre « ports avant drivers » de l'ADR
+0012 appliqué au client — et cela garde ce sprint testable sans serveur, donc sans dépendance à une
+machine. Le HTTP et le stream arrivent avec W8.c, qui a des événements à recevoir. §6.4 (les
+commandes d'administration masquées faute de scope) attend le transient de W8.e : masquer une
+commande qui n'existe pas serait une sémantique inerte.
+
+**Prochain item.** **W8.c** — événements et curseurs (§12) : une déconnexion ne perd ni ne duplique
+un événement.

@@ -37,6 +37,15 @@
   :prefix "locus-"
   :link '(url-link "https://github.com/maribakulj/locusolus"))
 
+(defcustom locus-endpoint "http://127.0.0.1:7420"
+  "Endpoint du daemon Locus Solus — `SPEC.md' §5.
+
+Déclarée ici parce que `locus-auth' la lit désormais.  Les autres options de
+§5 arriveront avec le leur : une option que personne ne consulte est une
+promesse d'API que rien ne tient."
+  :type 'string
+  :group 'locus)
+
 (defconst locus-version "0.1.0"
   "Version de ce client.
 
