@@ -4004,3 +4004,31 @@ rendu existe désormais, mais rien ne l'appelle encore en rafale.
 
 **Prochain item.** **W8.e** — commandes et transient (§10, §11) : toute action mutante passe par
 l'API avec `expected_revision`, et un conflit est rendu plutôt qu'écrasé.
+
+---
+
+## 2026-08-18 — CI — Les portes qui exigent un Emacs sortent du chemin des autres
+
+**Périmètre.** `.github/workflows/ci.yml` seul. Aucun code produit touché.
+
+**Une mesure, pas une intuition.** Depuis que la frontière 5 est vérifiable (W8.a), l'installation
+d'Emacs a pris **quinze secondes, dix minutes, puis onze minutes** selon le runner. Tant qu'elle
+était dans `check`, elle retardait huit portes qui n'en ont aucun besoin. Un verdict de format qui
+arrive en trente secondes est un verdict qu'on lit ; le même onze minutes plus tard arrive après
+qu'on est passé à autre chose.
+
+Les deux portes qui exigent un Emacs — la garde de frontières et la suite ERT — vivent donc dans un
+job `emacs` parallèle. La couverture est inchangée, et `--require-emacs` continue de leur interdire
+de se sauter en silence. `npm run check` reste la chaîne complète en local : c'est la CI qui
+parallélise, pas le contrat.
+
+**Ce que le découpage a fait apparaître.** En listant les étapes de `check` pour les répartir, deux
+portes de `npm run check` se sont révélées **absentes de la CI depuis toujours** : `check:schemas`
+et `check:generated`. Elles n'étaient tenues qu'en local. `lep/1.0` est gelé — un exemple qui cesse
+de valider ou un SDK qui diverge de son schéma sont exactement les régressions qu'on ne veut pas
+apprendre en aval. Les deux étapes sont ajoutées.
+
+C'est la leçon des gardes muettes, appliquée à la CI elle-même : une porte qu'on croit tenue et qui
+ne tourne pas ressemble en tout point à une porte verte.
+
+**Prochain item.** **W8.e** — commandes et transient (§10, §11).

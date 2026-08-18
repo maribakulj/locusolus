@@ -26,6 +26,53 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
 
+      - name: Install
+        run: npm ci
+
+      - name: Format
+        run: npm run check:format
+
+      - name: Repository layout
+        run: npm run check:repo
+
+      - name: Retired project name
+        run: npm run check:naming
+
+      # Ces deux portes existaient dans `npm run check` sans avoir jamais tourné en CI :
+      # `lep/1.0` est gelé, donc un exemple qui cesse de valider ou un SDK qui diverge de
+      # son schéma sont exactement les régressions qu'on ne veut pas apprendre en aval.
+      - name: Schemas
+        run: npm run check:schemas
+
+      - name: Generated SDK
+        run: npm run check:generated
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Tests
+        run: npm test
+
+  # Séparé de `check` pour une raison mesurée : l'installation d'Emacs a pris entre
+  # quinze secondes et onze minutes selon le runner, et tant qu'elle était dans `check`
+  # elle retardait huit portes qui n'en ont aucun besoin. Un verdict de format qui arrive
+  # en trente secondes est un verdict qu'on lit ; le même onze minutes plus tard arrive
+  # après qu'on est passé à autre chose.
+  #
+  # La couverture est inchangée : les deux portes qui exigent un Emacs sont ici, et elles
+  # l'exigent toujours — `--require-emacs` leur interdit de se sauter en silence.
+  emacs:
+    name: emacs
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
       # La règle 5 de CLAUDE.md se vérifie en démarrant un Emacs, pas en lisant du code.
       # `--require-emacs` interdit à la garde de sauter cette règle en silence quand le
       # binaire manque : une frontière non vérifiée doit se voir.
@@ -58,29 +105,14 @@ jobs:
       - name: Install
         run: npm ci
 
-      - name: Format
-        run: npm run check:format
-
-      - name: Repository layout
-        run: npm run check:repo
-
-      - name: Retired project name
-        run: npm run check:naming
-
+      # La règle 5 de CLAUDE.md se vérifie en démarrant un Emacs, pas en lisant du code.
       - name: Architectural boundaries
         run: npm run check:boundaries -- --require-emacs
 
-      # Même raison que ci-dessus : localement la suite peut se sauter faute
-      # d'Emacs, en CI elle ne le peut pas — une suite qui se saute en silence
-      # ressemble en tout point à une suite qui passe.
+      # Localement la suite peut se sauter faute d'Emacs, en CI elle ne le peut pas :
+      # une suite qui se saute en silence ressemble en tout point à une suite qui passe.
       - name: Emacs client tests
         run: npm run check:emacs -- --require-emacs
-
-      - name: Typecheck
-        run: npm run typecheck
-
-      - name: Tests
-        run: npm test
 
   rust:
     name: rust
