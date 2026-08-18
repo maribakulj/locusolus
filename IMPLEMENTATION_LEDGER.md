@@ -4147,3 +4147,54 @@ pas du transport — l'interdiction de parler à un runtime — et elle est vér
 
 **Prochain item.** **W8.g** — intégrations Org/Magit/Jupyter/xiiif : chaque intégration absente
 dégrade sans casser le démarrage.
+
+---
+
+## 2026-08-18 — W8.g — Les intégrations : un mécanisme, pas six
+
+**Périmètre.** `apps/emacs/locus-integration.el` et `test/locus-integration-test.el`, neufs. Aucune
+dépendance nouvelle. 87 tests ERT sur le paquet.
+
+**§4.3 est vérifiée une fois, sur le mécanisme.** Quatre règles — détectée, commandes ajoutées
+seulement si disponible, erreur actionnable, rien de cassé au démarrage — pour chaque dépendance
+optionnelle. Écrites six fois (Org, Magit, xiiif, Jupyter, `eat`, Denote), elles seraient tenues
+cinq fois et demie, et c'est la sixième qu'on découvrirait sur la machine de quelqu'un qui n'a pas
+installé le paquet.
+
+**Détecter n'est pas charger.** La règle la moins évidente, et celle qui décide de la forme du
+module. `(require 'magit nil t)` détecte parfaitement — et charge Magit. Le démarrage paierait alors
+toutes les dépendances optionnelles du cockpit, ce que §7.1 interdit et ce qui ferait de «
+facultatif » un synonyme de « chargé quand même ». La détection emploie donc `featurep` et
+`locate-library`, qui n'évaluent rien.
+
+**Une collision de noms supprimée plutôt que contournée.** `cl-defstruct` engendre
+`locus-integration-commands` pour un champ nommé `commands` ; ma première version gardait ce nom
+pour la fonction publique et lisait le champ par `aref` derrière deux alias. Le champ s'appelle
+`provides`, et les deux noms disent maintenant deux choses distinctes : ce que l'intégration
+apporterait, et ce qu'elle apporte ici et maintenant.
+
+**Ce que les mutations ont trouvé, et c'est la même maladie qu'en W8.f.** Trois mutations sont
+passées vertes, dont les deux qui portent la règle centrale. La sonde des tests était `cl-extra` —
+présente, et **chargée par ailleurs dans la suite**. Un `require` n'y changeait donc rien de
+visible, et les tests passaient quoi qu'il arrive.
+
+La sonde est maintenant `hexl`, que rien dans le cockpit ni dans la suite n'entraîne, et une
+prémisse est **affirmée** avant chaque emploi : si la sonde venait à être chargée, les tests
+échoueraient bruyamment au lieu de devenir vides. C'est la leçon de W8.f sous un autre jour — là,
+une correction dépendait de l'ordre de chargement ; ici, c'étaient deux tests.
+
+**Neuf mutations vérifiées rouges** : la détection chargeant la dépendance (1 test) ; la déclaration
+la chargeant (2) ; tout déclaré disponible (4) ; les commandes offertes même absentes (2) ; les
+commandes jamais offertes (1) ; l'erreur ne disant plus quoi installer (1) ; l'erreur nommant la
+`feature` au lieu du paquet (1) ; une intégration inconnue confondue avec une absente (1) ;
+l'absence cessant d'être une erreur (2). Restauration confirmée verte.
+
+**Écart avec la spec.** Un, nommé, et il est large. §15 à §20 décrivent le **contenu** de six
+intégrations — captures Org, ouverture Magit, régions xiiif, cellules Jupyter, terminal `eat`, notes
+Denote. Ce sprint livre le mécanisme qui les rendra facultatives, pas les intégrations elles-mêmes :
+chacune suppose un transport pour aller chercher ce qu'elle affiche. Les écrire maintenant
+produirait six façades qui n'ouvrent rien, et le mécanisme aurait été vérifié sur des coquilles
+plutôt que sur ce qu'il doit porter.
+
+**Prochain item.** **W8.h** — 3D et WebView : la 3D reste une projection, aucune vue n'écrit dans le
+graphe.
