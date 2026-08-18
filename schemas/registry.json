@@ -86,6 +86,10 @@
       ]
     },
     {
+      "schema": "deployment/1.0/deployment.schema.json",
+      "examples": ["deployment-single-node-vm.json", "invalid-deployment-inline-secret.json"]
+    },
+    {
       "schema": "visualization/1.0/view.schema.json",
       "examples": ["view-argument-map.json", "invalid-view-empty-endpoint.json"]
     },

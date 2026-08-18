@@ -1,0 +1,63 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "urn:locus:schema:deployment:1.0:deployment",
+  "title": "DeploymentConfig",
+  "$comment": "Le `deployment.yaml` de docs/05, sous sa forme JSON — SPEC_V1 §27.3. Il n'existe aucun champ où écrire un secret : `secret_refs` ne prend que des références externes, et `additionalProperties: false` ferme la porte à un `password` ajouté à la main. Un secret dans un fichier de configuration finit dans un dépôt, dans une sauvegarde et dans un rapport de bug, et rien de tout cela ne se révoque.",
+  "type": "object",
+  "required": ["profile", "endpoint", "adapters"],
+  "additionalProperties": false,
+  "properties": {
+    "profile": {
+      "description": "Lequel des cinq profils obligatoires de §27.1.",
+      "type": "string",
+      "enum": [
+        "personal-local",
+        "personal-node",
+        "single-node-vm",
+        "cloud-platform",
+        "distributed-hybrid"
+      ]
+    },
+    "endpoint": {
+      "description": "L'URL Locus à laquelle les clients se connectent. C'est tout ce qu'ils voient de la topologie.",
+      "type": "string",
+      "format": "uri",
+      "minLength": 1
+    },
+    "adapters": {
+      "description": "Quel rôle est tenu par quelle implémentation. Une liste plutôt qu'un objet : le domaine refuse un rôle déclaré deux fois, ce qu'un objet JSON rendrait indétectable — le second écraserait le premier en silence.",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["role", "implementation"],
+        "additionalProperties": false,
+        "properties": {
+          "role": { "type": "string", "minLength": 1 },
+          "implementation": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "capabilities": {
+      "description": "Les limites du déploiement, déclarées plutôt que contournées (§27.1).",
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "secret_refs": {
+      "description": "Où trouver un secret, jamais le secret. Le motif refuse une valeur en clair : `hunter2` n'est pas une référence.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "reference"],
+        "additionalProperties": false,
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "reference": {
+            "type": "string",
+            "pattern": "^(env|file|keychain|vault):[A-Za-z0-9_./@-]+$"
+          }
+        }
+      }
+    }
+  }
+}

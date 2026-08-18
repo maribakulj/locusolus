@@ -1,0 +1,41 @@
+{
+  "_fixture": {
+    "name": "deployment-single-node-vm",
+    "expect": "valid",
+    "note": "Le profil serveur permanent de docs/05. Les secrets ne sont pas là : `secret_refs` dit où les chercher, et le schéma n'offre aucun champ où en écrire un."
+  },
+  "profile": "single-node-vm",
+  "endpoint": "https://locus.example/api",
+  "adapters": [
+    {
+      "role": "event-store",
+      "implementation": "postgres-16"
+    },
+    {
+      "role": "workflow",
+      "implementation": "temporal-oss"
+    },
+    {
+      "role": "object-store",
+      "implementation": "minio"
+    },
+    {
+      "role": "sandbox",
+      "implementation": "podman-rootless"
+    }
+  ],
+  "capabilities": [
+    "cpu",
+    "no-gpu"
+  ],
+  "secret_refs": [
+    {
+      "name": "event-store.password",
+      "reference": "env:LOCUS_PGPASSWORD"
+    },
+    {
+      "name": "object-store.key",
+      "reference": "keychain:locus/minio"
+    }
+  ]
+}

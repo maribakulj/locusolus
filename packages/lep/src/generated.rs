@@ -927,6 +927,34 @@ pub struct RemoteArtifactRef {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DeploymentAdaptersItem {
+    pub role: String,
+    pub implementation: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DeploymentSecretRefsItem {
+    pub name: String,
+    pub reference: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Deployment {
+    /// Lequel des cinq profils obligatoires de §27.1.
+    pub profile: String,
+    /// L'URL Locus à laquelle les clients se connectent. C'est tout ce qu'ils voient de la topologie.
+    pub endpoint: String,
+    /// Quel rôle est tenu par quelle implémentation. Une liste plutôt qu'un objet : le domaine refuse un rôle déclaré deux fois, ce qu'un objet JSON rendrait indétectable — le second écraserait le premier en silence.
+    pub adapters: Vec<DeploymentAdaptersItem>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    /// Les limites du déploiement, déclarées plutôt que contournées (§27.1).
+    pub capabilities: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    /// Où trouver un secret, jamais le secret. Le motif refuse une valeur en clair : `hunter2` n'est pas une référence.
+    pub secret_refs: Option<Vec<DeploymentSecretRefsItem>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ViewNodesItem {
     pub id: String,
     pub kind: String,
@@ -977,7 +1005,7 @@ pub struct HumanReviewFinding {
 }
 
 /// Les documents qu'un pair peut envoyer ou recevoir, dans l'ordre du registre.
-pub const LEP_DOCUMENTS: [&str; 12] = [
+pub const LEP_DOCUMENTS: [&str; 13] = [
     "ArtifactManifest",
     "RunManifest",
     "CapabilityManifest",
@@ -988,6 +1016,7 @@ pub const LEP_DOCUMENTS: [&str; 12] = [
     "Lease",
     "EpistemicCommit",
     "RemoteArtifactRef",
+    "Deployment",
     "View",
     "HumanReviewFinding",
 ];
