@@ -7025,3 +7025,63 @@ un hôte XFS, et c'est une bien plus petite dette que celle du départ.
 **Ce que ce sprint ne prétend pas.** `W5.f` n'est pas clos. Ce qui est livré est l'épreuve et la
 question ; la réponse vient du prochain passage de CI, et l'arbitrage qu'elle appelle est écrit
 d'avance pour qu'il ne dépende pas de qui le lit.
+
+---
+
+## 2026-08-18 — Roadmap — `locusd` décomposé en W20, et deux reports écrits plutôt que devinés
+
+**Périmètre.** `docs/10_V1_ROADMAP.md` seul. Aucun code. Ce sprint donne à `locusd` sa propre entrée
+décomposée, et transforme deux « bloqué » en « reporté » avec la raison et la condition de levée.
+
+**Pourquoi `locusd` méritait son entrée plutôt qu'un bricolage sous `W17.f`.** `W17.f` demande six
+points d'entrée dont la logique est déjà écrite. La tentation est d'écrire un serveur à six URL pour
+la débloquer. Ce ne serait pas un daemon : sans authentification, sans session, sans flux
+d'événements, c'est une démonstration, et la suite s'y greffe au coup par coup. `locusd` est le plus
+gros morceau restant de la V1 ; il se décompose comme tel.
+
+**Deux constats vérifiés avant d'écrire.**
+
+_La règle 4 garde le vide, et l'outil le dit._ `npm run check:boundaries` rend « 4.
+locusd-holds-no-runtime-socket — vérifiée sur **0 fichier(s)** ». La règle « `apps/locusd` n'importe
+aucun SDK de runtime de containers » n'a jamais rien gardé, parce que le répertoire n'existe pas. Ce
+n'est pas un défaut de la garde : `check-boundaries.ts` imprime le compte pour chaque règle
+précisément pour que « vérifiée sur rien » ne se lise pas comme « vérifiée ». C'est le jalon de
+`W20.d`, et il est plus honnête qu'un compte de lignes.
+
+_Le transport est une décision d'ADR._ `Cargo.toml` ne déclare que `serde` et `serde_json` comme
+dépendances d'espace de travail. Faire entrer un runtime asynchrone et un cadre HTTP est le plus
+gros choix de dépendance depuis l'ADR 0011, et il a son propre item — `W20.c` — avec la même forme :
+conditions énoncées, plan de rollback, et une première dépendance hors `serde` qui cite l'ADR dans
+son diff.
+
+**La conséquence non évidente : `locusd` commence avant l'ADR du transport, pas après.** `W20.a` —
+le `CommandEnvelope` de §22.2 et les huit familles d'erreurs de §22.5 — et `W20.b` — le handler
+transactionnel comme port — sont du domaine pur. C'est exactement l'ordre que `CLAUDE.md` impose, «
+construire domain/protocol/event-store d'abord, avec des ports purs », et cela veut dire que le plus
+gros morceau restant n'est bloqué par aucune décision.
+
+_Ce que `W20.b` rend opposable._ « Toute mutation passe par un command handler transactionnel » est
+une règle de `CLAUDE.md` qu'aucun test ne tient aujourd'hui. `packages/event-store` porte déjà
+l'ordre total, la concurrence optimiste et l'idempotence par commande (§10.2) ; ce qui manque est le
+chemin qui les rend obligatoires. Le test de sortie le demande par l'absence — aucun chemin de type
+ne permet d'écrire sans handler.
+
+_Et ce que `W20.a` refuse d'avance._ Un conflit rend l'**état courant** et un code structuré, jamais
+un entier nu. §22.5 le demande, et la raison est mécanique : un client qui doit relire pour retenter
+a besoin de ce qu'il relit. Un `409` seul le renvoie faire un aller-retour que le serveur pouvait
+lui épargner.
+
+**Deux reports, écrits parce qu'un « bloqué » sans durée se lit comme une attente courte.**
+
+`W16.e` — epochs, messages tardifs, transfert d'état — attend une messagerie inter-agents. Il n'y en
+a pas : les agents parlent à l'institution, pas entre eux. Le problème des messages tardifs n'existe
+qu'une fois que A envoie à B et que B a changé d'état entre-temps. Construire la messagerie **pour**
+débloquer l'item reviendrait à construire une fonctionnalité afin de justifier un test. C'est le
+seul item de la roadmap bloqué correctement **et** définitivement pour cette version.
+
+`W18.f` attendait « un hôte capable, comme W5.f ». `W5.f` vient de rendre la condition précise, et
+elle est plus dure qu'on ne le croyait : un système de fichiers qui porte les quotas — XFS avec
+pquota, faute de quoi `podman create` refuse dès la création —, une isolation réseau pour `S3`, une
+micro-VM pour `S4`, et de quoi **attester**. Un runner GitHub échoue sur le premier et ne tient
+aucun des trois autres. La condition est une machine dédiée : c'est un fait de déploiement, pas une
+dette de code, et les deux items le disent maintenant sous cette forme.
