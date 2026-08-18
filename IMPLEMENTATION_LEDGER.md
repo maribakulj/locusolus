@@ -5554,3 +5554,92 @@ qui honore chacune**, pour qu'élargir la liste sans écrire le consommateur res
 
 **Prochain item.** W15.f — `SET_ROLE` comme opération attributaire, avec son lecteur dans
 `canterel`.
+
+## 2026-08-18 — W15.f — Bloqué : le rôle n'a pas de chemin jusqu'à son lecteur
+
+**Aucun code écrit.** L'item est consigné bloqué plutôt que livré incomplet.
+
+**Le blocage.** Le lecteur du rôle est `selectOverlay` dans `canterel`, qui ne connaît d'une mission
+que ce que la `MissionEnvelope` lui livre. `schemas/lep/1.0/mission-envelope.schema.json` porte
+`review_policy`, `required_capabilities` et `confidentiality_ceiling` — **aucun rôle d'agent**.
+Acheminer le rôle jusqu'au worker demande donc un **mineur `lep/1.1`**.
+
+**Pourquoi ne pas l'ouvrir ici.** ADR 0016 : « Ce mineur a son propre ADR ; W13 n'en dépend pas et
+ne l'ouvre pas. » W15 hérite de cette posture, et deux arbitrages du 2026-08-17 attendent déjà le
+même mineur — la permission de fonctionnement hors ligne et les codes de refus d'admission sur le
+fil. Ouvrir `lep/1.1` au détour d'un item de coordination le ferait entrer sans son ADR et sans les
+deux autres besoins qui le motivent.
+
+**Pourquoi ne pas écrire `SET_ROLE` quand même.** Ce serait précisément la sémantique inerte que la
+décision 4 interdit : un attribut que le système saurait versionner, différencier, approuver et
+afficher, et que **rien n'honorerait**. W15.a a posé la règle en différant les quatre opérations
+attributaires ; la relâcher pour celle-ci lui retirerait tout sens.
+
+**Ce que l'item coûtera quand il sera débloqué**, vérifié en instruisant la question : `Version`
+gagnera une table de rôles, donc sa forme canonique gagnera des lignes et les hashes changeront —
+d'où l'étiquette `[M]`. Et pour que les inverses restent exacts, retirer, scinder ou fusionner un
+nœud qui porte encore un rôle devra être **refusé**, comme pour une arête : sinon `REMOVE_NODE`
+perdrait le rôle et son `AddNode` inverse ne le rendrait pas.
+
+**W15 est clos sans lui.** W15.a à W15.e sont livrés et verts.
+
+**Prochain item.** W16 — reconfiguration vivante et scheduler dynamique. W4.e et W4.g, dont il
+dépend, sont livrés.
+
+## 2026-08-18 — W16.a — Les commandes de cycle de vie du scheduler, et la quiescence locale
+
+**Périmètre.** `docs/10_V1_ROADMAP.md` (décomposition de W16 en cinq items, dont deux bloqués),
+`packages/coordination/src/lifecycle.rs` (neuf), `packages/coordination/tests/lifecycle.rs` (neuf,
+12 tests), `src/lib.rs` (les réexports), ce fichier.
+
+**Tests exécutés.** `cargo test -p locus-coordination` → 123 conformes. `npm run check` → les dix
+portes vertes. Mutation : dix-neuf mutants, **dix-neuf tués, aucun survivant**.
+
+**Décisions prises.**
+
+_Quatre commandes, pas treize._ `docs/13` énumère « spawn, suspend, drain, kill, replace, split,
+merge, connect, disconnect, rerouter l'état, rejouer, migrer le contexte, et livrer les messages ».
+La liste mélange deux choses. `replace`, `split`, `merge`, `connect` et `disconnect` **sont déjà**
+`REPLACE_NODE`, `SPLIT_NODE`, `MERGE_NODES`, `ADD_EDGE` et `REMOVE_EDGE` de W15.a : les réécrire ici
+produirait un second chemin qui divergerait du premier, et personne ne saurait lequel décrit ce qui
+sera commité. Le scheduler les **compose**. Les quatre dernières supposent une messagerie
+inter-agents qui n'existe pas. Restent `spawn`, `suspend`, `drain`, `kill` — celles qui portent sur
+l'**instance qui tourne** et non sur la structure. Un test tient les neuf autres par l'absence.
+
+_Ce module n'est pas une seconde machine à états._ Les états restent ceux de §7.1 et
+`AgentInstance::moved_to` reste seul à les porter. Ce qui est écrit ici est ce que le **scheduler**
+a le droit de demander, question différente : `waiting → active` est une transition légitime de
+l'instance, mais aucune commande de scheduler ne s'appelle « reprendre » — c'est le lease qui la
+reprend, et inventer le verbe aurait fait un doublon de plus.
+
+_La quiescence se constate, elle ne s'attend pas._ `docs/13` demande « quiescence locale d'un nœud
+plutôt que drain global ». La quiescence est donc une **lecture** : `Quiescence::of` prend le nombre
+de tentatives en vol et rend un constat. Aucune fonction n'attend, et c'est délibéré — un
+`wait_for_quiescence` ferait tenir au scheduler une promesse dont il n'a pas les moyens, puisque
+rien n'oblige un nœud à devenir quiescent, et l'appelant croirait que le drain finit toujours.
+
+_Drainer ne change pas l'état tant que le nœud travaille._ `Outcome::Draining { remaining }` dit ce
+qu'il reste ; un drain qui rendrait `Completed` sur un nœud encore occupé mentirait sur ce qui
+tourne. Et le test qui compte est celui qui vérifie que **les voisins n'ont pas bougé** : un drain
+global aurait le même effet apparent sur le nœud visé, et personne ne verrait la différence avant de
+perdre le travail des autres.
+
+_Tuer dit ce que ça coûte, même quand ça ne coûte rien._ `Outcome::Killed { abandoned }` porte le
+compte y compris à zéro. C'est ce qui distingue un arrêt propre d'un arrêt coûteux, et un opérateur
+qui ne lit pas la différence n'aura aucune raison de chercher le travail perdu.
+
+_Un refus nomme les deux états._ « Interdit » sans dire d'où ni vers où ne se corrige pas ; deux
+mutants qui effacent l'un ou l'autre meurent.
+
+**La règle qui relie ce module à W15.a.** `may_leave_the_version` : un nœud ne quitte pas
+l'organisation tant que son instance tourne. `REMOVE_NODE` ne détient que des identités — la version
+ne peut pas savoir seule qu'une instance travaille encore — donc la question se pose ici, et le
+scheduler compose les deux. Sans elle, une organisation dirait qu'un agent est parti alors qu'il
+produit toujours, et le graphe institutionnel cesserait de décrire ce qui se passe. Un test parcourt
+le chemin complet : drainer jusqu'à la quiescence, **puis** retirer.
+
+**Le survivant de mutation.** Un seul, et il montrait un trou réel : je testais le **refus** de
+`suspend` et jamais sa réussite. Un `suspend` qui laisserait le nœud `active` n'écarterait rien du
+tour, et le scheduler aurait continué de lui donner du travail en croyant l'avoir mis de côté.
+
+**Prochain item.** W16.b — les barrières par invariant menacé plutôt que par lieu.
