@@ -457,7 +457,7 @@ attempts entre instances d'agent — ce que la décision 4 a déjà vérifié ab
 | W15.c `[R]` | les régions mutables bornées de GRAFT — `allowed_ops`, `risk_ceiling`, `max_nodes_delta`, `max_edges_delta`, `approval_mode`, `require_shadow` — acceptation locale et veto de cohérence globale | une opération hors de la région déclarée ou hors de `allowed_ops` est refusée en nommant laquelle des bornes mord — quatre interdisent, les deux autres (`approval_mode`, `require_shadow`) **obligent** ; un lot accepté localement mais qui casse un invariant global **par un chemin passant hors de la région** est vetoé, et le veto nomme l'invariant et les agents pris dedans ; l'acceptation locale seule ne commit jamais, et rien dans son type ne le permet |
 | W15.d `[R]` | contestabilité d'une décision de coordination : famille d'objection parallèle, domaines disjoints | une décision de coordination offre ses cibles — déclencheur, politique, périmètre, décision — ; **aucune fonction ne convertit** une objection de coordination en `ObjectionTarget` ni l'inverse, et un test le tient par l'absence ; aucun trait générique ne factorise les deux familles, ce qui serait la conversion reconstruite |
 | W15.e `[R]` | `visibility`, **deuxième** membre de l'énumération des sortes (ADR 0016 décisions 4 et 10, amendées le 2026-08-18), dont le consommateur est la construction de `ContextView` | deux `ContextView` construites sous deux versions de coordination différentes diffèrent exactement des révisions que `visibility` retire ; aucune relation `visibility` n'élargit ce qu'une ACL refuse ; le constat de la clause de falsification est écrit au ledger, **dans un sens ou dans l'autre** |
-| W15.f `[M]` | `SET_ROLE` comme opération **attributaire**, avec son lecteur exécutable dans `canterel` | l'overlay additif du worker lit le rôle de l'instance et un test l'exerce de bout en bout ; sans ce lecteur, l'opération reste hors de l'énumération |
+| W15.f `[M]` **bloqué** | `SET_ROLE` comme opération **attributaire**, avec son lecteur exécutable dans `canterel` | l'overlay additif du worker lit le rôle de l'instance et un test l'exerce de bout en bout ; sans ce lecteur, l'opération reste hors de l'énumération |
 
 W15.a avant W15.b : un diff se rejoue contre une identité de version, et l'identité décide de ce
 qu'un rejeu peut affirmer. W15.b avant W15.c : une région borne un lot d'opérations, donc un diff.
@@ -472,6 +472,15 @@ d'appartenance, et `agent.rs` le portait déjà comme attribut. La clause de fal
 vit dans le dépôt ; `role` reste dû comme `SET_ROLE`, l'opération attributaire que W15.a avait déjà
 différée. L'amendement daté est dans `docs/adr/0016`.
 
+**W15.f est bloqué, et bloqué correctement.** Le lecteur du rôle est `selectOverlay` dans le worker,
+qui ne connaît d'une mission que ce que la `MissionEnvelope` lui livre — et `mission-envelope.schema.json`
+porte `review_policy` et `required_capabilities`, **pas** de rôle d'agent. Faire passer le rôle
+jusqu'au worker demande donc un **mineur `lep/1.1`**, dont l'ADR 0016 dit qu'il « a son propre ADR »
+et que W13 « ne l'ouvre pas ». Écrire `SET_ROLE` avant ce mineur produirait exactement la sémantique
+inerte que la décision 4 interdit : un attribut que le système saurait versionner, différencier,
+approuver et afficher, et que rien n'honorerait. L'item attend donc cet ADR, et W15 est clos sans
+lui.
+
 ## W16 — Reconfiguration vivante et scheduler dynamique — **niveau 4**
 
 Le scheduler doit savoir spawn, suspend, drain, kill, replace, split, merge, connect, disconnect,
@@ -484,7 +493,25 @@ internes du harnais — le cas de W16 justifiant un mineur LEP, avec son ADR.
 Plan de simulation : rejeu déterministe, substitut d'environnement enregistré, ombre en sandbox réelle,
 canari facultatif. Un objet simulé n'existe pas comme type dans le domaine épistémique.
 
-Attend W15, W4.e et W4.g.
+Attend W15, W4.e et W4.g. **Les trois sont satisfaits** : W4.e et W4.g sont livrés, et W15 est clos
+à W15.e — W15.f attend un mineur LEP qui a son propre ADR.
+
+Décomposée ici. Deux items de la prose n'entrent pas, et pour la même raison que les opérations
+attributaires de W15.a : **epochs et messages tardifs** n'ont « un problème réel à résoudre qu'une
+fois une messagerie inter-agents existante », et il n'y en a pas ; la **visibilité institutionnelle
+des sous-agents internes du harnais** est « le cas de W16 justifiant un mineur LEP, avec son ADR »,
+donc elle attend cet ADR comme W15.f.
+
+| # | Commit | Test de sortie |
+|---|---|---|
+| W16.a `[R]` | les transitions de cycle de vie du scheduler — `spawn`, `suspend`, `drain`, `kill`, `replace`, `connect`, `disconnect` — comme machine à états explicite, et la **quiescence locale** d'un nœud | une transition interdite est refusée en nommant l'état de départ et celui visé ; un nœud est drainé **sans** que rien d'autre soit arrêté, et la quiescence se constate au lieu de s'attendre ; `kill` sur un nœud quiescent et sur un nœud actif ne disent pas la même chose |
+| W16.b `[R]` | les **barrières par invariant menacé** plutôt que par lieu | une reconfiguration ne barre que les nœuds dont elle menace un invariant, et le refus nomme l'invariant, pas le lieu ; deux reconfigurations qui ne menacent pas le même invariant ne se bloquent pas l'une l'autre ; une barrière posée sans invariant menacé est refusée |
+| W16.c `[R]` | le plan de simulation : rejeu déterministe, substitut d'environnement enregistré, ombre en sandbox réelle, canari facultatif | deux rejeux de la même trace rendent le même résultat ; un substitut d'environnement qui n'a pas la réponse le **dit** au lieu d'en inventer une ; un objet simulé n'existe **pas** comme type dans le domaine épistémique, et un test le tient par l'absence |
+| W16.d `[M]` **bloqué** | visibilité institutionnelle facultative des sous-agents internes du harnais | attend le mineur `lep/1.1` et son ADR |
+| W16.e `[R]` **bloqué** | epochs, messages tardifs et transfert d'état | attend une messagerie inter-agents, qui n'existe pas |
+
+W16.a avant W16.b : une barrière borne des transitions, donc les transitions d'abord. W16.c ne
+dépend d'aucun des deux.
 
 ## W17 — Cockpit et orchestration de la mémoire
 
