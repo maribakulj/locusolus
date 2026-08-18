@@ -21,12 +21,14 @@
 //! un [`spawn::Admitted`] le sait, et le seul producteur d'`Admitted` est [`spawn::dispose`], qui
 //! exige un verdict de moteur de politique.
 
+pub mod acceptance;
 pub mod admission;
 pub mod bounded;
 pub mod fast;
 pub mod slow;
 pub mod spawn;
 
+pub use acceptance::{CancellationRate, Ratio};
 pub use admission::{Admission, AdmissionError, Extension, admit};
 pub use bounded::{Autonomy, Ceiling, Denial, Operator, OperatorError, RiskClass, autonomously};
 pub use fast::{Adaptation, Adjustment, Fast, FastError};

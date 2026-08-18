@@ -6300,3 +6300,57 @@ déclaration de la structure et refuse `Published`, `Sbom`, `Lockfile`, `Environ
 
 **Prochain item.** W18.e — la métrique d'acceptation : taux d'annulation humaine des adaptations
 agentiques.
+
+---
+
+## 2026-08-18 — W18.e — La métrique d'acceptation, et le silence qui n'est pas un accord
+
+**Périmètre.** `packages/adaptation/src/acceptance.rs`, `packages/adaptation/src/lib.rs`,
+`packages/adaptation/tests/acceptance.rs`.
+
+**Tests exécutés.** `cargo test -p locus-adaptation` → 82 conformes. `npm run check` → les dix
+portes vertes. Mutation : treize mutants, **treize tués**.
+
+**Pourquoi cette métrique-là.** Un système qui s'adapte tout seul se juge mal de l'intérieur. Le
+nombre d'adaptations produites mesure l'activité, pas l'utilité — et §13.6 range précisément « la
+production de tâches pour maximiser l'activité » parmi les sept formes de gaming. Le taux
+d'annulation **humaine** est le contraire : il ne peut monter que si quelqu'un a regardé et n'a pas
+voulu, et aucun agent ne peut l'améliorer en travaillant davantage.
+
+**Décisions prises.**
+
+_Le silence n'est pas un accord, et c'est toute la difficulté du calcul._ `annulées / total` compte
+au dénominateur les adaptations que personne n'a regardées, donc les compte comme acceptées. Un
+déploiement que plus personne ne surveille verrait son taux tomber vers zéro et lirait cette chute
+comme une réussite — au moment exact où il perd son seuil humain. Une adaptation non regardée est
+donc **hors mesure** : ni au numérateur, ni au dénominateur, comptée à part et rendue visible.
+
+_Sans aucun prononcé, il n'y a pas de taux — pas un taux nul._ `ratio()` rend `None`. Rendre `0.0`
+se lirait « aucun humain n'a jamais annulé », donc une acceptation parfaite, tirée de zéro
+observation. C'est la même règle que partout ailleurs dans ce dépôt : « pas vérifié » n'est jamais «
+réussi ».
+
+_Trois choses ne sont pas une annulation humaine._ Une annulation **par le système** — fenêtre
+expirée, budget épuisé, rollback automatique — ne dit rien de ce qu'un humain aurait voulu ; un test
+vérifie qu'en ajouter trois ne change **pas** le taux, par égalité stricte des deux ratios. Une
+adaptation **d'auteur humain** n'est pas agentique, et la mesurer ferait varier le score du système
+avec ce que ses opérateurs font eux-mêmes. Et la troisième est le silence ci-dessus.
+
+_Le taux garde ses deux entiers._ `1/2` et `500/1000` valent le même nombre et ne sont pas la même
+preuve. `Ratio` porte le numérateur et le dénominateur ; le flottant est calculé à la demande et
+jamais stocké, parce qu'un flottant conservé se recopie dans un rapport sans ses deux entiers et
+qu'on ne sait plus sur combien il porte. Un test compare `1/2` et `500/1000` : même `value()`,
+`Ratio` différents.
+
+_Les deux boucles se mesurent séparément._ Une adaptation rapide expire d'elle-même et se corrige en
+attendant ; une adaptation lente entre dans l'histoire de l'organisation. Les additionner ferait
+disparaître le second signal dans le premier, qui est bien plus nombreux — le test le montre avec
+trois adaptations rapides gardées contre une lente annulée.
+
+_Combien de personnes portent la mesure._ Cent adaptations toutes jugées par la même personne ne
+sont pas cent observations. `reviewers` rend l'ensemble des principaux qui se sont prononcés — pour
+le savoir, pas pour noter qui que ce soit : §14.6 dit que la réputation « ne doit pas devenir un
+score social unique ».
+
+**Prochain item.** W18 est clos pour ce qui est faisable — W18.f attend un hôte capable d'attester
+`S3`/`S4`, comme W5.f. Restent les items de recherche R1 à R6, sans dépendance de chemin critique.
