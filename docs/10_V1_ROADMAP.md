@@ -414,6 +414,16 @@ Attend W13.c et W13.e. Débloque les modes `bounded` et `operator`, la classe de
 moitié de W7. §W7 avertit déjà que l'anti-gaming doit exister avant que la fonction de valeur pilote
 des décisions automatiques.
 
+Décomposée ici. §13 est déjà couvert pour l'essentiel par W7.e à W7.g — budgets, anti-gaming,
+qualité-diversité, `V(b)`. Ce qui reste est §20, et c'est le moteur de politique.
+
+| # | Commit | Test de sortie |
+|---|---|---|
+| W14.a `[R]` | `packages/policy` : les cinq verbes de §20.2, la séparation faits/décision, la trace d'évaluation, la priorité explicite et le déterminisme | deux évaluations des mêmes faits rendent la **même** décision et la même trace ; deux règles qui se contredisent sont détectées et tranchées par priorité déclarée, jamais par ordre de déclaration ; une décision sans trace n'existe pas |
+| W14.b `[R]` | `Delegation` de §20.4 : portée, plafonds, expiration, révocation | une action hors portée, au-delà d'un plafond ou après expiration n'est pas autorisée ; une délégation révoquée n'autorise plus rien, et l'attribution nomme **les deux** principals |
+| W14.c `[R]` | explicabilité de §20.5, dont les **alternatives rejetées** | une décision expose ses huit facettes ; une alternative rejetée sans motif n'est pas une alternative rejetée ; un override humain reste visible après coup |
+| W14.d `[R]` | les seize catégories de §20.1 et le dry-run de §20.2 | un dry-run ne produit aucun événement, et sa décision est identique à celle du run réel sur les mêmes faits |
+
 ## W15 — Cœur du graphe agentique et contestabilité — **niveau 3 → 4, structure**
 
 Généralisation de la relation unique de W13.e : version canonique immuable avec hash et parent, diff

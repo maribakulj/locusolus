@@ -1,0 +1,13 @@
+[package]
+name = "locus-policy"
+description = "Le moteur de politique : faits séparés de la décision, trace d'évaluation, priorité explicite (SPEC_V1 §20)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
