@@ -1,0 +1,15 @@
+[package]
+name = "locus-memory"
+description = "Les niveaux de mémoire de SPEC_V1 §16.1 et le retrieval hybride de §16.3."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+locus-domain = { path = "../domain" }
+locus-protocol = { path = "../protocol" }

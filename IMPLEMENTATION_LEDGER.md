@@ -5749,3 +5749,49 @@ absence de type.
 
 **Prochain item.** W16 est clos pour ce qui est faisable : W16.d attend le mineur `lep/1.1` et son
 ADR, W16.e une messagerie inter-agents. Suit W17 — cockpit et orchestration de la mémoire.
+
+## 2026-08-18 — W17.a — `packages/memory` : les sept niveaux, et la frontière canonique/projection
+
+**Périmètre.** `docs/10_V1_ROADMAP.md` (décomposition de W17 en six items, dont un bloqué),
+`packages/memory/` (crate neuf : `Cargo.toml`, `src/lib.rs`, `src/level.rs`, `tests/level.rs`, 9
+tests), `Cargo.toml` de l'espace de travail, ce fichier.
+
+**Tests exécutés.** `cargo test -p locus-memory` → 9 conformes. `npm run check` → les dix portes
+vertes. Mutation : seize mutants, **seize tués, aucun survivant au premier tour**.
+
+**Décisions prises.**
+
+_La liste des sept est close, et pour une raison précise._ Un niveau décide de **qui peut lire**.
+Une mémoire dont la portée n'est pas nommée finit par être lue par tout le monde, faute de raison de
+refuser — ce n'est pas un oubli de rigueur, c'est le chemin par défaut. `Level::parse` refuse donc
+`global`, `session`, `scratch`, `shared` et `public`, nommés dans le test pour que l'échec dise
+lequel est entré.
+
+_L'ordre de §16.1 est celui de la portée, et il se compare._ Le rendre comparable évite qu'un
+appelant réénumère les sept pour poser une question à laquelle la liste répond déjà — et une
+réénumération ailleurs finirait par diverger de celle-ci. Un test vérifie aussi que la liste est
+**déjà triée**, de sorte que l'ordre déclaré et l'ordre de portée ne puissent pas se contredire.
+
+_La frontière canonique/projection est portée par le type._ §16.1, dernière ligne : « le graphe, les
+événements et les artefacts sont canoniques. Les résumés et embeddings sont des projections
+régénérables. » Ce n'est pas une nuance de vocabulaire : perdre une projection coûte un recalcul,
+perdre un canonique coûte la vérité institutionnelle (invariant 2). `Shelf` répond donc à la
+question qu'un opérateur se pose avant une purge — ce qui se régénère, ce qui ne se régénère pas —
+et un test exige que les deux listes ne se recoupent jamais. C'est le pendant de §9.1, qui pose la
+même distinction depuis l'autre côté.
+
+_Ranger n'écrase jamais._ Une clé déjà prise est refusée, et le refus dit **où** l'entrée est déjà
+rangée. Écraser en silence ferait disparaître un canonique derrière une projection du même nom :
+rien n'échouerait, et la source serait devenue son propre résumé. C'est exactement la forme que
+prend la perte de la vérité institutionnelle.
+
+**§16.6 n'est pas ici, et c'est délibéré.** Les cinq préventions de contamination vivent dans
+`packages/review/src/contamination.rs` depuis W7.b, écrites par cas adverses. Les réécrire
+produirait deux listes de cinq qui divergeraient, et la seconde aurait l'air aussi vraie que la
+première. Un test tient l'absence en nommant trois des cinq.
+
+**Sur `locusd`.** `apps/` porte `emacs`, `locus-execd` et `web` — pas le daemon. Tout ce que W17
+demande de surface HTTP attend donc, et c'est W17.f. Le **domaine** de la mémoire et la discipline
+du cockpit n'en dépendent pas : ce sont W17.a à W17.e.
+
+**Prochain item.** W17.b — le retrieval hybride de §16.3.
