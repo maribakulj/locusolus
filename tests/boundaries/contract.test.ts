@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 
@@ -71,13 +72,37 @@ test("le dépôt lui-même ne franchit aucune frontière", async () => {
   assert.deepEqual(report.findings, []);
 });
 
+/**
+ * La propriété tient sur un dépôt où l'unité ne porte aucun point d'entrée — pas sur celui-ci.
+ *
+ * Ce test employait `repoRoot` comme fixture, et il disait vrai tant qu'`apps/emacs` était vide.
+ * W8.a l'a peuplé, donc la fixture a cessé de décrire le cas qu'elle prétendait couvrir : un test
+ * dont la prémisse dépend de l'avancement du dépôt s'éteint le jour où le dépôt avance, et
+ * l'extinction ressemble à un succès. La prémisse est donc construite ici.
+ */
 test("une règle sans objet est déclarée comme telle, jamais comptée comme vérifiée", async () => {
-  const report = await inspectBoundaries(repoRoot, contract, { emacs: "auto" });
+  const empty = await mkdtemp(join(tmpdir(), "locus-boundaries-"));
+  await mkdir(join(empty, "apps", "emacs"), { recursive: true });
+
+  const report = await inspectBoundaries(empty, contract, { emacs: "auto" });
   const emacs = report.statuses.find((status) => status.rule.kind === "emacs-isolation");
   assert.ok(emacs, "la règle 5 doit apparaître dans le rapport");
-  assert.notEqual(
-    emacs.state,
-    "enforced",
-    "apps/emacs n'existe pas encore : la règle ne peut pas être déclarée vérifiée",
-  );
+  assert.equal(emacs.state, "not-applicable", "sans point d'entrée, il n'y a rien à vérifier");
+  assert.equal(emacs.scanned, 0);
+  assert.deepEqual(report.findings, [], "sans objet n'est pas une violation");
+});
+
+/**
+ * Et le pendant, sur le dépôt réel : depuis W8.a, `apps/emacs` porte des points d'entrée, donc la
+ * règle 5 doit être **vérifiée**. Sans cette assertion, la garde pourrait se remettre à sauter la
+ * règle — faute d'Emacs, ou parce qu'un renommage l'aurait rendue « sans objet » — et le rapport
+ * dirait « ok » d'une frontière que plus rien ne tient.
+ */
+test("la règle 5 est vérifiée, maintenant qu'apps/emacs porte des points d'entrée", async () => {
+  const report = await inspectBoundaries(repoRoot, contract, { emacs: "required" });
+  const emacs = report.statuses.find((status) => status.rule.kind === "emacs-isolation");
+  assert.ok(emacs);
+  assert.equal(emacs.state, "enforced");
+  assert.ok(emacs.scanned > 0, "au moins un point d'entrée est chargé sous emacs -Q");
+  assert.deepEqual(report.findings, []);
 });

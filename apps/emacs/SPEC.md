@@ -93,6 +93,19 @@ Aucune logique produit, aucun schéma LEP, aucun parser d’événement et aucun
 
 ## 3. Structure du dépôt
 
+> **Amendement W8.a — le préfixe est `locus-`, pour les fichiers comme pour les symboles.**
+>
+> Ce paragraphe nommait les fichiers `locusolus-*.el` tandis que §5 nomme les options publiques
+> `locus-endpoint`, `locus-workspace`, `locus-auto-connect`… En Emacs Lisp, le préfixe des symboles
+> d'un paquet est celui de son fichier d'entrée : les deux moitiés de cette spec ne pouvaient pas
+> être vraies ensemble, et un paquet dont les symboles ne portent pas le préfixe de son nom est
+> refusé par `package-lint`, donc par les canaux d'installation que §4.4 exige de garder ouverts.
+>
+> L'arbitrage garde §5 **mot pour mot** : ce sont les options publiques, celles qu'une configuration
+> consommatrice écrit dans son `init.el`, et les renommer casserait des utilisateurs. Ce sont donc
+> les noms de fichiers qui suivent — `locus.el`, `locus-client.el`, `locus-events.el`, et ainsi de
+> suite. La liste ci-dessous se lit avec cette substitution.
+
 ```text
 apps/emacs/
 ├── locusolus.el

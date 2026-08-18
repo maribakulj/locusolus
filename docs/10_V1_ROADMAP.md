@@ -265,8 +265,25 @@ Web workspace + `apps/emacs` (monorepo) ; sandbox inspector ; decisions ; artifa
 fixe la frontière avant qu'il y ait quoi que ce soit à séparer — le seul moment où c'est gratuit.
 
 Ordre : client/événements → dashboard et buffers → commandes et transient → artefacts et
-inspecteur de sandbox → intégrations Org/Magit/Jupyter/xiiif → 3D et WebView. Si l'inventaire de
-`emacs-config` révèle du code client réutilisable, il s'insère ici en tête sans réordonner l'amont.
+inspecteur de sandbox → intégrations Org/Magit/Jupyter/xiiif → 3D et WebView. L'inventaire de
+`emacs-config` (W0.10) a répondu : **zéro** occurrence de `locus`, `canterel` ou `iiif` dans son
+Elisp, donc rien à extraire et rien à réordonner — `apps/emacs` se construit depuis zéro.
+
+| # | Commit | Test de sortie |
+|---|---|---|
+| W8.a `[R]` | le test de séparation : `apps/emacs` existe, se charge sous `emacs -Q` avec sa seule `load-path` | la frontière 5 passe de « sans objet » à vérifiée ; charger le paquet n'ouvre aucune connexion, n'arme aucun timer et ne tire aucune bibliothèque hors du paquet et d'Emacs ; la version de protocole annoncée est celle de `schemas/`, lue et non recopiée |
+| W8.b `[R]` | client HTTP/stream et authentification abstraite (§6) | aucun secret hors `auth-source` ; une identité absente est une erreur actionnable, pas un plantage |
+| W8.c `[R]` | événements et curseurs (§12) | une déconnexion ne perd ni ne duplique un événement |
+| W8.d `[R]` | dashboard et buffers (§9) | un buffer se reconstruit depuis le cache sans réseau |
+| W8.e `[R]` | commandes et transient (§10, §11) | toute action mutante passe par l'API avec `expected_revision` ; un conflit est rendu, pas écrasé |
+| W8.f `[R]` | artefacts et inspecteur de sandbox | un artefact non promu se distingue d'un artefact promu à l'écran |
+| W8.g `[R]` | intégrations Org/Magit/Jupyter/xiiif | chaque intégration absente dégrade sans casser le démarrage |
+| W8.h `[R]` | 3D et WebView | la 3D reste une projection ; aucune vue n'écrit dans le graphe |
+
+**W8.a en premier, et c'est la roadmap qui l'impose** : la frontière se fixe avant qu'il y ait quoi
+que ce soit à séparer — le seul moment où c'est gratuit. La dépendance qu'on veut interdire ne
+s'ajoute jamais délibérément : elle s'installe le jour où une fonction du cockpit a besoin d'une
+chose que la configuration de l'auteur fournit déjà, et elle est alors invisible dans le diff.
 
 ## W9 — Visualization
 
