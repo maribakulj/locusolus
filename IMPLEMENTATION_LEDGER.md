@@ -5107,3 +5107,41 @@ déclenchée qui porte sa version. `Facet` les nomme toutes les huit pour que la
 les remplir demande des consommateurs qui n'existent pas.
 
 **Prochain item.** W14.d — les seize catégories de §20.1 et le dry-run de §20.2.
+
+## 2026-08-18 — W14.d — Les seize catégories de §20.1 et le dry-run qui est le même calcul
+
+**Périmètre.** `packages/policy/src/category.rs` (neuf), `packages/policy/tests/category.rs` (neuf,
+10 tests), `src/lib.rs` (les réexports), ce fichier.
+
+**Tests exécutés.** `cargo test -p locus-policy` → 48 conformes (16 + 12 + 10 + 10). `npm run check`
+→ les dix portes vertes. Mutation : onze mutants, **onze tués, aucun survivant**.
+
+**Décisions prises.**
+
+_Le dry-run n'est pas une seconde évaluation._ §20.2 demande « dry-run et simulation ». La faute que
+cette exigence prévient est courante : un chemin de simulation écrit à part, qui diverge du chemin
+réel le jour où l'un des deux est corrigé — et la simulation cesse alors de dire ce que fera le run,
+la seule chose qu'on lui demande. `Run::dry` et `Run::live` partagent donc **exactement** le même
+calcul, et un mutant qui donne au dry-run son propre chemin meurt.
+
+_Ce qui change n'est pas le calcul mais ce qu'on a le droit d'en faire._ Une `Simulation` n'expose
+rien qui produise un effet : elle prête l'exposé, quand un run réel le **rend par valeur** pour
+qu'on y rattache des événements. La garantie n'est pas une discipline d'appel — il n'y a pas de
+méthode à ne pas appeler.
+
+_Le dry-run reproduit aussi les conflits et les silences._ Ce sont exactement les états qu'un chemin
+de simulation bâclé simplifierait, et un mutant qui remplace un conflit simulé par « aucune règle »
+meurt.
+
+_La liste des seize est close, et c'est le seul moyen de dire ce qui manque._ Le résultat utile de
+`Coverage` est la liste des **absentes** : le risque n'est pas d'écrire une mauvaise politique de
+secrets, c'est de n'y pas penser. Une liste ouverte ne saurait pas le dire. Le test parcourt les
+seize une par une — même geste que pour les cinq parties d'une sauvegarde et les trente-cinq
+épreuves de §29.
+
+**Écart avec la spec.** §20.2 demande aussi « simulation », qu'on pourrait lire comme davantage
+qu'un dry-run : évaluer contre des faits hypothétiques, comparer deux versions de politique. Le
+dry-run est livré ; la simulation contrefactuelle attend un consommateur, et l'inventer produirait
+une API que rien n'appelle. W14 est couvert pour ce que §20 exige et que le dépôt peut éprouver.
+
+**Prochain item.** W15 — le cœur du graphe agentique et la contestabilité.
