@@ -249,7 +249,11 @@ jobs:
       # produire sa table — qui est justement ce qu'on vient chercher.
       - name: Les sondes contre un conteneur réel
         run: |
-          cargo test -p locus-execd --test host_sandbox -- --ignored --nocapture 2>&1 | tee sondes.txt
+          # `--test-threads=1` n'est pas une précaution de confort. Les trois tests
+          # construisent chacun leur `PodmanBackend`, dont le compteur de noms repart à zéro :
+          # lancés en parallèle dans le même processus, ils se disputent le nom `locus-0001`, et
+          # celui qui perd rapporte l'erreur de nom là où on attend un verdict de confinement.
+          cargo test -p locus-execd --test host_sandbox -- --ignored --nocapture --test-threads=1 2>&1 | tee sondes.txt
           exit "${PIPESTATUS[0]}"
 
       # La table est le produit de ce job, verte ou rouge. Elle doit être lisible sans ouvrir les

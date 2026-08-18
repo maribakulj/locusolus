@@ -7293,6 +7293,22 @@ d'affirmer parce que la suite du travail est de trouver **lequel** des drapeaux 
 écart — `--read-only`, la posture seccomp, les douze `--cap-drop`, les quotas cgroup — et que cela
 se bissecte sur une table, pas sur un verdict.
 
+**Et le premier passage du test a trouvé un défaut dans le test lui-même.** Il a rapporté, à la
+place de la table de routage : « le nom de conteneur `locus-0001` est déjà utilisé ». Les trois
+tests du fichier tournent dans le même processus et chacun construit son propre `PodmanBackend`,
+dont le compteur de noms repart à zéro ; lancés en parallèle, ils se disputent le même nom. Le test
+a alors **affirmé que la sandbox ne voyait pas la route, alors qu'aucune sandbox n'existait**.
+
+C'est mot pour mot la faute que cet item reproche aux sondes : présenter une absence d'observation
+comme une observation. Deux corrections. `inspect_network` rend un `Result` — le type empêche
+désormais de confondre « créée, et voici ce qu'elle voit » avec « pas créée, et voici pourquoi » —
+et le job lance la suite en `--test-threads=1`, avec la raison écrite dans le workflow plutôt que
+laissée à deviner.
+
+Le fait de fond n'en est pas affecté : les verdicts « bloquée » des deux sondes réseau viennent du
+**second** test, celui qui a bien créé sa sandbox et exercé les seize sondes. C'est le nouveau test
+de diagnostic qui n'avait rien observé, et il le dit maintenant.
+
 **Ce que ce sprint ne fait pas.** Il ne corrige rien, et il ne prétend pas savoir quel drapeau est
 en cause. Nommer un coupable sans l'avoir isolé serait la même faute que celle des trois sondes qui
 lisaient un réseau muet comme une preuve d'isolation.

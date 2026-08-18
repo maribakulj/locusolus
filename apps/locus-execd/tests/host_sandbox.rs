@@ -410,7 +410,18 @@ fn report(results: &[(&'static str, Observed)]) {
 fn la_sandbox_presente_le_reseau_que_la_mission_declare() {
     let workspace = workspace_dir("reseau");
     let spec = probed_spec(&workspace.to_string_lossy(), 0);
-    let seen = inspect_network(&spec);
+    let seen = match inspect_network(&spec) {
+        Ok(seen) => seen,
+        Err(refusal) => {
+            let _ = fs::remove_dir_all(&workspace);
+            panic!(
+                "aucune sandbox n'a été créée : il n'y a donc **rien** à dire de son réseau. \
+                 Conclure ici que la route manque serait présenter une absence d'observation comme \
+                 une observation — la faute même que cet item reproche aux sondes. Ce que le \
+                 runtime a dit :\n\n    {refusal}"
+            );
+        }
+    };
     let _ = fs::remove_dir_all(&workspace);
 
     println!("\nce que la sandbox du plan voit du réseau\n\n{seen}\n");
@@ -426,8 +437,19 @@ fn la_sandbox_presente_le_reseau_que_la_mission_declare() {
     );
 }
 
-/// Ce que la sandbox voit de `/proc/net/route`, lu depuis l'intérieur.
-fn inspect_network(spec: &SandboxSpec) -> String {
+/// Ce que la sandbox voit de `/proc/net/route`, lu depuis l'intérieur — ou pourquoi il n'y a rien.
+///
+/// # Un `Result`, et pas une chaîne qui contiendrait l'erreur
+///
+/// Le premier passage de ce test a rendu, à la place de la table de routage, le message
+/// « le nom de conteneur `locus-0001` est déjà utilisé » — les trois tests du fichier tournent dans
+/// le même processus et chacun construit son propre `PodmanBackend`, dont le compteur repart à zéro.
+/// Le test a alors **affirmé que la sandbox ne voyait pas la route**, alors qu'aucune sandbox
+/// n'existait.
+///
+/// C'est mot pour mot la faute que cet item reproche aux sondes : présenter une absence
+/// d'observation comme une observation. Le type l'empêche désormais.
+fn inspect_network(spec: &SandboxSpec) -> Result<String, String> {
     let image = env::var(IMAGE).expect("LOCUS_PROBE_IMAGE");
     let workload = Workload::new(&image, vec!["sleep".to_owned(), "600".to_owned()])
         .expect("une image à digest et une commande non vide");
@@ -442,21 +464,21 @@ fn inspect_network(spec: &SandboxSpec) -> String {
 
     let seen = match backend.create(spec) {
         Ok(id) => {
-            let read = if backend.start(&id).is_ok() {
-                backend
+            let read = match backend.start(&id) {
+                Ok(()) => backend
                     .runner()
                     .run(&exec_arguments(
                         &id,
                         &["sh", "-c", "cat /proc/net/route 2>&1"],
                     ))
-                    .map_or_else(|error| error.to_string(), |execution| execution.stdout)
-            } else {
-                "la sandbox n'a pas démarré".to_owned()
+                    .map(|execution| execution.stdout)
+                    .map_err(|error| error.to_string()),
+                Err(error) => Err(error.to_string()),
             };
             let _ = backend.stop(&id);
             read
         }
-        Err(error) => error.to_string(),
+        Err(error) => Err(error.to_string()),
     };
     let _ = fs::remove_file(&profile_path);
     seen
