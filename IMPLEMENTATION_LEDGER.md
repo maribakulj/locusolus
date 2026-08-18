@@ -6099,3 +6099,70 @@ ajoute `value.is_nan() ||` meurt ; un `is_finite` de plus n'aurait jamais rien r
 leçon de W14 appliquée avant d'écrire le garde.
 
 **Prochain item.** W18.b — la boucle rapide sur la capacité et la boucle lente sur la structure.
+
+---
+
+## 2026-08-18 — W18.b — Boucle rapide sur la capacité, boucle lente sur la structure
+
+**Périmètre.** `packages/adaptation/src/fast.rs`, `packages/adaptation/src/slow.rs`,
+`packages/adaptation/src/lib.rs`, `packages/adaptation/tests/loops.rs`, `Cargo.toml` du crate.
+
+**Tests exécutés.** `cargo test -p locus-adaptation` → 42 conformes (19 W18.a + 22 W18.b + un
+doctest). `cargo clippy --workspace --all-targets -D warnings` → propre. Mutation : seize mutants,
+**seize tués**.
+
+**Décisions prises.**
+
+_Tout expire, pas seulement les routes._ La roadmap ne qualifie d'« éphémères » que les routes. Or
+elles ne sont pas le seul ajustement qui deviendrait une structure en durant : un routage de modèle
+permanent est une spécialisation d'agent, une sélection de skill permanente est un rôle. Chaque
+adaptation porte donc sa fenêtre, et il n'existe pas d'adaptation sans fin. C'est ce qui rend vraie
+la phrase de l'item — deux adaptations rapides ne s'accumulent jamais en une structure que personne
+n'a approuvée — parce qu'aucune n'est là pour l'accumulation suivante.
+
+_La fenêtre est semi-ouverte, `[from, until)`._ Une borne haute incluse ferait se chevaucher deux
+fenêtres consécutives sur exactement un instant, et à cet instant-là deux routages de modèle
+seraient vivants pour le même agent. Un défaut d'une milliseconde par transition est celui qu'on ne
+reproduit jamais. Deux mutants le tiennent, un par borne.
+
+_Exclusif contre additif._ Un agent a **un** modèle et **un** budget de réessai ; un routage qui en
+chevauche un autre est refusé, pas arbitré. Les départager en silence — la dernière adoptée gagne,
+la plus longue gagne — ferait dépendre le modèle qui répond de l'ordre dans lequel deux ajustements
+sont arrivés, que personne ne relit. Un outil, un skill et une route sont au contraire additifs : en
+ouvrir un second n'invalide pas le premier. Le refus est **par agent et par sorte**, et deux tests
+tiennent chacune de ces deux bornes du refus — un refus trop large empêcherait d'ajuster une flotte,
+et on relâcherait la règle entière pour la contourner.
+
+_La garantie qui porte l'item._ Trois routes successives ne font jamais une topologie à trois
+arêtes. C'est la faute que la boucle rapide invite : chaque route est licite, et leur **union** est
+une structure que personne n'a proposée, approuvée ni commitée. Le test balaie tous les instants de
+la plage et vérifie qu'à aucun la vue ne dépasse une seule route.
+
+_La route éphémère est dans la boucle rapide parce qu'elle expire._ C'est l'ajustement qui ressemble
+le plus à une arête ; une route qui durerait **serait** une arête, et devrait alors se proposer,
+s'approuver et se commiter. Sa fenêtre est tout ce qui l'en distingue, et c'est assez.
+
+_La boucle rapide ne nomme aucun objet de la boucle lente._ Ni `Operation`, ni `Change`, ni
+`Relation`, ni `Version`, ni `Proposal`, ni `locus_coordination`. Elle s'exécute sans approbation, à
+la latence d'un appel de modèle ; une seule fonction qui rendrait une opération de coordination
+ferait d'elle un chemin de mutation du graphe sans décision, sans trace et sans révision de base.
+Les deux boucles ont la même forme dans l'esprit de qui les écrit — « ajuster quelque chose » — et
+rien d'autre que l'absence de vocabulaire ne les tient séparées. La vérification symétrique existe
+aussi : `slow.rs` ne connaît ni `Adaptation`, ni `Adjustment`, ni `Fast`. Une seule des deux
+absences laisserait la porte de l'autre côté.
+
+**`slow.rs` a rétréci en cours d'écriture, et c'est le résultat.** Il portait d'abord un `adapt()`
+enveloppant `Proposal::write`. Clippy l'a refusé à huit arguments, et le refus avait raison pour une
+raison qu'il ne connaissait pas : une deuxième signature des sept champs de W13 divergerait de la
+première au premier champ ajouté, et divergerait **en silence** puisqu'elle compilerait encore. Le
+module n'expose donc qu'une fonction, `justify`, et deux tests le tiennent — aucun `pub struct`,
+`pub enum` ni `pub trait`, et exactement un `pub fn`. Une adaptation lente **est** une
+`coordination::Proposal`, écrite par `Proposal::write`, approuvée par `approve`, commitée par
+`commit` ; le test le montre de bout en bout, self-approval et base périmée compris.
+
+_Ce que `justify` ajoute, et c'est tout._ Le déclencheur d'une adaptation automatique vient de la
+liste close de §14.5, alors que `Justification` porte un `&str` ouvert — ouvert à dessein, son
+commentaire de W13 le dit. Un humain justifie une proposition par ce qu'il veut ; un agent, non.
+
+**Prochain item.** W18.c — `bounded` et `operator`, avec la classe de risque dérivée des invariants
+menacés.

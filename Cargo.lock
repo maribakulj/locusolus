@@ -14,7 +14,9 @@ version = "0.0.0"
 dependencies = [
  "locus-budget",
  "locus-coordination",
+ "locus-domain",
  "locus-policy",
+ "locus-protocol",
 ]
 
 [[package]]
