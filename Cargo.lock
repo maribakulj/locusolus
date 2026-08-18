@@ -105,6 +105,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "locus-memory"
+version = "0.0.0"
+dependencies = [
+ "locus-domain",
+ "locus-protocol",
+]
+
+[[package]]
 name = "locus-migrations"
 version = "0.0.0"
 dependencies = [

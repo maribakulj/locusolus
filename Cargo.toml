@@ -13,6 +13,7 @@ members = [
     "packages/execution",
     "packages/graph",
     "packages/lep",
+    "packages/memory",
     "packages/migrations",
     "packages/policy",
     "packages/portfolio",

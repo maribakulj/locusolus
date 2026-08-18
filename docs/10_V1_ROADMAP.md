@@ -529,6 +529,24 @@ de §9.3 ; la déduplication non automatique de §16.4 ; la compaction de §16.5
 Attend W16, W9 et `locusd`. Aucun outil existant ne combine canvas, graphe comme état mutable de
 première classe, mutations proposées par les agents, commit atomique et invariants.
 
+Décomposée ici. **`locusd` n'existe pas** — `apps/` porte `emacs`, `locus-execd` et `web`, pas le
+daemon — donc tout ce qui suppose une surface HTTP attend. Ce qui n'en dépend pas est le **domaine**
+de la mémoire (§16.1 à §16.5) et la discipline du cockpit (§23.3, W9), et cela se fait maintenant.
+Les cinq préventions de §16.6 sont déjà livrées, par `packages/review/src/contamination.rs` (W7.b) :
+elles ne sont pas redemandées ici.
+
+| # | Commit | Test de sortie |
+|---|---|---|
+| W17.a `[R]` | `packages/memory` : les sept niveaux de §16.1 comme liste close, et la distinction canonique/projection de la dernière phrase de la section | les sept se lisent sous leur nom ; ce qui est **canonique** — graphe, événements, artefacts — ne se déclare jamais régénérable, et ce qui est projection le déclare toujours ; une mémoire dont le niveau n'est pas nommé n'existe pas |
+| W17.b `[R]` | le retrieval hybride de §16.3 : les dix signaux, le ranking dont les facteurs sont **exposés**, et les ACL que les embeddings ne contournent pas | un résultat porte la contribution de **chacun** des signaux qui l'ont produit, et un ranking sans facteurs exposés est refusé ; un élément qu'une ACL refuse reste absent quel que soit son score vectoriel, et le test l'exerce avec un score maximal |
+| W17.c `[R]` | deux retrievals séparés, épistémique et organisationnel, **sans conversion** | les deux répondent à des questions différentes sur des types disjoints ; **aucune fonction ne convertit** un résultat de l'un en résultat de l'autre, et la septième frontière l'étend à ce cas |
+| W17.d `[R]` | déduplication non automatique (§16.4) et compaction (§16.5) | un duplicata exact par hash est détecté ; un candidat **sémantique** n'est jamais fusionné automatiquement, et sa résolution porte confiance et provenance ; une fusion se défait par une nouvelle décision ; une compaction signale ce qu'elle a omis et ne transforme jamais un objet non validé en connaissance établie |
+| W17.e `[R]` | les quatre vues du cockpit et la sélection synchronisée par `Id<Agent>` ; le canvas produit une **commande**, jamais une écriture | une sélection dans une vue désigne le même agent dans les trois autres ; un geste de canvas rend une commande que rien n'applique sur place, et aucun chemin de type ne permet à une vue d'écrire |
+| W17.f `[M]` **bloqué** | `/branches/:id/diff`, la preview, l'ombre, l'approbation, le rollback et la navigation dans le temps | attend `locusd`, qui n'existe pas |
+
+W17.a avant W17.b : un retrieval cherche dans des niveaux. W17.c après W17.b, pour la même raison
+que W15.d après le reste : la conversion ne devient tentante qu'une fois les deux moitiés écrites.
+
 ## W18 — Adaptation automatique et admission de capacité
 
 Boucle rapide sur la capacité — routage de modèle, choix d'outil, sélection de skill, retry, routes
