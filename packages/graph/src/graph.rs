@@ -145,6 +145,18 @@ impl Graph {
             .collect()
     }
 
+    /// Les relations d'une sorte, dans un ordre stable.
+    ///
+    /// Une lecture, comme [`Graph::outgoing`] et [`Graph::incoming`] — et une lecture d'**une seule
+    /// sorte à la fois** : les vingt-huit relations de §7.5 ne sont pas interchangeables, et une
+    /// analyse qui les mélangerait lirait un `cites` comme un `supports`. L'ordre suit l'identité de
+    /// la relation, donc deux parcours du même graphe rendent la même chose.
+    pub fn relations_of_kind(&self, kind: RelationKind) -> impl Iterator<Item = &Relation> {
+        self.relations
+            .values()
+            .filter(move |relation| relation.kind == kind)
+    }
+
     /// Ce qu'on a le droit d'affirmer en sens inverse d'une relation — §7.5.
     ///
     /// Rend la relation réciproque quand elle existe, et `None` sinon. `None` ne veut pas dire

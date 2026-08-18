@@ -29,10 +29,12 @@
 //! relations sur vingt-huit. `A supports B` lu à l'envers ferait de la preuve une thèse ; `cites`
 //! ferait citer un article de 2026 par un article de 1890.
 
+pub mod consensus;
 pub mod graph;
 pub mod inference;
 pub mod relation;
 
+pub use consensus::{CircularConsensus, circular_consensus, citation_cycles};
 pub use graph::{Graph, Support};
 pub use inference::{FormalizationStatus, Inference, InferenceFindings, ObjectionTarget};
 pub use relation::{Direction, Relation, RelationKind, Strength};
