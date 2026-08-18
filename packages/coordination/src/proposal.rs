@@ -326,9 +326,17 @@ impl Proposal {
 /// Le mode du déploiement — ADR 0016, décision 8.
 ///
 /// Le défaut est `observed`, et c'est une exigence de §33 : « rendre toute action autonome sans
-/// seuil humain » est un **non-objectif explicite de la V1 ». Les modes `bounded` et `operator`
-/// n'existent pas ici : ils demandent la classe de risque dérivée et l'anti-gaming, qui sont W14
-/// et W16.
+/// seuil humain » est un **non-objectif explicite de la V1 ».
+///
+/// # Les quatre ne sont pas une échelle
+///
+/// L'ADR les présente dans un tableau, et un tableau se lit de haut en bas. La tentation est de leur
+/// donner un rang — `Ord`, un `level()`, un `is_at_least()` — et c'est l'échelle d'autorité à
+/// barreaux que `CLAUDE.md` interdit nommément. `operator` en est la réfutation : c'est le mode le
+/// **plus** privilégié et celui qui permet à un agent le **moins** — rien. Il décrit la session d'un
+/// humain nommé qui répare, pas une autonomie de plus accordée à la flotte.
+///
+/// Ce type ne dérive donc ni `PartialOrd` ni `Ord`, et n'expose aucun rang. Un test le tient.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum Mode {
     /// L'agent signale un besoin ; il ne propose pas. **Le défaut.**
@@ -336,19 +344,50 @@ pub enum Mode {
     Observed,
     /// L'agent propose ; un humain approuve.
     Assisted,
+    /// L'agent commite dans une région, sous plafond de budget et classe de risque **dérivée**.
+    ///
+    /// Ce mode ne relâche pas `forbid_self_approval` : il **retire l'approbation**, il ne la confie
+    /// pas au proposeur. La différence n'est pas rhétorique — un agent qui produirait une
+    /// approbation à son nom mettrait un nom sur un jugement que personne n'a porté.
+    Bounded,
+    /// Opérations privilégiées, réparation, rollback forcé — **un humain nommé, jamais un agent**.
+    Operator,
 }
 
 impl Mode {
+    /// Les quatre de l'ADR 0016 décision 8, dans l'ordre de son tableau.
+    ///
+    /// L'ordre est celui du document, pour qu'on puisse comparer les deux ; il n'est pas un rang.
+    pub const ALL: [Self; 4] = [
+        Self::Observed,
+        Self::Assisted,
+        Self::Bounded,
+        Self::Operator,
+    ];
+
     /// Vrai quand cet auteur peut proposer sous ce mode.
     ///
     /// Un humain propose toujours : le mode borne ce que les **agents** peuvent faire, pas ce que
     /// l'institution peut décider d'elle-même.
+    ///
+    /// Un agent propose sous `assisted` et sous `bounded`. Sous `observed` il signale, sous
+    /// `operator` il n'a rien à faire du tout.
     #[must_use]
     pub const fn allows(self, author: &Author) -> bool {
         match author {
             Author::Human(_) => true,
-            Author::Agent(_) => matches!(self, Self::Assisted),
+            Author::Agent(_) => matches!(self, Self::Assisted | Self::Bounded),
         }
+    }
+
+    /// Vrai quand ce mode dispense de l'approbation humaine.
+    ///
+    /// Seul `bounded`. `operator` n'en dispense pas : c'est déjà un humain qui agit, et il n'y a pas
+    /// d'approbation à retirer — les confondre ferait croire que deux modes autorisent l'autonomie
+    /// alors qu'un seul concerne les agents.
+    #[must_use]
+    pub const fn dispenses_with_approval(self) -> bool {
+        matches!(self, Self::Bounded)
     }
 
     /// Son nom.
@@ -357,6 +396,8 @@ impl Mode {
         match self {
             Self::Observed => "observed",
             Self::Assisted => "assisted",
+            Self::Bounded => "bounded",
+            Self::Operator => "operator",
         }
     }
 }

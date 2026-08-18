@@ -6166,3 +6166,73 @@ commentaire de W13 le dit. Un humain justifie une proposition par ce qu'il veut 
 
 **Prochain item.** W18.c — `bounded` et `operator`, avec la classe de risque dérivée des invariants
 menacés.
+
+---
+
+## 2026-08-18 — W18.c — `bounded` et `operator`, et la classe de risque qui ne se déclare pas
+
+**Périmètre.** `packages/coordination/src/proposal.rs` (`Mode` passe de deux à quatre membres),
+`packages/adaptation/src/bounded.rs`, `packages/adaptation/src/lib.rs`,
+`packages/adaptation/tests/bounded.rs`.
+
+**Tests exécutés.** `cargo test -p locus-adaptation` → 60 conformes (19 + 22 + 18 + un doctest).
+`cargo test --workspace` → propre. `cargo clippy --workspace --all-targets -D warnings` → propre.
+Mutation : seize mutants, **seize tués**.
+
+**Décisions prises.**
+
+_Les quatre modes ne sont pas une échelle._ L'ADR 0016 décision 8 les présente dans un tableau, et
+un tableau se lit de haut en bas ; la tentation est de leur donner un rang — `Ord`, un `level()`, un
+`is_at_least()` — et c'est exactement l'échelle d'autorité à barreaux que `CLAUDE.md` interdit
+nommément. `operator` en est la réfutation : c'est le mode le **plus** privilégié et celui qui
+permet à un agent le **moins**, rien du tout. Il décrit la session d'un humain nommé qui répare, pas
+une autonomie de plus accordée à la flotte. `Mode` ne dérive donc ni `PartialOrd` ni `Ord`, n'expose
+aucun rang, et un test lit le source pour le tenir.
+
+_La classe de risque est dérivée, et il n'y a nulle part où l'écrire._ `RiskClass` n'a qu'un
+constructeur, `of(&Diff)`, qui unit ce que `region::threatens` attribue à chaque opération. Ni
+`new`, ni champ public, ni `From`. C'est la seule forme qui tienne : la classe décide de ce qu'un
+agent peut committer sans humain, et la laisser déclarer reviendrait à lui laisser choisir son
+propre plafond. L'union, pas le maximum — deux opérations qui menacent chacune un invariant
+différent en menacent deux ensemble, et un maximum en cacherait un.
+
+_Le plafond est un ensemble, pas un compte._ `Region` a déjà un `risk_ceiling`, et c'est un nombre —
+`docs/13` le définit ainsi et il reste ce qu'il est. Mais son refus dit « risque 1 pour un plafond
+de 0 », ce qui ne renseigne personne, et sous `bounded` ce refus est la **seule** chose qu'un humain
+lira jamais de la décision. Le plafond de ce module nomme donc les invariants qu'un agent a le droit
+de menacer, et le refus les nomme aussi. C'est la règle de W16.b un cran plus loin : le refus nomme
+l'invariant, pas le lieu, et pas davantage le compte. Un test vérifie que le message ne contient
+aucun chiffre.
+
+_`bounded` retire l'approbation, il ne la confie pas au proposeur._ Rien dans ce module ne produit
+d'`Approved` — cette valeur enregistre le jugement d'une personne, et en fabriquer une au nom d'un
+agent mettrait un nom sur un jugement que personne n'a porté. `forbid_self_approval` reste donc vrai
+sans qu'on ait à le vérifier ici : il n'y a pas d'approbation à détourner. Un test refuse `Approved`
+et `fn approve` dans le source ; il ne refuse **pas** le mot `Approval`, parce que lire le mode
+d'approbation qu'une région déclare n'est pas produire une approbation.
+
+_Qui approuve, quand personne n'approuve._ L'ADR donne le mécanisme : « `allow` dans les bornes de
+`scope` et `budget_ceiling` ». Le `allow` du moteur tient la place que `ApprovalMode::Peer` réserve
+à « n'importe qui d'autre que l'auteur », et il la tient sans effort, n'étant l'auteur de rien. Ce
+module ne réévalue aucune règle : il lit l'`Outcome` rendu, avec sa trace. Une politique de
+`bounded` écrite ici serait une deuxième politique, invisible du moteur et non tracée.
+
+_Un mode ne surclasse pas un périmètre._ Une région qui déclare `ApprovalMode::Human` a dit, dans
+son propre périmètre, qu'une personne doit regarder ; `bounded` ne le lève pas. `require_shadow` non
+plus. Les six conditions d'`autonomously` sont donc, dans l'ordre : le mode, le `allow` du moteur,
+le verdict de la région, l'approbation humaine, l'ombre, et enfin la classe de risque.
+
+_Le veto global et le plafond sont deux refus distincts._ Là un invariant est **rompu** par un
+chemin passant hors de la région ; ici il est seulement **menacé** et le plafond ne le tolère pas.
+Les confondre ferait chercher un plafond mal réglé quand c'est la cohérence globale qui a mordu. Un
+test exerce le veto avec un plafond large exprès.
+
+_`Ceiling::untouchable()` est le défaut._ Élargir un plafond est une décision qui se lit dans un
+diff ; ne pas l'avoir resserré ne se lit nulle part.
+
+**Deux tests corrigés en cours de route.** Le premier interdisait la sous-chaîne `Approval`, qui
+attrape `ApprovalMode` et `HumanApprovalRequired` — deux lectures, pas une production. Le second
+cherchait `review_acyclicity` là où le slug de W15.c s'écrit `review-acyclicity` ; l'assertion «
+aucun chiffre dans le message » est restée, et c'est elle qui porte la garantie.
+
+**Prochain item.** W18.d — l'admission de capacité comme gouvernance.

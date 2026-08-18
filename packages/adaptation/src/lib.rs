@@ -21,10 +21,12 @@
 //! un [`spawn::Admitted`] le sait, et le seul producteur d'`Admitted` est [`spawn::dispose`], qui
 //! exige un verdict de moteur de politique.
 
+pub mod bounded;
 pub mod fast;
 pub mod slow;
 pub mod spawn;
 
+pub use bounded::{Autonomy, Ceiling, Denial, Operator, OperatorError, RiskClass, autonomously};
 pub use fast::{Adaptation, Adjustment, Fast, FastError};
 pub use spawn::{
     Admitted, Disposition, Draft, SpawnError, SpawnProposal, Trigger, Undecided, dispose,
