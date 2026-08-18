@@ -102,6 +102,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "locus-portfolio"
+version = "0.0.0"
+dependencies = [
+ "locus-protocol",
+]
+
+[[package]]
 name = "locus-projections"
 version = "0.0.0"
 dependencies = [
