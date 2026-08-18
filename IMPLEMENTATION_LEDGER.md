@@ -5010,3 +5010,52 @@ et les trois autres items de W14 portent le reste. La DSL elle-même n'est pas �
 construisent en mémoire, et un lecteur YAML viendra quand un producteur en écrira.
 
 **Prochain item.** W14.b — la `Delegation` de §20.4 : portée, plafonds, expiration, révocation.
+
+## 2026-08-18 — W14.b — La délégation de §20.4 : deux principals, jamais un
+
+**Périmètre.** `packages/policy/src/delegation.rs` (neuf), `packages/policy/tests/delegation.rs`
+(neuf, 12 tests), `src/lib.rs` (les réexports), ce fichier.
+
+**Tests exécutés.** `cargo test -p locus-policy` → 28 conformes (16 + 12). `npm run check` → les dix
+portes vertes. Mutation : quatorze mutants, **quatorze tués, aucun survivant**.
+
+**Décisions prises.**
+
+_Deux attributions, et rien qui les résume._ §20.4 : « les actions d'un agent sont attribuées au
+principal agentique **et** à la délégation humaine ou institutionnelle qui les autorise ». Un
+journal qui ne retiendrait que l'agent ferait porter à un programme une décision qu'un humain a
+autorisée ; un journal qui ne retiendrait que le délégant effacerait qui a agi. Les deux erreurs
+sont symétriques et toutes deux invisibles à la relecture — c'est la même forme que les deux
+verdicts de §19, et deux mutants distincts l'éprouvent dans les deux sens.
+
+_L'agent attribué est celui qui a **demandé**, pas le délégataire nommé._ Un sous-agent qui agit
+sous une délégation garde son identité ; les confondre ferait porter ses actes à un autre.
+
+_Cinq motifs de refus, pas un._ Agir hors portée est une erreur d'aiguillage, dépasser un plafond
+est une demande trop grande, agir après expiration est une autorisation périmée, agir sous
+révocation est une autorisation retirée. Un « non autorisé » sans motif ferait chercher au mauvais
+endroit dans quatre cas sur cinq.
+
+_La révocation prime sur tout le reste._ Une demande par ailleurs fautive est refusée **pour
+révocation** : un motif secondaire ferait croire qu'en corrigeant la demande on retrouverait
+l'autorisation.
+
+_Les bornes sont des bornes._ Le plafond atteint exactement passe, la fenêtre inclut son début et
+exclut sa fin. Une inégalité stricte de trop rendrait inutilisable la dernière unité de budget
+accordée ; une borne d'expiration inclusive ferait durer la délégation un instant de plus, et cet
+instant est exactement celui où quelqu'un croit qu'elle a cessé.
+
+_`revocable` décide de quelque chose._ Une délégation irrévocable refuse la révocation au lieu de
+l'accepter silencieusement — accepter en apparence et continuer d'autoriser serait la pire des deux
+réponses, puisque le délégant croirait avoir agi. Le test vérifie les deux moitiés : le refus, et le
+fait qu'elle continue d'autoriser, ce qui est cohérent avec lui.
+
+_Aucune horloge n'est lue._ `valid_from` et `expires_at` sont des instants que l'appelant fournit,
+pour la même raison que le moteur de politique ne lit aucun fait qu'on ne lui a pas donné : une
+autorisation qui dépendrait de l'heure qu'il est ne se rejouerait pas.
+
+**Écart avec la spec.** §20.4 nomme aussi la chaîne de délégation — une délégation qui en autorise
+une autre. Rien ici ne la porte : le texte ne dit pas si elle est permise, et l'inventer donnerait à
+un agent le moyen de s'étendre lui-même. À trancher quand un consommateur en aura besoin.
+
+**Prochain item.** W14.c — l'explicabilité de §20.5, dont les alternatives rejetées.

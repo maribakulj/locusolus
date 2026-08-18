@@ -34,6 +34,10 @@
 //! À priorité égale, il n'y a pas de gagnant. Le conflit est **rendu**, pas résolu : un moteur qui
 //! choisirait tout de même déciderait à la place de qui a écrit les règles.
 
+pub mod delegation;
+
+pub use delegation::{Attribution, Authorisation, Delegation, DelegationError, Refusal, Request};
+
 use std::collections::BTreeSet;
 use std::fmt;
 
