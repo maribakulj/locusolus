@@ -5897,3 +5897,66 @@ prend désormais des entrées nommées — `EpistemicEntry`, `OrganisationalEntr
 marque, et elle traverse entière jusqu'au résultat. Trois mutants la tiennent.
 
 **Prochain item.** W17.d — déduplication non automatique et compaction.
+
+## 2026-08-18 — W17.d — Déduplication non automatique et compaction
+
+**Périmètre.** `packages/memory/src/dedup.rs` et `src/compaction.rs` (neufs),
+`packages/memory/tests/dedup.rs` (12 tests) et `tests/compaction.rs` (8 tests), `src/lib.rs` (les
+réexports), ce fichier.
+
+**Tests exécutés.** `cargo test -p locus-memory` → 46 conformes. `npm run check` → les dix portes
+vertes. Mutation : dix-neuf mutants, **dix-neuf tués**.
+
+**Décisions prises — §16.4.**
+
+_Les deux sortes de doublon ne se traitent pas pareil._ Un duplicata **exact** est un constat : deux
+contenus de même hash sont le même contenu, et le dire n'engage personne. Un candidat **sémantique**
+est une ressemblance, et la ressemblance n'est pas l'identité. `Candidate` n'expose donc aucune
+méthode qui fusionne ; le seul chemin est `Resolution::decide`, qui exige confiance, provenance et
+décideur. Ce n'est pas une discipline d'appel : il n'y a pas de `merge()` à ne pas appeler.
+
+_« Distinct » est une réponse, pas une absence._ Sans cette variante, un candidat non fusionné
+serait indiscernable d'un candidat jamais examiné — et quelqu'un le réexaminerait, puis un autre,
+jusqu'à ce que l'un d'eux tranche dans l'autre sens. C'est la « possibilité de _mêmes mots, concepts
+différents_ » que §16.4 nomme en dernière ligne, et elle ne tient que si le refus se consigne.
+
+_Une fusion se défait par une nouvelle décision, pas par suppression._ L'originale reste et se relit
+**à travers** celle qui la renverse. Un renversement qui conclurait comme l'original est refusé : il
+ne renverse rien, et le consigner ferait croire à un changement. Même forme que l'ADR 0016
+décision 5.
+
+_Un groupe de doublons est trié, pas rendu dans l'ordre d'arrivée._ Le premier tour de mutation l'a
+laissé passer parce que ma fixture insérait déjà les entités dans l'ordre trié — un corpus relu
+autrement aurait montré un groupe différent, et deux opérateurs n'auraient pas vu le même doublon.
+
+**Décisions prises — §16.5.**
+
+_Une compaction signale ce qu'elle a omis._ C'est la moitié de ce qu'elle dit : un résumé qui ne
+signale pas ses omissions se lit comme complet, et personne ne va chercher ce qu'il ignore avoir
+perdu.
+
+_Elle ne promeut rien._ Un objet que **personne n'a évalué** ne peut pas être consigné comme fait.
+Le refus s'arrête là, délibérément : exiger davantage — une revue indépendante, une reproduction —
+serait fixer un seuil que §16.5 ne fixe pas. C'est une question de politique (§20), et l'inventer
+ici la mettrait hors de portée de la politique. Deux mutants qui élargissent le refus, l'un à toutes
+les sortes et l'autre à tous les niveaux, meurent tous les deux.
+
+Corollaire testé : le même objet non évalué entre **sans difficulté** sous une autre sorte. Le refus
+porte sur la promotion, pas sur l'objet — l'interdire partout ferait disparaître les questions
+ouvertes d'un résumé, ce qui est l'inverse du but.
+
+_Le niveau de validation voyage à côté de la sorte, jamais fondu dedans._ C'est ce qui permet de
+constater après coup qu'une compaction n'a rien promu ; sans lui il faudrait remonter à la source,
+et personne ne le fait.
+
+_Une compaction est toujours une projection._ « Peut être régénérée » n'est pas une faculté
+optionnelle : c'est ce qui la range du côté des projections de §16.1 (W17.a). Il n'existe aucun
+chemin par lequel elle se déclare canonique — elle deviendrait la source, et l'invariant 2 tomberait
+sans qu'aucune ligne ne l'annonce.
+
+**Une garde morte retirée.** Un mutant a montré que `is_finite()` était inatteignable devant le test
+de bornes : toute comparaison avec `NaN` étant fausse, `contains` l'est aussi. La garde est retirée
+et la subtilité écrite en commentaire — une garde morte finit par être lue comme la seule qui
+protège, et le jour où les bornes changent, personne ne saura qu'elle ne servait à rien.
+
+**Prochain item.** W17.e — les quatre vues du cockpit et la sélection synchronisée.

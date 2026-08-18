@@ -18,10 +18,17 @@
 //! sorte qu'un appelant ne puisse pas déclarer régénérable ce qui ne l'est pas — une compaction qui
 //! se croirait canonique deviendrait la source, et l'invariant 2 tomberait sans que rien n'échoue.
 
+pub mod compaction;
+pub mod dedup;
 pub mod level;
 pub mod retrieval;
 pub mod separated;
 
+pub use compaction::{Compaction, CompactionError, Kept, Kind};
+pub use dedup::{
+    Candidate as DuplicateCandidate, DedupError, Entity, ExactDuplicates, Resolution, Verdict,
+    exact_duplicates,
+};
 pub use level::{Entry, Level, MemoryError, Shelf, Substance};
 pub use retrieval::{Candidate, Excluded, Ranking, Results, RetrievalError, Signal, retrieve};
 pub use separated::{
