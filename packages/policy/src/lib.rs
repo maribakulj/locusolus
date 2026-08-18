@@ -35,8 +35,10 @@
 //! choisirait tout de même déciderait à la place de qui a écrit les règles.
 
 pub mod delegation;
+pub mod explanation;
 
 pub use delegation::{Attribution, Authorisation, Delegation, DelegationError, Refusal, Request};
+pub use explanation::{Explanation, ExplanationError, Facet, Override, Rejected};
 
 use std::collections::BTreeSet;
 use std::fmt;
