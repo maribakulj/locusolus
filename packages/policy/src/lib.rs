@@ -34,9 +34,11 @@
 //! À priorité égale, il n'y a pas de gagnant. Le conflit est **rendu**, pas résolu : un moteur qui
 //! choisirait tout de même déciderait à la place de qui a écrit les règles.
 
+pub mod category;
 pub mod delegation;
 pub mod explanation;
 
+pub use category::{Applied, Category, Coverage, Run, Simulation};
 pub use delegation::{Attribution, Authorisation, Delegation, DelegationError, Refusal, Request};
 pub use explanation::{Explanation, ExplanationError, Facet, Override, Rejected};
 
