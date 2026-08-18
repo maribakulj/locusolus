@@ -6420,3 +6420,60 @@ construisait un cycle citant un autre cycle déjà fermé ; il en existe un main
 meurt.
 
 **Prochain item.** `R2` à `R6`, ou les items bloqués si leur condition se lève.
+
+---
+
+## 2026-08-18 — R2 — Le crédit structurel, et le hasard qui est une issue nommée
+
+**Périmètre.** `packages/evaluation/src/credit.rs`, `packages/evaluation/src/lib.rs`,
+`packages/evaluation/tests/credit.rs`.
+
+**Tests exécutés.** `cargo test -p locus-evaluation` → 16 conformes pour cet item. `npm run check` →
+les dix portes vertes. Mutation : quinze mutants, **quinze tués**.
+
+**Décisions prises.**
+
+_Le hasard d'échantillonnage est une issue nommée, jamais un reste._ C'est la phrase entière de
+l'item. Une attribution qui rend toujours l'un des trois facteurs donne une histoire à chaque
+fluctuation : on a changé quelque chose, la mesure a bougé, donc le changement a marché. Rien dans
+ce raisonnement ne distingue une amélioration d'un tirage favorable — et un système qui l'applique
+en boucle garde tous ses changements, dont la moitié n'a rien fait. `Credit::SamplingNoise` porte
+donc l'écart **et** la bande : elle ne dit pas « on ne sait pas », elle dit « voici de combien la
+même configuration varie toute seule, et votre écart est dedans ».
+
+_Le hasard n'est pas un quatrième facteur._ `Factor` en compte trois — relation, rôle, budget —
+parce qu'on ne **change** pas le hasard, on le mesure. Le ranger dans l'énumération donnerait un
+quatrième bouton à tourner, qui n'existe pas. Un test lit la déclaration et refuse `Noise`,
+`Sampling`, `Random`, `Unknown`, `Other`.
+
+_La bande se mesure, elle ne se suppose pas._ `Baseline::from_replays` exige au moins deux rejeux de
+la **même** configuration. Il n'existe ni bande par défaut, ni `Default`, ni seuil constant — un
+test lit le source et refuse `const BAND`, `const THRESHOLD`, `const EPSILON`. Une bande inventée
+ferait passer pour du bruit ce qui n'en est pas, ou l'inverse, selon un chiffre que personne n'a
+mesuré.
+
+_La bande est l'étendue, pas un écart-type._ Trois rejeux ne renseignent pas un écart-type, et en
+calculer un donnerait à trois mesures l'apparence d'une distribution. Le nombre de rejeux voyage
+avec la bande : une bande tirée de deux et une bande tirée de deux cents ne se lisent pas pareil.
+
+_Deux facteurs changés n'attribuent rien, et le refus les nomme._ La suite est d'aller mesurer
+chacun séparément, et un « non attribuable » sans liste envoie tout remesurer. Le refus tombe
+**avant** le calcul de l'écart : un gros écart n'excuse pas la confusion, et un test l'exerce à
+mille.
+
+_Deux bras identiques ne sont pas du bruit._ Rendre `SamplingNoise` ferait croire qu'un facteur a
+été mis à l'épreuve et n'a rien donné, alors qu'aucun ne l'a été. C'est la distinction de W18.e
+entre « non regardé » et « regardé et gardé », dans un autre domaine.
+
+_Une régression s'attribue comme une amélioration._ `Credit::Attributed` porte un écart **signé**.
+L'invariant 12 interdit de supprimer les résultats négatifs pour rendre le dossier propre — et c'est
+aussi le seul moyen de **défaire** un changement inutile plutôt que de l'oublier. `factor()` et
+`is_improvement()` répondent donc à deux questions distinctes ; les réunir ferait disparaître les
+régressions attribuées, qui ont un facteur et ne sont pas des améliorations.
+
+**Une assertion corrigée.** Le premier test comparait `Credit::SamplingNoise { gain: 0.8, .. }` par
+égalité exacte ; `10.8 - 10.0` vaut `0.8000000000000007`. L'égalité exacte de deux flottants issus
+d'une soustraction est une assertion sur la représentation, pas sur le verdict. Le test compare
+désormais à la tolérance près, et les autres cas emploient des écarts exactement représentables.
+
+**Prochain item.** `R3` — évaluation structurelle et regret structurel, calculable en rejeu.

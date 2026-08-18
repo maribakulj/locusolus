@@ -28,11 +28,13 @@
 //! d'indépendance et le verdict de `locus doctor`.
 
 pub mod benchmark;
+pub mod credit;
 pub mod endurance;
 
 pub use benchmark::{
     BenchmarkError, Comparison, Configuration, Coverage, Direction, Metric, Ranking,
 };
+pub use credit::{Arm, Baseline, Credit, CreditError, Factor, attribute};
 pub use endurance::{Campaign, Endurance, EnduranceError, Measure, Requirement, Shortfall};
 
 use std::collections::BTreeMap;
