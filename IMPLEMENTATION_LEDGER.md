@@ -7251,3 +7251,131 @@ dimensionné, tmpfs borné, ou renoncement déclaré — et `exceed_disk_quota` 
 **Tests exécutés.** `cargo test -p locus-execd --test linux` → 31 conformes, dont huit neufs.
 `npm run check` → les dix portes vertes. Mutation : onze mutants, **onze tués** — après correction
 du survivant décrit plus haut, qui était un vrai trou.
+
+---
+
+## 2026-08-18 — W5.k — L'instrument a démenti l'hypothèse qui l'avait fait construire
+
+**Périmètre.** `apps/locus-execd/tests/host_sandbox.rs` (un test `#[ignore]` de plus) et
+`docs/10_V1_ROADMAP.md`. Aucun correctif : ce sprint **établit** un fait et livre l'instrument qui
+le tranchera.
+
+**D'où vient la question.** Le constat de route ajouté par `W5.h` devait distinguer « la sandbox a
+coupé le réseau » de « l'hôte ne mène nulle part ». Sur le runner, il a rendu « pas de route par
+défaut ». Deux lectures s'offraient, réparables à des endroits opposés — la sonde lit mal, ou la
+sandbox n'a réellement pas de réseau — et le ledger de `W5.h` disait explicitement qu'affirmer l'une
+sans regarder serait exactement ce que cet item reproche aux sondes.
+
+**Trois vérifications, aucune n'a coûté un passage de CI supplémentaire.**
+
+_Les arguments sont bons._ `create_arguments` pour `S2` + `NetworkMode::Full` porte
+`--network=host`, et `plan` rend `NetworkPosture::Host` sans namespace réseau. Vérifié hors
+conteneur, sur les arguments eux-mêmes, en imprimant ce que le plan produit.
+
+_Le constat de route est bon._ Rejoué hors ligne sur la sortie réelle de `/proc/net/route` capturée
+dans le conteneur, l'`awk` trouve la route et rend 0 ; sur un `/proc/net/route` réduit à son en-tête
+— ce que présente un namespace réseau vide — il rend 1. La sonde fait donc exactement ce qu'elle
+annonce.
+
+_Le monde est joignable._ Le job imprime désormais ce qu'un `podman run --network=host` nu voit sur
+le runner : une route par défaut sur `eth0`, un `resolv.conf` qui résout, `curl example.org` →
+**200**, et même `169.254.169.254` → **400**, c'est-à-dire un service qui répond.
+
+**Ce qui reste, et c'est le fait.** La sandbox créée par le plan ne voit pas la route, alors que les
+arguments la demandent et que l'hôte l'offre. **Une permission déclarée n'est pas accordée**, en
+silence. C'est le miroir exact de `W5.g` : là une borne déclarée n'était pas applicable, ici une
+permission déclarée n'est pas honorée. Les deux ne se voient qu'en regardant depuis l'intérieur, et
+c'est pourquoi aucun double ne pouvait les trouver.
+
+**Ce qui est livré.** Un test `#[ignore]` qui crée la sandbox du plan, lit `/proc/net/route`
+**depuis l'intérieur**, l'imprime, puis affirme que la route par défaut y est. Il imprime avant
+d'affirmer parce que la suite du travail est de trouver **lequel** des drapeaux du plan produit cet
+écart — `--read-only`, la posture seccomp, les douze `--cap-drop`, les quotas cgroup — et que cela
+se bissecte sur une table, pas sur un verdict.
+
+**Et le premier passage du test a trouvé un défaut dans le test lui-même.** Il a rapporté, à la
+place de la table de routage : « le nom de conteneur `locus-0001` est déjà utilisé ». Les trois
+tests du fichier tournent dans le même processus et chacun construit son propre `PodmanBackend`,
+dont le compteur de noms repart à zéro ; lancés en parallèle, ils se disputent le même nom. Le test
+a alors **affirmé que la sandbox ne voyait pas la route, alors qu'aucune sandbox n'existait**.
+
+C'est mot pour mot la faute que cet item reproche aux sondes : présenter une absence d'observation
+comme une observation. Deux corrections. `inspect_network` rend un `Result` — le type empêche
+désormais de confondre « créée, et voici ce qu'elle voit » avec « pas créée, et voici pourquoi » —
+et le job lance la suite en `--test-threads=1`, avec la raison écrite dans le workflow plutôt que
+laissée à deviner.
+
+Le fait de fond n'en est pas affecté : les verdicts « bloquée » des deux sondes réseau viennent du
+**second** test, celui qui a bien créé sa sandbox et exercé les seize sondes. C'est le nouveau test
+de diagnostic qui n'avait rien observé, et il le dit maintenant.
+
+**Ce que ce sprint ne fait pas.** Il ne corrige rien, et il ne prétend pas savoir quel drapeau est
+en cause. Nommer un coupable sans l'avoir isolé serait la même faute que celle des trois sondes qui
+lisaient un réseau muet comme une preuve d'isolation.
+
+---
+
+## 2026-08-18 — W5.k, suite — L'hypothèse est fausse, et le vrai défaut est que « arrêter » n'est pas « retirer »
+
+**Ce sprint retire une affirmation.** L'entrée précédente concluait que la sandbox du plan
+n'obtenait pas le réseau déclaré. **C'est faux.** Le test construit pour le vérifier — celui qui lit
+`/proc/net/route` depuis l'intérieur — **passe** sur le runner : la sandbox voit la route par défaut
+de l'hôte, sur `eth0`, avec la passerelle. L'instrument a démenti l'hypothèse qui l'avait fait
+construire, et c'est exactement ce pour quoi il avait été écrit.
+
+**Ce que les trois passages illisibles cachaient.** `RuntimePort::stop` lance `podman stop`. **Rien
+ne lance `podman rm`.** Un conteneur arrêté garde son nom et sa couche inscriptible ; le suivant qui
+demande le même nom échoue avec « the container name `locus-0001` is already in use ». Et comme
+chaque test construit son propre `PodmanBackend`, dont le compteur de noms repart à zéro, ils se
+disputent tous le premier nom.
+
+Le module `selftest` avait vu la **conséquence** sans voir la **cause**. Sa documentation de
+`certify` dit : « la sandbox est arrêtée même quand la suite s'est mal passée : une sonde qui a
+échoué laisse derrière elle un conteneur qui tourne, et un hôte qui accumule des conteneurs
+d'épreuve finit par ne plus pouvoir en créer. » La phrase est juste et la précaution ne suffit pas :
+**arrêter n'est pas retirer**, et c'est le nom, pas l'exécution, qui manque au suivant.
+
+**Ce que cela invalide.** Les tables de sondes lues jusqu'ici viennent de passages où **un seul**
+des conteneurs existait ; les autres rapportaient une erreur de nom là où on attendait un verdict de
+confinement. Les verdicts « bloquée » des deux sondes réseau ne sont donc plus établis : ils peuvent
+venir d'un conteneur réel comme d'une collision. Il faut un passage propre avant de croire une ligne
+de plus de ces tables, et c'est pourquoi rien de ce qui en découlait n'est reporté ici comme acquis.
+
+**Ce qui est fait, et ce qui est ouvert.** Les tests retirent désormais leur conteneur après l'avoir
+arrêté, par le runner et non par le port — parce que **le port n'a pas cette opération**. C'est une
+dette assumée et nommée : un test qui laisse derrière lui de quoi faire échouer le suivant ne mesure
+plus rien, mais l'endroit correct est le port. `W5.l` l'y met, et son test de sortie demande qu'un
+`certify` ne laisse **rien** derrière lui, constaté en redemandant le même nom.
+
+_Une conséquence à ne pas manquer._ `persist_after_teardown` — « un fichier écrit dans la sandbox ne
+survit pas au démontage » — tient aujourd'hui parce que l'écriture est refusée par la racine en
+lecture seule, jamais parce qu'un démontage a eu lieu : **il n'y en a pas**. C'est la même famille
+que `exceed_disk_quota` de `W5.h`, une sonde qui passe un test qu'elle ne fait pas tourner. `W5.l`
+la rendra mesurable.
+
+**Ce que ce sprint garde de bon.** Un instrument qui regarde depuis l'intérieur, et qui a servi
+exactement une fois à réfuter celui qui l'avait écrit. Et deux corrections de méthode :
+`inspect_network` rend un `Result`, de sorte qu'« aucune sandbox » ne puisse plus se présenter comme
+« aucune route » ; et le job lance la suite en `--test-threads=1`, la raison écrite dans le
+workflow.
+
+**Le passage propre a eu lieu, et il resserre la question au lieu de la fermer.** Avec
+`--test-threads=1` et le retrait des conteneurs, plus aucune collision : le test de réseau **passe**
+— la sandbox voit la route par défaut — et `les_quinze_sondes` s'exécute pour de bon. Les mêmes
+**trois** sondes ressortent sur-confinées, `open_outbound_connection`,
+`reach_cloud_metadata_service` et `reach_host_kernel_interfaces`.
+
+Ce qui subsiste est donc une contradiction nette, et elle est plus intéressante que l'hypothèse
+qu'elle remplace : **dans le même conteneur, `cat /proc/net/route` montre la route par défaut, et le
+constat `awk` de la sonde ne la trouve pas.** Les deux passent par `podman exec` sur la même
+sandbox, avec la même spécification.
+
+Trois suites possibles, et aucune n'est acquise : l'`awk` de busybox ne découpe pas ces champs comme
+celui du poste où le motif a été mis au point ; la sonde n'atteint pas la branche du constat et sort
+avant, par un chemin qui rend un code lu comme un blocage ; ou les deux lectures ne voient pas le
+même `/proc`. Ce qui les départage est le **code de sortie de la sonde elle-même**, que le harnais
+réduit aujourd'hui à trois états — et c'est précisément ce qu'il faut instrumenter au prochain
+passage.
+
+Ce n'est pas écrit comme un défaut de plus, mais comme une question posée correctement : la
+précédente ne l'était pas, et elle a coûté une hypothèse fausse.
