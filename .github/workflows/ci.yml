@@ -114,6 +114,12 @@ jobs:
       - name: Emacs client tests
         run: npm run check:emacs -- --require-emacs
 
+      # Les assertions Node sur la règle 5 démarrent un vrai Emacs : elles se sautent dans le
+      # job `check`, qui n'en a pas, et c'est ici qu'elles tournent réellement. Sans cette
+      # étape, elles seraient sautées partout — un skip muet ressemble à un succès.
+      - name: Boundary contract tests
+        run: node --test "tests/boundaries/*.test.ts"
+
   rust:
     name: rust
     runs-on: ubuntu-latest

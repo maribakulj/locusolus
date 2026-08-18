@@ -5,10 +5,22 @@ import { join } from "node:path";
 import { test } from "node:test";
 
 import { inspectBoundaries } from "../../tooling/boundaries/analyze.ts";
+import { emacsAvailable } from "../../tooling/boundaries/emacs.ts";
 import { loadContract } from "../../tooling/boundaries/rules.ts";
 import { loadFixtures, repoRoot } from "./fixtures.ts";
 
 const contract = await loadContract(join(repoRoot, "boundaries.json"));
+
+/**
+ * Les deux assertions sur la règle 5 démarrent un vrai Emacs — y compris celle qui porte sur le
+ * cas « sans objet », puisque la garde vérifie la disponibilité d'Emacs avant de regarder les
+ * points d'entrée. Elles se sautent donc là où il n'y en a pas, **en le disant**, et tournent dans
+ * le job `emacs` de la CI, qui en installe un et lance ce fichier exprès. Un `skip` muet
+ * ressemblerait à un succès : c'est le défaut que la règle 5 existe pour ne pas avoir.
+ */
+const withoutEmacs = (await emacsAvailable())
+  ? false
+  : "emacs absent : ces assertions tournent dans le job `emacs`";
 const frontiers = await claudeMdFrontiers();
 
 test("le contrat porte les frontières de CLAUDE.md, dans l'ordre", () => {
@@ -80,17 +92,21 @@ test("le dépôt lui-même ne franchit aucune frontière", async () => {
  * dont la prémisse dépend de l'avancement du dépôt s'éteint le jour où le dépôt avance, et
  * l'extinction ressemble à un succès. La prémisse est donc construite ici.
  */
-test("une règle sans objet est déclarée comme telle, jamais comptée comme vérifiée", async () => {
-  const empty = await mkdtemp(join(tmpdir(), "locus-boundaries-"));
-  await mkdir(join(empty, "apps", "emacs"), { recursive: true });
+test(
+  "une règle sans objet est déclarée comme telle, jamais comptée comme vérifiée",
+  { skip: withoutEmacs },
+  async () => {
+    const empty = await mkdtemp(join(tmpdir(), "locus-boundaries-"));
+    await mkdir(join(empty, "apps", "emacs"), { recursive: true });
 
-  const report = await inspectBoundaries(empty, contract, { emacs: "auto" });
-  const emacs = report.statuses.find((status) => status.rule.kind === "emacs-isolation");
-  assert.ok(emacs, "la règle 5 doit apparaître dans le rapport");
-  assert.equal(emacs.state, "not-applicable", "sans point d'entrée, il n'y a rien à vérifier");
-  assert.equal(emacs.scanned, 0);
-  assert.deepEqual(report.findings, [], "sans objet n'est pas une violation");
-});
+    const report = await inspectBoundaries(empty, contract, { emacs: "auto" });
+    const emacs = report.statuses.find((status) => status.rule.kind === "emacs-isolation");
+    assert.ok(emacs, "la règle 5 doit apparaître dans le rapport");
+    assert.equal(emacs.state, "not-applicable", "sans point d'entrée, il n'y a rien à vérifier");
+    assert.equal(emacs.scanned, 0);
+    assert.deepEqual(report.findings, [], "sans objet n'est pas une violation");
+  },
+);
 
 /**
  * Et le pendant, sur le dépôt réel : depuis W8.a, `apps/emacs` porte des points d'entrée, donc la
@@ -98,11 +114,15 @@ test("une règle sans objet est déclarée comme telle, jamais comptée comme v�
  * règle — faute d'Emacs, ou parce qu'un renommage l'aurait rendue « sans objet » — et le rapport
  * dirait « ok » d'une frontière que plus rien ne tient.
  */
-test("la règle 5 est vérifiée, maintenant qu'apps/emacs porte des points d'entrée", async () => {
-  const report = await inspectBoundaries(repoRoot, contract, { emacs: "required" });
-  const emacs = report.statuses.find((status) => status.rule.kind === "emacs-isolation");
-  assert.ok(emacs);
-  assert.equal(emacs.state, "enforced");
-  assert.ok(emacs.scanned > 0, "au moins un point d'entrée est chargé sous emacs -Q");
-  assert.deepEqual(report.findings, []);
-});
+test(
+  "la règle 5 est vérifiée, maintenant qu'apps/emacs porte des points d'entrée",
+  { skip: withoutEmacs },
+  async () => {
+    const report = await inspectBoundaries(repoRoot, contract, { emacs: "required" });
+    const emacs = report.statuses.find((status) => status.rule.kind === "emacs-isolation");
+    assert.ok(emacs);
+    assert.equal(emacs.state, "enforced");
+    assert.ok(emacs.scanned > 0, "au moins un point d'entrée est chargé sous emacs -Q");
+    assert.deepEqual(report.findings, []);
+  },
+);
