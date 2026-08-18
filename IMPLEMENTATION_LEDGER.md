@@ -4918,3 +4918,45 @@ un relevé. Instrumenter la campagne — compter les événements, constater une
 le travail des paquets qui les produisent, et l'endurance elle-même demande sept jours de machine.
 
 **Prochain item.** W12.c — les benchmarks de §29.7 : six configurations, onze mesures.
+
+## 2026-08-18 — W12.c — Les benchmarks de §29.7 : une mesure absente n'est pas une mesure nulle
+
+**Périmètre.** `packages/evaluation/src/benchmark.rs` (neuf),
+`packages/evaluation/tests/benchmark.rs` (neuf, 12 tests), `src/lib.rs` (les réexports), ce fichier.
+
+**Tests exécutés.** `cargo test -p locus-evaluation` → 33 conformes (12 + 9 + 12). `npm run check` →
+les dix portes vertes. Mutation : onze mutants, **onze tués, aucun survivant**.
+
+**Décisions prises.**
+
+_Le classement refuse de trancher tant qu'une lecture manque._ C'est la faute que ce module existe
+pour empêcher, et elle est silencieuse : une configuration dont on n'a pas relevé les faux positifs
+les aurait à zéro dans un classement naïf, donc gagnerait. §29.7 compare six architectures dont la
+dernière est celle qu'on construit — ce qui rend la tentation permanente et les trous de mesure
+dangereux. Refuser est le comportement utile ici : un classement partiel a l'air d'un résultat, et
+se cite comme tel.
+
+_Plus n'est pas toujours mieux._ Quatre mesures sur onze se lisent à l'envers. Se tromper de sens
+ferait élire la configuration la plus chère, et le classement aurait l'air parfaitement sain — deux
+mutants l'éprouvent, l'un qui inverse tout, l'autre qui déplace seulement le coût.
+
+_Une lecture interprétative, déclarée comme telle._ §29.7 ne dit pas dans quel sens lire le « taux
+de rejet en revue ». Il est pris ici comme « moins est mieux » — une architecture dont les
+productions se font rejeter plus souvent produit un travail moins bon — et le doc-comment le dit,
+pour qu'on puisse le contester plutôt que le découvrir.
+
+_`NaN` est refusé._ Il rendrait le classement **muet** plutôt que faux, ce qui est pire : un
+classement faux se remarque, un classement qui élit toujours le premier venu non.
+
+_Le compilateur a tué quatre mutants avant les tests._ Retirer une configuration ou une mesure ne
+compile pas — les tableaux sont dimensionnés, le `match` est exhaustif. C'est le type qui tient la
+liste close de §29.7, et les mutants ont été refaits en dupliquant une entrée plutôt qu'en la
+retirant, pour éprouver ce que les tests tiennent réellement. Un mutant qui ne compile pas n'est pas
+un mutant tué.
+
+**Écart avec la spec.** Ce module ne mesure rien : il dit ce que §29.7 compare et refuse de conclure
+sur une comparaison trouée. Produire les lectures demande de faire tourner six architectures sur un
+corpus commun, ce qui est une campagne, pas une fonction.
+
+**Prochain item.** W12 est couvert. La roadmap n'a plus de section en prose ; ce qui reste est W14 à
+W18, et la 3D de §23.4 qui demande d'abord de décider comment on la vérifie.

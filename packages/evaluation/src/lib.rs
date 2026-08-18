@@ -27,8 +27,12 @@
 //! l'attestation de sandbox, le digest de build, le niveau de reproductibilité, l'attestation
 //! d'indépendance et le verdict de `locus doctor`.
 
+pub mod benchmark;
 pub mod endurance;
 
+pub use benchmark::{
+    BenchmarkError, Comparison, Configuration, Coverage, Direction, Metric, Ranking,
+};
 pub use endurance::{Campaign, Endurance, EnduranceError, Measure, Requirement, Shortfall};
 
 use std::collections::BTreeMap;
