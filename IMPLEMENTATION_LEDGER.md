@@ -7085,3 +7085,73 @@ pquota, faute de quoi `podman create` refuse dès la création —, une isolatio
 micro-VM pour `S4`, et de quoi **attester**. Un runner GitHub échoue sur le premier et ne tient
 aucun des trois autres. La condition est une machine dédiée : c'est un fait de déploiement, pas une
 dette de code, et les deux items le disent maintenant sous cette forme.
+
+---
+
+## 2026-08-18 — W5.h — Les sondes que le premier hôte réel a démenties : trois corrigées, deux renvoyées
+
+**Périmètre.** `apps/locus-execd/src/linux/selftest.rs` et son test. Trois sondes réécrites, un code
+de sortie réservé de plus, cinq tests. Les deux sondes restantes sont renvoyées, chacune vers l'item
+qui peut réellement la traiter.
+
+**La sonde inversée, et c'est la plus grave des cinq trouvailles.** `read_process_environment`
+lisait `/proc/1/environ`. Dans un namespace PID — que `S2` pose — `/proc/1` est l'init **du
+conteneur**, c'est-à-dire le workload, appartenant à l'utilisateur mappé. La lecture réussissait
+donc, et elle réussissait **d'autant plus sûrement que le confinement était correct**. La sonde ne
+pouvait pas échouer sur un hôte bien configuré ; comme elle est `critical`, tout hôte bien configuré
+se voyait refuser la confiance. Un an de `sh -n` vert n'aurait jamais montré ça.
+
+_Le discriminant retenu est le cgroup._ La dimension est `HostSecret` et le motif dit «
+l'environnement d'un **autre** processus » : « autre » veut dire hors de cette sandbox. `S2` pose
+aussi un namespace cgroup, donc tout ce que le conteneur voit porte le même chemin que lui ; un
+processus dont le cgroup diffère du nôtre est, par construction, un processus que nous n'avons pas
+créé. Sans namespace PID les processus de l'hôte sont visibles avec leurs cgroups propres et la
+sonde en trouve un — elle réussit, comme le niveau le permet. Avec, il n'y a plus rien d'étranger à
+lire, **et c'est cela le confinement**.
+
+**Un code réservé de plus, et il ne se confond avec aucun autre.** `121` dit « ce que je devais
+**atteindre** n'a pas répondu ». `120` disait « ce que je devais **lire** n'était pas là ». Les deux
+sont des ignorances, aucune n'est un blocage, et elles ne se réparent pas pareil : la première en
+complétant l'image, la seconde en changeant d'hôte ou en renonçant à la mesure. Les fondre ferait
+disparaître la seconde — ce qui est exactement l'état d'avant, où trois sondes ressortaient
+**bloquées**, c'est-à-dire lues comme une preuve d'isolation, alors que le réseau de l'hôte ne
+menait nulle part. C'est le piège du 127 de `W5.c` et du 120 de `W5.d`, une couche plus loin.
+
+**Les deux sondes réseau constatent d'abord s'il y a une route.** `S3` s'appelle
+`container-isolated-network` : ce qu'il contient **est** le namespace, et un namespace réseau vide
+n'a pas de route par défaut. Sans ce constat, un `curl` qui échoue ne distingue pas « la sandbox a
+coupé le réseau » de « l'hôte ne mène nulle part ». Le constat lit `/proc/net/route` et non
+`ip route` : le fichier existe toujours, le binaire non, et `W5.d` interdit à une sonde d'attendre
+quoi que ce soit de l'image. Un test le tient dans les deux sens.
+
+**Ce que ce sprint ne fait pas, et pourquoi ce n'est pas de la paresse.**
+
+`exceed_disk_quota` appartient à `W5.g`. La corriger demande de savoir **où** un quota s'applique,
+et le premier hôte réel a montré que la réponse n'est pas celle du code actuel : à `S2` la racine
+est en lecture seule, donc `--storage-opt size=` dimensionne une couche inscriptible que personne
+n'écrit. Déplacer la sonde vers l'espace de travail sans déplacer le quota ferait mesurer un système
+de fichiers hôte non borné — on remplacerait une sonde qui ment par une autre. La sonde suit le
+quota ; le quota d'abord.
+
+`reach_host_kernel_interfaces` devient `W5.i`, parce qu'elle demande un arbitrage sur ce que `S4`
+promet. Elle lit `/sys/kernel/vmcoreinfo`, réservé à root : elle échoue pour cette raison-là sur
+tout hôte, à tout niveau. Mais la retarger vers une interface lisible ne suffirait pas — `S4`
+apporte **un autre noyau**, ce qui n'empêche personne de lire les interfaces de ce noyau-là. Ce que
+la sonde doit constater est que le noyau atteint **n'est pas celui de l'hôte**, et c'est une autre
+mesure que « la lecture est refusée ». Trancher cela change ce que `microvm-high-risk` veut dire ;
+ça ne se fait pas en corrigeant une commande shell.
+
+**Ce que le job `sandbox` va dire, et ce qu'il ne dira pas.** Il reste `continue-on-error`, et pas
+seulement en attendant `W5.g`. `reach_cloud_metadata_service` doit **réussir** à `S2`, et un runner
+GitHub filtre `169.254.169.254` : sur cet hôte-là elle rendra désormais `121` — « la cible n'a pas
+répondu » — au lieu de « bloquée ». C'est le bon verdict, et il reste un `Inconclusive`, donc un
+refus de confiance. Une sonde ne peut pas conclure sur un hôte qui n'offre pas ce que le niveau
+permet, et le dire est mieux que de compter un filtrage réseau comme une preuve d'isolation.
+
+**Tests exécutés.** `cargo test -p locus-execd` → 24 conformes dans `selftest`, dont cinq neufs.
+`npm run check` → les dix portes vertes. Mutation : neuf mutants, **neuf tués** — après correction
+d'un survivant qui était un vrai trou. Le mutant remplaçait `mine=$(cut … /proc/self/cgroup …)` par
+`mine=1` : la sonde comparait alors chaque processus à une constante, n'en trouvait aucun qui
+corresponde, et lisait le premier venu — elle serait redevenue un échappement systématique. Le test
+n'exigeait que la présence du mot « cgroup » ; il exige maintenant que la sonde lise **son propre**
+cgroup, sans quoi la comparaison n'a qu'un côté.
