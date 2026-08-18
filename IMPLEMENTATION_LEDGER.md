@@ -6006,3 +6006,96 @@ pour « rejouer le vide » en W16.c, la propriété découle de l'absence de cho
 
 **Prochain item.** W17 est clos pour ce qui est faisable : W17.f attend `locusd`. Suit W18 —
 adaptation automatique et admission de capacité.
+
+---
+
+## 2026-08-18 — W18 décomposée, et W18.a — les onze déclencheurs, la borne, et le silence qui n'est pas un accord
+
+**Périmètre.** `docs/10_V1_ROADMAP.md` (décomposition de W18 en six items), `packages/adaptation`
+(crate neuf : `Cargo.toml`, `src/lib.rs`, `src/spawn.rs`, `tests/spawn.rs`), `Cargo.toml` racine.
+
+**Tests exécutés.** `cargo test -p locus-adaptation` → 19 conformes. `npm run check` → les dix
+portes vertes. Mutation : quatorze mutants, **quatorze tués**.
+
+### La décomposition
+
+Deux moitiés de la prose de W18 étaient **déjà livrées** et ne sont pas redemandées : les
+indicateurs de §13.2 vivent dans `portfolio::Indicators` depuis W14 — dix des quinze, le module
+disant pourquoi les cinq autres appartiennent à §13.3 — et l'anti-gaming de §13.6 dans
+`portfolio::gaming`. C'est ce dernier que l'ADR 0016 décision 8 pose en condition du mode `bounded`,
+avec W16 ; les deux sont satisfaites, donc `bounded` s'ouvre en W18.c au lieu d'attendre.
+
+L'admission de capacité se coupe en deux, et c'est l'ADR qui dit où : « Locusolus possède déjà le
+blueprint, l'artefact, l'attestation et le refus nommant toutes ses conditions. Ce qui manque est la
+proposition, la politique et l'approbation : du travail de gouvernance. » Ce travail-là ne demande
+pas d'hôte et devient W18.d. Ce qui attend `S3`/`S4` attesté est l'admission **exercée de bout en
+bout contre un hôte réel** — W18.f, bloqué pour la raison exacte de W5.f.
+
+### Décisions prises
+
+_Un crate séparé, parce que c'est la séparation des deux boucles._ La boucle rapide change la
+capacité d'un agent, la lente change la structure de l'organisation. Loger la rapide dans
+`packages/coordination` lui donnerait le vocabulaire de la lente, et rien n'empêcherait ensuite un
+routage de modèle de s'écrire comme une opération de graphe. `packages/adaptation` dépend de
+`coordination`, jamais l'inverse.
+
+_`reason` est l'un des onze, pas une phrase._ La prose dit mieux pourquoi _maintenant_, sur _cette_
+branche — et c'est exactement pourquoi elle ne convient pas : un `reason` libre laisse entrer un
+douzième déclencheur que personne n'a déclaré, et la liste de §14.5 cesse de décrire ce que le
+système fait. Le _maintenant_ a sa place dans les faits que le moteur évalue et dans la trace qu'il
+produit.
+
+_Les neuf clés sont un `Draft`, pas neuf arguments._ Rust exige qu'une structure soit construite
+d'un coup : il n'existe pas de `Draft` partiel, pas de `Default`, pas de `with_*`. « Une proposition
+à qui il manque un champ n'existe pas » est donc vrai **avant** la validation, qui ne rattrape que
+ce qui a été écrit. Un test lit la déclaration et compare les neuf noms de champs au bloc YAML de
+§14.5.
+
+_La borne de §14.5 est un chemin de types, pas une discipline d'appel._ « Aucun agent ne crée
+librement une flotte non bornée. » Un agent qui observe `high_uncertainty` a par construction une
+raison de vouloir un agent de plus, et rien dans sa situation ne le pousse à s'arrêter. Une
+`SpawnProposal` ne sait donc pas fabriquer d'agent ; seul un `Admitted` le sait, et le seul
+producteur d'`Admitted` est `dispose`, qui exige un verdict de moteur. Même forme que la
+`Simulation` de W14.d, l'`Acceptance` de W15.c et le `Requested` de W17.e.
+
+_Le silence n'est pas un accord, et c'est le cas qui fait la phrase._ Un spawn qu'aucune règle ne
+couvre est précisément la flotte libre. `policy::Outcome::NoRule` était déjà écrit « distinct
+d'`allow` » ; ici il devient `Undecided::Silent`, qui n'admet rien. Trois façons de ne pas répondre
+sont distinguées — conflit, silence, tâches préalables — parce qu'elles se réparent différemment :
+un conflit se tranche en écrivant une priorité, un silence en écrivant une règle, des tâches en les
+menant.
+
+_Le cinquième verbe de §20.2 n'est pas une cinquième réponse de §14.5._ `require_tasks` existe au
+moteur et §14.5 n'en fait pas une réponse à un spawn. Le lire comme une admission serait la faute la
+plus discrète du module ; il vaut `Undecided::TasksFirst`.
+
+_Ce que le moteur a le droit de savoir, et ce qu'il ne doit pas savoir._ `facts()` ne livre pas
+`expected_information_gain` ni `diversity_contribution`. Ce sont des **prétentions de valeur**, et
+§13.4 en fait les termes `G` et `D` d'une fonction que le portefeuille calcule lui-même ; une règle
+qui s'y accrocherait laisserait le proposeur choisir son verdict en choisissant son chiffre — la
+faute que `forbid_self_approval` interdit sur l'approbation, commise sur l'admission. Le coût, lui,
+reste un fait : c'est une **borne**, et un proposeur qui la sous-estime ne gagne rien, l'invariant 6
+réservant les ressources avant l'exécution.
+
+_Les deux politiques sont des références, jamais inlinées._ Les laisser s'écrire dans la proposition
+ferait rédiger au proposeur les règles qui jugeront sa descendance : `forbid_self_approval`
+contourné d'une génération.
+
+_`Modified` ne porte pas la proposition réécrite._ Le moteur impose une contrainte, il ne réécrit
+pas la proposition à la place de son auteur. La rendre déjà réécrite ferait disparaître la
+différence entre ce qui a été demandé et ce qui a été concédé — et c'est cette différence qui se
+conteste.
+
+**Deux tests corrigés en cours de route.** Le premier interdisait la sous-chaîne `fn admit`, qui
+attrapait l'accesseur `admitted()` : un accesseur **lit** une admission, il n'en fabrique pas. Le
+test extrait désormais le bloc `impl Admitted` par appariement d'accolades et vérifie qu'il ne rend
+ni ne construit de `Self`. Le second comptait les occurrences de `Admitted {` en oubliant que la
+déclaration et le bloc `impl` portent la même sous-chaîne ; il les retire par leur nom plutôt qu'en
+ajustant un compte, qu'un ajout ultérieur ferait « corriger » sans réfléchir.
+
+**Un `is_finite` qui aurait été mort.** La vérification de plage refuse `NaN` toute seule : une
+comparaison avec `NaN` est fausse, donc la plage n'est pas réputée contenir la valeur. Le mutant qui
+ajoute `value.is_nan() ||` meurt ; un `is_finite` de plus n'aurait jamais rien refusé. C'est la
+leçon de W14 appliquée avant d'écrire le garde.
+
+**Prochain item.** W18.b — la boucle rapide sur la capacité et la boucle lente sur la structure.
