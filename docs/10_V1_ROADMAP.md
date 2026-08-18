@@ -273,7 +273,7 @@ Elisp, donc rien à extraire et rien à réordonner — `apps/emacs` se construi
 |---|---|---|
 | W8.a `[R]` | le test de séparation : `apps/emacs` existe, se charge sous `emacs -Q` avec sa seule `load-path` | la frontière 5 passe de « sans objet » à vérifiée ; charger le paquet n'ouvre aucune connexion, n'arme aucun timer et ne tire aucune bibliothèque hors du paquet et d'Emacs ; la version de protocole annoncée est celle de `schemas/`, lue et non recopiée |
 | W8.b `[R]` | client HTTP/stream et authentification abstraite (§6) | aucun secret hors `auth-source` ; une identité absente est une erreur actionnable, pas un plantage |
-| W8.c `[R]` | événements et curseurs (§12) | une déconnexion ne perd ni ne duplique un événement |
+| W8.c `[R]` | événements, curseurs et reprise (§14.1, §7.5) | une déconnexion ne perd ni ne duplique un événement ; un trou est marqué, pas tu ; l'élagage du tampon n'emporte jamais un événement critique |
 | W8.d `[R]` | dashboard et buffers (§9) | un buffer se reconstruit depuis le cache sans réseau |
 | W8.e `[R]` | commandes et transient (§10, §11) | toute action mutante passe par l'API avec `expected_revision` ; un conflit est rendu, pas écrasé |
 | W8.f `[R]` | artefacts et inspecteur de sandbox | un artefact non promu se distingue d'un artefact promu à l'écran |
