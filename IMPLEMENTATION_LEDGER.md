@@ -7358,3 +7358,24 @@ exactement une fois à réfuter celui qui l'avait écrit. Et deux corrections de
 `inspect_network` rend un `Result`, de sorte qu'« aucune sandbox » ne puisse plus se présenter comme
 « aucune route » ; et le job lance la suite en `--test-threads=1`, la raison écrite dans le
 workflow.
+
+**Le passage propre a eu lieu, et il resserre la question au lieu de la fermer.** Avec
+`--test-threads=1` et le retrait des conteneurs, plus aucune collision : le test de réseau **passe**
+— la sandbox voit la route par défaut — et `les_quinze_sondes` s'exécute pour de bon. Les mêmes
+**trois** sondes ressortent sur-confinées, `open_outbound_connection`,
+`reach_cloud_metadata_service` et `reach_host_kernel_interfaces`.
+
+Ce qui subsiste est donc une contradiction nette, et elle est plus intéressante que l'hypothèse
+qu'elle remplace : **dans le même conteneur, `cat /proc/net/route` montre la route par défaut, et le
+constat `awk` de la sonde ne la trouve pas.** Les deux passent par `podman exec` sur la même
+sandbox, avec la même spécification.
+
+Trois suites possibles, et aucune n'est acquise : l'`awk` de busybox ne découpe pas ces champs comme
+celui du poste où le motif a été mis au point ; la sonde n'atteint pas la branche du constat et sort
+avant, par un chemin qui rend un code lu comme un blocage ; ou les deux lectures ne voient pas le
+même `/proc`. Ce qui les départage est le **code de sortie de la sonde elle-même**, que le harnais
+réduit aujourd'hui à trois états — et c'est précisément ce qu'il faut instrumenter au prochain
+passage.
+
+Ce n'est pas écrit comme un défaut de plus, mais comme une question posée correctement : la
+précédente ne l'était pas, et elle a coûté une hypothèse fausse.
