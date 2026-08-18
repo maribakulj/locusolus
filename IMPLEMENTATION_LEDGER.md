@@ -3884,3 +3884,65 @@ commande qui n'existe pas serait une sémantique inerte.
 
 **Prochain item.** **W8.c** — événements et curseurs (§12) : une déconnexion ne perd ni ne duplique
 un événement.
+
+---
+
+## 2026-08-18 — W8.c — Le flux : une déconnexion ne perd ni ne duplique
+
+**Périmètre.** `apps/emacs/locus-events.el` et `test/locus-events-test.el`, neufs. `docs/10` corrigé
+: la ligne W8.c renvoyait à `SPEC.md` §12, qui est le **dialogue avec l'orchestrateur** ; les
+événements temps réel sont en **§14.1**, la reconnexion en **§7.5**. Aucune dépendance nouvelle.
+
+**Les deux moitiés se testent ensemble ou pas du tout.** Un flux qui refuse tout ne duplique rien,
+et un flux qui accepte tout ne perd rien : chaque propriété prise seule s'obtient par un défaut. Le
+scénario central coupe après le cinquième événement, reprend avec le chevauchement que le serveur
+rejoue, et vérifie les deux sur la **même** trace.
+
+**Le curseur suffit pour dédupliquer, et c'est pour cela qu'il est employé.** Un rang déjà passé est
+déjà traité : exact, et à mémoire constante. Une fenêtre d'identifiants récents serait plus souple
+et introduirait une limite au-delà de laquelle un doublon redeviendrait neuf — un défaut qui ne se
+manifeste que sur les longues coupures, c'est-à-dire les seules où il compte. Un test envoie mille
+événements puis rejoue le premier.
+
+**Ce que le curseur ne dit pas, c'est ce qui manque.** Recevoir le rang 8 quand on en était à 5
+n'est pas une erreur de transport — le serveur peut avoir élagué, la reprise peut être partielle —
+mais le taire ferait passer un historique troué pour un historique complet, et c'est la seule faute
+de ce module qu'on ne pourrait plus détecter après coup. Une reconnexion ne comble donc pas les
+trous : elle permet de les demander.
+
+**Le chevauchement est un doublon, pas une erreur.** Le serveur rejoue depuis le curseur demandé et
+le recouvrement est **voulu** : c'est lui qui garantit qu'aucun rang n'a été sauté. `accept` rend
+donc trois valeurs distinctes — confondre `duplicate` et `malformed` ferait journaliser une avarie à
+chaque reconnexion réussie, et on cesserait de lire ces journaux.
+
+**L'élagage épargne les critiques, quitte à dépasser la taille nominale.** Un tampon borné qui
+élague le plus ancien perd les alertes en premier quand le flux s'emballe — exactement quand elles
+arrivent. Dépasser une limite d'affichage est un désagrément ; perdre une alerte de sécurité n'en
+est pas un. La liste des sortes critiques vient des notifications par défaut de §14.2, elle n'est
+pas inventée.
+
+**Le jitter est un port.** Aléatoire en production, fixé en test : une suite qui dépendrait de
+`random` ne serait pas rejouable, et un test de backoff qui échoue une fois sur vingt finit par être
+ignoré. Trois propriétés le tiennent : croissance exponentielle, plafond, et jamais zéro — un
+backoff qui peut rendre zéro ferait revenir toute la flotte à la même seconde, reproduisant la panne
+qu'on attendait.
+
+**Une erreur d'API attrapée au premier essai.** `should` d'ERT prend **une** forme, pas une forme et
+un message : j'avais écrit du `assert`-style, et la macro-expansion a échoué au chargement. Les
+messages sont passés en `ert-info`, qui est la façon de les attacher sans mentir sur l'arité.
+
+**Quatorze mutations vérifiées rouges** : la déduplication débranchée (3 tests) ; le curseur cessant
+d'avancer (6) ; les trous non marqués (2) ; le marquage décalé d'un rang (2) ; le premier événement
+compté comme un trou (2) ; la reprise repartant d'un rang trop loin (3) ; la coupure non marquée (1)
+; la reconnexion comblant les trous en silence (1) ; l'élagage emportant les critiques (1) ;
+l'élagage débranché (2) ; le backoff non plafonné (2) ; le jitter pouvant rendre zéro (1) ; le
+backoff cessant d'être exponentiel (2) ; la liste des sortes critiques tronquée (1). Restauration
+confirmée verte, aucune muette.
+
+**Écart avec la spec.** Deux, nommés. Le **transport** n'est toujours pas là : ce module est le pli
+d'un flux, pas sa source — il est donc testable sans serveur, ce qui est aussi ce qui le rend
+rejouable. Et `batch le rendu` de §14.1 n'est pas modélisé : il n'y a pas encore de rendu à grouper,
+et un tampon de batch sans afficheur serait une sémantique inerte. Il arrive avec W8.d.
+
+**Prochain item.** **W8.d** — dashboard et buffers (§9) : un buffer se reconstruit depuis le cache
+sans réseau.
