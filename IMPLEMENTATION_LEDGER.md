@@ -5795,3 +5795,55 @@ demande de surface HTTP attend donc, et c'est W17.f. Le **domaine** de la mémoi
 du cockpit n'en dépendent pas : ce sont W17.a à W17.e.
 
 **Prochain item.** W17.b — le retrieval hybride de §16.3.
+
+## 2026-08-18 — W17.b — Le retrieval hybride : deux obligations tenues par la forme des types
+
+**Périmètre.** `packages/memory/src/retrieval.rs` (neuf), `packages/memory/tests/retrieval.rs`
+(neuf, 10 tests), `src/lib.rs` (les réexports), ce fichier.
+
+**Tests exécutés.** `cargo test -p locus-memory` → 19 conformes. `npm run check` → les dix portes
+vertes. Mutation : dix-neuf mutants, **dix-neuf tués, aucun survivant au premier tour**.
+
+**Décisions prises.**
+
+§16.3 porte les deux seules obligations en majuscules de la section, et chacune est tenue par la
+forme des types plutôt que par une discipline d'appel.
+
+_« Le ranking DOIT exposer ses facteurs. »_ `Ranking` ne se construit **pas** sans ses contributions
+: le constructeur refuse une liste vide. Il n'existe donc aucun chemin par lequel un score arrive
+sans dire d'où il vient — pas parce qu'on a pensé à l'interdire, mais parce que le type n'a pas
+d'autre porte. Un flottant nu se compare, se trie et se cite, et personne ne peut dire pourquoi il
+vaut ce qu'il vaut : c'est ainsi que l'obligation se perd sans que rien n'échoue.
+
+Corollaire tenu par un test : un signal qui n'a pas contribué rend `None`, **jamais zéro**. « Il n'a
+rien dit » et « il a dit zéro » ne sont pas la même information, et les confondre ferait lire une
+absence comme un jugement.
+
+_« Les embeddings ne peuvent pas contourner les ACL. »_ L'habilitation écarte **avant** le
+classement. Un filtre appliqué après le tri dépendrait de son ordre d'exécution, et il suffirait
+d'un `sort` déplacé pour qu'un document restreint sorte en tête. Ici le classement ne voit jamais
+les candidats refusés : un score maximal n'a rien à contourner, il n'est pas dans la course. Le test
+l'exerce avec `f64::MAX`, et le mutant qui déplace le filtre après le tri meurt.
+
+_Ce qui est écarté est nommé, toujours._ Deux motifs — au-delà de l'habilitation, sous le budget de
+contexte — et un test vérifie que **rien ne disparaît entre les deux listes** : un candidat qui ne
+serait ni rendu ni écarté aurait disparu sans que personne le sache. C'est la discipline des
+`redactions` de §16.2, appliquée au retrieval : une exclusion silencieuse rend deux résultats
+indiscernables, celui qui n'avait rien à écarter et celui qui a tout écarté.
+
+_Le budget tronque et le dit._ Une troncature muette se lit comme « il n'y avait que cela », et le
+chercheur ne saura pas qu'il doit élargir. Un mutant qui tronque en silence meurt.
+
+_Un résultat négatif est retrouvé comme un autre._ §16.3 en fait un **signal**, pas un filtre.
+L'invariant 12 refuse qu'on supprime les résultats négatifs pour rendre le graphe propre ; les taire
+au retrieval reviendrait au même, en moins visible.
+
+_Le tri est déterministe jusqu'aux égalités_ — total décroissant, puis clé. Un résultat qui
+changerait d'ordre à contenu égal ferait douter de la mémoire plutôt que du tri.
+
+**Une redondance délibérée.** La table de rang de `Confidentiality` est écrite ici **et** dans
+`packages/review/src/contamination.rs`. Le type ne la dérive pas, et un `match` recopié qui en
+changerait l'ordre ne se verrait pas : les deux copies se recoupent exprès, dans l'esprit de la
+double liste de coalescence du worker. Un mutant qui inverse l'ordre ici meurt.
+
+**Prochain item.** W17.c — deux retrievals séparés, épistémique et organisationnel, sans conversion.
