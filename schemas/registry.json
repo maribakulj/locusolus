@@ -86,6 +86,10 @@
       ]
     },
     {
+      "schema": "visualization/1.0/view.schema.json",
+      "examples": ["view-argument-map.json", "invalid-view-empty-endpoint.json"]
+    },
+    {
       "schema": "review/1.0/human-review-finding.schema.json",
       "examples": [
         "human-review-source-changed.json",

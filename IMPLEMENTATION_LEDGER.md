@@ -4622,3 +4622,68 @@ appropriée ». Ce crate ne contient ni l'API de commandes ni la confirmation : 
 rien ne sort d'ici qui puisse être écrit. L'autre moitié est §22, et elle n'a pas encore d'item.
 
 **Prochain item.** W9.d — `apps/web` sur la vue hashée, en TypeScript.
+
+## 2026-08-18 — W9.d — `apps/web` : lire une vue, la vérifier, et ne rien détenir de modifiable
+
+**Périmètre.** `apps/web/` (neuf : `package.json`, `src/{index,view,layout,store,commands}.ts`),
+`tests/web/view.test.ts` (neuf, 16 tests), `schemas/visualization/1.0/view.schema.json` (neuf, et
+une famille de schémas neuve), deux exemples, `schemas/registry.json`,
+`packages/visualization/tests/{wire.rs,fixtures/argument-map.canonical.txt}` (neufs),
+`tsconfig.json`, les deux SDK régénérés, `package-lock.json`.
+
+**Tests exécutés.** `node --test tests/web` → 16 conformes. `cargo test -p locus-visualization` → 43
+conformes. `npm run check` → les dix portes vertes. Mutation : treize mutants, **treize tués** —
+après correction d'un trou réel et d'un mutant faux.
+
+**Décisions prises.**
+
+_Le document ne transporte pas sa preuve._ Le schéma porte le condensat, pas la forme canonique. Le
+lecteur la **reconstruit** et compare. Transporter la forme canonique ferait de la preuve une donnée
+reçue, et un document tronqué se relirait comme un graphe plus petit mais authentique — exactement
+la perte qu'une visualisation rend invisible, puisqu'on ne voit pas ce qui n'est pas dessiné. Un
+test tronque le document et vérifie le refus.
+
+_Deux implémentations qui ne se consultent pas, et une fixture entre elles._ Rust construit la forme
+canonique dans `packages/visualization`, TypeScript la reconstruit dans `apps/web`. Ni l'un ni
+l'autre ne lit le code de son homologue : ils se rencontrent sur
+`tests/fixtures/argument-map.canonical.txt`, que chacun compare depuis le même document. Si l'une
+des deux formes change, un test tombe de chaque côté — jamais l'un sans l'autre en silence.
+
+_Ce que le lecteur ne sait pas calculer, il ne le déclare pas vérifié._ Un condensat blake3 est
+refusé plutôt que traversé. Dire « vérifié » de ce qu'on n'a pas vérifié serait la seule faute
+vraiment grave de ce fichier.
+
+_Le store n'applique jamais localement._ Côté web, la tentation n'est pas d'écrire dans le graphe :
+c'est d'appliquer tout de suite ce qu'on vient de demander, pour que l'écran réponde. Un store qui
+ferait cela afficherait, entre la demande et la réponse, un graphe que personne n'a validé — et si
+la réponse n'arrivait jamais, il l'afficherait pour toujours. `dispatch` rend un nouveau store dont
+la vue est la **même référence**, et seul `adopt` change ce qui est affiché.
+
+_La disposition est déterministe._ Rien d'aléatoire ni d'horodaté : deux ouvertures du même document
+donnent les mêmes positions. Sans cela, deux captures d'écran d'un même graphe ne se comparent pas,
+et c'est en les comparant qu'on voit ce qui a bougé.
+
+**Un vrai bug trouvé par un test, avant la mutation.** `readView` rendait les nœuds dans l'ordre du
+**document**, alors que la forme canonique les trie. La disposition héritait donc de l'ordre
+d'insertion d'un producteur : deux rendus du même contenu ne se superposaient pas. Corrigé en
+extrayant l'ordre canonique dans une fonction que la lecture et le condensat partagent.
+
+**Deux ratés du harnais.** `assert.throws` ne rend pas l'erreur attrapée —
+`const e = assert.throws(...)` vaut `undefined`, et cinq tests validaient donc leur moitié
+inintéressante. Remplacé par un helper qui attrape et rend la raison. Et un mutant sur le tri ne
+mutait rien (`.sort(() => 0)` suivi du vrai tri) ; refait, il tue neuf tests. Un mutant qui ne mute
+pas est un faux négatif aussi silencieux qu'un test qui n'assère rien — c'est la deuxième fois de la
+journée.
+
+**Un trou réel.** Le dédoublonnage des arêtes n'était testé que côté Rust. Une arête répétée aurait
+compté deux fois côté web, et qui compte les soutiens d'un claim en aurait lu un de plus. Test
+ajouté.
+
+**Écart avec la spec.** §23.4 demande une scène 3D Three.js/WebGL et un pont xwidget. Rien de cela
+ici : ce commit livre le **modèle** du workspace — lecture vérifiée, disposition déterministe, store
+sans graphe modifiable — et pas le rendu. Une scène WebGL ne se teste pas dans ce harnais, et
+l'écrire sans test la rendrait vraie par déclaration. Elle demande son propre item, avec son propre
+moyen de vérification.
+
+**Prochain item.** W9 est couvert pour ce qui est testable ici. La suite vient de W11 (profils de
+déploiement) ou de la 3D de §23.4, qui demande d'abord de décider comment on la vérifie.

@@ -927,6 +927,35 @@ pub struct RemoteArtifactRef {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ViewNodesItem {
+    pub id: String,
+    pub kind: String,
+    pub label: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ViewEdgesItem {
+    pub from: String,
+    pub to: String,
+    pub kind: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct View {
+    /// Laquelle des huit projections de §23.3.
+    pub kind: String,
+    /// Le point du journal auquel la vue a été prise. Un viewer qui l'ignore ne peut pas dire s'il montre l'état d'aujourd'hui.
+    pub watermark: i64,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    /// Le condensat de la vue dont celle-ci est un cadrage ou un filtre. Absent pour une projection ; présent sans exception pour une vue dérivée, y compris quand le filtre n'a rien retiré.
+    pub derived_from: Option<String>,
+    /// Le condensat de la forme canonique. Le consommateur la reconstruit et compare : ce qui prouve ne peut pas être ce qui est demandé.
+    pub digest: String,
+    pub nodes: Vec<ViewNodesItem>,
+    pub edges: Vec<ViewEdgesItem>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct HumanReviewFinding {
     /// Le ReviewDossier auquel ce finding s'attache. §20 : la revue humaine « produit un finding attachable à un ReviewDossier », donc elle en nomme un.
     pub dossier_id: String,
@@ -948,7 +977,7 @@ pub struct HumanReviewFinding {
 }
 
 /// Les documents qu'un pair peut envoyer ou recevoir, dans l'ordre du registre.
-pub const LEP_DOCUMENTS: [&str; 11] = [
+pub const LEP_DOCUMENTS: [&str; 12] = [
     "ArtifactManifest",
     "RunManifest",
     "CapabilityManifest",
@@ -959,6 +988,7 @@ pub const LEP_DOCUMENTS: [&str; 11] = [
     "Lease",
     "EpistemicCommit",
     "RemoteArtifactRef",
+    "View",
     "HumanReviewFinding",
 ];
 

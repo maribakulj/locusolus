@@ -1,0 +1,66 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "urn:locus:schema:visualization:1.0:view",
+  "title": "View",
+  "$comment": "La projection de visualisation telle qu'elle part vers un viewer — SPEC_V1 §23.3. Le document ne porte pas sa forme canonique : le consommateur la **reconstruit** et compare le condensat. Transporter la forme canonique ferait de la preuve une donnée reçue, et un document tronqué se relirait alors comme un graphe plus petit mais authentique.",
+  "type": "object",
+  "required": ["kind", "watermark", "digest", "nodes", "edges"],
+  "additionalProperties": false,
+  "properties": {
+    "kind": {
+      "description": "Laquelle des huit projections de §23.3.",
+      "type": "string",
+      "enum": [
+        "graph_2d",
+        "argument_map",
+        "provenance",
+        "dependencies",
+        "disagreements",
+        "semantic_space",
+        "branch_landscape",
+        "agent_society"
+      ]
+    },
+    "watermark": {
+      "description": "Le point du journal auquel la vue a été prise. Un viewer qui l'ignore ne peut pas dire s'il montre l'état d'aujourd'hui.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "derived_from": {
+      "description": "Le condensat de la vue dont celle-ci est un cadrage ou un filtre. Absent pour une projection ; présent sans exception pour une vue dérivée, y compris quand le filtre n'a rien retiré.",
+      "type": "string",
+      "pattern": "^(sha256|sha512|blake3):[0-9a-f]+$"
+    },
+    "digest": {
+      "description": "Le condensat de la forme canonique. Le consommateur la reconstruit et compare : ce qui prouve ne peut pas être ce qui est demandé.",
+      "type": "string",
+      "pattern": "^(sha256|sha512|blake3):[0-9a-f]+$"
+    },
+    "nodes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "kind", "label"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "kind": { "type": "string" },
+          "label": { "type": "string" }
+        }
+      }
+    },
+    "edges": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["from", "to", "kind"],
+        "additionalProperties": false,
+        "properties": {
+          "from": { "type": "string", "minLength": 1 },
+          "to": { "type": "string", "minLength": 1 },
+          "kind": { "type": "string" }
+        }
+      }
+    }
+  }
+}

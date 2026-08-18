@@ -1,0 +1,8 @@
+view/1
+argument_map
+128
+n	art-1	artifact	Preuve Lean, révision 4
+n	claim-a	claim	Le lemme 3 tient sans compacité
+n	claim-b	claim	La borne est atteinte en dimension 2
+e	art-1	claim-a	supports
+e	claim-b	claim-a	refutes
