@@ -25,7 +25,11 @@ const frontiers = await claudeMdFrontiers();
 
 test("le contrat porte les frontières de CLAUDE.md, dans l'ordre", () => {
   const numbered = [...frontiers.keys()];
-  assert.deepEqual(numbered, [1, 2, 3, 4, 5, 6], "la liste de CLAUDE.md est numérotée sans trou");
+  assert.deepEqual(
+    numbered,
+    [1, 2, 3, 4, 5, 6, 7],
+    "la liste de CLAUDE.md est numérotée sans trou",
+  );
   const carried = contract.rules.map((rule) => rule.claudeMd);
   assert.deepEqual([...new Set(carried)], numbered, "chaque frontière a au moins une règle");
   assert.deepEqual(
@@ -82,6 +86,28 @@ test("aucune règle n'est admise sans violation délibérée qui la démontre", 
 test("le dépôt lui-même ne franchit aucune frontière", async () => {
   const report = await inspectBoundaries(repoRoot, contract, { emacs: "auto" });
   assert.deepEqual(report.findings, []);
+});
+
+/**
+ * `skipped` est un état légitime — mais pour une règle, et une seule.
+ *
+ * La règle 5 démarre un vrai Emacs, donc elle se saute là où il n'y en a pas, **en le disant**, et
+ * tourne dans le job `emacs`. Toute autre règle lit des imports déjà en mémoire : rien ne peut
+ * l'empêcher de s'évaluer, et une règle qui se déclarerait non vérifiée le ferait par accident de
+ * code. `check-boundaries` imprime cet état sans faire échouer la CI — c'est le bon comportement
+ * pour la règle 5, et c'est un trou pour toutes les autres. Le test le ferme ici plutôt que de
+ * durcir la sortie, parce que la ligne « NON VÉRIFIÉE » de la règle 5 doit continuer d'exister.
+ */
+test("seule la règle 5 peut se déclarer non vérifiée", async () => {
+  const report = await inspectBoundaries(repoRoot, contract, { emacs: "auto" });
+  for (const status of report.statuses) {
+    if (status.rule.kind === "emacs-isolation") continue;
+    assert.equal(
+      status.state,
+      "enforced",
+      `règle ${status.rule.id} : une frontière qui ne s'évalue pas n'est pas une frontière`,
+    );
+  }
 });
 
 /**

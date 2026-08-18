@@ -380,7 +380,18 @@ cette dépendance qui décide de leur moment, pas l'étiquette.
 ## Conséquences
 
 `CLAUDE.md` gagne une sixième frontière et une règle. `boundaries.json` gagne deux catalogues et deux
-règles, une par sens. `docs/10` gagne W13 découpé au commit près et W14 à W18 au grain grossier.
+règles, une par sens.
+
+**Amendement du 2026-08-18, à la livraison de W15.d.** La décision 9 exigeait « un test vérifiant
+l'absence de conversion » entre les deux familles d'objection, sans dire où il vivrait. La réponse
+est qu'il ne peut vivre dans aucun des deux crates : la décision 1 leur interdit de se voir, donc
+ni l'un ni l'autre ne peut nommer l'autre famille, fût-ce pour affirmer qu'il ne la convertit pas.
+Une conversion ne peut naître que dans un **troisième** fichier qui importe les deux. `CLAUDE.md`
+gagne donc une **septième** frontière — « aucun fichier ne voit les deux familles d'objection à la
+fois » — et `boundaries.json` deux catalogues au grain du **symbole** et une règle d'une nature
+nouvelle, `no-co-import`, qui interdit une conjonction plutôt qu'un import. Elle interdit du même
+coup le trait générique que la décision 9 refusait : pour le déclarer sur les deux familles, il
+faudrait les voir toutes les deux. `docs/10` gagne W13 découpé au commit près et W14 à W18 au grain grossier.
 `docs/11` gagne les lignes de coordination, de modes et de métriques structurelles. `docs/13` entre
 comme document subordonné.
 

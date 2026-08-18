@@ -1,0 +1,9 @@
+{
+  "title": "un tiers voit les deux familles d'objection et les convertit",
+  "violations": [
+    {
+      "rule": "objection-families-never-meet",
+      "where": "apps/locusd/src/objections.rs"
+    }
+  ]
+}

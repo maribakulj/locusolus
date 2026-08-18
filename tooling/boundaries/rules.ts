@@ -21,6 +21,25 @@ export type ImportRule = {
   readonly deny: readonly string[];
 };
 
+/**
+ * Two catalogues that must never meet in one file.
+ *
+ * Unlike an `ImportRule`, neither side is forbidden on its own: what is forbidden is seeing both.
+ * Rule 7 exists because the danger it names — a conversion between the two objection families —
+ * cannot live in either domain crate (rule 6 already forbids that), only in a third file that
+ * imports both.
+ */
+export type NoCoImportRule = {
+  readonly kind: "no-co-import";
+  readonly id: string;
+  readonly claudeMd: number;
+  readonly statement: string;
+  readonly scope: readonly string[];
+  readonly except: readonly string[];
+  /** Exactly two catalogue names. */
+  readonly families: readonly [string, string];
+};
+
 export type EmacsRule = {
   readonly kind: "emacs-isolation";
   readonly id: string;
@@ -30,7 +49,7 @@ export type EmacsRule = {
   readonly unit: string;
 };
 
-export type Rule = ImportRule | EmacsRule;
+export type Rule = ImportRule | NoCoImportRule | EmacsRule;
 
 export type Contract = {
   readonly exclude: readonly string[];
@@ -64,6 +83,11 @@ export function denied(contract: Contract, rule: ImportRule): string[] {
   return rule.deny.flatMap((name) => [...(contract.catalogues.get(name) ?? [])]);
 }
 
+/** The patterns of one named catalogue. */
+export function catalogue(contract: Contract, name: string): string[] {
+  return [...(contract.catalogues.get(name) ?? [])];
+}
+
 function readCatalogues(source: Record<string, unknown>, path: string): Map<string, string[]> {
   const catalogues = new Map<string, string[]>();
   for (const [name, value] of Object.entries(source)) {
@@ -89,6 +113,19 @@ function readRule(source: Record<string, unknown>, where: string): Rule {
       deny: strings(source["deny"], `${where}.deny`),
     };
   }
+  if (kind === "no-co-import") {
+    const families = strings(source["families"], `${where}.families`);
+    if (families.length !== 2 || !families[0] || !families[1]) {
+      throw new Error(`${where}.families must name exactly two catalogues`);
+    }
+    return {
+      kind,
+      ...common,
+      scope: strings(source["scope"], `${where}.scope`),
+      except: source["except"] === undefined ? [] : strings(source["except"], `${where}.except`),
+      families: [families[0], families[1]],
+    };
+  }
   if (kind === "emacs-isolation") {
     return { kind, ...common, unit: string(source["unit"], `${where}.unit`) };
   }
@@ -97,8 +134,9 @@ function readRule(source: Record<string, unknown>, where: string): Rule {
 
 function assertCataloguesResolve(contract: Contract, path: string): void {
   for (const rule of contract.rules) {
-    if (rule.kind !== "imports") continue;
-    for (const name of rule.deny) {
+    const named =
+      rule.kind === "imports" ? rule.deny : rule.kind === "no-co-import" ? rule.families : [];
+    for (const name of named) {
       if (!contract.catalogues.has(name)) {
         throw new Error(
           `${path}: rule ${rule.id} denies unknown catalogue ${JSON.stringify(name)}`,

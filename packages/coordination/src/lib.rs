@@ -25,6 +25,7 @@ pub mod agent;
 pub mod capability;
 pub mod decision;
 pub mod diff;
+pub mod objection;
 pub mod proposal;
 pub mod region;
 pub mod task;
@@ -35,6 +36,7 @@ pub use agent::{AgentError, AgentInstance, AgentTemplate, InstanceState, Templat
 pub use capability::{Capability, CapabilityError, Source, Sources, capabilities};
 pub use decision::{ApprovalRequest, ApprovalState, Decision, DecisionError, DecisionState};
 pub use diff::{Diff, DiffError};
+pub use objection::{Contestable, ObjectedTo, Objection, ObjectionError, Remedy};
 pub use proposal::{
     Approved, Author, Change, Committed, EpistemicIndex, Justification, Mode, Proposal,
     ProposalError, Relation, RelationKind, approve, commit,

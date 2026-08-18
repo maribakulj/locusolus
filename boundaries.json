@@ -143,6 +143,38 @@
       ]
     },
 
+    "epistemic-objection": {
+      "$comment": [
+        "Règle 7. La famille d'objection du domaine épistémique — §7.6, quatre cibles.",
+        "Le catalogue est au grain du **symbole**, pas du crate : locusd aura légitimement besoin",
+        "du graphe et des objets de coordination dans le même fichier. Ce qui est interdit est de",
+        "voir les deux familles d'objection, parce qu'une conversion ne peut s'écrire que là.",
+        "Un `use locus_graph::*` contournerait un catalogue au grain du symbole ; c'est déjà",
+        "impossible ici — clippy::wildcard_imports est `pedantic` et la CI passe `-D warnings`.",
+        "La vérification est consignée pour qu'elle ne soit pas refaite."
+      ],
+      "patterns": [
+        "locus-graph/ObjectionTarget",
+        "locus-graph/inference/ObjectionTarget",
+        "@locus/graph/ObjectionTarget"
+      ]
+    },
+    "coordination-objection": {
+      "$comment": [
+        "Règle 7, l'autre famille. ADR 0016 décision 9 : « une famille parallèle dans le domaine",
+        "de coordination, partageant la forme sans partager le crate, avec un test vérifiant",
+        "l'absence de conversion »."
+      ],
+      "patterns": [
+        "locus-coordination/ObjectedTo",
+        "locus-coordination/Objection",
+        "locus-coordination/Contestable",
+        "locus-coordination/objection",
+        "@locus/coordination/ObjectedTo",
+        "@locus/coordination/Objection",
+        "@locus/coordination/Contestable"
+      ]
+    },
     "epistemic-graph": {
       "$comment": [
         "Règle 6. Le crate du graphe épistémique. Sa garantie est une garantie par absence d'API —",
@@ -336,6 +368,21 @@
       "kind": "imports",
       "scope": ["packages/coordination/**"],
       "deny": ["epistemic-graph"]
+    },
+    {
+      "id": "objection-families-never-meet",
+      "claudeMd": 7,
+      "statement": "Aucun fichier ne voit les deux familles d'objection à la fois.",
+      "$comment": [
+        "ADR 0016, décision 9. Les deux familles ont la même forme logique et des domaines",
+        "disjoints ; la règle 6 empêche déjà chaque crate de voir l'autre, donc une conversion ne",
+        "peut s'écrire que dans un troisième fichier qui importe les deux. C'est celui-là que",
+        "cette règle attrape. Elle interdit aussi, de fait, le trait générique « ce qui peut être",
+        "objecté » : pour le déclarer sur les deux, il faudrait les voir toutes les deux."
+      ],
+      "kind": "no-co-import",
+      "scope": ["**"],
+      "families": ["epistemic-objection", "coordination-objection"]
     }
   ]
 }

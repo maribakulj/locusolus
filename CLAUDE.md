@@ -45,6 +45,7 @@ frontières inter-repos.
 4. `apps/locusd` n'importe aucun SDK de runtime de containers.
 5. `apps/emacs` démarre en `emacs -Q` avec sa seule `load-path`.
 6. `packages/graph` et le domaine des objets de coordination ne s'importent pas l'un l'autre.
+7. Aucun fichier ne voit les deux familles d'objection à la fois.
 
 ---
 
