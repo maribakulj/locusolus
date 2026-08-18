@@ -14,6 +14,7 @@ members = [
     "packages/graph",
     "packages/lep",
     "packages/migrations",
+    "packages/policy",
     "packages/portfolio",
     "packages/projections",
     "packages/protocol",

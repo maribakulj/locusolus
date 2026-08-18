@@ -4960,3 +4960,53 @@ corpus commun, ce qui est une campagne, pas une fonction.
 
 **Prochain item.** W12 est couvert. La roadmap n'a plus de section en prose ; ce qui reste est W14 à
 W18, et la 3D de §23.4 qui demande d'abord de décider comment on la vérifie.
+
+## 2026-08-18 — W14.a — Le moteur de politique : la priorité est déclarée, la trace est produite
+
+W14 est décomposée ici en quatre lignes. §13 était déjà couvert pour l'essentiel par W7.e à W7.g —
+budgets, anti-gaming, qualité-diversité, `V(b)` — donc ce qui restait de W14 est §20, le moteur de
+politique.
+
+**Périmètre.** `packages/policy/` (neuf : `Cargo.toml`, `src/lib.rs`, `tests/engine.rs` avec 16
+tests), `Cargo.toml` du workspace, `docs/10_V1_ROADMAP.md`, ce fichier.
+
+**Tests exécutés.** `cargo test -p locus-policy` → 16 conformes. `npm run check` → les dix portes
+vertes. Mutation : treize mutants, **treize tués, aucun survivant**.
+
+**Décisions prises.**
+
+_Trois exigences de §20.2 se tiennent l'une l'autre, et le module les traite comme une seule chose._
+Les faits séparés rendent le déterminisme vrai ; le déterminisme rend la décision rejouable ; la
+trace rend le rejeu compréhensible. Un moteur qui perdrait l'une des trois garderait l'air de
+marcher — et c'est pour cela que `Facts` est un type et pas une convention : ce qui n'y est pas
+n'entre pas dans la décision, ni l'heure, ni un compteur, ni le résultat de la fois d'avant.
+
+_La priorité est déclarée, jamais héritée de l'ordre._ Trancher par la position dans un fichier
+ferait d'un réordonnancement un changement de comportement — et personne ne relit un diff de
+réordonnancement comme tel. Le test construit la même politique dans les deux sens et exige le même
+verdict.
+
+_Un conflit est rendu, pas résolu._ À priorité égale et verbes contraires, le moteur s'arrête et
+nomme les règles. Choisir tout de même reviendrait à décider à la place de qui a écrit les règles,
+et à le faire en silence. Deux règles **d'accord** à priorité égale ne sont en revanche pas un
+conflit : le signaler serait un faux positif qui pousserait à supprimer une règle utile.
+
+_La trace porte toutes les règles déclenchées, pas seulement la gagnante._ §20.5 demande « les
+règles déclenchées » ; savoir ce qui a failli s'appliquer est la moitié de ce qui rend une décision
+contestable. Elle porte aussi la **version** de chaque règle : sans elle, on relirait une règle qui
+a changé depuis, donc on reconstituerait une décision qui n'a pas eu lieu.
+
+_`NoRule` n'est pas `allow`._ Personne n'a autorisé quoi que ce soit. C'est à l'appelant de décider
+ce qu'il fait d'un silence, et le lui dire est le seul moyen qu'il ait le choix. Septième occurrence
+de la même distinction dans ce chantier.
+
+_Seul `allow` laisse passer la demande telle quelle._ `modify` laisse passer **autre chose**, et les
+confondre ferait appliquer la demande d'origine alors qu'une contrainte avait été imposée.
+
+**Écart avec la spec.** §20.2 demande aussi le dry-run et la conservation des overrides ; §20.1
+nomme seize catégories ; §20.4 définit la `Delegation` ; §20.5 énumère huit facettes
+d'explicabilité. Ce commit livre le cœur — verbes, faits, trace, priorité, conflits, déterminisme —
+et les trois autres items de W14 portent le reste. La DSL elle-même n'est pas écrite : les règles se
+construisent en mémoire, et un lecteur YAML viendra quand un producteur en écrira.
+
+**Prochain item.** W14.b — la `Delegation` de §20.4 : portée, plafonds, expiration, révocation.
