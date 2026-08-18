@@ -4830,3 +4830,51 @@ pas d'item.
 
 **Prochain item.** W11 est couvert. La suite vient de W12 (évaluation et release) ou de la 3D de
 §23.4, qui demande d'abord de décider comment on la vérifie.
+
+## 2026-08-18 — W12.a — Les épreuves closes de §29 : ce qui n'a pas été éprouvé se nomme
+
+W12 était en prose et ne portait aucun item, comme W9 et W11 avant elle. Décomposée en trois lignes
+(W12.a–c) avant d'écrire.
+
+**Périmètre.** `packages/evaluation/` (neuf : `Cargo.toml`, `src/lib.rs`, `tests/registry.rs` avec
+12 tests), `Cargo.toml` du workspace, `docs/10_V1_ROADMAP.md`, ce fichier.
+
+**Tests exécutés.** `cargo test -p locus-evaluation` → 12 conformes. `npm run check` → les dix
+portes vertes. Mutation : treize mutants, **treize tués, aucun survivant**.
+
+**Décisions prises.**
+
+_Les listes de §29 sont closes, et c'est ce qui les rend vérifiables._ Treize fautes (§29.4),
+quatorze attaques (§29.5), huit ablations (§29.8). Une liste nommée permet de dire ce qui n'a
+**pas** été éprouvé ; une intention générale — « on testera l'injection de fautes » — ne le permet
+jamais. Une release qui part sans avoir éprouvé le disque plein n'est pas nécessairement une faute :
+la faute est de ne pas le savoir.
+
+_Écartée n'est pas oubliée, et c'est tout l'objet du module._ Les deux se ressemblent dans un
+rapport — aucune épreuve n'a été menée — et ne se ressemblent pas du tout : l'une est une décision
+qu'on peut contester, l'autre est un oubli que personne ne voit. Une renonciation sans raison est
+donc refusée, et « éprouvé » sans dire par quoi l'est aussi : ce qui ne se vérifie pas ne vaut pas
+mieux que ce qui n'a pas été fait.
+
+_Un registre neuf porte les trente-cinq épreuves en « non traité »._ C'est ce qui empêche d'en
+oublier une en omettant simplement de l'inscrire — l'oubli le plus facile de tous, et celui qu'un
+registre à remplir soi-même encourage.
+
+_Le verdict nomme la section, pas seulement l'épreuve._ Savoir qu'il manque `disk-full` sans savoir
+que c'est de §29.4 oblige à chercher dans trois listes.
+
+_Les renonciations se comptent._ Une release « prête » avec dix-sept renonciations n'est pas la même
+qu'une release prête sans aucune, et le chiffre est ce qui pousse à les relire.
+
+_Le test parcourt les trente-cinq une par une._ Chacune, laissée seule non traitée, doit bloquer et
+être nommée. C'est le même geste que pour les cinq parties d'une sauvegarde (W11.c) : éprouver le
+groupe entier laisserait une épreuve devenir facultative sans que personne ne s'en aperçoive.
+
+**Écart avec la spec.** Ce module ne mène aucune épreuve : il dit lesquelles §29 exige et refuse de
+déclarer une release prête tant qu'une reste sans réponse. Les épreuves elles-mêmes appartiennent
+aux paquets qu'elles éprouvent, et plusieurs demandent une infrastructure qui n'existe pas encore —
+une base à rendre indisponible, un worker à tuer. §29.1 à §29.3 (domaine, contrats, workflows) ne
+sont pas dans ce registre : ce sont des suites de tests qui existent déjà et qui échouent d'
+elles-mêmes, là où §29.4, §29.5 et §29.8 sont des exercices qu'on peut simplement ne pas faire.
+
+**Prochain item.** W12.b — l'endurance de §29.6 : les huit seuils, et le constat qui les confronte.
