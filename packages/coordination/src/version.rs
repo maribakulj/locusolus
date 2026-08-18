@@ -167,6 +167,45 @@ impl Operation {
         }
     }
 
+    /// Sa forme canonique — ce que deux clients comparent pour prouver qu'ils lisent la même
+    /// opération.
+    ///
+    /// Elle porte **tout** ce qui décide de l'effet, la partition d'une scission comprise. Une
+    /// forme qui n'écrirait que le nom et les identités laisserait deux scissions de partitions
+    /// opposées se ressembler, et l'approbation aurait porté sur celle qu'on n'applique pas.
+    #[must_use]
+    pub fn canonical(&self) -> String {
+        match self {
+            Self::AddNode(node) | Self::RemoveNode(node) => {
+                format!("{}\t{node}", self.name())
+            }
+            Self::ReplaceNode { from, to } => format!("{}\t{from}\t{to}", self.name()),
+            Self::AddEdge(relation) | Self::RemoveEdge(relation) => {
+                format!("{}\t{}", self.name(), edge(relation))
+            }
+            Self::SplitNode {
+                node,
+                into,
+                follows_first,
+            } => {
+                let mut shares: Vec<String> = follows_first.iter().map(edge).collect();
+                shares.sort_unstable();
+                format!(
+                    "{}\t{node}\t{}\t{}\t{}",
+                    self.name(),
+                    into.0,
+                    into.1,
+                    shares.join(" ")
+                )
+            }
+            Self::MergeNodes {
+                first,
+                second,
+                into,
+            } => format!("{}\t{first}\t{second}\t{into}", self.name()),
+        }
+    }
+
     /// Ce qui défait cette opération, quand quelque chose la défait.
     ///
     /// « Défaire » veut dire : appliqué à la version que celle-ci a produite, rendre le **contenu**
@@ -583,6 +622,11 @@ fn identity_canonical(parent: Option<&VersionId>, content: &ContentHash) -> Stri
 
 fn render(relation: &Relation) -> String {
     format!("{} -{}-> {}", relation.from, relation.kind, relation.to)
+}
+
+/// Une arête dans une forme canonique — sans tabulation, pour tenir dans un champ.
+fn edge(relation: &Relation) -> String {
+    format!("{}>{}>{}", relation.from, relation.kind, relation.to)
 }
 
 fn incident<'a>(
