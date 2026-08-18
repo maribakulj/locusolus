@@ -4878,3 +4878,43 @@ sont pas dans ce registre : ce sont des suites de tests qui existent déjà et q
 elles-mêmes, là où §29.4, §29.5 et §29.8 sont des exercices qu'on peut simplement ne pas faire.
 
 **Prochain item.** W12.b — l'endurance de §29.6 : les huit seuils, et le constat qui les confronte.
+
+## 2026-08-18 — W12.b — L'endurance de §29.6 : trois façons de ne pas tenir, trois gestes
+
+**Périmètre.** `packages/evaluation/src/endurance.rs` (neuf),
+`packages/evaluation/tests/endurance.rs` (neuf, 9 tests), `src/lib.rs` (les réexports), ce fichier.
+
+**Tests exécutés.** `cargo test -p locus-evaluation` → 21 conformes (12 + 9). `npm run check` → les
+dix portes vertes. Mutation : quatorze mutants, **quatorze tués, aucun survivant**.
+
+**Décisions prises.**
+
+_Neuf exigences, pas huit._ §29.6 met les sept jours dans la phrase qui introduit la liste, pas dans
+la liste. Une campagne de six jours qui aurait atteint les huit puces n'est pourtant pas celle que
+§29.6 demande, et laisser la durée vivre ailleurs reviendrait à l'oublier. Elle est donc traitée
+comme les autres.
+
+_Trois causes séparées, parce qu'elles n'appellent pas le même geste._ Un seuil **mesuré et sous la
+barre** demande de prolonger la campagne. Un seuil **non relevé** demande d'instrumenter : personne
+n'a compté, et c'est une panne de mesure, pas de tenue. Un invariant **violé** — une perte, une
+double application — demande de corriger le produit, et tourner plus longtemps n'y changera rien.
+Les fondre en un seul « échec » ferait chercher au mauvais endroit dans deux cas sur trois.
+
+_Non relevé ne vaut pas zéro._ Compter zéro pour ce que personne n'a compté ferait passer une
+absence d'instrumentation pour une campagne ratée. Deux mutants distincts l'éprouvent — « compte
+comme atteint » et « compte comme zéro » — parce que les deux erreurs opposées mènent au même
+endroit : un verdict qui ne dit pas la vérité sur ce qu'on sait.
+
+_La reprise ne se compte pas, les seuils ne se constatent pas._ « La reprise s'est bien passée 4
+fois » ne dit rien de la cinquième, et c'est exactement la question ; répondre « oui » à « avez-vous
+eu 5 000 tâches ? » ne dit pas combien. Les deux confusions sont refusées, chacune par son nom.
+
+_Redémarrages et pertes de workers valent un._ §29.6 les veut « réguliers » sans chiffrer. Zéro est
+la seule valeur dont on soit sûr qu'elle ne les exerce pas ; fixer un chiffre plus haut serait
+inventer une exigence que le texte ne pose pas.
+
+**Écart avec la spec.** Rien ici ne mène de campagne : le module dit ce que §29.6 exige et confronte
+un relevé. Instrumenter la campagne — compter les événements, constater une double application — est
+le travail des paquets qui les produisent, et l'endurance elle-même demande sept jours de machine.
+
+**Prochain item.** W12.c — les benchmarks de §29.7 : six configurations, onze mesures.
