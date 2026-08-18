@@ -221,7 +221,10 @@ jobs:
 
       # `--ignored` est ce qui lance le test, et `--nocapture` ce qui laisse passer la table. Sans
       # elle, un échec dirait « le niveau n'est pas tenu » sans dire laquelle des seize.
-      - name: Les seize sondes à S2
+      # Les deux tests `#[ignore]` du fichier tournent ensemble : `cargo test` les exécute tous
+      # et rapporte toutes les défaillances, donc l'échec du premier n'empêche pas le second de
+      # produire sa table — qui est justement ce qu'on vient chercher.
+      - name: Les sondes contre un conteneur réel
         run: |
           cargo test -p locus-execd --test host_sandbox -- --ignored --nocapture 2>&1 | tee sondes.txt
           exit "${PIPESTATUS[0]}"
@@ -232,7 +235,7 @@ jobs:
         if: always()
         run: |
           {
-            echo "## Les seize sondes à S2"
+            echo "## Les sondes contre un conteneur réel"
             echo '```'
             cat sondes.txt 2>/dev/null || echo "le test n'a rien produit"
             echo '```'

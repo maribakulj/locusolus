@@ -6931,6 +6931,53 @@ serait « contenue » partout, y compris là où le niveau ne promet rien. C'est
 chose qu'un double ne peut pas dire, et c'est pourquoi l'item existe. Le constat sera écrit ici
 quand le job aura tourné.
 
+**Le premier passage a répondu, et il a trouvé un défaut avant d'exercer une seule sonde.** Le
+runner GitHub **fait tourner Podman rootless** : l'image s'est construite, la référence locale par
+digest s'est résolue, `podman create` a été atteint. Il a rendu 125 : « storage option overlay.size
+and overlay.inodes only supported for backingFS XFS. Found extfs ». `ConfinementPlan::disk_bytes`
+devient un `--storage-opt size=`, que Podman ne sait appliquer que sur XFS ; le runner est en ext4.
+
+_Mon propre message mentait, et c'est le premier correctif._ L'assertion disait « cet hôte n'a pas
+de runtime rootless en état de marche » sur seize `NotRun`. C'était faux : le runtime marchait et
+avait refusé la **spécification**. Les trois états que le test prétendait distinguer ne l'étaient
+donc pas — il confondait « il manque une machine » avec « il manque une capacité d'hôte ». `probe`
+rend désormais un `Result` dont l'erreur porte le message du runtime mot pour mot, et une sandbox
+qui n'a pas démarré ne produit plus une table de seize `NotRun` — zéro observation et une raison ne
+sont pas seize observations.
+
+_Deux tests, parce qu'un seul aurait dû mentir dans un sens ou dans l'autre._ Le premier demande si
+l'hôte tient `S2` sous une mission qui réserve du disque ; sur ce runner il n'observe rien et le
+dit. Le second éprouve les **quinze** sondes qui ne dépendent pas du quota disque — quinze seizièmes
+de la question, contre zéro auparavant — et **n'établit jamais `S2`** : `exceed_disk_quota` est
+`contained_from: S2`, sans quota elle réussirait pour une raison qui ne dit rien du confinement, et
+l'exclure en concluant « `S2` tient » serait la façon exacte de croire une sandbox qu'on n'a pas
+testée. L'exclusion est nommée et le test vérifie que la sonde écartée **existe** : l'écarter par un
+nom mort n'écarterait rien, et le test croirait couvrir seize sondes.
+
+_Le profil seccomp porte un `tag`._ Les deux tests tournent dans le même processus, donc
+`process::id()` ne les sépare pas, et le nettoyage de l'un effacerait le fichier que l'autre
+utilise.
+
+**Le défaut trouvé devient `W5.g`.** `probe.rs` a pour doctrine « ce que l'hôte permet réellement —
+lu, jamais supposé », et son en-tête dit pourquoi : « un broker qui apprendrait ses limites en
+échouant les découvrirait après avoir créé la moitié d'une sandbox ». C'est mot pour mot ce qui se
+passe pour le quota disque. Le module frôle le sujet sans en tirer la conséquence —
+`REQUIRED_CONTROLLERS` note que « le quatrième, le disque, ne se borne pas par cgroup » et s'arrête
+là. Le refus devra être **distinct** de `CapacityExceeded` : « la capacité manque » et « la borne
+n'est pas applicable ici » n'envoient pas chercher la même chose. Ce défaut n'était pas trouvable
+par un double ; il fallait un vrai `podman create` sur un vrai système de fichiers, et c'est
+précisément ce que `W5.f` existe pour obtenir.
+
+**L'arbitrage annoncé, rendu.** Un runner GitHub n'est pas un hôte `S2` pour ce dépôt, et la raison
+n'est pas réparable en CI : le système de fichiers d'un runner n'est pas un réglage. `W5.f` demande
+donc une VM à système de fichiers XFS, ou un report écrit. Le job reste `continue-on-error` en
+attendant, parce que son second test rapporte les quinze sondes — et c'est de l'information qu'on
+n'avait pas.
+
+**Ce que la question sémantique annoncée est devenue.** Le passage devait trancher si
+`read_host_filesystem` peut réussir à un niveau quelconque. Il ne l'a pas tranchée : aucune sonde
+n'a tourné. Elle reste due, et le second test est ce qui la rendra observable au prochain passage.
+
 **Ce que ce sprint ne prétend pas.** `W5.f` n'est pas clos. Ce qui est livré est l'épreuve et la
 question ; la réponse vient du prochain passage de CI, et l'arbitrage qu'elle appelle est écrit
 d'avance pour qu'il ne dépende pas de qui le lit.

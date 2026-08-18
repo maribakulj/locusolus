@@ -208,6 +208,7 @@ porte `version:` ni `image:`, tous deux obligatoires au schéma, et `ml-mps.yaml
 | W5.d `[R]` | les sondes voyagent avec le harnais : plus aucun binaire attendu dans l'image | aucune sonde ne nomme un chemin de l'image, chacune est du shell que `sh -n` accepte, et une sonde qui n'a pas pu conclure est `NotRun` |
 | W5.e `[R]` | le driver de build derrière un port, dans `apps/locus-execd` | le digest vient de la sortie du runtime et non du blueprint ; un build muet n'est pas un succès ; le driver ne sait pas dépasser le deuxième maillon de la chaîne |
 | W5.f `[R]` | validation **sémantique** des sondes contre une sandbox réelle | sur un hôte capable de `S2`, chaque sonde produit le verdict que son `contained_from` annonce — c'est la seule chose que ni `sh -n` ni un double ne peuvent dire |
+| W5.g `[R]` | le **quota disque comme fait d'hôte lu**, et non appris en échouant — trouvé par le premier passage de W5.f | un hôte dont le système de fichiers ne peut pas porter `--storage-opt size=` est constaté **avant** toute création, et une mission qui réserve du disque y est refusée à l'**admission**, par un motif qui nomme le système de fichiers ; le refus est distinct de `CapacityExceeded` — « la capacité manque » et « la borne n'est pas applicable ici » n'envoient pas chercher la même chose ; aucun chemin ne laisse `podman create` être l'endroit où on l'apprend |
 
 **L'épreuve est écrite ; ce qui manque est l'hôte, et on va savoir si la CI en est un.**
 `apps/locus-execd/tests/host_sandbox.rs` fait tourner les seize sondes dans un conteneur rootless
@@ -224,9 +225,35 @@ arbitrage, pas une habitude — s'il devient vert, `continue-on-error` tombe et 
 s'il reste rouge, la table dit **pourquoi**, et l'item part vers une VM dédiée ou un report écrit.
 
 Trois états se distinguent, et ils ne se réparent pas pareil : pas de runtime rootless (il manque
-une machine), un runtime mais pas de cgroups v2 (il manque une configuration), un confinement qui
-ne tient pas (il manque une garantie). Le test affirme d'abord qu'**au moins une sonde a tourné**,
-précisément pour que le premier ne se lise pas comme le troisième.
+une machine), un runtime qui refuse la spécification (il manque une capacité d'hôte), un confinement
+qui ne tient pas (il manque une garantie).
+
+**Le premier passage a répondu, et la réponse n'était dans aucune des cases attendues.** Le runner
+GitHub **fait tourner Podman rootless** — l'image s'est construite, la référence par digest s'est
+résolue — et `podman create` a rendu 125 : « storage option overlay.size and overlay.inodes only
+supported for backingFS XFS. Found extfs ». Le quota disque de `ConfinementPlan::disk_bytes` devient
+un `--storage-opt size=`, que Podman ne sait appliquer que sur XFS ; le runner est en ext4.
+
+Deux conséquences, et elles sont de natures différentes.
+
+**Un défaut, qui devient `W5.g`.** `probe.rs` a pour doctrine « ce que l'hôte permet réellement — lu,
+jamais supposé », et son en-tête écrit pourquoi : « un broker qui apprendrait ses limites en échouant
+les découvrirait après avoir créé la moitié d'une sandbox ». C'est exactement ce qui se passe pour le
+quota disque, et le module le frôle sans en tirer la conséquence — `REQUIRED_CONTROLLERS` note que
+« le quatrième, le disque, ne se borne pas par cgroup » et s'arrête là. Ce défaut n'était pas
+trouvable par un double : il fallait un vrai `podman create` sur un vrai système de fichiers.
+
+**Une réponse à l'arbitrage.** Un runner GitHub n'est pas un hôte `S2` pour ce dépôt, et la raison
+n'est pas réparable en CI — le système de fichiers du runner n'est pas un réglage. `W5.f` demande
+donc une **VM à système de fichiers XFS**, ou un report écrit. Le job reste `continue-on-error` en
+attendant, parce que son second test continue de rapporter les quinze sondes qui ne dépendent pas du
+quota disque, et que c'est quinze seizièmes d'information qu'on n'avait pas.
+
+Le fichier de test porte donc **deux tests** : le premier demande si l'hôte tient `S2` sous une
+mission qui réserve du disque et, quand la sandbox ne démarre pas, rend le message du runtime mot
+pour mot ; le second éprouve les quinze autres sondes et **n'établit jamais `S2`**, l'exclusion y
+étant nommée plutôt que silencieuse. Un seul test aurait dû choisir entre ne rien observer et
+conclure sur `S2` sans le quota : le premier n'apprend rien, le second serait faux.
 
 ## W6 — Artifact / reproductibilité
 
