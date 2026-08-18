@@ -19,5 +19,7 @@
 //! se croirait canonique deviendrait la source, et l'invariant 2 tomberait sans que rien n'échoue.
 
 pub mod level;
+pub mod retrieval;
 
 pub use level::{Entry, Level, MemoryError, Shelf, Substance};
+pub use retrieval::{Candidate, Excluded, Ranking, Results, RetrievalError, Signal, retrieve};
