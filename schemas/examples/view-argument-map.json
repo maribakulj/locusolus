@@ -1,0 +1,39 @@
+{
+  "_fixture": {
+    "name": "view-argument-map",
+    "expect": "valid",
+    "note": "La carte d'argumentation de §23.3, avec une objection qui pointe VERS le claim qu'elle conteste. Le document ne transporte pas sa forme canonique : le consommateur la reconstruit et compare le condensat."
+  },
+  "kind": "argument_map",
+  "watermark": 128,
+  "digest": "sha256:48ff059834a621360be42ba40d54210ae0ae44f5d2bb3aaecd4f1b2b0ef6d3c2",
+  "nodes": [
+    {
+      "id": "claim-a",
+      "kind": "claim",
+      "label": "Le lemme 3 tient sans compacité"
+    },
+    {
+      "id": "claim-b",
+      "kind": "claim",
+      "label": "La borne est atteinte en dimension 2"
+    },
+    {
+      "id": "art-1",
+      "kind": "artifact",
+      "label": "Preuve Lean, révision 4"
+    }
+  ],
+  "edges": [
+    {
+      "from": "art-1",
+      "to": "claim-a",
+      "kind": "supports"
+    },
+    {
+      "from": "claim-b",
+      "to": "claim-a",
+      "kind": "refutes"
+    }
+  ]
+}

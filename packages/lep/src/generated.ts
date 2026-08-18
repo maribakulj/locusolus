@@ -829,6 +829,47 @@ export type RemoteArtifactRef = {
   readonly viewer_hint?: "iiif" | "image" | "pdf" | "none" | undefined;
 };
 
+export type ViewNodesItem = {
+  readonly id: string;
+  readonly kind: string;
+  readonly label: string;
+};
+
+export type ViewEdgesItem = {
+  readonly from: string;
+  readonly to: string;
+  readonly kind: string;
+};
+
+export type View = {
+  /**
+   * Laquelle des huit projections de §23.3.
+   */
+  readonly kind:
+    | "graph_2d"
+    | "argument_map"
+    | "provenance"
+    | "dependencies"
+    | "disagreements"
+    | "semantic_space"
+    | "branch_landscape"
+    | "agent_society";
+  /**
+   * Le point du journal auquel la vue a été prise. Un viewer qui l'ignore ne peut pas dire s'il montre l'état d'aujourd'hui.
+   */
+  readonly watermark: number;
+  /**
+   * Le condensat de la vue dont celle-ci est un cadrage ou un filtre. Absent pour une projection ; présent sans exception pour une vue dérivée, y compris quand le filtre n'a rien retiré.
+   */
+  readonly derived_from?: string | undefined;
+  /**
+   * Le condensat de la forme canonique. Le consommateur la reconstruit et compare : ce qui prouve ne peut pas être ce qui est demandé.
+   */
+  readonly digest: string;
+  readonly nodes: readonly ViewNodesItem[];
+  readonly edges: readonly ViewEdgesItem[];
+};
+
 export type HumanReviewFinding = {
   /**
    * Le ReviewDossier auquel ce finding s'attache. §20 : la revue humaine « produit un finding attachable à un ReviewDossier », donc elle en nomme un.
@@ -871,6 +912,7 @@ export const LEP_DOCUMENTS = [
   "Lease",
   "EpistemicCommit",
   "RemoteArtifactRef",
+  "View",
   "HumanReviewFinding",
 ] as const;
 

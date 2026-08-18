@@ -1,7 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/tsconfig",
   "extends": "./tsconfig.base.json",
-  "include": ["tooling/**/*.ts", "tests/**/*.ts"],
+  "include": ["apps/web/**/*.ts", "tooling/**/*.ts", "tests/**/*.ts"],
   "$comment": [
     "Les fixtures de tests/boundaries/ sont des violations délibérées : elles importent des",
     "paquets qui ne sont pas installés, et c'est précisément ce qu'elles doivent faire. Elles",

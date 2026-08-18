@@ -1,0 +1,10 @@
+{
+  "name": "@locus/web",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Le workspace web : il rend une View vérifiée et ne détient aucun graphe modifiable (SPEC_V1 §23.2, §23.3).",
+  "exports": {
+    ".": "./src/index.ts"
+  }
+}
