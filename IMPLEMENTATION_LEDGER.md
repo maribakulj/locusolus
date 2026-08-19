@@ -9044,3 +9044,68 @@ le fil de §22.1 sont `W20.e` et `W20.f`.
 
 **Prochain item.** `W20.e` — les queries de §22.4 et les cursors de §22.6. Sa dépendance `W20.d` est
 satisfaite par cette entrée, et les accesseurs en lecture seule sont ce depuis quoi elle servira.
+
+## 2026-08-19 — W20.e — les queries de §22.4 et les cursors de §22.6
+
+**Périmètre.** `apps/locusd/src/{cursor,query}.rs` (neufs), `src/lib.rs`, `src/composition.rs` (un
+accesseur `pub(crate)` au journal), `apps/locusd/tests/query.rs` (neuf). Aucun débordement.
+
+**Tests exécutés.** `npm run check` — les douze portes, code de sortie 0. `cargo test -p locusd` —
+43 tests. Mutation testing, douze mutants : **12 tués, 0 survivant** (après correction, voir plus
+bas).
+
+**Décisions prises.**
+
+- **Trois collections, pas dix-neuf.** §22.4 énumère dix-neuf routes ; celles qui ont de quoi être
+  servies sont le flux du journal, les workers du graphe d'exécution et les conflits ouverts. Les
+  seize autres attendent leurs agrégats ; les déclarer ferait passer pour servies des collections
+  vides. C'est la règle de `CLAUDE.md` sur les énumérations, appliquée aux routes.
+- **« Opaque » est un contrat, pas un chiffrement, et la documentation le dit.** Le contenu est
+  encodé pour qu'aucun client ne soit tenté d'y reconnaître un entier et de l'incrémenter — la
+  **tentation** est le vrai risque, bien avant l'adversaire. La somme de contrôle (FNV-1a) détecte
+  l'accident, la troncature et la recopie fautive ; **elle ne résiste pas à un adversaire**, ce qui
+  demanderait un MAC, donc une dépendance cryptographique, donc un ADR — `dependencies.json` la
+  refuserait autrement. Le dire vaut mieux que de laisser croire à une garantie absente : un cursor
+  n'ouvre aucun droit, et rien dans §22 ne lui en donne le rôle.
+- **La collection voyage dans le cursor.** Une position `47` a un sens dans chacune des trois ; la
+  lire dans la mauvaise ne produirait ni erreur ni page vide, mais une page **plausible** prise au
+  mauvais endroit, que rien dans la réponse ne permettrait de distinguer d'une bonne. C'est le mode
+  d'échec silencieux que la clause de `W20.e` vise, et le refus nomme les deux collections.
+- **Deux façons d'être stable, parce qu'il y a deux natures de collection.** Le flux est indexé par
+  sa position globale, qui ne bouge jamais. Les projections sont des **ensembles**, sans ordre
+  naturel : elles sont paginées dans un ordre canonique — le tri lexicographique — et le cursor y
+  porte un rang. Le module ne prétend pas à davantage que la fenêtre de cohérence que §22.6 nomme.
+- **Une limite absurde est ramenée dans ses bornes plutôt que refusée.** Un client qui demande un
+  million d'éléments veut des éléments, pas une erreur, et il aura la suite par son cursor. Zéro est
+  ramené à un : une page vide ne progresse jamais, et boucler serait alors le comportement _correct_
+  du client.
+- **La dernière page ne rend pas de cursor.** Un cursor rendu jusqu'à l'infini ferait boucler tout
+  client qui suit le contrat — une panne du client causée par une politesse du serveur.
+- **Aucune dépendance ajoutée.** L'encodage hexadécimal est écrit à la main : douze lignes valent
+  mieux qu'un crate transitif dans un binaire dont l'ADR 0011 fait de la surface auditable un motif.
+
+**Le survivant, et ce qu'il a révélé.** Le mutant qui remplaçait `sort_unstable()` par `reverse()`
+survivait, et la raison est instructive : le test comparait le parcours paginé à une lecture
+complète, et **les deux passent par le même code d'ordonnancement**. Un tri inversé les inversait
+toutes les deux, et la comparaison tenait toujours. Le test vérifiait la cohérence interne, jamais
+la propriété annoncée — or c'est le tri lexicographique qui rend la pagination d'un ensemble
+reproductible d'un appel à l'autre. Le test lit désormais l'ordre lui-même.
+
+**Un incident d'outillage, et sa correction vérifiée.** Le harnais de mutation a été interrompu et a
+laissé un **mutant vivant dans `query.rs`**. Le hook de fin de tour demandait un commit ; le diff a
+été regardé avant de stager, et le fichier muté a été écarté — sans quoi la mutation serait entrée
+dans l'historique, et les tests seraient passés, puisque le mutant en question est précisément celui
+qu'aucun test n'attrapait. Le harnais restaure désormais sur `atexit` **et** sur `SIGTERM`,
+`SIGINT`, `SIGHUP`. La correction n'a pas été supposée : le harnais a été lancé, on a attendu qu'il
+ait réellement muté le fichier, le signal a été envoyé, et la restauration constatée. C'est le
+second défaut de cet outillage en deux items — `W20.d` avait perdu une édition par un instantané
+périmé — et les deux ont la même racine : un outil qui écrit dans l'arbre doit dire de quel état il
+part, et le rendre quoi qu'il arrive.
+
+**Écart avec la spec.** Aucun. §22.6 est tenu sur ses deux clauses — cursors opaques stables,
+reprise depuis une séquence connue. Les seize routes non servies de §22.4 sont une **absence
+déclarée**, pas un écart.
+
+**Prochain item.** `W20.f` — les événements clients de §22.1, WebSocket ou SSE avec cursor. Sa
+dépendance `W20.d` est satisfaite, et l'ADR 0018 y a laissé une décision ouverte à dessein : la
+feature `ws` coûte vingt paquets mesurés, et se pèse contre SSE avec le besoin sous les yeux.
