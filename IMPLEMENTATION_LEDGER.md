@@ -9263,3 +9263,51 @@ de ce que l'usage montrera.
 
 **Prochain item.** W20 est **entièrement livré** — `a` à `g`. La frontière se recalcule sur le reste
 de la roadmap au prochain tour.
+
+## 2026-08-19 — W0.16 — un blocage qui nomme ce qu'il attend se périme tout seul
+
+**Périmètre.** `tooling/repo/roadmap.ts` (règle `blocage-perime`, motif `attend:`),
+`tests/repo/roadmap.test.ts` (quatre tests), `docs/10_V1_ROADMAP.md` (marqueurs sur les quatre
+lignes décidées, `W17.f` débloquée avec son test de sortie, ligne `W0.16`).
+
+**Tests exécutés.** `node --test tests/repo/roadmap.test.ts` — 21 tests verts. La règle a été vue
+**rouge sur le dépôt réel** avant d'être vue verte :
+
+```
+[blocage-perime]
+  docs/10_V1_ROADMAP.md: « W17.f » attend W20, qui est livré : le blocage a expiré et la ligne dit
+  encore de ne pas y aller
+```
+
+**Ce qui a motivé l'item.** `W20.g` mergé, `check:roadmap` a imprimé « frontière vide — toute ligne
+du plan est faite, bloquée ou reportée ». J'allais conclure que la boucle s'arrêtait faute d'item.
+En relisant les quatre lignes restantes, `W17.f` disait « attend `locusd`, décomposé en **W20** » —
+et `W20` venait d'être terminé. **Le blocage avait expiré et rien ne pouvait le dire** : une raison
+de blocage est de la prose, et `W0.11` ne sait pas la lire.
+
+C'est le symétrique exact du défaut que `W0.11` corrigeait. Là, une ligne pouvait prétendre ne pas
+être faite alors qu'elle l'était ; ici, une ligne pouvait prétendre être bloquée alors qu'elle ne
+l'était plus. Les deux envoient une session au mauvais endroit, et le second est plus discret : il
+ne produit pas de travail en double, il produit un **arrêt**.
+
+**Décisions prises.**
+
+- **Le marqueur est explicite, et deviner a été essayé puis écarté.** Une première version lisait
+  tout identifiant présent dans la raison. Elle aurait crié au blocage périmé sur `W18.f`, dont la
+  raison **cite** `W5.f` — « `W5.f` a rendu la condition précise » — sans en dépendre le moins du
+  monde. Une ligne sans marqueur n'est donc **pas vérifiée du tout** : le garde ne devine pas une
+  dépendance, il lit celle qu'on a déclarée.
+- **`attend:externe` ne se périme jamais**, et c'est ce qui distingue les quatre lignes. `W16.d`
+  attend un consommateur, `W16.e` une messagerie inter-agents, `W18.f` un hôte capable. Ces blocages
+  n'ont pas de date, et un garde qui prétendrait en connaître une enverrait une session construire
+  une fonctionnalité pour justifier un test — ce que la raison de `W16.e` interdit en toutes
+  lettres.
+- **Une phase compte comme livrée quand toutes ses lignes sont marquées ou décidées.** `attend:W20`
+  est ce que « attend `locusd`, décomposé en W20 » voulait dire ; le vérifier ligne par ligne évite
+  d'avoir à tenir une seconde liste de ce qu'une phase contient.
+
+**Écart avec la spec.** Sans objet — c'est un item d'outillage.
+
+**Prochain item.** `W17.f`, que cet item vient de débloquer et de doter d'un test de sortie : les
+six capacités de branche — diff, preview, ombre, approbation, rollback, navigation dans le temps —
+joignables depuis `apps/locusd`. La frontière le nomme désormais, et c'est le garde qui le dit.

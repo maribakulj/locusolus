@@ -94,6 +94,30 @@ const decisionHeading = /—\s*(Bloqué|Reporté|Partiel)(?!\p{L})/u;
 /** Le motif d'une ligne d'item de roadmap : `| W5.q `[R]` **fait** | … |`. */
 const roadmapRow = /^\| (W\d+\.[a-z0-9]+) ([^|]*)\|/gm;
 
+/** La ligne entière, pour lire la raison d'un blocage — le troisième champ. */
+const wholeRow = /^\| (W\d+\.[a-z0-9]+) [^|]*\|([^\n]*)$/gm;
+
+/**
+ * Ce qu'une ligne bloquée déclare attendre, sous une forme que le garde sait lire.
+ *
+ * # Pourquoi un marqueur, et pas la prose
+ *
+ * La raison d'un blocage est une phrase, et une phrase ne se vérifie pas. `W17.f` disait « attend
+ * `locusd`, décomposé en **W20** » alors que `W20` était livré : le blocage avait expiré, la ligne
+ * disait encore « ne va pas là », et la frontière calculée était **vide** alors qu'un item était
+ * prêt. Une session s'est arrêtée dessus, et c'est exactement l'erreur que `W0.11` devait rendre
+ * impossible — dans l'autre sens.
+ *
+ * Deviner l'identifiant dans la prose ne marche pas non plus, et l'essayer l'a montré : la raison de
+ * `W18.f` **cite** `W5.f` — « `W5.f` a rendu la condition précise » — sans l'attendre le moins du
+ * monde. Une règle qui lirait « tout identifiant mentionné » aurait donc crié au blocage périmé sur
+ * une ligne qui attend un hôte que personne ne peut fournir.
+ *
+ * D'où `attend:<quoi>`, écrit exprès. `attend:externe` dit « rien dans ce plan ne le débloquera » et
+ * ne se vérifie pas ; `attend:W20` se vérifie, et se périme tout seul.
+ */
+const awaits = /attend:(W\d+(?:\.[a-z0-9]+)?|externe)/g;
+
 /**
  * Ce que les deux documents affirment, et ce qui n'a pas pu être lu.
  *
@@ -114,6 +138,8 @@ export type Reconciliation = {
   readonly planned: ReadonlySet<string>;
   readonly frontier: readonly string[];
   readonly unread: readonly string[];
+  /** Pour chaque ligne décidée qui l'a déclaré, ce qu'elle attend — voir `awaits`. */
+  readonly awaiting: ReadonlyMap<string, readonly string[]>;
 };
 
 /**
@@ -194,7 +220,39 @@ export async function readReconciliation(root: string): Promise<Reconciliation> 
     }
   }
 
-  return { delivered, blocked, marked, decided, planned, frontier, unread };
+  const awaiting = new Map<string, readonly string[]>();
+  for (const [, item, rest] of roadmap.matchAll(wholeRow)) {
+    if (item === undefined || rest === undefined || !decided.has(item)) {
+      continue;
+    }
+    const declared = [...rest.matchAll(awaits)]
+      .map(([, what]) => what)
+      .filter((what): what is string => what !== undefined);
+    if (declared.length > 0) {
+      awaiting.set(item, declared);
+    }
+  }
+
+  return { delivered, blocked, marked, decided, planned, frontier, unread, awaiting };
+}
+
+/**
+ * Vrai quand ce que la ligne attend est **entièrement** livré.
+ *
+ * Une phase — `W20` — est satisfaite quand toutes ses lignes sont marquées ou décidées : c'est ce
+ * que « attend `locusd`, décomposé en W20 » voulait dire. Un item — `W15.f` — l'est quand il porte
+ * son marqueur. `externe` ne l'est jamais, et c'est le point : une ligne qui attend un hôte, une
+ * messagerie ou un consommateur n'a pas de date, et le garde ne doit pas prétendre en connaître une.
+ */
+function satisfied(what: string, state: Reconciliation): boolean {
+  if (what === "externe") {
+    return false;
+  }
+  if (what.includes(".")) {
+    return state.marked.has(what) || state.decided.has(what);
+  }
+  const rows = [...state.planned].filter((item) => item.startsWith(`${what}.`));
+  return rows.length > 0 && rows.every((item) => state.marked.has(item) || state.decided.has(item));
 }
 
 /**
@@ -228,6 +286,17 @@ export function reconcile(state: Reconciliation): readonly Finding[] {
         rule: "decide-et-livre",
         where: "docs/10_V1_ROADMAP.md",
         message: `« ${item} » est déclaré bloqué ou reporté et a pourtant son entrée au ledger : un item livré n'attend plus rien`,
+      });
+    }
+  }
+
+  for (const [item, declared] of [...state.awaiting].sort()) {
+    const pending = declared.filter((what) => !satisfied(what, state));
+    if (pending.length === 0) {
+      findings.push({
+        rule: "blocage-perime",
+        where: "docs/10_V1_ROADMAP.md",
+        message: `« ${item} » attend ${declared.join(", ")}, qui est livré : le blocage a expiré et la ligne dit encore de ne pas y aller`,
       });
     }
   }
