@@ -68,6 +68,17 @@ const ledgerHeading = /^## \d{4}-\d{2}-\d{2} — (W\d+\.[a-z0-9]+)\b([^\n]*)$/gm
  * une garde qui compte les entrées comptait celle-ci comme une livraison, et la ligne de `W15.f`
  * portait **fait** sans que rien ne proteste.
  *
+ * Trois préfixes, et ils disent trois choses différentes : `Bloqué` attend une décision ou un fait
+ * extérieur, `Reporté` attend une machine, `Partiel` attend le reste du même travail. Les fondre
+ * en un seul « pas fini » ferait perdre à chacun ce qui dit **quoi attendre**.
+ *
+ * `Partiel` est le troisième, et il est né d'un item qui traverse deux dépôts : `W15.f` livre son
+ * lecteur dans `canterel` avant son opération dans `locusolus`, parce que la décision 4 d'ADR 0016
+ * exige cet ordre. La moitié livrée mérite son entrée — c'est ce qu'un registre est pour — mais une
+ * entrée titrée `W15.f` sans plus vaudrait livraison de l'item entier, et la roadmap porterait
+ * **fait** sur un tiers de travail. C'est le même défaut que `W15.f` a révélé sous sa forme
+ * « bloqué », rencontré dans l'autre sens quinze minutes plus tard.
+ *
  * L'ancrage est un **préfixe de titre**, pas la présence du mot. L'entrée de `W0.12` s'intitule
  * « `« Bloqué »` n'est pas `« à faire »` » et livre bel et bien : chercher le mot dans le titre
  * l'aurait effacée. Après le tiret cadratin, le premier mot décide.
@@ -78,7 +89,7 @@ const ledgerHeading = /^## \d{4}-\d{2}-\d{2} — (W\d+\.[a-z0-9]+)\b([^\n]*)$/gm
  * garde répondait `ok` sur une règle qui ne s'exécutait pas — elle n'a été prise que parce qu'un
  * écart connu **n'a pas** été rapporté. Une règle neuve se regarde échouer avant d'être crue.
  */
-const decisionHeading = /—\s*(Bloqué|Reporté)(?!\p{L})/u;
+const decisionHeading = /—\s*(Bloqué|Reporté|Partiel)(?!\p{L})/u;
 
 /** Le motif d'une ligne d'item de roadmap : `| W5.q `[R]` **fait** | … |`. */
 const roadmapRow = /^\| (W\d+\.[a-z0-9]+) ([^|]*)\|/gm;
