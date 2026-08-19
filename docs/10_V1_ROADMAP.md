@@ -873,3 +873,29 @@ plutôt que « incohérent ».
 Lire ce fichier, prendre le premier item non terminé dont les dépendances sont satisfaites, lire
 le code concerné, exécuter les tests de son périmètre, modifier **ce périmètre seul**, mettre à
 jour `IMPLEMENTATION_LEDGER.md`.
+
+### La boucle, et le seul endroit où elle s'arrête
+
+Un sprint : brancher depuis un `main` à jour, implémenter jusqu'à ce que le test de sortie passe
+localement, écrire l'entrée du ledger, ouvrir la PR, attendre la CI. **CI verte et PR ordinaire :
+merger, puis reprendre au premier item suivant — immédiatement, dans le même tour.**
+
+Le bilan de sprint s'écrit **en passant**, pas à l'arrêt. C'est une ligne dans la réponse, pas un
+point final : le rendre puis attendre une confirmation transforme une boucle en une suite de
+sessions courtes, et c'est le contraire de ce que cette règle demande.
+
+Trois arrêts seulement, et ils sont exhaustifs :
+
+1. **un arbitrage qui dévie du cadre initial** — pas un détail d'implémentation dans le cadre, qui
+   se tranche, se documente dans la PR, et ne bloque pas ;
+2. **une CI rouge non réparée en une tentative** — une seule, et les défaillances d'infrastructure
+   connues (miroir apt lent sur le job `emacs`) se réparent par un nouveau SHA à arbre identique ;
+3. **l'utilisateur le demande**.
+
+Rien d'autre. Ni « la CI est verte », ni « le bilan est écrit », ni « l'item suivant est gros ».
+Un item bloqué n'arrête pas la boucle non plus : il se marque bloqué avec sa condition de levée, et
+la boucle passe au suivant.
+
+**Si un item en découvre un autre** — et c'est arrivé six fois de suite dans W5 — le nouvel item
+s'écrit dans ce fichier avec son test de sortie, et **la boucle continue** ; elle ne s'interrompt
+pas pour faire valider la découverte.
