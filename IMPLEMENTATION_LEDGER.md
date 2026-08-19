@@ -7835,3 +7835,139 @@ et cancellation ». `W5.r` fait passer ces appels non bornés d'une poignée à 
 campagne. La borne est posée, elle vaut 60 s, et deux tests la tiennent **sans Podman** — en visant
 `sleep` pour l'abandon et `echo` pour la sortie intacte, parce qu'une borne qui tuerait tout
 passerait le premier test seul. C'est `W5.t`.
+
+---
+
+## 2026-08-19 — W5.j — Le quota disque s'applique là où la sandbox peut écrire
+
+**Périmètre.** `packages/execution/src/selftest.rs` (`Requirement`, `expectation`, `judge`,
+`standing`), `apps/locus-execd/src/linux/plan.rs` (`QuotaTarget`, le refus),
+`src/linux/invocation.rs` (l'application), `src/linux/selftest.rs` (la sonde, la variable, le code
+122), et les quatre fichiers de tests.
+
+**Le défaut, et pourquoi il était invisible.** `disk_bytes` devenait un `--storage-opt size=`, qui
+dimensionne la couche inscriptible du conteneur. C'est juste tant que la racine est inscriptible. À
+partir de `S2`, le plan la monte en lecture seule : la couche dimensionnée est alors une couche que
+**personne n'écrit**, et le seul endroit inscriptible est l'espace de travail monté, qui hérite du
+système de fichiers de l'hôte et n'est borné par rien. Le quota était déclaré, accepté, transmis au
+runtime — et sans effet. C'est la forme la plus tranquille d'une garantie absente : tout le chemin a
+l'air de fonctionner.
+
+Et la sonde chargée de le constater écrivait à la racine. Elle était donc bloquée **avec ou sans
+quota**, et ressortait « bloquée → tient » sous une mission qui n'en réservait aucun. `W5.f` l'avait
+nommé sans pouvoir le réparer : « une sonde qui passe sans que ce qu'elle teste existe est le pire
+des trois états, parce qu'elle ne se plaint jamais ».
+
+**L'arbitrage, rendu.** Le quota mord **là où la sandbox peut écrire**, et le plan le nomme.
+
+| Cas                              | Où                              | Comment               |
+| -------------------------------- | ------------------------------- | --------------------- |
+| Aucun quota réservé              | nulle part                      | rien n'est émis       |
+| Racine inscriptible (`S0`, `S1`) | la couche du conteneur          | `--storage-opt size=` |
+| Racine en lecture seule (`S2`+)  | le premier montage inscriptible | volume dimensionné    |
+
+_Le tmpfs borné est écarté._ Il marcherait sur tout système de fichiers, et c'est ce qui le rend
+tentant. Mais c'est de la **RAM** : une réservation de disque viendrait manger la réservation de
+mémoire, deux budgets pour une ressource. Ce dépôt refuse ce genre de collapse partout ailleurs.
+
+_Le volume dimensionné demande XFS avec quotas de projet_, c'est-à-dire exactement le fait que
+`W5.g` fait déjà lire à l'hôte **avant toute création** et refuser à l'admission quand il manque. Le
+chemin est cohérent de bout en bout : l'hôte est interrogé, la mission refusée si l'hôte ne sait
+pas, et le volume dimensionné seulement là où il mordra.
+
+_Un quota là où rien n'est inscriptible est refusé au plan._ C'est le troisième cas, celui qu'on
+aurait oublié : une sandbox à `S2` sans espace de travail n'a aucun endroit où écrire, et accepter
+un quota en silence recommencerait la faute qu'on répare.
+
+_Le premier montage inscriptible est **désigné**, pas réparti._ Une mission peut en monter plusieurs
+; répartir un quota unique entre eux demanderait une règle que rien dans `SandboxSpec` ne donne, et
+l'inventer produirait une borne que personne n'a demandée. Un test l'épingle : le jour où une
+mission en aura besoin de deux, ce sera un item, pas une surprise.
+
+**La moitié qu'on n'avait pas vue venir : l'attente dépend de la mission.** `contained_from` dit à
+partir de quel **niveau** une sonde doit être contenue, en supposant que ce qu'elle éprouve existe
+toujours. Vrai pour quinze sondes sur seize — un namespace, un profil seccomp, une capability
+retirée sont des propriétés du niveau. Le disque est l'exception, et une seule chose la crée :
+`ResourceSpec` **refuse** un quota nul pour le CPU, la mémoire, les PID et l'horizon, et **accepte**
+zéro pour le disque. C'est la seule ressource facultative du système.
+
+Sans `Probe::requires`, `exceed_disk_quota` serait `Contained` dès `S2` quoi qu'ait déclaré la
+mission — donc `Escaped` chaque fois qu'une mission ordinaire, sans quota, écrit dans son espace de
+travail. Le harnais le cachait en la laissant bloquer par la racine en lecture seule.
+
+`expectation`, `judge` et `standing` prennent donc la réservation. C'est `ResourceSpec` entier qui
+voyage, et non un booléen « quota déclaré » : le booléen serait un second vocabulaire pour ce que la
+réservation dit déjà, et il faudrait le tenir à jour le jour où une deuxième ressource devient
+facultative.
+
+**Un code réservé de plus, et il ne se range avec aucun des deux autres.** 120 dit « ce que je
+devais **lire** n'était pas là ». 121 dit « ce que je devais **atteindre** n'a pas répondu ». 122
+dit « ce sur quoi je devais **écrire** ne s'écrit pas » — et il se répare **dans le plan**, qui a
+désigné une cible que la sandbox ne peut pas écrire. Sans lui, déplacer la sonde vers l'espace de
+travail n'aurait fait que déplacer le piège d'un cran.
+
+**Le second test hôte passe de quinze à seize sondes.** Son exclusion nommée était honnête tant que
+l'attente ne dépendait que du niveau ; elle n'a plus lieu d'être. Le succès de la sonde sans quota
+déclaré dit maintenant quelque chose de vrai : le plan n'a désigné aucune cible, la sonde l'a lu, et
+elle n'a pas prétendu mesurer une borne absente.
+
+**Tests exécutés.** `cargo test` → 47 conformes pour `locus-execd`, 19 pour le domaine.
+`npm run check` → les dix portes vertes. Mutation : **onze mutants, onze tués**, zéro survivant.
+
+_Deux notes de méthode, et la seconde a coûté un fichier._ `cargo fmt` a de nouveau remodelé trois
+motifs entre leur écriture et leur recherche — la leçon est connue, elle se répète. Plus grave : le
+harnais nommait ses instantanés d'après le seul **nom de fichier**, et deux fichiers du dépôt
+s'appellent `selftest.rs`. Les deux ont partagé le même instantané, et la restauration a écrit le
+contenu du domaine dans le harnais. Le fichier a été repris de `HEAD` et les six éditions
+réappliquées ; le script nomme désormais ses instantanés d'après le chemin relatif entier.
+
+_Une conséquence non vue, et le job de CI l'a payée en direct._ Remplacer `--storage-opt size=` par
+un volume dimensionné change ce que fait un hôte **non-XFS** : `podman create` y échouait, il
+réussit désormais. La sonde, qui écrivait quatre gigaoctets en dur, s'est donc mise à les écrire
+pour de bon sur le disque d'un runner. Une sonde qui éprouve une borne doit écrire **juste au-delà**
+de cette borne, pas un nombre rond choisi d'avance : `LOCUS_QUOTA_BYTES` voyage maintenant avec la
+cible — aucun des deux n'ayant de sens sans l'autre — et le dépassement vaut la réservation plus
+soixante-quatre mébioctets. Ce que l'épreuve coûte est ainsi proportionné à ce que la mission a
+demandé.
+
+_Un survivant qui écrivait quatre gigaoctets pour passer._ Le mutant remplaçait « pas de cible →
+sortir » par « pas de cible → écrire à la racine », et le test, qui ne vérifiait que le code de
+sortie, le laissait vivre. Le test épingle désormais **qu'elle n'essaie pas** : `PATH` vidé, `dd`
+introuvable, et la sonde correcte n'en a pas besoin parce qu'elle sort avant.
+
+---
+
+## 2026-08-19 — W5.s — Un runtime qui ne répond pas n'a rien refusé
+
+**Périmètre.** `apps/locus-execd/src/runtime.rs` (`RuntimeError::Refused`), `src/linux/driver.rs`
+(`expect_success`), `src/linux/selftest.rs` (`Trial::refused`), et trois tests.
+
+**Le défaut, et où il était visible.** `expect_success` rendait `Unavailable` pour « le binaire est
+introuvable » comme pour « podman a répondu 125 ». Les deux tests qui l'épinglaient étaient **côte à
+côte** dans `podman.rs` — `un_hote_sans_podman_le_dit_au_lieu_de_pretendre` et
+`un_code_de_sortie_non_nul_devient_une_erreur_qui_porte_stderr` — et affirmaient la **même**
+variante pour les deux causes. Le défaut était écrit, lisible d'un coup d'œil, et il passait.
+
+Il a fallu `W5.r` pour qu'il coûte quelque chose : en faisant remonter le motif jusqu'au rapport de
+sondes, un Podman tué s'est mis à produire « la sandbox a été refusée », alors qu'il n'y avait eu
+aucun refus — seulement un silence. Le nom du motif avait dû être élargi faute de pouvoir tenir la
+distinction ; il la tient maintenant.
+
+**Décisions prises.**
+
+_Le verbe et le code voyagent séparément du texte._ `Refused { verb, code, detail }` plutôt qu'un
+message formaté. Un appelant qui veut décider — retenter, abandonner, changer d'hôte — ne devrait
+pas avoir à analyser une phrase pour retrouver un entier. C'est la leçon de `W5.m`, une couche plus
+bas : le code voyage **à côté** du verdict, jamais dedans.
+
+_`Trial::refused` choisit sur la variante, plus sur un texte._ `Unavailable` rend
+`UNREACHABLE_RUNTIME` et aucun code, parce qu'il n'y en a pas eu ; `Refused` rend `SANDBOX_REFUSED`
+et le code du runtime. `Unsupported` — le backend refuse avant de demander — reste un refus.
+
+_Le `Display` ne change pas d'un caractère._ « podman create a rendu 125 : … » est le même texte
+qu'avant, donc rien de ce qui lit le message ne bouge. Ce qui change est ce que le **type** permet
+de distinguer.
+
+**Tests exécutés.** `cargo test -p locus-execd` → 47 + 22 conformes. `npm run check` → les dix
+portes vertes. Le test de sortie est une paire, et c'est le point : sans la seconde moitié — « un
+runtime absent reste `Unavailable` » — faire rendre `Refused` à tout le monde passerait la première.

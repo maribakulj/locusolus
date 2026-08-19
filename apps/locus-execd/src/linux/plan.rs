@@ -146,6 +146,49 @@ pub struct CgroupLimit {
 /// calculable et vérifiable ; le backend qui écrira le fichier écrira les deux nombres ensemble.
 pub const CPU_PERIOD_MICROSECONDS: u64 = 100_000;
 
+/// Où le quota disque s'applique, c'est-à-dire où la sandbox peut écrire.
+///
+/// # Ce que l'implicite disait, et pourquoi il était faux
+///
+/// `disk_bytes` devenait un `--storage-opt size=`, qui dimensionne la **couche inscriptible du
+/// conteneur**. C'est juste tant que la racine est inscriptible — `S0`, `S1`. À partir de `S2`, le
+/// plan monte la racine en lecture seule : la couche ainsi dimensionnée est alors une couche que
+/// **personne n'écrit**, et le seul endroit inscriptible est l'espace de travail monté, qui hérite
+/// du système de fichiers de l'hôte et n'est borné par rien.
+///
+/// Le quota était donc déclaré, accepté, transmis au runtime — et sans effet. C'est la forme la plus
+/// tranquille d'une garantie absente : tout le chemin a l'air de fonctionner.
+///
+/// # Pourquoi un type et pas un booléen
+///
+/// Parce qu'il y a **trois** cas et que le troisième est celui qu'on oublierait. Une sandbox à `S2`
+/// sans espace de travail monté n'a **aucun** endroit inscriptible : un quota y est sans objet, et
+/// l'accepter en silence recommencerait exactement la faute qu'on répare. Il est refusé au plan.
+///
+/// # Ce que ce type ne décide pas
+///
+/// Le **mécanisme** de la borne sur l'espace de travail. Un bind mount d'un répertoire de l'hôte ne
+/// se borne pas ; il faut un volume dimensionné — que Podman ne sait tenir que sur XFS avec les
+/// quotas de projet, c'est-à-dire exactement le fait que `W5.g` fait déjà **lire** à l'hôte avant
+/// toute création, et refuser à l'admission quand il manque. Un tmpfs borné marcherait sur tout
+/// système de fichiers et serait le mauvais choix : c'est de la RAM, donc une réservation de disque
+/// viendrait manger la réservation de mémoire — deux budgets, une ressource.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum QuotaTarget {
+    /// Aucun quota n'est réservé : il n'y a rien à appliquer nulle part.
+    None,
+    /// La couche inscriptible du conteneur — quand la racine est inscriptible.
+    WritableRoot,
+    /// L'espace de travail monté, désigné par son chemin **dans** la sandbox.
+    ///
+    /// Le chemin dans la sandbox et non celui de l'hôte : c'est là que la sonde écrira, et c'est ce
+    /// que le processus confiné peut nommer.
+    Workspace {
+        /// Le point de montage, vu de l'intérieur.
+        target: String,
+    },
+}
+
 /// Un montage, tel que le backend devra le déclarer.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MountPlan {
@@ -193,6 +236,7 @@ pub struct ConfinementPlan {
     namespaces: BTreeSet<Namespace>,
     cgroup: Vec<CgroupLimit>,
     disk_bytes: u64,
+    quota_target: QuotaTarget,
     wall_clock_seconds: u32,
     seccomp: SeccompPosture,
     no_new_privileges: bool,
@@ -221,14 +265,25 @@ impl ConfinementPlan {
         &self.cgroup
     }
 
-    /// Le quota disque, en octets, à porter par la couche inscriptible.
+    /// Le quota disque, en octets. Zéro quand la mission n'en réserve pas.
     ///
     /// cgroup v2 ne sait pas borner un **espace** — `io.max` borne un débit. Le quota vit donc
     /// hors de [`ConfinementPlan::cgroup`], et le dire évite qu'on le cherche dans une liste où il
     /// ne peut pas être.
+    ///
+    /// Combien, et non **où** : voir [`ConfinementPlan::quota_target`].
     #[must_use]
     pub const fn disk_bytes(&self) -> u64 {
         self.disk_bytes
+    }
+
+    /// **Où** le quota disque mord — c'est-à-dire où la sandbox peut écrire.
+    ///
+    /// Voir [`QuotaTarget`]. La question n'était pas posée avant `W5.j`, et l'implicite était faux
+    /// à partir de `S2`.
+    #[must_use]
+    pub const fn quota_target(&self) -> &QuotaTarget {
+        &self.quota_target
     }
 
     /// L'horizon d'exécution, en secondes.
@@ -331,19 +386,57 @@ pub fn plan(spec: &SandboxSpec) -> Result<ConfinementPlan, PlanError> {
         return Err(PlanError::QuotaNeedsContainment);
     }
 
+    let read_only_rootfs = level >= SandboxLevel::S2;
+    let quota_target = quota_target(spec, read_only_rootfs, level)?;
+
     Ok(ConfinementPlan {
         level,
         namespaces: namespaces(level, &network),
         cgroup: limits(spec.resources()),
         disk_bytes: spec.resources().disk_bytes(),
+        quota_target,
         wall_clock_seconds: spec.resources().wall_clock_seconds(),
         seccomp: seccomp(level),
         no_new_privileges: level >= SandboxLevel::S1,
         dropped_capabilities: capabilities(level),
-        read_only_rootfs: level >= SandboxLevel::S2,
+        read_only_rootfs,
         mounts: spec.mounts().iter().map(mount).collect(),
         network,
     })
+}
+
+/// Où le quota mord : là où la sandbox peut écrire.
+///
+/// # Le premier montage inscriptible, et pourquoi c'est bien « le premier »
+///
+/// Une mission peut monter plusieurs espaces de travail. Répartir un quota unique entre eux
+/// demanderait de décider comment, et rien dans `SandboxSpec` ne le dit — inventer une règle ici
+/// produirait une borne que personne n'a demandée. Le premier montage inscriptible est donc
+/// **désigné**, et un test l'épingle : le jour où une mission en aura besoin de deux, ce sera un
+/// item, pas une surprise.
+///
+/// # Errors
+///
+/// [`PlanError::QuotaWithoutWritableSpace`] quand un quota est réservé alors que la racine est en
+/// lecture seule et qu'aucun montage n'est inscriptible.
+fn quota_target(
+    spec: &SandboxSpec,
+    read_only_rootfs: bool,
+    level: SandboxLevel,
+) -> Result<QuotaTarget, PlanError> {
+    if spec.resources().disk_bytes() == 0 {
+        return Ok(QuotaTarget::None);
+    }
+    if !read_only_rootfs {
+        return Ok(QuotaTarget::WritableRoot);
+    }
+    spec.mounts()
+        .iter()
+        .find(|mount| mount.mode() == MountMode::ReadWrite)
+        .map(|mount| QuotaTarget::Workspace {
+            target: mount.target().to_owned(),
+        })
+        .ok_or(PlanError::QuotaWithoutWritableSpace { level })
 }
 
 /// La posture réseau, et la seule dimension où le niveau et la mission ne sont pas indépendants.
@@ -467,6 +560,16 @@ pub enum PlanError {
     MountsNeedNamespace,
     /// Un quota disque demandé sans rien pour contenir les écritures.
     QuotaNeedsContainment,
+    /// Un quota disque demandé là où **rien n'est inscriptible**.
+    ///
+    /// À partir de `S2` la racine est montée en lecture seule ; sans espace de travail monté, la
+    /// sandbox n'a aucun endroit où écrire. Un quota y serait accepté, transmis au runtime, et
+    /// n'aurait rien à borner — c'est la forme la plus tranquille d'une garantie absente, puisque
+    /// tout le chemin a l'air de fonctionner.
+    QuotaWithoutWritableSpace {
+        /// Le niveau qui monte la racine en lecture seule.
+        level: SandboxLevel,
+    },
 }
 
 impl fmt::Display for PlanError {
@@ -494,6 +597,11 @@ impl fmt::Display for PlanError {
             ),
             Self::QuotaNeedsContainment => formatter
                 .write_str("un quota disque a été demandé en S0, qui ne contient aucune écriture"),
+            Self::QuotaWithoutWritableSpace { level } => write!(
+                formatter,
+                "un quota disque a été demandé en {}, qui monte la racine en lecture seule, et aucun espace de travail n'est monté : la borne n'aurait rien à borner",
+                level.code()
+            ),
         }
     }
 }

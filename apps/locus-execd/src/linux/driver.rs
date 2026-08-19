@@ -279,13 +279,13 @@ impl<R: Runner> PodmanBackend<R> {
         if execution.code == 0 {
             return Ok(execution);
         }
-        Err(RuntimeError::Unavailable {
-            detail: format!(
-                "podman {} a rendu {} : {}",
-                arguments.first().map_or("", String::as_str),
-                execution.code,
-                execution.stderr.trim()
-            ),
+        // `Refused` et non `Unavailable` : le runtime a **répondu**. `W5.s` a séparé les deux parce
+        // que « je n'ai pas pu demander » et « on m'a répondu non » n'envoient pas chercher la même
+        // chose, et que les confondre remontait jusqu'au rapport de sondes.
+        Err(RuntimeError::Refused {
+            verb: arguments.first().cloned().unwrap_or_default(),
+            code: execution.code,
+            detail: execution.stderr.trim().to_owned(),
         })
     }
 }

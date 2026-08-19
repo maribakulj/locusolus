@@ -13,11 +13,13 @@ use std::time::Duration;
 
 use locus_execd::linux::{
     Execution, INCONCLUSIVE_EXIT_CODE, LAUNCH_ATTEMPTS, PROBE_COMMANDS, PodmanBackend,
-    RUNNING_TEMPLATE, RestrictedProfile, Runner, SANDBOX_GONE, SANDBOX_REFUSED, SeccompProfiles,
-    TRANSIENT_EXIT_CODES, Trial, UNREACHABLE_RUNTIME, UNREACHABLE_TARGET_EXIT_CODE,
-    UNRUNNABLE_EXIT_CODES, Workload, certify, probe_command, run_suite, unrunnable,
+    QUOTA_BYTES_VARIABLE, QUOTA_TARGET_VARIABLE, RUNNING_TEMPLATE, RestrictedProfile, Runner,
+    SANDBOX_GONE, SANDBOX_REFUSED, SeccompProfiles, TRANSIENT_EXIT_CODES, Trial,
+    UNREACHABLE_RUNTIME, UNREACHABLE_TARGET_EXIT_CODE, UNRUNNABLE_EXIT_CODES,
+    UNWRITABLE_TARGET_EXIT_CODE, Workload, certify, exec_arguments, probe_command, run_suite,
+    unrunnable,
 };
-use locus_execd::{RuntimeError, RuntimePort};
+use locus_execd::{RuntimeError, RuntimePort, SandboxId};
 use locus_execution::{
     Mount, NetworkMode, Observed, ResourceSpec, SUITE, SandboxLevel, SandboxProfile, SandboxSpec,
     Standing, Verdict,
@@ -295,9 +297,10 @@ fn une_sonde_non_lancee_est_notrun_avec_sa_raison() {
             trial.observed(),
             Observed::NotRun {
                 reason
-            } if reason == UNREACHABLE_RUNTIME || reason == SANDBOX_REFUSED
+            } if reason == UNREACHABLE_RUNTIME
         )),
-        "un runtime disparu ne bloque pas les sondes, il empêche de les lancer : {results:?}"
+        "un runtime disparu n'a rien refusé : il n'a pas répondu, et `W5.s` sait maintenant le \
+         dire — {results:?}"
     );
     assert_eq!(
         results[0].observed(),
@@ -1533,4 +1536,129 @@ impl Runner for Explaining {
             },
         })
     }
+}
+
+// ---------------------------------------------------------------------------------------------
+// W5.j — la sonde disque écrit là où le quota mord
+// ---------------------------------------------------------------------------------------------
+
+/// **La cible du quota voyage jusqu'à la sonde**, et seulement quand il y en a une.
+#[test]
+fn la_cible_du_quota_est_passee_a_la_sonde_quand_il_y_en_a_une() {
+    let id = SandboxId::new("locus-0001").expect("identifiant");
+    let command = probe_command("exceed_disk_quota").expect("commande");
+
+    let with = exec_arguments(&id, command, Some(("/work", 512 << 20)));
+    assert!(
+        with.windows(2)
+            .any(|pair| pair[0] == "--env" && pair[1] == format!("{QUOTA_TARGET_VARIABLE}=/work")),
+        "sans le chemin, la sonde ne sait pas où le quota mord : {with:?}"
+    );
+    assert!(
+        with.windows(2).any(|pair| pair[0] == "--env"
+            && pair[1] == format!("{QUOTA_BYTES_VARIABLE}={}", 512u64 << 20)),
+        "sans la taille, la sonde écrirait un nombre choisi d'avance : {with:?}"
+    );
+
+    let without = exec_arguments(&id, command, None);
+    assert!(
+        !without.iter().any(|argument| argument == "--env"),
+        "rien à borner, rien à annoncer : {without:?}"
+    );
+}
+
+/// **Une cible qu'on ne peut pas écrire n'est pas un blocage.**
+///
+/// C'est le piège que `W5.j` répare, déplacé d'un cran : la sonde écrivait à la racine, en lecture
+/// seule dès `S2`, et son échec ressortait comme une preuve que le quota mordait. Déplacer la sonde
+/// vers l'espace de travail sans ce code réservé reproduirait exactement la même fausse preuve dès
+/// que l'espace de travail ne serait pas inscriptible.
+#[test]
+fn une_cible_non_inscriptible_est_un_aveu_pas_un_blocage() {
+    assert_eq!(
+        unrunnable(UNWRITABLE_TARGET_EXIT_CODE),
+        Some("la sonde n'a pas pu conclure : ce sur quoi elle devait écrire ne s'écrit pas"),
+        "sans motif, 122 se lirait comme un blocage ordinaire"
+    );
+    for other in [INCONCLUSIVE_EXIT_CODE, UNREACHABLE_TARGET_EXIT_CODE] {
+        assert_ne!(
+            unrunnable(other),
+            unrunnable(UNWRITABLE_TARGET_EXIT_CODE),
+            "lire, atteindre et écrire sont trois ignorances, et elles ne se réparent pas pareil"
+        );
+    }
+}
+
+/// La sonde disque **sort en 0 sans cible, sans rien tenter**.
+///
+/// # Pourquoi `PATH` est vidé, et ce que cela prouve
+///
+/// Vérifier le seul code de sortie ne suffit pas : une rédaction qui se rabattrait sur `/` faute de
+/// cible écrirait quand même, et rendrait `0` si l'écriture aboutissait. Un mutant l'a montré, en
+/// écrivant quatre gigaoctets à la racine pour passer le test.
+///
+/// Avec un `PATH` vide, le shell ne trouve plus `dd`. La sonde correcte ne s'en aperçoit pas — elle
+/// sort avant d'en avoir besoin. Une sonde qui tenterait d'écrire échouerait sur `dd` introuvable.
+/// Le test épingle donc « elle n'essaie pas », et non « elle a réussi à essayer ».
+#[test]
+fn la_sonde_disque_reussit_sans_rien_tenter_quand_aucune_borne_n_est_declaree() {
+    let command = probe_command("exceed_disk_quota").expect("commande");
+    let script = command.last().expect("le script est le dernier argument");
+    let run = std::process::Command::new("/bin/sh")
+        .arg("-c")
+        .arg(script)
+        .env_remove(QUOTA_TARGET_VARIABLE)
+        .env("PATH", "")
+        .output()
+        .expect("sh répond");
+    assert_eq!(
+        run.status.code(),
+        Some(0),
+        "sans cible, la sonde n'a rien à mesurer et le dit en réussissant — sans écrire nulle part"
+    );
+
+    // Et la chaîne vide vaut l'absence : une variable posée à « rien » n'est pas une cible.
+    let empty = std::process::Command::new("/bin/sh")
+        .arg("-c")
+        .arg(script)
+        .env(QUOTA_TARGET_VARIABLE, "")
+        .env("PATH", "")
+        .output()
+        .expect("sh répond");
+    assert_eq!(empty.status.code(), Some(0));
+
+    // Une cible sans borne n'est pas une borne : `QuotaTarget::None` ne produit pas d'`--env`, mais
+    // un zéro qui passerait quand même ne doit pas faire écrire.
+    let unbounded = std::process::Command::new("/bin/sh")
+        .arg("-c")
+        .arg(script)
+        .env(QUOTA_TARGET_VARIABLE, "/tmp")
+        .env(QUOTA_BYTES_VARIABLE, "0")
+        .env("PATH", "")
+        .output()
+        .expect("sh répond");
+    assert_eq!(
+        unbounded.status.code(),
+        Some(0),
+        "une cible sans taille ne dit pas quoi franchir : la sonde n'essaie pas"
+    );
+}
+
+/// Et **en 122 quand la cible n'existe pas** — au lieu de laisser un `dd` raté passer pour un blocage.
+#[test]
+fn la_sonde_disque_avoue_quand_sa_cible_ne_s_ecrit_pas() {
+    let command = probe_command("exceed_disk_quota").expect("commande");
+    let script = command.last().expect("le script est le dernier argument");
+    let run = std::process::Command::new("sh")
+        .arg("-c")
+        .arg(script)
+        .env(QUOTA_TARGET_VARIABLE, "/locus-cible-qui-n-existe-pas")
+        .env(QUOTA_BYTES_VARIABLE, (64u64 << 20).to_string())
+        .output()
+        .expect("sh répond");
+    assert_eq!(
+        run.status.code(),
+        Some(UNWRITABLE_TARGET_EXIT_CODE),
+        "un dd raté sur une cible absente n'est pas une preuve que le quota mord"
+    );
 }

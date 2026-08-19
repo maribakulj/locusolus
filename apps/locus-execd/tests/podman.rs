@@ -324,8 +324,22 @@ fn un_hote_sans_podman_le_dit_au_lieu_de_pretendre() {
     );
 }
 
+/// **Un runtime qui répond « non » et un runtime qui ne répond pas sont deux erreurs.**
+///
+/// # Ce que leur confusion coûtait
+///
+/// Les deux rendaient `Unavailable`, et ce test était voisin de
+/// [`un_hote_sans_podman_le_dit_au_lieu_de_pretendre`] en affirmant la même variante pour la cause
+/// opposée : le défaut était côte à côte, écrit, et passait.
+///
+/// `W5.r` l'a fait remonter jusqu'au rapport de sondes, où un Podman tué produisait « la sandbox a
+/// été refusée » alors qu'il n'y avait eu aucun refus. Les deux ne se réparent pas pareil : l'une
+/// envoie installer ou réveiller un runtime, l'autre envoie lire ce qu'il reproche à la demande.
+///
+/// Le verbe et le code voyagent **séparément du texte** : un appelant qui veut décider ne devrait
+/// pas avoir à lire une phrase pour retrouver un entier.
 #[test]
-fn un_code_de_sortie_non_nul_devient_une_erreur_qui_porte_stderr() {
+fn un_code_de_sortie_non_nul_devient_un_refus_qui_porte_le_verbe_le_code_et_stderr() {
     let runner = ScriptedRunner::new(vec![Execution {
         code: 125,
         stdout: String::new(),
@@ -334,12 +348,26 @@ fn un_code_de_sortie_non_nul_devient_une_erreur_qui_porte_stderr() {
     let mut execd = backend(runner);
     let refused = execd.create(&mission(SandboxLevel::S2, NetworkMode::Full, Vec::new()));
     match refused {
-        Err(RuntimeError::Unavailable { detail }) => {
-            assert!(detail.contains("125"), "{detail}");
+        Err(RuntimeError::Refused { verb, code, detail }) => {
+            assert_eq!(verb, "create", "le verbe se lit sans analyser une phrase");
+            assert_eq!(code, 125, "et le code non plus");
             assert!(detail.contains("short-name"), "{detail}");
         }
-        other => panic!("un échec de podman doit remonter tel quel : {other:?}"),
+        other => panic!("podman a répondu : ce n'est pas une absence de podman — {other:?}"),
     }
+}
+
+/// Et la moitié qui tient l'autre : **un runtime absent reste `Unavailable`**.
+///
+/// Sans elle, faire rendre `Refused` à tout le monde passerait le test précédent.
+#[test]
+fn un_runtime_absent_n_est_pas_un_runtime_qui_refuse() {
+    let mut execd = backend(AbsentRuntime);
+    let outcome = execd.create(&mission(SandboxLevel::S2, NetworkMode::Full, Vec::new()));
+    assert!(
+        matches!(outcome, Err(RuntimeError::Unavailable { .. })),
+        "personne n'a répondu : il n'y a donc eu aucun refus — {outcome:?}"
+    );
 }
 
 #[test]

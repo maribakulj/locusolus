@@ -10,7 +10,9 @@
 
 use std::fmt;
 
-use super::plan::{ConfinementPlan, MountPlan, Namespace, NetworkPosture, SeccompPosture};
+use super::plan::{
+    ConfinementPlan, MountPlan, Namespace, NetworkPosture, QuotaTarget, SeccompPosture,
+};
 use super::seccomp::RestrictedProfile;
 
 /// Ce que la sandbox exécutera.
@@ -196,11 +198,43 @@ fn quota_arguments(plan: &ConfinementPlan) -> Vec<String> {
             _ => Vec::new(),
         })
         .collect();
-    if plan.disk_bytes() > 0 {
-        arguments.push("--storage-opt".to_owned());
-        arguments.push(format!("size={}", plan.disk_bytes()));
-    }
+    arguments.extend(disk_quota_arguments(plan));
     arguments
+}
+
+/// Le quota disque, appliqué **là où le plan dit qu'il mord**.
+///
+/// # Ce que la rédaction précédente supposait
+///
+/// Elle écrivait `--storage-opt size=` dès que `disk_bytes > 0`, ce qui dimensionne la couche
+/// inscriptible du conteneur. À partir de `S2` cette couche est montée en lecture seule : le quota
+/// était transmis au runtime et ne bornait rien. Voir [`QuotaTarget`].
+///
+/// # Ce qui est appliqué, et ce qui reste dû
+///
+/// [`QuotaTarget::WritableRoot`] rend le `--storage-opt`, qui est juste là. [`QuotaTarget::None`] ne
+/// rend rien, parce qu'il n'y a rien à borner.
+///
+/// [`QuotaTarget::Workspace`] rend un **volume dimensionné** monté au point de travail. Podman ne
+/// sait le tenir que sur XFS avec les quotas de projet — précisément le fait que `HostFacts` lit
+/// avant toute création et que l'admission refuse quand il manque, depuis `W5.g`. Le chemin est donc
+/// cohérent de bout en bout : l'hôte est interrogé, la mission refusée si l'hôte ne sait pas, et le
+/// volume dimensionné seulement là où il mordra.
+fn disk_quota_arguments(plan: &ConfinementPlan) -> Vec<String> {
+    match plan.quota_target() {
+        QuotaTarget::None => Vec::new(),
+        QuotaTarget::WritableRoot => vec![
+            "--storage-opt".to_owned(),
+            format!("size={}", plan.disk_bytes()),
+        ],
+        QuotaTarget::Workspace { target } => vec![
+            "--mount".to_owned(),
+            format!(
+                "type=volume,destination={target},volume-opt=size={}",
+                plan.disk_bytes()
+            ),
+        ],
+    }
 }
 
 /// L'horizon n'apparaît pas ici, et c'est délibéré : `ConfinementPlan::wall_clock_seconds` est

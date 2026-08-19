@@ -194,9 +194,9 @@ fn cet_hote_tient_il_s2_sous_une_mission_qui_reserve_du_disque() {
         }
     };
     let _ = fs::remove_dir_all(&workspace);
-    report(&results);
+    report(&results, spec.resources());
 
-    let failures = verdicts_other_than_holds(&results, &[]);
+    let failures = verdicts_other_than_holds(&results, spec.resources(), &[]);
     assert!(
         failures.is_empty(),
         "{} sonde(s) ne rendent pas à {} le verdict que leur `contained_from` annonce :\n{}",
@@ -205,7 +205,7 @@ fn cet_hote_tient_il_s2_sous_une_mission_qui_reserve_du_disque() {
         failures.join("\n"),
     );
     assert_eq!(
-        locus_execution::standing(LEVEL, &verdicts(&results)),
+        locus_execution::standing(LEVEL, spec.resources(), &verdicts(&results)),
         Standing::Trusted { level: LEVEL },
         "les seize tiennent une à une : le `Standing` doit le dire aussi, sans quoi c'est \
          l'agrégation qui est fausse et non les sondes"
@@ -216,34 +216,29 @@ fn cet_hote_tient_il_s2_sous_une_mission_qui_reserve_du_disque() {
 // Second test — les quinze qui ne dépendent pas du quota disque
 // ---------------------------------------------------------------------------------------------
 
-/// La même suite sous une mission qui **ne réserve pas de disque**, `exceed_disk_quota` exclue.
+/// La même suite sous une mission qui **ne réserve pas de disque** — et les **seize** sondes.
 ///
-/// # Pourquoi ce test existe, et ce qu'il n'établit pas
+/// # Ce que `W5.j` a changé ici
 ///
-/// Sans quota disque, `podman create` n'émet aucun `--storage-opt` et la sandbox démarre sur un
-/// hôte que le premier test ne peut pas éprouver. Quinze sondes deviennent alors observables, ce
-/// qui est quinze seizièmes de la question de `W5.f` — et l'alternative était de n'en observer
-/// aucune.
+/// Ce test écartait `exceed_disk_quota`, et l'exclusion était honnête pour la raison suivante :
+/// « sans quota, elle réussirait, et elle réussirait pour une raison qui ne dit rien du
+/// confinement ». C'était vrai d'un harnais où l'attente d'une sonde ne dépendait que du **niveau**.
 ///
-/// **Ce test n'établit jamais `S2`.** `exceed_disk_quota` est `contained_from: S2` : sans quota,
-/// elle réussirait, et elle réussirait pour une raison qui ne dit rien du confinement. L'exclure et
-/// conclure « `S2` tient » serait exactement la façon de croire une sandbox qu'on n'a pas testée.
-/// Aucun `Standing` n'est donc calculé ici — c'est le travail du premier test, sur un hôte qui sait
-/// porter le quota.
+/// `Requirement::DeclaredDiskQuota` la fait maintenant dépendre aussi de ce que la **mission** a
+/// réservé — le disque est la seule ressource que `ResourceSpec` laisse valoir zéro. Sans quota
+/// déclaré, la sonde est `Allowed`, elle réussit, et ce succès dit quelque chose de vrai : le plan
+/// n'a désigné aucune cible, la sonde l'a lu, et elle n'a pas prétendu mesurer une borne absente.
 ///
-/// L'exclusion est **nommée**, pas silencieuse : le test affirme qu'il écarte une sonde et
-/// laquelle. Une exclusion qu'on ne peut pas relire est une suite tronquée, et une suite tronquée
-/// se lit comme une suite passée.
+/// Il n'y a donc plus rien à exclure, et le rapport porte les seize.
+///
+/// # Ce qu'il n'établit toujours pas
+///
+/// `S2` **sous une mission qui réserve du disque**. Aucun `--storage-opt` n'est émis ici, donc rien
+/// n'éprouve la capacité de l'hôte à borner un espace — c'est le travail du premier test, sur un
+/// hôte XFS. Le `Standing` calculé ici vaut pour cette mission-ci, et son énoncé le dit.
 #[test]
-#[ignore = "exige Podman rootless et LOCUS_PROBE_IMAGE ; n'établit pas S2"]
-fn les_quinze_sondes_qui_ne_dependent_pas_du_quota_disque() {
-    const EXCLUDED: &str = "exceed_disk_quota";
-    assert!(
-        SUITE.iter().any(|probe| probe.name == EXCLUDED),
-        "la sonde écartée doit exister : l'écarter par un nom mort n'écarterait rien et le test \
-         croirait couvrir seize sondes"
-    );
-
+#[ignore = "exige Podman rootless et LOCUS_PROBE_IMAGE ; n'établit pas S2 sous quota disque"]
+fn les_seize_sondes_sous_une_mission_sans_quota_disque() {
     let workspace = workspace_dir("sans-disque");
     let spec = probed_spec(&workspace.to_string_lossy(), 0);
 
@@ -259,13 +254,13 @@ fn les_quinze_sondes_qui_ne_dependent_pas_du_quota_disque() {
         }
     };
     let _ = fs::remove_dir_all(&workspace);
-    report(&results);
+    report(&results, spec.resources());
 
-    let failures = verdicts_other_than_holds(&results, &[EXCLUDED]);
+    let failures = verdicts_other_than_holds(&results, spec.resources(), &[]);
     assert!(
         failures.is_empty(),
-        "{} des quinze sondes hors quota disque ne rendent pas à {} le verdict que leur \
-         `contained_from` annonce :\n{}",
+        "{} des seize sondes ne rendent pas à {} le verdict que leur `contained_from` annonce, \
+         sous une mission qui ne réserve pas de disque :\n{}",
         failures.len(),
         LEVEL.code(),
         failures.join("\n"),
@@ -429,12 +424,16 @@ fn code_of(results: &[Trial], name: &str) -> String {
 }
 
 /// Les verdicts qui ne sont pas `Holds`, les sondes nommées dans `excluded` mises à part.
-fn verdicts_other_than_holds(results: &[Trial], excluded: &[&str]) -> Vec<String> {
+fn verdicts_other_than_holds(
+    results: &[Trial],
+    reserved: &ResourceSpec,
+    excluded: &[&str],
+) -> Vec<String> {
     SUITE
         .iter()
         .filter(|probe| !excluded.contains(&probe.name))
         .filter_map(
-            |probe| match judge(probe, LEVEL, observation(results, probe.name)) {
+            |probe| match judge(probe, LEVEL, reserved, observation(results, probe.name)) {
                 Verdict::Holds => None,
                 other => Some(format!("  {other}")),
             },
@@ -443,14 +442,14 @@ fn verdicts_other_than_holds(results: &[Trial], excluded: &[&str]) -> Vec<String
 }
 
 /// La table, imprimée avant toute assertion.
-fn report(results: &[Trial]) {
+fn report(results: &[Trial], reserved: &ResourceSpec) {
     println!("\nsondes à {} — hôte réel\n", LEVEL.code());
     for probe in &SUITE {
         let observed = observation(results, probe.name);
         println!(
             "  {:<32} attendu {:<10} code {:>4}  observé {:<28} → {}",
             probe.name,
-            match expectation(probe, LEVEL) {
+            match expectation(probe, LEVEL, reserved) {
                 Expectation::Contained => "contenue",
                 Expectation::Allowed => "permise",
             },
@@ -460,7 +459,7 @@ fn report(results: &[Trial]) {
                 Observed::Blocked => "bloquée".to_owned(),
                 Observed::NotRun { reason } => format!("non lancée ({reason})"),
             },
-            match judge(probe, LEVEL, observed) {
+            match judge(probe, LEVEL, reserved, observed) {
                 Verdict::Holds => "tient".to_owned(),
                 other => other.to_string(),
             }
@@ -563,6 +562,7 @@ fn inspect_network(spec: &SandboxSpec) -> Result<String, String> {
                     .run(&exec_arguments(
                         &id,
                         &["sh", "-c", "cat /proc/net/route 2>&1"],
+                        None,
                     ))
                     .map(|execution| execution.stdout)
                     .map_err(|error| error.to_string()),
