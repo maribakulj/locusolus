@@ -37,6 +37,7 @@ test("un item livré mais non marqué est rapporté", () => {
   const findings = reconcile({
     delivered: new Set(["W5.q"]),
     marked: new Set(),
+    blocked: new Set(),
     decided: new Set(),
     planned: new Set(["W5.q"]),
     frontier: [],
@@ -59,6 +60,7 @@ test("un item marqué sans entrée au ledger est rapporté", () => {
   const findings = reconcile({
     delivered: new Set(),
     marked: new Set(["W5.t"]),
+    blocked: new Set(),
     decided: new Set(),
     planned: new Set(["W5.t"]),
     frontier: [],
@@ -82,6 +84,7 @@ test("un registre non lu suspend « marqué sans entrée », jamais l'inverse", 
   const findings = reconcile({
     delivered: new Set(["W5.q"]),
     marked: new Set(["W2.4"]),
+    blocked: new Set(),
     decided: new Set(),
     planned: new Set(["W5.q", "W2.4"]),
     frontier: [],
@@ -105,6 +108,7 @@ test("un item livré hors du plan ne compte pas comme un écart", () => {
     reconcile({
       delivered: new Set(["W5.z"]),
       marked: new Set(),
+      blocked: new Set(),
       decided: new Set(),
       planned: new Set(),
       frontier: [],
@@ -272,6 +276,7 @@ test("un item décidé bloqué qui a son entrée au ledger est rapporté", () =>
   const findings = reconcile({
     delivered: new Set(["W16.d"]),
     marked: new Set(),
+    blocked: new Set(),
     decided: new Set(["W16.d"]),
     planned: new Set(["W16.d"]),
     frontier: [],
@@ -313,6 +318,120 @@ test("le runner nomme la frontière, vide ou non", async () => {
   );
   assert.equal(close.code, 0);
   assert.match(close.out, /frontière vide/);
+});
+
+/**
+ * **Une entrée qui consigne un blocage n'est pas une livraison.**
+ *
+ * `W15.f` en avait une — « Aucun code écrit. L'item est consigné bloqué plutôt que livré
+ * incomplet. » — et sa ligne portait **fait** sans que rien ne proteste, parce qu'une garde qui
+ * compte les entrées comptait celle-là. Le sprint suivant l'a lue comme un prérequis satisfait de
+ * `W19.a`, dont la roadmap dit qu'il en dépend.
+ *
+ * Le test tient aussi le **piège de l'accent** : écrite `Bloqué\b`, la règle était inerte — `\w`
+ * reste `[A-Za-z0-9_]` en regex JavaScript, donc `é` n'est pas un caractère de mot et il n'y a pas
+ * de frontière entre lui et l'espace suivant. La garde répondait `ok` sur une règle qui ne
+ * s'exécutait pas.
+ */
+test("une entrée qui consigne un blocage n'est pas une livraison", async () => {
+  const root = await fixture({
+    ledger: [
+      "# Ledger",
+      "",
+      "## 2026-08-18 — W15.f — Bloqué : le rôle n'a pas de chemin jusqu'à son lecteur",
+      "",
+      "Aucun code écrit.",
+      "",
+    ].join("\n"),
+    roadmap: "| # |\n|---|\n| W15.f `[M]` |\n",
+  });
+
+  const state = await readReconciliation(root);
+  assert.equal(state.delivered.has("W15.f"), false);
+  assert.equal(state.blocked.has("W15.f"), true);
+  assert.deepEqual(state.frontier, ["W15.f"]);
+  assert.deepEqual(reconcile(state), []);
+});
+
+/**
+ * **Et un blocage consigné chez un voisin en est un aussi.**
+ *
+ * Le chemin des registres voisins refait le tri que fait le chemin local, et c'est exactement là
+ * qu'une duplication cesse d'être tenue : un mutant qui versait les blocages des voisins dans les
+ * livraisons **survivait** à toute la suite. `W2.*` et `W10.*` se consignent chez eux — un item de
+ * `canterel` bloqué et marqué **fait** ici est le même défaut que `W15.f`, à un fichier près.
+ */
+test("le blocage d'un voisin est un blocage", async () => {
+  const ledger = "# Ledger\n";
+  const roadmap = "| # |\n|---|\n| W2.11 `[R]` **fait** |\n";
+  const bloque = "# Ledger\n\n## 2026-08-18 — W2.11 — Bloqué : l'amont ne l'expose pas\n";
+
+  const partiel = await readReconciliation(
+    await fixture({ ledger, roadmap, siblings: { canterel: bloque } }),
+  );
+  assert.equal(partiel.blocked.has("W2.11"), true);
+  assert.equal(partiel.delivered.has("W2.11"), false);
+  assert.deepEqual(
+    reconcile(partiel),
+    [],
+    "deux registres manquent, et l'un d'eux pourrait livrer ce que l'autre bloque",
+  );
+
+  const complet = await readReconciliation(
+    await fixture({
+      ledger,
+      roadmap,
+      siblings: { canterel: bloque, xiiif: ledger, "emacs-config": ledger },
+    }),
+  );
+  assert.deepEqual(complet.unread, []);
+  assert.deepEqual(
+    reconcile(complet).map((finding) => finding.rule),
+    ["marque-mais-bloque"],
+  );
+});
+
+/**
+ * **Le mot dans le titre ne suffit pas : c'est sa place qui décide.**
+ *
+ * L'entrée de `W0.12` s'intitule « `« Bloqué »` n'est pas `« à faire »` » et livre bel et bien.
+ * Une règle qui aurait cherché le mot dans le titre l'aurait effacée du registre — et aurait
+ * ensuite exigé qu'on démarque une ligne juste, ce qui est la faute inverse et tout aussi coûteuse.
+ */
+test("un titre qui cite le mot livre quand même", async () => {
+  const root = await fixture({
+    ledger: "# Ledger\n\n## 2026-08-19 — W0.12 — « Bloqué » n'est pas « à faire »\n",
+    roadmap: "| # |\n|---|\n| W0.12 `[R]` **fait** |\n",
+  });
+
+  const state = await readReconciliation(root);
+  assert.equal(state.delivered.has("W0.12"), true);
+  assert.equal(state.blocked.has("W0.12"), false);
+  assert.deepEqual(reconcile(state), []);
+});
+
+/**
+ * **Le constat doit dire ce qu'il faut faire.**
+ *
+ * « Marqué sans entrée au ledger » enverrait écrire une entrée qui existe déjà. Le défaut n'est pas
+ * une absence, c'est un **désaccord** : la ligne dit fait, l'entrée dit bloqué, et c'est la ligne
+ * qui doit céder.
+ */
+test("une ligne faite dont l'entrée dit bloqué a son constat à elle", () => {
+  const findings = reconcile({
+    delivered: new Set(),
+    blocked: new Set(["W15.f"]),
+    marked: new Set(["W15.f"]),
+    decided: new Set(),
+    planned: new Set(["W15.f"]),
+    frontier: [],
+    unread: [],
+  });
+  assert.deepEqual(
+    findings.map((finding) => finding.rule),
+    ["marque-mais-bloque"],
+  );
+  assert.match(findings[0]?.message ?? "", /W15\.f/);
 });
 
 /** Un chantier jouet : le dépôt confronté, et les voisins qu'on veut bien lui donner. */

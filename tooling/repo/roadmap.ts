@@ -57,7 +57,28 @@ import type { Finding } from "../lib/findings.ts";
 const SIBLINGS = ["canterel", "xiiif", "emacs-config"] as const;
 
 /** Le motif d'un titre d'entrée de ledger : `## 2026-08-19 — W5.q — …`. */
-const ledgerHeading = /^## \d{4}-\d{2}-\d{2} — (W\d+\.[a-z0-9]+)\b/gm;
+const ledgerHeading = /^## \d{4}-\d{2}-\d{2} — (W\d+\.[a-z0-9]+)\b([^\n]*)$/gm;
+
+/**
+ * Le motif d'une entrée qui consigne une **décision**, pas une livraison.
+ *
+ * `## 2026-08-18 — W15.f — Bloqué : le rôle n'a pas de chemin jusqu'à son lecteur` — « Aucun code
+ * écrit. L'item est consigné bloqué plutôt que livré incomplet. » C'est la bonne pratique : le
+ * sprint a instruit la question, trouvé pourquoi elle ne se répond pas encore, et l'a écrit. Mais
+ * une garde qui compte les entrées comptait celle-ci comme une livraison, et la ligne de `W15.f`
+ * portait **fait** sans que rien ne proteste.
+ *
+ * L'ancrage est un **préfixe de titre**, pas la présence du mot. L'entrée de `W0.12` s'intitule
+ * « `« Bloqué »` n'est pas `« à faire »` » et livre bel et bien : chercher le mot dans le titre
+ * l'aurait effacée. Après le tiret cadratin, le premier mot décide.
+ *
+ * La fin du motif est une **anti-lettre Unicode**, pas `\b`. Écrite `Bloqué\b`, la règle était
+ * inerte : en regex JavaScript `\w` reste `[A-Za-z0-9_]`, donc `é` n'est pas un caractère de mot,
+ * donc il n'y a pas de frontière entre `é` et l'espace qui suit, donc rien ne matchait jamais. La
+ * garde répondait `ok` sur une règle qui ne s'exécutait pas — elle n'a été prise que parce qu'un
+ * écart connu **n'a pas** été rapporté. Une règle neuve se regarde échouer avant d'être crue.
+ */
+const decisionHeading = /—\s*(Bloqué|Reporté)(?!\p{L})/u;
 
 /** Le motif d'une ligne d'item de roadmap : `| W5.q `[R]` **fait** | … |`. */
 const roadmapRow = /^\| (W\d+\.[a-z0-9]+) ([^|]*)\|/gm;
@@ -76,6 +97,7 @@ const roadmapRow = /^\| (W\d+\.[a-z0-9]+) ([^|]*)\|/gm;
  */
 export type Reconciliation = {
   readonly delivered: ReadonlySet<string>;
+  readonly blocked: ReadonlySet<string>;
   readonly marked: ReadonlySet<string>;
   readonly decided: ReadonlySet<string>;
   readonly planned: ReadonlySet<string>;
@@ -106,14 +128,16 @@ const DECIDED = ["bloqué", "reporté"] as const;
  * **titre** d'une entrée atteste une livraison, et c'est pourquoi le motif ancre sur
  * `## <date> — <item> —`.
  */
-function deliveredIn(ledger: string): string[] {
-  const items: string[] = [];
-  for (const [, item] of ledger.matchAll(ledgerHeading)) {
-    if (item !== undefined) {
-      items.push(item);
+function deliveredIn(ledger: string): { delivered: string[]; blocked: string[] } {
+  const delivered: string[] = [];
+  const blocked: string[] = [];
+  for (const [, item, rest] of ledger.matchAll(ledgerHeading)) {
+    if (item === undefined) {
+      continue;
     }
+    (decisionHeading.test(rest ?? "") ? blocked : delivered).push(item);
   }
-  return items;
+  return { delivered, blocked };
 }
 
 /** Lire les documents et dire ce que chacun affirme, et ce qui n'a pas pu être lu. */
@@ -121,7 +145,9 @@ export async function readReconciliation(root: string): Promise<Reconciliation> 
   const roadmap = await readFile(join(root, "docs/10_V1_ROADMAP.md"), "utf8");
   const own = await readFile(join(root, "IMPLEMENTATION_LEDGER.md"), "utf8");
 
-  const delivered = new Set(deliveredIn(own));
+  const ours = deliveredIn(own);
+  const delivered = new Set(ours.delivered);
+  const blocked = new Set(ours.blocked);
   const unread: string[] = [];
   for (const sibling of SIBLINGS) {
     const path = join(root, "..", sibling, "IMPLEMENTATION_LEDGER.md");
@@ -130,8 +156,12 @@ export async function readReconciliation(root: string): Promise<Reconciliation> 
       unread.push(sibling);
       continue;
     }
-    for (const item of deliveredIn(ledger)) {
+    const theirs = deliveredIn(ledger);
+    for (const item of theirs.delivered) {
       delivered.add(item);
+    }
+    for (const item of theirs.blocked) {
+      blocked.add(item);
     }
   }
 
@@ -153,7 +183,7 @@ export async function readReconciliation(root: string): Promise<Reconciliation> 
     }
   }
 
-  return { delivered, marked, decided, planned, frontier, unread };
+  return { delivered, blocked, marked, decided, planned, frontier, unread };
 }
 
 /**
@@ -196,6 +226,14 @@ export function reconcile(state: Reconciliation): readonly Finding[] {
   }
 
   for (const item of [...state.marked].sort()) {
+    if (state.blocked.has(item) && !state.delivered.has(item)) {
+      findings.push({
+        rule: "marque-mais-bloque",
+        where: "docs/10_V1_ROADMAP.md",
+        message: `« ${item} » est marqué fait et sa seule entrée au ledger consigne un blocage : la ligne doit dire ce que l'entrée dit`,
+      });
+      continue;
+    }
     if (!state.delivered.has(item)) {
       findings.push({
         rule: "marque-non-livre",
