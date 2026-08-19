@@ -1,0 +1,25 @@
+{
+  "$comment": "La surface de dépendances externes du workspace Rust, close et motivée. Toute entrée nomme l'ADR qui l'autorise ; `check:deps` refuse ce qui n'est pas ici. Voir docs/adr/0018-transport-de-locusd.md.",
+  "allowed": [
+    {
+      "crate": "serde",
+      "adr": "0011",
+      "why": "La sérialisation du domaine. ADR 0011 fait de Rust le langage du control plane ; serde en est le corollaire.",
+      "scope": "*"
+    },
+    {
+      "crate": "serde_json",
+      "adr": "0011",
+      "why": "Le format sur le fil de LEP, et celui des JSON Schemas de W0.5.",
+      "scope": "*"
+    }
+  ],
+  "forbiddenFeatures": [
+    {
+      "crate": "tokio",
+      "feature": "full",
+      "adr": "0018",
+      "why": "`full` apporte process, signal et fs, dont locusd ne doit pas avoir l'usage : c'est locus-execd qui parle aux processus (ADR 0004). Les features s'énumèrent une par une."
+    }
+  ]
+}

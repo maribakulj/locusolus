@@ -8907,3 +8907,62 @@ livre le port, chaque commande sera un `impl Decide` avec son agrégat.
 **Prochain item.** `W20.c` — l'ADR du transport (runtime asynchrone et cadre HTTP). C'est un item
 `[M]`, sans dépendance non satisfaite, et il **doit** précéder `W20.d`. `Cargo.toml` ne gagnera sa
 première dépendance de transport qu'après lui.
+
+## 2026-08-19 — W20.c — ADR 0018, le transport, et une liste de dépendances qui se vérifie
+
+**Périmètre.** `docs/adr/0018-transport-de-locusd.md` (neuf), `dependencies.json` (neuf),
+`tooling/repo/check-deps.ts` (neuf), `package.json` (douzième porte), `CLAUDE.md` (une règle),
+`docs/10_V1_ROADMAP.md`. Le périmètre déborde de l'item `[M]` d'un outil, et c'est délibéré : voir «
+Décisions prises ».
+
+**Tests exécutés.** `npm run check` — les **douze** portes, code de sortie 0. La porte neuve a été
+vue **rouge sur ses trois règles** avant d'être vue verte, chacune par une falsification distincte :
+une dépendance externe non listée (`dependance-non-autorisee`), une feature interdite
+(`feature-interdite`), une dépendance hors de son périmètre déclaré (`dependance-hors-perimetre`).
+Les trois rendent le code 1 ; l'arbre restauré rend 0. La falsification a été refaite **après** un
+refactor du parseur, parce qu'un garde vérifié avant refactor n'est pas un garde vérifié.
+
+**Décisions prises.**
+
+- **`tokio` comme runtime, `axum` comme cadre HTTP**, avec quatre conditions énoncées dans l'ADR. La
+  forme d'un handler `axum` — des extracteurs, une réponse — est celle de `Decide::decide`, ce qui
+  réduit la couche de transport à une traduction.
+- **Les chiffres sont mesurés, pas supposés.** `cargo tree --edges normal`, le 2026-08-19, sur
+  `axum 0.8.9` et `tokio 1.53.1` : `locusd` compte **11** paquets transitifs aujourd'hui, `axum` +
+  `tokio` `full` en compte **56**, et `axum` avec la feature `ws` en compte **76**. Le troisième
+  chiffre décide quelque chose : **la feature `ws` coûte vingt paquets à elle seule** — le handshake
+  WebSocket exige un SHA-1 et un générateur aléatoire, qui traînent leurs tours de traits. D'où la
+  décision 3 : `ws` n'entre pas avec `W20.d`, elle est différée à `W20.f` et sera pesée contre SSE,
+  que §22.1 nomme comme alternative.
+- **`full` est interdit pour `tokio`.** Il apporte `process`, `signal` et `fs` — exactement ce que
+  la règle 4 de `boundaries.json` interdit à `locusd`, puisque c'est `locus-execd` qui parle aux
+  processus (ADR 0004). L'interdiction n'est pas une recommandation de l'ADR : c'est une entrée de
+  `dependencies.json` que `check:deps` fait échouer.
+- **Le domaine ne devient pas asynchrone** (condition 3). Une méthode `async` dans le port du
+  handler propagerait le runtime dans tout le domaine et rendrait `W20.a` et `W20.b` dépendants d'un
+  choix fait après eux — l'inverse de l'ordre que `CLAUDE.md` impose. Cette condition est aussi ce
+  qui borne le coût de sortie de la décision, et c'est sa seconde raison d'être.
+
+**Le débordement, et pourquoi il est assumé.** `W20.c` est un item `[M]` : un ADR aurait suffi à sa
+lettre. Sa seconde clause — « le diff qui l'ajoute cite l'ADR » — est une promesse que personne ne
+peut tenir à la relecture : un `Cargo.toml` gagne une ligne dans un diff de deux cents, et le
+reviewer qui la manque n'a rien manqué de visible. `dependencies.json` la rend mécanique, et ajouter
+une dépendance oblige désormais à écrire l'ADR qui l'autorise **dans le même fichier**. C'est le
+même geste que `W0.11` a fait pour la roadmap, et pour la même raison : une règle qui ne se vérifie
+pas n'est pas une règle.
+
+**Ce que la porte ne vérifie pas, et le dit.** Les dépendances **transitives** ne sont pas dans la
+liste. `axum` en apporte une cinquantaine, et les énumérer ferait une liste que personne ne relit,
+donc une liste qui n'arbitre plus rien. La porte tient les dépendances **déclarées**, celles qu'un
+humain a choisies ; le décompte transitif est l'affaire de l'ADR, qui le mesure. La porte imprime
+aussi ce qu'elle a lu — 29 manifestes — parce qu'une porte qui n'a rien lu et rend « ok » est
+indiscernable d'une porte qui a tout vérifié.
+
+**Écart avec la spec.** Aucun. §22.1 nomme WebSocket **et** SSE ; l'ADR ne tranche pas entre eux et
+dit pourquoi il ne le fait pas maintenant.
+
+**Prochain item.** `W20.d` — le composition root de `apps/locusd`, sans surface HTTP. Sa dépendance
+`W20.c` est satisfaite par cette entrée. Son test de sortie demande que la règle 4 de
+`boundaries.json` « cesse d'être vide » : elle compte **9 fichiers** depuis `W20.b`, et ce qui reste
+dû est la seconde moitié — qu'un import de SDK de runtime la fasse échouer, **vérifié en rouge
+d'abord**.

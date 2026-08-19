@@ -31,6 +31,10 @@ frontières inter-repos.
   `apps/web`, le SDK client généré et le worker Canterel restent en TypeScript ; `apps/emacs` en
   Emacs Lisp. Les JSON Schemas s'écrivent en **Draft 7** tant qu'un prototype `typify` sur
   2020-12 n'a pas levé la condition 1 de l'ADR.
+- Une dépendance externe du workspace Rust entre par `dependencies.json`, avec l'ADR qui la motive,
+  et `check:deps` refuse ce qui n'y est pas. La liste ne porte que les dépendances **déclarées** ;
+  les transitives sont l'affaire de l'ADR, qui les mesure. `tokio` n'a jamais la feature `full`
+  (ADR 0018) : elle apporte `process` et `signal`, que la règle 4 interdit à `locusd`.
 - Les objets d'organisation, de coordination et de gouvernance sont ceux de `SPEC_V1.md` §7.1, §13,
   §16, §20 et §22, sous leur nom. Aucun vocabulaire parallèle — pas de `MutationPolicy`, pas de
   `MutationGrant`, pas de `TopologyNode`, pas d'échelle d'autorité à cinq barreaux (ADR 0016). Une
