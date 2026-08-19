@@ -554,9 +554,15 @@ fn un_blocage_franc_reste_un_blocage() {
 
 /// La table elle-même, épinglée par son contenu — la leçon de W4.d.4 appliquée ici. Le test qui
 /// itère sur `UNRUNNABLE_EXIT_CODES` reste vrai quelle que soit la table : il vérifie la mécanique,
-/// pas ce qu'elle couvre. Celui-ci nomme les trois codes et dit pourquoi chacun est réservé.
+/// pas ce qu'elle couvre. Celui-ci nomme les quatre codes et dit pourquoi chacun est réservé.
+///
+/// **255 est arrivé en quatrième, et il a coûté cher avant d'être vu.** Toutes les sondes situées
+/// après `exceed_pid_quota` le rendaient : elle sature le quota de PID, `podman exec` ne peut plus
+/// forker, et il abandonne avec son code générique. Les quatre suivantes étaient donc rapportées
+/// « bloquées », c'est-à-dire **contenues**, alors qu'elles n'avaient pas tourné du tout — trois
+/// sur-confinements qui n'existaient pas, et un « tient » que personne n'avait mérité.
 #[test]
-fn la_table_couvre_les_trois_codes_que_posix_et_podman_reservent() {
+fn la_table_couvre_les_quatre_codes_que_posix_et_podman_reservent() {
     let codes: Vec<i32> = UNRUNNABLE_EXIT_CODES
         .into_iter()
         .map(|(code, _)| code)
@@ -567,10 +573,27 @@ fn la_table_couvre_les_trois_codes_que_posix_et_podman_reservent() {
             // Podman : le runtime n'a pas su démarrer la commande.
             125, // POSIX : la commande existe mais n'est pas exécutable.
             126, // POSIX : la commande est introuvable.
-            127,
+            127, // Podman : son code d'erreur générique, rendu quand l'exec n'a pas eu lieu.
+            255,
         ],
         "en retirer un ferait relire ce code comme un blocage, donc comme une preuve d'isolation"
     );
+}
+
+/// **Aucune sonde de la suite ne sort volontairement en 255.**
+///
+/// C'est ce qui autorise à lire ce code comme « n'a pas été lancée » plutôt que comme un verdict.
+/// Si une sonde venait à l'utiliser, le catalogage deviendrait faux et masquerait son résultat —
+/// le test le dirait avant.
+#[test]
+fn aucune_sonde_ne_sort_volontairement_en_255() {
+    for (name, command) in PROBE_COMMANDS {
+        let joined = command.join(" ");
+        assert!(
+            !joined.contains("exit 255"),
+            "« {name} » utiliserait un code que le harnais lit comme « pas lancée » : {joined}"
+        );
+    }
 }
 
 // ---------------------------------------------------------------------------------------------
