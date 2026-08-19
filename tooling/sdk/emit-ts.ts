@@ -1,4 +1,4 @@
-import { type Field, type Model, type Struct, type Type } from "./ir.ts";
+import { type Field, type Model, type Struct, type Type, type Union } from "./ir.ts";
 
 const HEADER = `// Généré depuis schemas/ par tooling/sdk/generate.ts — ne pas éditer à la main.
 //
@@ -12,6 +12,7 @@ export function emitTypeScript(model: Model): string {
   for (const alias of model.aliases) {
     parts.push(doc(alias.doc, ""), `export type ${alias.name} = ${tsType(alias.type)};\n`);
   }
+  for (const union of model.unions) parts.push(emitUnion(union));
   for (const struct of model.structs) parts.push(emitStruct(struct));
   parts.push(
     doc("Les documents qu'un pair peut envoyer ou recevoir, dans l'ordre du registre.", ""),
@@ -32,6 +33,27 @@ export function emitTypeScript(model: Model): string {
     `export type LepFeature = keyof typeof LEP_FEATURES;\n`,
   );
   return parts.join("\n");
+}
+
+/**
+ * Une union étiquetée, en union discriminée TypeScript.
+ *
+ * L'étiquette revient ici comme **type littéral**, là où l'émetteur Rust la sort de la variante :
+ * c'est elle qui permet à `switch (reason.code)` de rétrécir le type, et sans elle le lecteur
+ * devrait tester la présence des champs pour deviner de quelle forme il tient une valeur. Les deux
+ * langages disent la même chose du fil et l'écrivent chacun à sa manière — c'est ce que l'IR permet
+ * en gardant les champs des variantes plutôt qu'un nom de structure partagée.
+ */
+function emitUnion(union: Union): string {
+  const lines = [doc(union.doc, ""), `export type ${union.name} =`];
+  for (const variant of union.variants) {
+    const fields = [
+      `readonly ${union.tag}: ${JSON.stringify(variant.tag)};`,
+      ...variant.fields.map((field) => fieldSignature(field)),
+    ];
+    lines.push(doc(variant.doc, "  "), `  | { ${fields.join(" ")} }`);
+  }
+  return `${lines.filter((line) => line.length > 0).join("\n")};\n`;
 }
 
 function emitStruct(struct: Struct): string {
@@ -75,6 +97,7 @@ function tsType(type: Type): string {
       return `Readonly<Record<string, ${tsType(type.values)}>>`;
     case "ref":
     case "object":
+    case "union":
       return type.name;
     case "unknown":
       return "unknown";

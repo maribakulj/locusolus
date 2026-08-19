@@ -1,4 +1,5 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -17,32 +18,58 @@ import { buildModel } from "./ir.ts";
  * make the two ecosystems wait on each other. The price is drift, and `--check` is what makes
  * drift impossible rather than merely unlikely.
  */
+/**
+ * Passer une source Rust par `rustfmt`, en lui parlant sur l'entrée standard.
+ *
+ * Le binaire vient de la toolchain déjà exigée par `check:rust` : aucune dépendance nouvelle, et
+ * la même version que la porte qui vérifiera derrière. Un échec est **fatal** — une sortie non
+ * formatée passerait `check:generated` et ferait rougir `cargo fmt --check`, c'est-à-dire
+ * exactement la contradiction que ce passage supprime.
+ */
+function rustfmt(source: string): string {
+  const result = spawnSync("rustfmt", ["--edition", "2024", "--emit", "stdout"], {
+    input: source,
+    encoding: "utf8",
+  });
+  if (result.status !== 0) {
+    throw new Error(`rustfmt a échoué : ${result.stderr || result.error?.message || "sans motif"}`);
+  }
+  return result.stdout;
+}
+
 const args = process.argv.slice(2);
 const checkOnly = args.includes("--check");
 const root = args.find((argument) => !argument.startsWith("--")) ?? defaultRoot();
 
 const targets = [
-  { path: "packages/lep/src/generated.ts", emit: emitTypeScript, format: true },
-  { path: "packages/lep/src/generated.rs", emit: emitRust, format: false },
+  { path: "packages/lep/src/generated.ts", emit: emitTypeScript, format: "prettier" },
+  { path: "packages/lep/src/generated.rs", emit: emitRust, format: "rustfmt" },
 ] as const;
 
 const { model, findings } = buildModel(join(root, "schemas"));
 for (const target of targets) {
-  // Le fichier généré passe par prettier, comme n'importe quel fichier du dépôt. Sans cela
-  // `check:format` et `check:generated` se contrediraient : l'un exigerait un reformatage que
-  // l'autre signalerait comme une dérive. Une seule forme canonique, et une montée de version de
-  // prettier se voit comme une régénération à committer — ce qui est exactement ce qu'elle est.
+  // Chaque fichier généré passe par le formateur de sa langue, comme n'importe quel fichier du
+  // dépôt. Sans cela `check:format` et `check:generated` se contrediraient : l'un exigerait un
+  // reformatage que l'autre signalerait comme une dérive. Une seule forme canonique, et une montée
+  // de version du formateur se voit comme une régénération à committer — ce qui est exactement ce
+  // qu'elle est.
+  //
+  // Le Rust y est passé tard, et le défaut était réel : `W19.a` a ajouté un `enum` dont rustfmt
+  // veut les variantes courtes sur une ligne, là où l'émetteur les écrivait sur trois. Les deux
+  // portes se contredisaient, et aucune des deux n'avait tort — c'est l'émetteur qui n'avait pas
+  // de forme canonique. Le lui faire imiter à la main aurait été réimplémenter rustfmt.
   const raw = target.emit(model);
   const absolute = join(root, target.path);
   // La configuration se résout depuis le FICHIER, pas depuis la racine : `resolveConfig` répond
   // « quelle config s'applique à ce chemin », et lui donner un répertoire rend une autre réponse
   // — d'où une sortie que `check:format` reformatait aussitôt.
-  const rendered = target.format
-    ? await prettier.format(raw, {
-        ...(await prettier.resolveConfig(absolute)),
-        parser: "typescript",
-      })
-    : raw;
+  const rendered =
+    target.format === "prettier"
+      ? await prettier.format(raw, {
+          ...(await prettier.resolveConfig(absolute)),
+          parser: "typescript",
+        })
+      : rustfmt(raw);
   if (!checkOnly) {
     mkdirSync(join(root, target.path, ".."), { recursive: true });
     writeFileSync(absolute, rendered);

@@ -581,3 +581,95 @@ function readdirSyncSorted(): string[] {
     .filter((name) => name.endsWith(".json"))
     .sort();
 }
+
+//
+// W19.a — le refus d'admission sur le fil, tranche 2 du mineur `lep/1.1`.
+//
+
+const REFUSAL = "urn:locus:schema:lep:1.0:admission-refusal";
+
+/** Les sept motifs, sous les codes qui voyagent. */
+const REFUSAL_CODES = [
+  "level_unavailable",
+  "capacity_exceeded",
+  "accelerator_unavailable",
+  "disk_quota_not_enforceable",
+  "network_mode_unsupported",
+  "level_not_attested",
+  "accelerator_outside_sandbox",
+];
+
+test("un refus porte au moins un motif", () => {
+  // Un refus qui ne dit pas ce qui manque ne se corrige pas : il envoie relancer à l'identique.
+  // `minItems: 1` le rend inexprimable plutôt que de compter sur la bonne tenue de l'émetteur.
+  const refusal = {
+    protocol: "lep/1.1",
+    task_id: "t",
+    attempt_id: "a",
+    reasons: [{ code: "capacity_exceeded" }],
+  };
+  assert.equal(accepts(REFUSAL, refusal), true);
+  assert.equal(accepts(REFUSAL, { ...refusal, reasons: [] }), false);
+});
+
+test("un motif ne porte pas les champs d'un autre", () => {
+  // `additionalProperties: false` sur chaque variante empêche un émetteur de composer un motif
+  // hybride que le lecteur interpréterait à moitié.
+  const hybride = {
+    protocol: "lep/1.1",
+    task_id: "t",
+    attempt_id: "a",
+    reasons: [{ code: "level_unavailable", required: "S4", best: "S2", kind: "cuda" }],
+  };
+  assert.equal(accepts(REFUSAL, hybride), false);
+});
+
+test("`proven` est facultatif, et c'est une ignorance nommée", () => {
+  // « Aucune campagne n'a conclu » et « la campagne a conclu plus bas » envoient chercher deux
+  // choses différentes ; le schéma laisse la première s'écrire par l'absence.
+  const base = { protocol: "lep/1.1", task_id: "t", attempt_id: "a" };
+  assert.equal(
+    accepts(REFUSAL, { ...base, reasons: [{ code: "level_not_attested", required: "S3" }] }),
+    true,
+  );
+  assert.equal(
+    accepts(REFUSAL, {
+      ...base,
+      reasons: [{ code: "level_not_attested", required: "S3", proven: "S1" }],
+    }),
+    true,
+  );
+});
+
+/**
+ * **Aucune énumération existante ne gagne un membre.**
+ *
+ * C'est l'interdit 3 d'ADR 0017, et la raison pour laquelle les motifs de refus sont un **document
+ * nouveau** plutôt que des valeurs ajoutées quelque part. Le SDK Rust émet des `enum` fermés : un
+ * membre de plus sur une énumération ancienne ferait échouer la désérialisation chez tout
+ * consommateur `1.0`, **en silence pour l'émetteur**.
+ *
+ * Le test lit les schémas plutôt que de faire confiance à la relecture du diff : c'est la seule
+ * façon de tenir la propriété au prochain mineur aussi.
+ */
+test("aucune énumération d'un schéma ancien ne porte un code de refus", () => {
+  const codes = new Set(REFUSAL_CODES);
+  const dir = join(root, "schemas");
+  const registry = JSON.parse(readFileSync(join(dir, "registry.json"), "utf8")) as {
+    shared: string[];
+    documents: { schema: string }[];
+  };
+  const files = [...new Set([...registry.shared, ...registry.documents.map((e) => e.schema)])];
+
+  for (const file of files) {
+    if (file.endsWith("admission-refusal.schema.json")) continue;
+    const text = readFileSync(join(dir, file), "utf8");
+    for (const code of codes) {
+      assert.equal(
+        text.includes(`"${code}"`),
+        false,
+        `${file} nomme « ${code} » : un mineur ajoute des champs, jamais des valeurs`,
+      );
+    }
+  }
+});

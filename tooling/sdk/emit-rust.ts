@@ -1,4 +1,4 @@
-import { type Model, type Struct, type Type } from "./ir.ts";
+import { type Model, type Struct, type Type, type Union } from "./ir.ts";
 
 const HEADER = `// Généré depuis schemas/ par tooling/sdk/generate.ts — ne pas éditer à la main.
 //
@@ -37,6 +37,7 @@ export function emitRust(model: Model): string {
     }
     parts.push(`${doc(alias.doc, "")}pub type ${alias.name} = ${rustType(alias.type)};\n`);
   }
+  for (const union of model.unions) parts.push(emitUnion(union));
   for (const struct of model.structs) parts.push(emitStruct(struct));
   parts.push(
     `${doc("Les documents qu'un pair peut envoyer ou recevoir, dans l'ordre du registre.", "")}` +
@@ -90,6 +91,47 @@ function emitEnum(name: string, documentation: string | undefined, values: reado
   return lines.filter((line) => line.length > 0).join("\n");
 }
 
+/**
+ * Une union étiquetée, en `enum` à variantes-structures.
+ *
+ * `#[serde(tag = ...)]` est l'étiquetage **interne** : la propriété discriminante reste au même
+ * niveau que les champs de la variante, ce que le schéma décrit. Les autres formes de serde —
+ * externe, adjacente — produiraient un objet emboîté que le document ne demande pas.
+ *
+ * Les variantes portent leurs champs directement plutôt qu'une structure nommée : serde refuse une
+ * variante-newtype dont le contenu porterait aussi l'étiquette, et la structure nommée l'aurait
+ * portée puisqu'elle vient du même `properties`.
+ */
+function emitUnion(union: Union): string {
+  const lines = [
+    doc(union.doc, ""),
+    "#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]",
+    `#[serde(tag = ${JSON.stringify(union.tag)})]`,
+    `pub enum ${union.name} {`,
+  ];
+  for (const variant of union.variants) {
+    lines.push(doc(variant.doc, "    ").trimEnd());
+    lines.push(`    #[serde(rename = ${JSON.stringify(variant.tag)})]`);
+    if (variant.fields.length === 0) {
+      lines.push(`    ${variant.name},`);
+      continue;
+    }
+    lines.push(`    ${variant.name} {`);
+    for (const field of variant.fields) {
+      lines.push(doc(field.doc, "        ").trimEnd());
+      if (!field.required) {
+        lines.push('        #[serde(skip_serializing_if = "Option::is_none", default)]');
+      }
+      const rendered = rustType(field.type);
+      const wrapped = field.required ? rendered : `Option<${rendered}>`;
+      lines.push(`        ${snakeIdentifier(field.name)}: ${wrapped},`);
+    }
+    lines.push("    },");
+  }
+  lines.push("}\n");
+  return lines.filter((line) => line.length > 0).join("\n");
+}
+
 function rustType(type: Type): string {
   switch (type.kind) {
     case "string":
@@ -111,6 +153,7 @@ function rustType(type: Type): string {
       return `BTreeMap<String, ${rustType(type.values)}>`;
     case "ref":
     case "object":
+    case "union":
       return type.name;
     case "unknown":
       return "serde_json::Value";

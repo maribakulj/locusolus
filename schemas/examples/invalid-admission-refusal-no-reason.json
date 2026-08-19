@@ -1,0 +1,11 @@
+{
+  "_fixture": {
+    "name": "un-refus-sans-motif-n-est-pas-un-refus",
+    "expect": "invalid",
+    "note": "`reasons` vide. Un refus qui ne dit pas ce qui manque ne se corrige pas : il envoie relancer à l'identique. `minItems: 1` le rend inexprimable plutôt que de compter sur la bonne tenue de l'émetteur."
+  },
+  "protocol": "lep/1.1",
+  "task_id": "task-refuse",
+  "attempt_id": "attempt-refuse-2",
+  "reasons": []
+}

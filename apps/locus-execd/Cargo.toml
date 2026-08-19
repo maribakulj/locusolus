@@ -21,5 +21,6 @@ path = "src/lib.rs"
 [dependencies]
 locus-environments = { path = "../../packages/environments" }
 locus-execution = { path = "../../packages/execution" }
+locus-lep = { path = "../../packages/lep" }
 serde = { workspace = true }
 serde_json = { workspace = true }

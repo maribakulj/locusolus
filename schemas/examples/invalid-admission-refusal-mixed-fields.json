@@ -1,0 +1,13 @@
+{
+  "_fixture": {
+    "name": "un-motif-ne-porte-pas-les-champs-d-un-autre",
+    "expect": "invalid",
+    "note": "`level_unavailable` avec le `kind` d'un refus d'accélérateur. `additionalProperties: false` sur chaque variante empêche un émetteur de composer un motif hybride que le lecteur interpréterait à moitié — et `oneOf` refuse alors le document au lieu de laisser passer le champ en trop."
+  },
+  "protocol": "lep/1.1",
+  "task_id": "task-refuse",
+  "attempt_id": "attempt-refuse-3",
+  "reasons": [
+    { "code": "level_unavailable", "required": "S4", "best": "S2", "kind": "cuda" }
+  ]
+}
