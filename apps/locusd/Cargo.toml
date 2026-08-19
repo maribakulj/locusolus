@@ -18,6 +18,11 @@ path = "src/lib.rs"
 # runtime asynchrone et le cadre HTTP après leur ADR. `CLAUDE.md` : « construire domain/protocol/
 # event-store d'abord, avec des ports purs ».
 [dependencies]
+# `locus-event-store` entre avec W20.b : la transaction *possède* le journal, ce qui est ce qui rend
+# la règle « toute mutation passe par un command handler » opposable plutôt que recommandée. Ce
+# n'est pas une dépendance de transport — le port est pur, et `CLAUDE.md` demande précisément qu'il
+# le soit avant tout runtime.
+locus-event-store = { path = "../../packages/event-store" }
 locus-protocol = { path = "../../packages/protocol" }
 serde = { workspace = true }
 
