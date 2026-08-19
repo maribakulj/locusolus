@@ -61,16 +61,17 @@ en `lep/1.0`, et soit consommable par deux implémentations indépendantes.
 
 | # | Commit | Dépôt | Test de sortie |
 |---|---|---|---|
-| W0.1 `[R]` | placement de la doc, `CLAUDE.md` par repo, ADR 0001–0010 | les 4 | `grep -r "locus-solus"` ne renvoie rien hors historique Git |
-| W0.2 `[R]` | squelette monorepo : `apps/`, `packages/`, `schemas/`, `tests/`, tooling, CI qui passe à vide | locusolus | CI verte sur un dépôt sans code |
-| W0.3 `[R]` | garde de frontières architecturales (les 5 règles du `CLAUDE.md`) branchée sur le squelette vide | locusolus | une violation délibérée fait échouer la CI |
-| W0.4 `[R]` | `packages/protocol` : IDs, enveloppe d'erreur structurée, politique de versionnement, horodatage | locusolus | unitaires |
-| W0.5 `[M]` | JSON Schemas LEP : `CapabilityManifest`, `MissionEnvelope`, `ContextView`, `EnvironmentBlueprint`, `SandboxSpec`, `ResourceSpec` | locusolus | les exemples de `schemas/examples/` valident |
-| W0.6 `[M]` | JSON Schemas LEP, suite : `Lease`, `Attempt`, événements, `ArtifactManifest`, `RunManifest`, `SandboxAttestation`, `EpistemicCommit` | locusolus | validation |
-| W0.7 `[R]` | corpus de fixtures : nominal, refus d'admission, reconnexion, résultat tardif, dépassement de budget | locusolus | chaque fixture valide **ou invalide intentionnellement**, selon son `expect` déclaré |
-| W0.8 `[R]` | SDK généré depuis les schémas + `schema-registry` avec négociation de features au handshake | locusolus | round-trip sur toutes les fixtures |
-| W0.9 `[R]` | `packages/testing` : **harness de conformance LEP côté serveur** — handshake, offre, lease, heartbeat, expiration, acquittements | locusolus | le harness se teste contre un worker factice |
-| W0.10 `[R]` | `IMPLEMENTATION_LEDGER.md` dans les quatre dépôts | les 4 | présent, avec l'entrée d'étape 0 |
+| W0.1 `[R]` **fait** | placement de la doc, `CLAUDE.md` par repo, ADR 0001–0010 | les 4 | `grep -r "locus-solus"` ne renvoie rien hors historique Git |
+| W0.2 `[R]` **fait** | squelette monorepo : `apps/`, `packages/`, `schemas/`, `tests/`, tooling, CI qui passe à vide | locusolus | CI verte sur un dépôt sans code |
+| W0.3 `[R]` **fait** | garde de frontières architecturales (les 5 règles du `CLAUDE.md`) branchée sur le squelette vide | locusolus | une violation délibérée fait échouer la CI |
+| W0.4 `[R]` **fait** | `packages/protocol` : IDs, enveloppe d'erreur structurée, politique de versionnement, horodatage | locusolus | unitaires |
+| W0.5 `[M]` **fait** | JSON Schemas LEP : `CapabilityManifest`, `MissionEnvelope`, `ContextView`, `EnvironmentBlueprint`, `SandboxSpec`, `ResourceSpec` | locusolus | les exemples de `schemas/examples/` valident |
+| W0.6 `[M]` **fait** | JSON Schemas LEP, suite : `Lease`, `Attempt`, événements, `ArtifactManifest`, `RunManifest`, `SandboxAttestation`, `EpistemicCommit` | locusolus | validation |
+| W0.7 `[R]` **fait** | corpus de fixtures : nominal, refus d'admission, reconnexion, résultat tardif, dépassement de budget | locusolus | chaque fixture valide **ou invalide intentionnellement**, selon son `expect` déclaré |
+| W0.8 `[R]` **fait** | SDK généré depuis les schémas + `schema-registry` avec négociation de features au handshake | locusolus | round-trip sur toutes les fixtures |
+| W0.9 `[R]` **fait** | `packages/testing` : **harness de conformance LEP côté serveur** — handshake, offre, lease, heartbeat, expiration, acquittements | locusolus | le harness se teste contre un worker factice |
+| W0.10 `[R]` **fait** | `IMPLEMENTATION_LEDGER.md` dans les quatre dépôts | les 4 | présent, avec l'entrée d'étape 0 |
+| W0.11 `[R]` **fait** | **la roadmap ne peut plus mentir sur son état** — garde qui confronte les registres des quatre dépôts à ce tableau | locusolus | un item livré dont la ligne ne porte pas **fait** échoue, et un item marqué sans entrée aussi ; un registre non lu est **nommé** et suspend la seconde règle plutôt que de conclure |
 
 Fin de W0 : `lep/1.0` est gelé. Toute évolution suit `docs/06` — majeur = rupture, mineur = champs
 optionnels compatibles.
@@ -87,25 +88,25 @@ puisse compenser ses lacunes.
 
 | # | Commit | Test de sortie |
 |---|---|---|
-| W2.1 `[R]` | remote `upstream` + `docs/locus/upstream.md` + politique de sync | un merge amont à blanc ne touche aucun fichier local |
-| W2.2 `[R]` | non-régression standalone en CI (§28.8) — **avant tout code `locus/`** | passe sur le HEAD actuel |
-| W2.3 `[R]` | `src/locus/{index,config,errors}.ts` + `canterel worker --locus` qui ne fait rien | `bun run check` vert ; standalone intact |
-| W2.4 `[R]` | `identity.ts`, `auth.ts`, enrôlement, révocation (§7) | identité persistante après redémarrage |
-| W2.5 `[R]` | `protocol.ts`, `schema-registry.ts`, `connection.ts` sur le SDK de W0.8 | contract tests contre le harness |
-| W2.6 `[R]` | `capability-manifest.ts` + `capability-watch.ts` — détection réelle des toolchains, modèles, accélérateurs **et du niveau de sandbox effectif** | sur macOS : annonce `["S1","S2"]` et `mps`, jamais plus |
-| W2.7 `[R]` | `registration.ts`, handshake complet | conformance §8.2 |
-| W2.8 `[R]` | `admission.ts` — validation, refus structuré (§10.2), politique locale plus restrictive | la fixture de refus de W0.7 produit le bon code d'erreur |
-| W2.9 `[R]` | `lease.ts`, `attempt.ts`, heartbeats, perte de lease (§11) | expiration et reprise contre le harness |
-| W2.10 `[R]` | `context-materializer.ts` + isolation informationnelle (§12.4) | un contexte de branche A n'atteint jamais une mission de branche B |
-| W2.11 `[R]` | `session-map.ts`, `agent-overlay.ts`, `model-policy.ts`, `tool-policy.ts` — couche d'adaptation vers l'amont, à garder mince | mission → session **sans modifier `src/session/`** |
-| W2.12 `[R]` | `event-bridge.ts`, `event-spool.ts`, coalescence (§18) | perte de connexion : rien perdu, rien dupliqué |
-| W2.13 `[R]` | `usage-meter.ts`, budget local, dépassement (§17) | arrêt propre au dépassement |
-| W2.14 `[R]` | `artifact-client.ts`, `artifact-scanner.ts`, déclaration avant upload (§19.1) | hash déclaré ≠ hash reçu → rejet |
-| W2.15 `[R]` | `epistemic-commit.ts` — jamais au-delà de `staged` (§2.3) | tentative de promotion → erreur structurée |
-| W2.16 `[R]` | `recovery.ts`, `resume-store.ts`, offline, résultats partiels (§24) | redémarrage du worker en cours de mission |
-| W2.17 `[R]` | `human-input.ts` (§22) | suspension sans processus coûteux maintenu |
-| W2.18 `[R]` | `ui/worker-status.ts`, `mission-view.ts`, `security-view.ts` | rendu |
-| W2.19 `[R]` | suite de conformance complète + consumer-driven contracts (§28.2/28.3) | verte contre le harness |
+| W2.1 `[R]` **fait** | remote `upstream` + `docs/locus/upstream.md` + politique de sync | un merge amont à blanc ne touche aucun fichier local |
+| W2.2 `[R]` **fait** | non-régression standalone en CI (§28.8) — **avant tout code `locus/`** | passe sur le HEAD actuel |
+| W2.3 `[R]` **fait** | `src/locus/{index,config,errors}.ts` + `canterel worker --locus` qui ne fait rien | `bun run check` vert ; standalone intact |
+| W2.4 `[R]` **fait** | `identity.ts`, `auth.ts`, enrôlement, révocation (§7) | identité persistante après redémarrage |
+| W2.5 `[R]` **fait** | `protocol.ts`, `schema-registry.ts`, `connection.ts` sur le SDK de W0.8 | contract tests contre le harness |
+| W2.6 `[R]` **fait** | `capability-manifest.ts` + `capability-watch.ts` — détection réelle des toolchains, modèles, accélérateurs **et du niveau de sandbox effectif** | sur macOS : annonce `["S1","S2"]` et `mps`, jamais plus |
+| W2.7 `[R]` **fait** | `registration.ts`, handshake complet | conformance §8.2 |
+| W2.8 `[R]` **fait** | `admission.ts` — validation, refus structuré (§10.2), politique locale plus restrictive | la fixture de refus de W0.7 produit le bon code d'erreur |
+| W2.9 `[R]` **fait** | `lease.ts`, `attempt.ts`, heartbeats, perte de lease (§11) | expiration et reprise contre le harness |
+| W2.10 `[R]` **fait** | `context-materializer.ts` + isolation informationnelle (§12.4) | un contexte de branche A n'atteint jamais une mission de branche B |
+| W2.11 `[R]` **fait** | `session-map.ts`, `agent-overlay.ts`, `model-policy.ts`, `tool-policy.ts` — couche d'adaptation vers l'amont, à garder mince | mission → session **sans modifier `src/session/`** |
+| W2.12 `[R]` **fait** | `event-bridge.ts`, `event-spool.ts`, coalescence (§18) | perte de connexion : rien perdu, rien dupliqué |
+| W2.13 `[R]` **fait** | `usage-meter.ts`, budget local, dépassement (§17) | arrêt propre au dépassement |
+| W2.14 `[R]` **fait** | `artifact-client.ts`, `artifact-scanner.ts`, déclaration avant upload (§19.1) | hash déclaré ≠ hash reçu → rejet |
+| W2.15 `[R]` **fait** | `epistemic-commit.ts` — jamais au-delà de `staged` (§2.3) | tentative de promotion → erreur structurée |
+| W2.16 `[R]` **fait** | `recovery.ts`, `resume-store.ts`, offline, résultats partiels (§24) | redémarrage du worker en cours de mission |
+| W2.17 `[R]` **fait** | `human-input.ts` (§22) | suspension sans processus coûteux maintenu |
+| W2.18 `[R]` **fait** | `ui/worker-status.ts`, `mission-view.ts`, `security-view.ts` | rendu |
+| W2.19 `[R]` **fait** | suite de conformance complète + consumer-driven contracts (§28.2/28.3) | verte contre le harness |
 
 La liste de fichiers de `repos/canterel/SPEC_V1.md` §4 est une **annexe indicative**, pas un
 gabarit. Ne crée pas 34 stubs vides : chaque commit ci-dessus livre une garantie testée, et les
@@ -117,14 +118,14 @@ fichiers apparaissent quand ils portent du comportement.
 
 | Groupe | Contenu | Test de sortie |
 |---|---|---|
-| W1.a `[R]` | enveloppe commune d'objet épistémique (§7.4) : identité, version, statut, niveau de validation, portée de branche, provenance, supersession | property tests sur les invariants |
-| W1.b `[R]` | agrégats organisationnels (§7.1) et objets épistémiques (§7.3) | property tests |
-| W1.c `[M]` | `packages/event-store` : enveloppe (§10.1), append-only logique, concurrence optimiste | replay complet + conflit de concurrence détecté |
-| W1.d `[M]` | projections reconstructibles | reconstruction depuis zéro = état courant |
-| W1.e `[R]` | `packages/graph` : relations typées, **hyperarêtes** pour les inférences multi-prémisses (§7.6) | une inférence à 3 prémisses n'est pas 3 liens |
-| W1.f `[R]` | validation épistémique (§8) et propagation de l'invalidation (§8.3) | invalider une prémisse propage correctement |
-| W1.g `[R]` | résultats négatifs et conflits (§18.7) | aucun chemin de code ne supprime un conflit |
-| W1.h `[M]` | migrations de schéma + tests de portabilité | migration aller-retour |
+| W1.a `[R]` **fait** | enveloppe commune d'objet épistémique (§7.4) : identité, version, statut, niveau de validation, portée de branche, provenance, supersession | property tests sur les invariants |
+| W1.b `[R]` **fait** | agrégats organisationnels (§7.1) et objets épistémiques (§7.3) | property tests |
+| W1.c `[M]` **fait** | `packages/event-store` : enveloppe (§10.1), append-only logique, concurrence optimiste | replay complet + conflit de concurrence détecté |
+| W1.d `[M]` **fait** | projections reconstructibles | reconstruction depuis zéro = état courant |
+| W1.e `[R]` **fait** | `packages/graph` : relations typées, **hyperarêtes** pour les inférences multi-prémisses (§7.6) | une inférence à 3 prémisses n'est pas 3 liens |
+| W1.f `[R]` **fait** | validation épistémique (§8) et propagation de l'invalidation (§8.3) | invalider une prémisse propage correctement |
+| W1.g `[R]` **fait** | résultats négatifs et conflits (§18.7) | aucun chemin de code ne supprime un conflit |
+| W1.h `[M]` **fait** | migrations de schéma + tests de portabilité | migration aller-retour |
 
 ---
 
@@ -202,14 +203,14 @@ porte `version:` ni `image:`, tous deux obligatoires au schéma, et `ml-mps.yaml
 
 | # | Commit | Test de sortie |
 |---|---|---|
-| W5.a `[R]` | `packages/environments` : `ToolchainProfile` et `EnvironmentBlueprint`, avec les invariants que le schéma de W0.5 ne peut pas exprimer | un profil répété, un préféré inférieur au minimum, une variable dont le nom annonce un secret et une image par tag sont refusés, chacun par son nom |
-| W5.b `[R]` | la chaîne : lockfile → build → SBOM → scan → tests → signature → digest, comme suite de types | aucun chemin ne signe une image non scannée ni ne publie un digest dont les tests n'ont pas tourné — vérifié par un `compile_fail`, pas seulement par un test |
-| W5.c `[R]` | **correction de W4.d.3** : une sonde absente de l'image n'est pas une sonde bloquée | les codes 125, 126 et 127 sont lus comme `NotRun` et non comme `Blocked` ; une image incomplète ne rend jamais un backend `Trusted` |
-| W5.d `[R]` | les sondes voyagent avec le harnais : plus aucun binaire attendu dans l'image | aucune sonde ne nomme un chemin de l'image, chacune est du shell que `sh -n` accepte, et une sonde qui n'a pas pu conclure est `NotRun` |
-| W5.e `[R]` | le driver de build derrière un port, dans `apps/locus-execd` | le digest vient de la sortie du runtime et non du blueprint ; un build muet n'est pas un succès ; le driver ne sait pas dépasser le deuxième maillon de la chaîne |
-| W5.f `[R]` | validation **sémantique** des sondes contre une sandbox réelle | sur un hôte capable de `S2`, chaque sonde produit le verdict que son `contained_from` annonce — c'est la seule chose que ni `sh -n` ni un double ne peuvent dire |
+| W5.a `[R]` **fait** | `packages/environments` : `ToolchainProfile` et `EnvironmentBlueprint`, avec les invariants que le schéma de W0.5 ne peut pas exprimer | un profil répété, un préféré inférieur au minimum, une variable dont le nom annonce un secret et une image par tag sont refusés, chacun par son nom |
+| W5.b `[R]` **fait** | la chaîne : lockfile → build → SBOM → scan → tests → signature → digest, comme suite de types | aucun chemin ne signe une image non scannée ni ne publie un digest dont les tests n'ont pas tourné — vérifié par un `compile_fail`, pas seulement par un test |
+| W5.c `[R]` **fait** | **correction de W4.d.3** : une sonde absente de l'image n'est pas une sonde bloquée | les codes 125, 126 et 127 sont lus comme `NotRun` et non comme `Blocked` ; une image incomplète ne rend jamais un backend `Trusted` |
+| W5.d `[R]` **fait** | les sondes voyagent avec le harnais : plus aucun binaire attendu dans l'image | aucune sonde ne nomme un chemin de l'image, chacune est du shell que `sh -n` accepte, et une sonde qui n'a pas pu conclure est `NotRun` |
+| W5.e `[R]` **fait** | le driver de build derrière un port, dans `apps/locus-execd` | le digest vient de la sortie du runtime et non du blueprint ; un build muet n'est pas un succès ; le driver ne sait pas dépasser le deuxième maillon de la chaîne |
+| W5.f `[R]` **fait** | validation **sémantique** des sondes contre une sandbox réelle | sur un hôte capable de `S2`, chaque sonde produit le verdict que son `contained_from` annonce — c'est la seule chose que ni `sh -n` ni un double ne peuvent dire |
 | W5.g `[R]` **fait** | le **quota disque comme fait d'hôte lu**, et non appris en échouant — trouvé par le premier passage de W5.f | un hôte dont le système de fichiers ne peut pas porter `--storage-opt size=` est constaté **avant** toute création, et une mission qui réserve du disque y est refusée à l'**admission**, par un motif qui nomme le système de fichiers ; le refus est distinct de `CapacityExceeded` — « la capacité manque » et « la borne n'est pas applicable ici » n'envoient pas chercher la même chose ; aucun chemin ne laisse `podman create` être l'endroit où on l'apprend |
-| W5.h `[R]` | **les sondes que le premier hôte réel a démenties** — trois faites, deux restent | `read_process_environment` ne vise plus `/proc/1`, qui dans un namespace PID désigne l'init **du conteneur** : la sonde réussissait précisément parce que le confinement était correct, et comme elle est `critical`, tout hôte bien configuré se voyait refuser la confiance. Le discriminant est désormais le cgroup — un processus dont le cgroup diffère du nôtre est un processus que cette sandbox n'a pas créé. Les deux sondes réseau constatent l'absence de **route par défaut** avant de conclure : sans ce constat, un `curl` qui échoue ne distingue pas « la sandbox a coupé le réseau » de « l'hôte ne mène nulle part ». Un code réservé de plus, `121`, dit « ce que je devais **atteindre** n'a pas répondu » — distinct de `120`, « ce que je devais **lire** n'était pas là » : deux ignorances, deux réparations |
+| W5.h `[R]` **fait** | **les sondes que le premier hôte réel a démenties** — trois faites, deux restent | `read_process_environment` ne vise plus `/proc/1`, qui dans un namespace PID désigne l'init **du conteneur** : la sonde réussissait précisément parce que le confinement était correct, et comme elle est `critical`, tout hôte bien configuré se voyait refuser la confiance. Le discriminant est désormais le cgroup — un processus dont le cgroup diffère du nôtre est un processus que cette sandbox n'a pas créé. Les deux sondes réseau constatent l'absence de **route par défaut** avant de conclure : sans ce constat, un `curl` qui échoue ne distingue pas « la sandbox a coupé le réseau » de « l'hôte ne mène nulle part ». Un code réservé de plus, `121`, dit « ce que je devais **atteindre** n'a pas répondu » — distinct de `120`, « ce que je devais **lire** n'était pas là » : deux ignorances, deux réparations |
 | W5.j `[M]` **fait** | **où le quota disque s'applique**, quand la racine est en lecture seule | `W5.g` a rendu le quota **lisible** ; reste à le rendre **applicable**. À `S2` la racine est montée en lecture seule, donc `--storage-opt size=` dimensionne une couche que personne n'écrit : le seul endroit inscriptible est l'espace de travail monté, et un bind mount hérite du système de fichiers de l'hôte, non borné. L'arbitrage nomme le mécanisme — volume dimensionné, tmpfs borné, ou renoncement déclaré — et `exceed_disk_quota` écrit ensuite là où le quota mord : sans quota déclaré elle doit **réussir**, avec quota être bloquée. L'arbitrage est rendu : le quota mord **là où la sandbox peut écrire**, et le plan le nomme — `QuotaTarget` à trois cas, dont le troisième est celui qu'on aurait oublié. À `S0`/`S1` la couche inscriptible (`--storage-opt size=`) ; à partir de `S2` le premier montage inscriptible, par un **volume dimensionné**, que Podman ne tient que sur XFS avec quotas de projet — exactement le fait que `W5.g` fait déjà lire à l'hôte et refuser à l'admission. Le **tmpfs borné est écarté** : c'est de la RAM, donc une réservation de disque viendrait manger celle de mémoire, deux budgets pour une ressource. Un quota là où **rien** n'est inscriptible est refusé au plan, parce qu'il serait accepté, transmis, et sans effet. La sonde reçoit sa cible par `LOCUS_QUOTA_TARGET` et y écrit ; sans cible déclarée elle **réussit sans rien tenter**, et un code réservé de plus — `122`, « ce sur quoi je devais écrire ne s'écrit pas » — l'empêche de repasser un test qu'elle ne fait pas tourner. Enfin, `Probe::requires` fait dépendre son attente de ce que la **mission** a réservé : le disque est la seule ressource que `ResourceSpec` laisse valoir zéro, et une borne que personne n'a demandée ne peut pas être franchie. Le second test hôte passe de quinze à **seize** sondes, l'exclusion nommée n'ayant plus lieu d'être |
 | W5.k `[R]` **fait — et il a démenti son propre titre** | l'instrument qui regarde le réseau **depuis l'intérieur** de la sandbox du plan | la sandbox **voit** la route par défaut de l'hôte : l'hypothèse « une permission déclarée n'est pas accordée » est **fausse**, et c'est le test lui-même qui l'a démentie. Ce que les trois passages illisibles cachaient est ailleurs — voir `W5.l` |
 | W5.l `[R]` **fait** | **arrêter n'est pas retirer** | `RuntimePort::stop` lance `podman stop` et rien ne lance `podman rm` : le conteneur garde son **nom** et sa **couche inscriptible**. Le suivant qui demande le même nom échoue — « the container name `locus-0001` is already in use » — et c'est ce qui a rendu trois passages de CI illisibles. `selftest` avait vu la conséquence sans voir la cause : « un hôte qui accumule des conteneurs d'épreuve finit par ne plus pouvoir en créer ». Test de sortie : le port porte le retrait sous son nom, un `certify` ne laisse **rien** derrière lui — ni conteneur, ni couche — et un test le constate en redemandant le même nom ; la sonde `persist_after_teardown` cesse alors de tenir pour une raison qui n'est pas la sienne, puisqu'il y aura enfin un teardown |
@@ -346,11 +347,11 @@ d'un object store pour être faux.
 
 | # | Commit | Test de sortie |
 |---|---|---|
-| W6.a `[R]` | `packages/artifacts` : `ArtifactManifest` et la machine à états quarantaine/promotion | un contenu dont le hash n'est pas celui qui avait été déclaré est refusé ; `declared → promoted` n'existe pas ; un artefact promu ne se déprome pas ; l'histoire des états traversés ne s'efface pas |
-| W6.b `[R]` | **correction de W6.a** : le manifeste dit ce que le schéma dit, et la traduction vers le fil existe | un manifeste portant tous les champs facultatifs fait un aller-retour **exact** par `artifact-manifest.schema.json` ; un état, une relation ou une taille hors bornes sont refusés par leur nom ; le domaine ne construit rien que le schéma refuserait |
-| W6.c `[R]` | l'object store derrière un port, avec un backend en mémoire pour les tests | aucun octet n'entre sans manifeste déclaré ; la taille annoncée borne l'upload avant de l'accepter ; un contenu non conforme ne laisse rien derrière lui |
-| W6.d `[R]` | `RunManifest` relu et jugé, et le niveau de reproductibilité de §19.7 | le niveau se **calcule** depuis ce que le manifeste consigne ; un niveau déclaré au-dessus est refusé en nommant ce qui manque ; `R3` et `R4` ne se lisent dans aucun manifeste seul |
-| W6.e `[R]` | workflow de reproduction sur le backend déterministe de W3 | rejouer un `RunManifest` produit les mêmes hashes d'artefacts, et une divergence est un résultat rendu, pas une erreur avalée |
+| W6.a `[R]` **fait** | `packages/artifacts` : `ArtifactManifest` et la machine à états quarantaine/promotion | un contenu dont le hash n'est pas celui qui avait été déclaré est refusé ; `declared → promoted` n'existe pas ; un artefact promu ne se déprome pas ; l'histoire des états traversés ne s'efface pas |
+| W6.b `[R]` **fait** | **correction de W6.a** : le manifeste dit ce que le schéma dit, et la traduction vers le fil existe | un manifeste portant tous les champs facultatifs fait un aller-retour **exact** par `artifact-manifest.schema.json` ; un état, une relation ou une taille hors bornes sont refusés par leur nom ; le domaine ne construit rien que le schéma refuserait |
+| W6.c `[R]` **fait** | l'object store derrière un port, avec un backend en mémoire pour les tests | aucun octet n'entre sans manifeste déclaré ; la taille annoncée borne l'upload avant de l'accepter ; un contenu non conforme ne laisse rien derrière lui |
+| W6.d `[R]` **fait** | `RunManifest` relu et jugé, et le niveau de reproductibilité de §19.7 | le niveau se **calcule** depuis ce que le manifeste consigne ; un niveau déclaré au-dessus est refusé en nommant ce qui manque ; `R3` et `R4` ne se lisent dans aucun manifeste seul |
+| W6.e `[R]` **fait** | workflow de reproduction sur le backend déterministe de W3 | rejouer un `RunManifest` produit les mêmes hashes d'artefacts, et une divergence est un résultat rendu, pas une erreur avalée |
 
 ## W7 — Memory / review / portfolio
 
@@ -373,12 +374,12 @@ produit un système qui a l'air de fonctionner.
 | # | Commit | Test de sortie |
 |---|---|---|
 | W7.a `[R]` | `packages/review` : `ReviewDossier` figé, `Review`, `Finding`, et l'attestation d'indépendance de §14.4 | un dossier modifié après attribution change de version ou porte un addendum visible ; deux relecteurs du même groupe d'indépendance ne comptent pas comme indépendants ; une revue sans attestation n'est pas une revue indépendante |
-| W7.b `[R]` | prévention de contamination (§16.6), par **cas adverses** | cinq cas, un par forme nommée : transcript du générateur atteignant un relecteur aveugle ; claim réfuté propagé comme contexte par défaut ; donnée confidentielle atteignant un worker non autorisé ; consensus circulaire sans source externe ; contradiction perdue à la synthèse. Chacun échoue **avant** le correctif |
-| W7.c `[R]` | `ContextView` : ce qui a été vu, arrêté par hash et par watermark (§16.2) | deux vues du même instant du journal ont le même hash ; une vue qui aurait vu un événement postérieur à son watermark est refusée |
-| W7.d `[R]` | rebuttal et méta-revue (§17.6, §17.7) | un rebuttal ne s'écrit pas sans finding ; une méta-revue ne relit pas sa propre revue ; le désaccord survit à la synthèse |
-| W7.e `[R]` | budgets : réservation avant exécution, dépassement (§7.2, invariant 6) | une mission sans borne n'est pas admissible ; une réservation refusée n'exécute rien ; un dépassement arrête proprement et le dit |
-| W7.f `[R]` | portefeuille : indicateurs de §13, et **l'anti-gaming de §13.6 d'abord** | une stratégie qui optimise l'indicateur sans produire de connaissance est détectée par un test qui la met en œuvre ; l'anti-gaming précède la fonction de valeur dans l'ordre des commits, et un test l'atteste |
-| W7.g `[R]` | scheduler qualité-diversité | deux propositions de valeur égale et de diversité inégale ne sont pas départagées au hasard ; le choix est reproductible |
+| W7.b `[R]` **fait** | prévention de contamination (§16.6), par **cas adverses** | cinq cas, un par forme nommée : transcript du générateur atteignant un relecteur aveugle ; claim réfuté propagé comme contexte par défaut ; donnée confidentielle atteignant un worker non autorisé ; consensus circulaire sans source externe ; contradiction perdue à la synthèse. Chacun échoue **avant** le correctif |
+| W7.c `[R]` **fait** | `ContextView` : ce qui a été vu, arrêté par hash et par watermark (§16.2) | deux vues du même instant du journal ont le même hash ; une vue qui aurait vu un événement postérieur à son watermark est refusée |
+| W7.d `[R]` **fait** | rebuttal et méta-revue (§17.6, §17.7) | un rebuttal ne s'écrit pas sans finding ; une méta-revue ne relit pas sa propre revue ; le désaccord survit à la synthèse |
+| W7.e `[R]` **fait** | budgets : réservation avant exécution, dépassement (§7.2, invariant 6) | une mission sans borne n'est pas admissible ; une réservation refusée n'exécute rien ; un dépassement arrête proprement et le dit |
+| W7.f `[R]` **fait** | portefeuille : indicateurs de §13, et **l'anti-gaming de §13.6 d'abord** | une stratégie qui optimise l'indicateur sans produire de connaissance est détectée par un test qui la met en œuvre ; l'anti-gaming précède la fonction de valeur dans l'ordre des commits, et un test l'atteste |
+| W7.g `[R]` **fait** | scheduler qualité-diversité | deux propositions de valeur égale et de diversité inégale ne sont pas départagées au hasard ; le choix est reproductible |
 
 W7.b avant W7.c : un cas adverse écrit contre une `ContextView` déjà là serait écrit pour passer.
 W7.f avant tout usage automatique de la fonction de valeur — c'est la mise en garde de ce
@@ -398,15 +399,15 @@ Elisp, donc rien à extraire et rien à réordonner — `apps/emacs` se construi
 
 | # | Commit | Test de sortie |
 |---|---|---|
-| W8.a `[R]` | le test de séparation : `apps/emacs` existe, se charge sous `emacs -Q` avec sa seule `load-path` | la frontière 5 passe de « sans objet » à vérifiée ; charger le paquet n'ouvre aucune connexion, n'arme aucun timer et ne tire aucune bibliothèque hors du paquet et d'Emacs ; la version de protocole annoncée est celle de `schemas/`, lue et non recopiée |
-| W8.b `[R]` | authentification abstraite (§6) | aucun secret hors `auth-source` ; une identité absente est une erreur actionnable, pas un plantage |
-| W8.c `[R]` | événements, curseurs et reprise (§14.1, §7.5) | une déconnexion ne perd ni ne duplique un événement ; un trou est marqué, pas tu ; l'élagage du tampon n'emporte jamais un événement critique |
-| W8.d `[R]` | dashboard et buffers (§9) | un buffer se reconstruit depuis le cache sans réseau |
-| W8.e `[R]` | commandes et transient (§10, §11) | toute action mutante passe par l'API avec `expected_revision` ; un conflit est rendu, pas écrasé |
-| W8.f `[R]` | artefacts et inspecteur de sandbox | un artefact non promu se distingue d'un artefact promu à l'écran |
-| W8.g `[R]` | intégrations Org/Magit/Jupyter/xiiif | chaque intégration absente dégrade sans casser le démarrage |
-| W8.h `[R]` | 3D et WebView | la 3D reste une projection ; aucune vue n'écrit dans le graphe |
-| W8.i `[R]` | le **transport** : requête HTTP construite, réponse relue, socket isolée derrière un port | une requête se construit et se relit sans réseau ; l'erreur structurée du serveur arrive au client comme une erreur structurée, pas comme un code ; un aller-retour réel contre un serveur local passe |
+| W8.a `[R]` **fait** | le test de séparation : `apps/emacs` existe, se charge sous `emacs -Q` avec sa seule `load-path` | la frontière 5 passe de « sans objet » à vérifiée ; charger le paquet n'ouvre aucune connexion, n'arme aucun timer et ne tire aucune bibliothèque hors du paquet et d'Emacs ; la version de protocole annoncée est celle de `schemas/`, lue et non recopiée |
+| W8.b `[R]` **fait** | authentification abstraite (§6) | aucun secret hors `auth-source` ; une identité absente est une erreur actionnable, pas un plantage |
+| W8.c `[R]` **fait** | événements, curseurs et reprise (§14.1, §7.5) | une déconnexion ne perd ni ne duplique un événement ; un trou est marqué, pas tu ; l'élagage du tampon n'emporte jamais un événement critique |
+| W8.d `[R]` **fait** | dashboard et buffers (§9) | un buffer se reconstruit depuis le cache sans réseau |
+| W8.e `[R]` **fait** | commandes et transient (§10, §11) | toute action mutante passe par l'API avec `expected_revision` ; un conflit est rendu, pas écrasé |
+| W8.f `[R]` **fait** | artefacts et inspecteur de sandbox | un artefact non promu se distingue d'un artefact promu à l'écran |
+| W8.g `[R]` **fait** | intégrations Org/Magit/Jupyter/xiiif | chaque intégration absente dégrade sans casser le démarrage |
+| W8.h `[R]` **fait** | 3D et WebView | la 3D reste une projection ; aucune vue n'écrit dans le graphe |
+| W8.i `[R]` **fait** | le **transport** : requête HTTP construite, réponse relue, socket isolée derrière un port | une requête se construit et se relit sans réseau ; l'erreur structurée du serveur arrive au client comme une erreur structurée, pas comme un code ; un aller-retour réel contre un serveur local passe |
 
 **W8.i vient en dernier, et ce n'est pas un oubli.** La ligne W8.b portait d'abord « client HTTP/stream
 et authentification abstraite » ; seule l'authentification a été livrée, et les sept items suivants ont
@@ -432,10 +433,10 @@ Cette section était en prose et ne portait aucun item. Décomposée ici comme W
 
 | # | Commit | Dépôt | Test de sortie |
 |---|---|---|---|
-| W9.a `[R]` | `packages/visualization` : les huit projections de §23.3, versionnées et hashées, derrière un port de condensat | deux rendus du même contenu ont la **même** forme canonique quel que soit l'ordre d'insertion ; une vue modifiée n'est plus la vue — sa forme canonique change ; une vue en retard sur le journal le **déclare** au lieu de se dire à jour ; une arête sans extrémité est refusée |
-| W9.b `[R]` | `ArtifactViewerRegistry` (§23.5) : l'artefact suggère, le client choisit | un hint que le client ne sait pas honorer se replie sans échouer ; aucun artefact n'impose de viewer (invariant 10) ; l'absence de tout viewer laisse l'artefact atteignable |
-| W9.c `[R]` | interaction de §23 : `focus`, `filter`, `select` vers le viewer, `node_selected` en retour | un événement de viewer ne produit **jamais** de mutation ; le type ne laisse aucun chemin qui contourne l'API de commandes |
-| W9.d `[R]` | `apps/web` : la scène de référence, 2D d'abord, sur la vue hashée de W9.a | l'application ne détient aucun graphe modifiable : elle rend une `View` et toute interaction repart par l'API de commandes |
+| W9.a `[R]` **fait** | `packages/visualization` : les huit projections de §23.3, versionnées et hashées, derrière un port de condensat | deux rendus du même contenu ont la **même** forme canonique quel que soit l'ordre d'insertion ; une vue modifiée n'est plus la vue — sa forme canonique change ; une vue en retard sur le journal le **déclare** au lieu de se dire à jour ; une arête sans extrémité est refusée |
+| W9.b `[R]` **fait** | `ArtifactViewerRegistry` (§23.5) : l'artefact suggère, le client choisit | un hint que le client ne sait pas honorer se replie sans échouer ; aucun artefact n'impose de viewer (invariant 10) ; l'absence de tout viewer laisse l'artefact atteignable |
+| W9.c `[R]` **fait** | interaction de §23 : `focus`, `filter`, `select` vers le viewer, `node_selected` en retour | un événement de viewer ne produit **jamais** de mutation ; le type ne laisse aucun chemin qui contourne l'API de commandes |
+| W9.d `[R]` **fait** | `apps/web` : la scène de référence, 2D d'abord, sur la vue hashée de W9.a | l'application ne détient aucun graphe modifiable : elle rend une `View` et toute interaction repart par l'API de commandes |
 
 ## W10 — xiiif — **déverrouillé aujourd'hui**
 
@@ -450,10 +451,10 @@ dépendance en retard.
 
 | # | Commit | Dépôt | Test de sortie |
 |---|---|---|---|
-| W6.f `[R]` | `RemoteArtifactRef` (§19 de `xiiif/SPEC_V1.md`) : identité Locus, media type, hashes attendus, **un seul** locator | un document à deux locators est refusé, un document sans locator aussi ; le snapshot prouve la reproduction, la ressource live ne prouve rien ; une divergence entre les deux ne rend jamais la preuve historique douteuse |
-| W7.h `[R]` | `HumanReviewFinding` (§20 de `xiiif/SPEC_V1.md`) : les quatre verdicts humains, le commentaire libre, et le schéma que xiiif écrit | un verdict humain ne rend **jamais** `supports` ; `source-changed` ne réfute rien ; un finding dont la cible n'est pas dans le dossier est refusé ; un enregistrement qui ne dit ni verdict ni commentaire est refusé par son schéma |
-| W10.7 `[R]` | xiiif consomme `RemoteArtifactRef` : `xiiif-open-locus-artifact`, affichage séparé des cinq facettes | les cinq facettes de §19 sont distinctes à l'écran ; une ressource live modifiée après le run ne fait pas croire que la preuve a changé |
-| W10.8 `[R]` | revue humaine de §20 : `accept`, `needs-correction`, `wrong-target`, `source-changed` | un verdict produit un finding attachable à un `ReviewDossier`, et xiiif ne valide rien lui-même |
+| W6.f `[R]` **fait** | `RemoteArtifactRef` (§19 de `xiiif/SPEC_V1.md`) : identité Locus, media type, hashes attendus, **un seul** locator | un document à deux locators est refusé, un document sans locator aussi ; le snapshot prouve la reproduction, la ressource live ne prouve rien ; une divergence entre les deux ne rend jamais la preuve historique douteuse |
+| W7.h `[R]` **fait** | `HumanReviewFinding` (§20 de `xiiif/SPEC_V1.md`) : les quatre verdicts humains, le commentaire libre, et le schéma que xiiif écrit | un verdict humain ne rend **jamais** `supports` ; `source-changed` ne réfute rien ; un finding dont la cible n'est pas dans le dossier est refusé ; un enregistrement qui ne dit ni verdict ni commentaire est refusé par son schéma |
+| W10.7 `[R]` **fait** | xiiif consomme `RemoteArtifactRef` : `xiiif-open-locus-artifact`, affichage séparé des cinq facettes | les cinq facettes de §19 sont distinctes à l'écran ; une ressource live modifiée après le run ne fait pas croire que la preuve a changé |
+| W10.8 `[R]` **fait** | revue humaine de §20 : `accept`, `needs-correction`, `wrong-target`, `source-changed` | un verdict produit un finding attachable à un `ReviewDossier`, et xiiif ne valide rien lui-même |
 
 W10.8 dépend de W7.h : §20 nomme quatre verdicts humains et un `ReviewDossier` auquel les
 attacher, et rien ne portait ce contrat — même trou de couverture que W6.f, relevé au même endroit
@@ -476,9 +477,9 @@ existe pour empêcher.
 
 | # | Commit | Dépôt | Test de sortie |
 |---|---|---|---|
-| W11.a `[R]` | `packages/deployment` : les cinq profils de §27.1 sous leur nom, `DeploymentProfile` et le verdict de `locus doctor` | un adaptateur déclaré mais absent rend le profil **inexécutable**, en nommant ce qui manque ; « pas vérifié » n'est jamais « présent » ; deux profils de topologies différentes exposent la même surface cliente |
-| W11.b `[R]` | `deployment.yaml` : le schéma, les secrets **dehors**, `locus deployment explain` | un document qui porte un secret en clair est refusé par son schéma ; `explain` nomme les backends actifs sans nommer d'hôte interne |
-| W11.c `[R]` | sauvegarde cohérente de §27.4 et restauration sur un backend différent | une sauvegarde qui omet une des cinq parties se refuse à s'appeler cohérente ; une campagne restaurée sur un backend qui n'a pas les capabilities de ses runs historiques le déclare au lieu de rejouer |
+| W11.a `[R]` **fait** | `packages/deployment` : les cinq profils de §27.1 sous leur nom, `DeploymentProfile` et le verdict de `locus doctor` | un adaptateur déclaré mais absent rend le profil **inexécutable**, en nommant ce qui manque ; « pas vérifié » n'est jamais « présent » ; deux profils de topologies différentes exposent la même surface cliente |
+| W11.b `[R]` **fait** | `deployment.yaml` : le schéma, les secrets **dehors**, `locus deployment explain` | un document qui porte un secret en clair est refusé par son schéma ; `explain` nomme les backends actifs sans nommer d'hôte interne |
+| W11.c `[R]` **fait** | sauvegarde cohérente de §27.4 et restauration sur un backend différent | une sauvegarde qui omet une des cinq parties se refuse à s'appeler cohérente ; une campagne restaurée sur un backend qui n'a pas les capabilities de ses runs historiques le déclare au lieu de rejouer |
 
 ## W12 — Evaluation / release
 
@@ -491,9 +492,9 @@ clôture qui rend l'exercice vérifiable : une liste nommée permet de dire ce q
 
 | # | Commit | Dépôt | Test de sortie |
 |---|---|---|---|
-| W12.a `[R]` | `packages/evaluation` : le registre d'épreuves de §29.4, §29.5 et §29.8, et le verdict de préparation | une épreuve non traitée empêche la préparation, en la nommant ; une épreuve **écartée** exige sa raison, et une raison vide ne passe pas ; « pas éprouvé » n'est jamais « réussi » |
-| W12.b `[R]` | endurance de §29.6 : les huit seuils, et le constat qui les confronte | une campagne qui manque un seul seuil ne se dit pas endurante, et le verdict nomme lequel ; un compteur non relevé n'est pas un seuil atteint |
-| W12.c `[R]` | benchmarks de §29.7 : les six configurations et les onze mesures | une comparaison à laquelle il manque une configuration se déclare partielle ; une mesure absente n'est pas une mesure nulle |
+| W12.a `[R]` **fait** | `packages/evaluation` : le registre d'épreuves de §29.4, §29.5 et §29.8, et le verdict de préparation | une épreuve non traitée empêche la préparation, en la nommant ; une épreuve **écartée** exige sa raison, et une raison vide ne passe pas ; « pas éprouvé » n'est jamais « réussi » |
+| W12.b `[R]` **fait** | endurance de §29.6 : les huit seuils, et le constat qui les confronte | une campagne qui manque un seul seuil ne se dit pas endurante, et le verdict nomme lequel ; un compteur non relevé n'est pas un seuil atteint |
+| W12.c `[R]` **fait** | benchmarks de §29.7 : les six configurations et les onze mesures | une comparaison à laquelle il manque une configuration se déclare partielle ; une mesure absente n'est pas une mesure nulle |
 
 ---
 
@@ -508,13 +509,13 @@ exigence de §33, pas une précaution.
 
 | # | Commit | Test de sortie |
 |---|---|---|
-| W13.a `[R]` | ADR 0016, sixième frontière (`CLAUDE.md` + `boundaries.json` + garde), ce workstream, `docs/11`, `docs/13` | une violation délibérée **dans chacun des deux sens** fait échouer la CI, et la garde déclare le nombre de fichiers réellement examinés |
-| W13.b `[R]` | pli des fixtures `lep/1.0` en graphe d'exécution, sous `tests/` — aucun champ ajouté au protocole | le pli rend un graphe attempt/outil/artefact **sans arête orpheline**, et un test affirme **par l'absence** qu'aucun champ d'agent n'existe dans l'événement LEP |
-| W13.c `[R]` | `packages/coordination` : `AgentTemplate`, `AgentInstance`, `Team`, `Decision`, `ApprovalRequest` selon §7.1 ; `Id<Team>`, `Id<Task>`, `Id<Decision>`, `Id<Approval>` dans `packages/protocol` | property test : la capacité effective est l'**intersection** des quatre sources de §14.2, jamais leur union ; ignorer une source fait rougir. Round-trip des quatre nouveaux identifiants |
-| W13.d `[R]` | complétion de l'agrégat `Task` de §7.1 — dont `assigned_agent_id` et `assigned_worker_id` — sans toucher la machine à états existante | l'assignation est un événement ; la machine à états de `task.rs` est inchangée et ses tests passent |
-| W13.e `[R]` | relation de coordination (`kind` fermé à `review`), payload de `team.modify`, CAS par `expected_revision`, annulation par commit inverse, autorité de proposition agentique | quatre : deux propositions concurrentes sur la même base ne committent pas toutes deux et le refus dit s'il faut rebaser ; une proposition sans justification citant un objet épistémique existant est refusée ; aucun chemin de code ne modifie une `MissionEnvelope` émise ni le hash de sa `ContextView` ; une proposition d'origine agentique suit le même chemin qu'une proposition humaine et son proposeur ne peut pas l'approuver |
-| W13.f `[R]` | `packages/projections` : projection du graphe d'exécution | reconstruction depuis zéro = état courant ; quarantaine conforme à ADR 0013 |
-| W13.g `[R]` | projection du graphe organisationnel réalisé, par jointure `assigned_agent_id` × événements | **dépend de W13.b et W13.d.** Le graphe se reconstruit depuis le journal seul ; aucun instantané n'est reçu du worker |
+| W13.a `[R]` **fait** | ADR 0016, sixième frontière (`CLAUDE.md` + `boundaries.json` + garde), ce workstream, `docs/11`, `docs/13` | une violation délibérée **dans chacun des deux sens** fait échouer la CI, et la garde déclare le nombre de fichiers réellement examinés |
+| W13.b `[R]` **fait** | pli des fixtures `lep/1.0` en graphe d'exécution, sous `tests/` — aucun champ ajouté au protocole | le pli rend un graphe attempt/outil/artefact **sans arête orpheline**, et un test affirme **par l'absence** qu'aucun champ d'agent n'existe dans l'événement LEP |
+| W13.c `[R]` **fait** | `packages/coordination` : `AgentTemplate`, `AgentInstance`, `Team`, `Decision`, `ApprovalRequest` selon §7.1 ; `Id<Team>`, `Id<Task>`, `Id<Decision>`, `Id<Approval>` dans `packages/protocol` | property test : la capacité effective est l'**intersection** des quatre sources de §14.2, jamais leur union ; ignorer une source fait rougir. Round-trip des quatre nouveaux identifiants |
+| W13.d `[R]` **fait** | complétion de l'agrégat `Task` de §7.1 — dont `assigned_agent_id` et `assigned_worker_id` — sans toucher la machine à états existante | l'assignation est un événement ; la machine à états de `task.rs` est inchangée et ses tests passent |
+| W13.e `[R]` **fait** | relation de coordination (`kind` fermé à `review`), payload de `team.modify`, CAS par `expected_revision`, annulation par commit inverse, autorité de proposition agentique | quatre : deux propositions concurrentes sur la même base ne committent pas toutes deux et le refus dit s'il faut rebaser ; une proposition sans justification citant un objet épistémique existant est refusée ; aucun chemin de code ne modifie une `MissionEnvelope` émise ni le hash de sa `ContextView` ; une proposition d'origine agentique suit le même chemin qu'une proposition humaine et son proposeur ne peut pas l'approuver |
+| W13.f `[R]` **fait** | `packages/projections` : projection du graphe d'exécution | reconstruction depuis zéro = état courant ; quarantaine conforme à ADR 0013 |
+| W13.g `[R]` **fait** | projection du graphe organisationnel réalisé, par jointure `assigned_agent_id` × événements | **dépend de W13.b et W13.d.** Le graphe se reconstruit depuis le journal seul ; aucun instantané n'est reçu du worker |
 
 W13.b avant W13.f : le pli décide si la projection s'écrit contre `lep/1.0` inchangé, et le découvrir
 après aurait coûté la projection. W13.c avant W13.e : une relation entre deux agents suppose que
@@ -546,10 +547,10 @@ qualité-diversité, `V(b)`. Ce qui reste est §20, et c'est le moteur de politi
 
 | # | Commit | Test de sortie |
 |---|---|---|
-| W14.a `[R]` | `packages/policy` : les cinq verbes de §20.2, la séparation faits/décision, la trace d'évaluation, la priorité explicite et le déterminisme | deux évaluations des mêmes faits rendent la **même** décision et la même trace ; deux règles qui se contredisent sont détectées et tranchées par priorité déclarée, jamais par ordre de déclaration ; une décision sans trace n'existe pas |
-| W14.b `[R]` | `Delegation` de §20.4 : portée, plafonds, expiration, révocation | une action hors portée, au-delà d'un plafond ou après expiration n'est pas autorisée ; une délégation révoquée n'autorise plus rien, et l'attribution nomme **les deux** principals |
-| W14.c `[R]` | explicabilité de §20.5, dont les **alternatives rejetées** | une décision expose ses huit facettes ; une alternative rejetée sans motif n'est pas une alternative rejetée ; un override humain reste visible après coup |
-| W14.d `[R]` | les seize catégories de §20.1 et le dry-run de §20.2 | un dry-run ne produit aucun événement, et sa décision est identique à celle du run réel sur les mêmes faits |
+| W14.a `[R]` **fait** | `packages/policy` : les cinq verbes de §20.2, la séparation faits/décision, la trace d'évaluation, la priorité explicite et le déterminisme | deux évaluations des mêmes faits rendent la **même** décision et la même trace ; deux règles qui se contredisent sont détectées et tranchées par priorité déclarée, jamais par ordre de déclaration ; une décision sans trace n'existe pas |
+| W14.b `[R]` **fait** | `Delegation` de §20.4 : portée, plafonds, expiration, révocation | une action hors portée, au-delà d'un plafond ou après expiration n'est pas autorisée ; une délégation révoquée n'autorise plus rien, et l'attribution nomme **les deux** principals |
+| W14.c `[R]` **fait** | explicabilité de §20.5, dont les **alternatives rejetées** | une décision expose ses huit facettes ; une alternative rejetée sans motif n'est pas une alternative rejetée ; un override humain reste visible après coup |
+| W14.d `[R]` **fait** | les seize catégories de §20.1 et le dry-run de §20.2 | un dry-run ne produit aucun événement, et sa décision est identique à celle du run réel sur les mêmes faits |
 
 ## W15 — Cœur du graphe agentique et contestabilité — **niveau 3 → 4, structure**
 
@@ -579,12 +580,12 @@ attempts entre instances d'agent — ce que la décision 4 a déjà vérifié ab
 
 | # | Commit | Test de sortie |
 |---|---|---|
-| W15.a `[R]` | `packages/coordination` : la version canonique immuable — hash de contenu, hash de version, parent — et les sept opérations structurelles comme IR déclaratif fermé | le hash de contenu ne dépend que du contenu et se reproduit octet pour octet sur une forme canonique figée en fixture ; appliquer une opération puis son défaire rend le **même contenu** et une **autre version**, parce que l'histoire ne se défait pas ; une opération dont le défaire perdrait de l'information se déclare compensable et aucune fonction ne rend d'opération qui prétende la défaire ; les quatre opérations attributaires sont absentes, et un test le tient par l'absence |
-| W15.b `[R]` | le diff comme objet de première classe, calculé une fois | un diff se rejoue sur sa base et rend exactement le contenu visé, et deux rejeux du même diff sur la même base rendent la **même version**, identité comprise ; rejoué sur une autre base il est refusé et le refus dit s'il faut rebaser ; le diff d'une version vers elle-même est **vide**, jamais absent |
-| W15.c `[R]` | les régions mutables bornées de GRAFT — `allowed_ops`, `risk_ceiling`, `max_nodes_delta`, `max_edges_delta`, `approval_mode`, `require_shadow` — acceptation locale et veto de cohérence globale | une opération hors de la région déclarée ou hors de `allowed_ops` est refusée en nommant laquelle des bornes mord — quatre interdisent, les deux autres (`approval_mode`, `require_shadow`) **obligent** ; un lot accepté localement mais qui casse un invariant global **par un chemin passant hors de la région** est vetoé, et le veto nomme l'invariant et les agents pris dedans ; l'acceptation locale seule ne commit jamais, et rien dans son type ne le permet |
-| W15.d `[R]` | contestabilité d'une décision de coordination : famille d'objection parallèle, domaines disjoints | une décision de coordination offre ses cibles — déclencheur, politique, périmètre, décision — ; **aucune fonction ne convertit** une objection de coordination en `ObjectionTarget` ni l'inverse, et un test le tient par l'absence ; aucun trait générique ne factorise les deux familles, ce qui serait la conversion reconstruite |
-| W15.e `[R]` | `visibility`, **deuxième** membre de l'énumération des sortes (ADR 0016 décisions 4 et 10, amendées le 2026-08-18), dont le consommateur est la construction de `ContextView` | deux `ContextView` construites sous deux versions de coordination différentes diffèrent exactement des révisions que `visibility` retire ; aucune relation `visibility` n'élargit ce qu'une ACL refuse ; le constat de la clause de falsification est écrit au ledger, **dans un sens ou dans l'autre** |
-| W15.f `[M]` | `SET_ROLE` comme opération **attributaire**, avec son lecteur exécutable dans `canterel` — **tranche 1 du mineur `lep/1.1`** (ADR 0017 §5.1) | l'overlay additif du worker lit le rôle de l'instance et un test l'exerce de bout en bout ; sans ce lecteur, l'opération reste hors de l'énumération ; le rôle ne prend jamais le pas sur l'invariant 11 — une revue `independent` va au `reviewer` quel que soit le rôle demandé ; et un document `1.0` reçu par un consommateur `1.1` laisse le rôle **absent**, jamais rempli par un défaut |
+| W15.a `[R]` **fait** | `packages/coordination` : la version canonique immuable — hash de contenu, hash de version, parent — et les sept opérations structurelles comme IR déclaratif fermé | le hash de contenu ne dépend que du contenu et se reproduit octet pour octet sur une forme canonique figée en fixture ; appliquer une opération puis son défaire rend le **même contenu** et une **autre version**, parce que l'histoire ne se défait pas ; une opération dont le défaire perdrait de l'information se déclare compensable et aucune fonction ne rend d'opération qui prétende la défaire ; les quatre opérations attributaires sont absentes, et un test le tient par l'absence |
+| W15.b `[R]` **fait** | le diff comme objet de première classe, calculé une fois | un diff se rejoue sur sa base et rend exactement le contenu visé, et deux rejeux du même diff sur la même base rendent la **même version**, identité comprise ; rejoué sur une autre base il est refusé et le refus dit s'il faut rebaser ; le diff d'une version vers elle-même est **vide**, jamais absent |
+| W15.c `[R]` **fait** | les régions mutables bornées de GRAFT — `allowed_ops`, `risk_ceiling`, `max_nodes_delta`, `max_edges_delta`, `approval_mode`, `require_shadow` — acceptation locale et veto de cohérence globale | une opération hors de la région déclarée ou hors de `allowed_ops` est refusée en nommant laquelle des bornes mord — quatre interdisent, les deux autres (`approval_mode`, `require_shadow`) **obligent** ; un lot accepté localement mais qui casse un invariant global **par un chemin passant hors de la région** est vetoé, et le veto nomme l'invariant et les agents pris dedans ; l'acceptation locale seule ne commit jamais, et rien dans son type ne le permet |
+| W15.d `[R]` **fait** | contestabilité d'une décision de coordination : famille d'objection parallèle, domaines disjoints | une décision de coordination offre ses cibles — déclencheur, politique, périmètre, décision — ; **aucune fonction ne convertit** une objection de coordination en `ObjectionTarget` ni l'inverse, et un test le tient par l'absence ; aucun trait générique ne factorise les deux familles, ce qui serait la conversion reconstruite |
+| W15.e `[R]` **fait** | `visibility`, **deuxième** membre de l'énumération des sortes (ADR 0016 décisions 4 et 10, amendées le 2026-08-18), dont le consommateur est la construction de `ContextView` | deux `ContextView` construites sous deux versions de coordination différentes diffèrent exactement des révisions que `visibility` retire ; aucune relation `visibility` n'élargit ce qu'une ACL refuse ; le constat de la clause de falsification est écrit au ledger, **dans un sens ou dans l'autre** |
+| W15.f `[M]` **fait** | `SET_ROLE` comme opération **attributaire**, avec son lecteur exécutable dans `canterel` — **tranche 1 du mineur `lep/1.1`** (ADR 0017 §5.1) | l'overlay additif du worker lit le rôle de l'instance et un test l'exerce de bout en bout ; sans ce lecteur, l'opération reste hors de l'énumération ; le rôle ne prend jamais le pas sur l'invariant 11 — une revue `independent` va au `reviewer` quel que soit le rôle demandé ; et un document `1.0` reçu par un consommateur `1.1` laisse le rôle **absent**, jamais rempli par un défaut |
 
 W15.a avant W15.b : un diff se rejoue contre une identité de version, et l'identité décide de ce
 qu'un rejeu peut affirmer. W15.b avant W15.c : une région borne un lot d'opérations, donc un diff.
@@ -647,9 +648,9 @@ donc elle attend cet ADR comme W15.f.
 
 | # | Commit | Test de sortie |
 |---|---|---|
-| W16.a `[R]` | les transitions de cycle de vie du scheduler — `spawn`, `suspend`, `drain`, `kill`, `replace`, `connect`, `disconnect` — comme machine à états explicite, et la **quiescence locale** d'un nœud | une transition interdite est refusée en nommant l'état de départ et celui visé ; un nœud est drainé **sans** que rien d'autre soit arrêté, et la quiescence se constate au lieu de s'attendre ; `kill` sur un nœud quiescent et sur un nœud actif ne disent pas la même chose |
-| W16.b `[R]` | les **barrières par invariant menacé** plutôt que par lieu | une reconfiguration ne barre que les nœuds dont elle menace un invariant, et le refus nomme l'invariant, pas le lieu ; deux reconfigurations qui ne menacent pas le même invariant ne se bloquent pas l'une l'autre ; une barrière posée sans invariant menacé est refusée |
-| W16.c `[R]` | le plan de simulation : rejeu déterministe, substitut d'environnement enregistré, ombre en sandbox réelle, canari facultatif | deux rejeux de la même trace rendent le même résultat ; un substitut d'environnement qui n'a pas la réponse le **dit** au lieu d'en inventer une ; un objet simulé n'existe **pas** comme type dans le domaine épistémique, et un test le tient par l'absence |
+| W16.a `[R]` **fait** | les transitions de cycle de vie du scheduler — `spawn`, `suspend`, `drain`, `kill`, `replace`, `connect`, `disconnect` — comme machine à états explicite, et la **quiescence locale** d'un nœud | une transition interdite est refusée en nommant l'état de départ et celui visé ; un nœud est drainé **sans** que rien d'autre soit arrêté, et la quiescence se constate au lieu de s'attendre ; `kill` sur un nœud quiescent et sur un nœud actif ne disent pas la même chose |
+| W16.b `[R]` **fait** | les **barrières par invariant menacé** plutôt que par lieu | une reconfiguration ne barre que les nœuds dont elle menace un invariant, et le refus nomme l'invariant, pas le lieu ; deux reconfigurations qui ne menacent pas le même invariant ne se bloquent pas l'une l'autre ; une barrière posée sans invariant menacé est refusée |
+| W16.c `[R]` **fait** | le plan de simulation : rejeu déterministe, substitut d'environnement enregistré, ombre en sandbox réelle, canari facultatif | deux rejeux de la même trace rendent le même résultat ; un substitut d'environnement qui n'a pas la réponse le **dit** au lieu d'en inventer une ; un objet simulé n'existe **pas** comme type dans le domaine épistémique, et un test le tient par l'absence |
 | W16.d `[M]` **bloqué** | visibilité institutionnelle facultative des sous-agents internes du harnais — **tranche 4 du mineur `lep/1.1`** (ADR 0017 §5.4) | l'ADR est écrit ; **le blocage a changé de nature** et n'est plus une décision mais un consommateur, qui n'existe pas. Ce que l'institution voit d'un sous-agent reste à trancher, et ce trait traverse l'invariant 11 : voir qu'un sous-agent existe et voir son contexte sont deux choses, et un reviewer interne au harnais ne doit pas devenir le chemin par lequel le raisonnement privé du générateur remonte |
 | W16.e `[R]` **reporté** | epochs, messages tardifs et transfert d'état | attend une messagerie inter-agents, qui n'existe pas — et la construire pour débloquer l'item serait construire une fonctionnalité afin de justifier un test. Voir « Ce qui est reporté » |
 
@@ -680,11 +681,11 @@ elles ne sont pas redemandées ici.
 
 | # | Commit | Test de sortie |
 |---|---|---|
-| W17.a `[R]` | `packages/memory` : les sept niveaux de §16.1 comme liste close, et la distinction canonique/projection de la dernière phrase de la section | les sept se lisent sous leur nom ; ce qui est **canonique** — graphe, événements, artefacts — ne se déclare jamais régénérable, et ce qui est projection le déclare toujours ; une mémoire dont le niveau n'est pas nommé n'existe pas |
-| W17.b `[R]` | le retrieval hybride de §16.3 : les dix signaux, le ranking dont les facteurs sont **exposés**, et les ACL que les embeddings ne contournent pas | un résultat porte la contribution de **chacun** des signaux qui l'ont produit, et un ranking sans facteurs exposés est refusé ; un élément qu'une ACL refuse reste absent quel que soit son score vectoriel, et le test l'exerce avec un score maximal |
-| W17.c `[R]` | deux retrievals séparés, épistémique et organisationnel, **sans conversion** | les deux répondent à des questions différentes sur des types disjoints ; **aucune conversion n'est écrivable**, parce que le préfixe fait partie de l'identité (`packages/protocol`) et qu'une conversion devrait fabriquer une identité qu'elle n'a pas ; aucun trait générique ne les factorise |
-| W17.d `[R]` | déduplication non automatique (§16.4) et compaction (§16.5) | un duplicata exact par hash est détecté ; un candidat **sémantique** n'est jamais fusionné automatiquement, et sa résolution porte confiance et provenance ; une fusion se défait par une nouvelle décision ; une compaction signale ce qu'elle a omis et ne transforme jamais un objet non validé en connaissance établie |
-| W17.e `[R]` | les quatre vues du cockpit et la sélection synchronisée par `Id<Agent>` ; le canvas produit une **commande**, jamais une écriture | une sélection dans une vue désigne le même agent dans les trois autres ; un geste de canvas rend une commande que rien n'applique sur place, et aucun chemin de type ne permet à une vue d'écrire |
+| W17.a `[R]` **fait** | `packages/memory` : les sept niveaux de §16.1 comme liste close, et la distinction canonique/projection de la dernière phrase de la section | les sept se lisent sous leur nom ; ce qui est **canonique** — graphe, événements, artefacts — ne se déclare jamais régénérable, et ce qui est projection le déclare toujours ; une mémoire dont le niveau n'est pas nommé n'existe pas |
+| W17.b `[R]` **fait** | le retrieval hybride de §16.3 : les dix signaux, le ranking dont les facteurs sont **exposés**, et les ACL que les embeddings ne contournent pas | un résultat porte la contribution de **chacun** des signaux qui l'ont produit, et un ranking sans facteurs exposés est refusé ; un élément qu'une ACL refuse reste absent quel que soit son score vectoriel, et le test l'exerce avec un score maximal |
+| W17.c `[R]` **fait** | deux retrievals séparés, épistémique et organisationnel, **sans conversion** | les deux répondent à des questions différentes sur des types disjoints ; **aucune conversion n'est écrivable**, parce que le préfixe fait partie de l'identité (`packages/protocol`) et qu'une conversion devrait fabriquer une identité qu'elle n'a pas ; aucun trait générique ne les factorise |
+| W17.d `[R]` **fait** | déduplication non automatique (§16.4) et compaction (§16.5) | un duplicata exact par hash est détecté ; un candidat **sémantique** n'est jamais fusionné automatiquement, et sa résolution porte confiance et provenance ; une fusion se défait par une nouvelle décision ; une compaction signale ce qu'elle a omis et ne transforme jamais un objet non validé en connaissance établie |
+| W17.e `[R]` **fait** | les quatre vues du cockpit et la sélection synchronisée par `Id<Agent>` ; le canvas produit une **commande**, jamais une écriture | une sélection dans une vue désigne le même agent dans les trois autres ; un geste de canvas rend une commande que rien n'applique sur place, et aucun chemin de type ne permet à une vue d'écrire |
 | W17.f `[M]` **bloqué** | `/branches/:id/diff`, la preview, l'ombre, l'approbation, le rollback et la navigation dans le temps | attend `locusd`, décomposé en **W20** — la logique des six est écrite, il ne leur manque qu'une façade |
 
 W17.a avant W17.b : un retrieval cherche dans des niveaux. W17.c après W17.b, pour la même raison
@@ -717,10 +718,10 @@ un hôte réel**, et elle attend pour exactement la raison de W5.f.
 | # | Commit | Test de sortie |
 |---|---|---|
 | W18.a `[R]` | `packages/adaptation` : les onze déclencheurs de §14.5 comme liste close, la proposition de spawn avec ses neuf champs, et les quatre réponses du moteur de politique | les onze se lisent sous leur nom et un douzième n'existe pas ; une proposition à qui il manque un champ n'est pas construite, et le refus nomme le champ ; **aucun chemin** ne mène d'un déclencheur à une flotte sans passer par la réponse du moteur, et un test le tient par l'absence de constructeur |
-| W18.b `[R]` | boucle **rapide** sur la capacité — routage de modèle, choix d'outil, sélection de skill, retry, routes éphémères — et boucle **lente** sur la structure | une adaptation rapide ne produit aucune opération de coordination et aucun chemin de type ne le permet ; une adaptation lente est une `Proposal` de W13 et suit son chemin entier ; une route éphémère **expire**, et deux adaptations rapides ne s'accumulent jamais en une structure que personne n'a approuvée |
-| W18.c `[R]` | `bounded` et `operator`, les deux barreaux manquants de l'ADR 0016 décision 8, avec la classe de risque **dérivée** des invariants menacés | la classe de risque ne se déclare pas — elle se calcule de `region::threatens`, et un proposeur n'a nulle part où l'écrire ; en `bounded` une opération dont la classe dépasse le plafond est refusée **en nommant l'invariant**, pas le plafond ; `operator` n'est jamais tenu par un agent, et `Author::Agent` n'a pas de chemin vers lui |
-| W18.d `[R]` | l'admission de capacité comme gouvernance : proposition, politique, approbation, et le blueprint publié comme **seule** entrée | une capacité nouvelle n'entre que par un `Published` de W5.b, et aucun constructeur ne la fabrique depuis autre chose ; le refus nomme laquelle des conditions manque plutôt que de dire « non » ; du code injecté n'est pas une valeur exprimable, et c'est un test d'absence qui le dit |
-| W18.e `[R]` | la métrique d'acceptation : taux d'annulation **humaine** des adaptations agentiques | le taux ne compte que des annulations humaines, et une annulation par le système ne le fait pas monter ; une adaptation que personne n'a regardée est déclarée **hors mesure**, jamais comptée comme acceptée — le silence n'est pas un accord ; une adaptation d'auteur humain n'entre pas dans la mesure |
+| W18.b `[R]` **fait** | boucle **rapide** sur la capacité — routage de modèle, choix d'outil, sélection de skill, retry, routes éphémères — et boucle **lente** sur la structure | une adaptation rapide ne produit aucune opération de coordination et aucun chemin de type ne le permet ; une adaptation lente est une `Proposal` de W13 et suit son chemin entier ; une route éphémère **expire**, et deux adaptations rapides ne s'accumulent jamais en une structure que personne n'a approuvée |
+| W18.c `[R]` **fait** | `bounded` et `operator`, les deux barreaux manquants de l'ADR 0016 décision 8, avec la classe de risque **dérivée** des invariants menacés | la classe de risque ne se déclare pas — elle se calcule de `region::threatens`, et un proposeur n'a nulle part où l'écrire ; en `bounded` une opération dont la classe dépasse le plafond est refusée **en nommant l'invariant**, pas le plafond ; `operator` n'est jamais tenu par un agent, et `Author::Agent` n'a pas de chemin vers lui |
+| W18.d `[R]` **fait** | l'admission de capacité comme gouvernance : proposition, politique, approbation, et le blueprint publié comme **seule** entrée | une capacité nouvelle n'entre que par un `Published` de W5.b, et aucun constructeur ne la fabrique depuis autre chose ; le refus nomme laquelle des conditions manque plutôt que de dire « non » ; du code injecté n'est pas une valeur exprimable, et c'est un test d'absence qui le dit |
+| W18.e `[R]` **fait** | la métrique d'acceptation : taux d'annulation **humaine** des adaptations agentiques | le taux ne compte que des annulations humaines, et une annulation par le système ne le fait pas monter ; une adaptation que personne n'a regardée est déclarée **hors mesure**, jamais comptée comme acceptée — le silence n'est pas un accord ; une adaptation d'auteur humain n'entre pas dans la mesure |
 | W18.f `[M]` **reporté** | l'admission exercée de bout en bout contre une sandbox `S3`/`S4` réellement attestée | attend un hôte capable, et `W5.f` a rendu la condition précise : un système de fichiers qui porte les quotas, une isolation réseau, une micro-VM, et de quoi **attester**. Voir « Ce qui est reporté » |
 
 W18.a avant W18.b : la boucle lente propose un spawn, donc la proposition d'abord. W18.c après W18.b :
