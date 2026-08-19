@@ -7648,3 +7648,24 @@ _Note de méthode, la seconde de la session._ Deux éditions ont été perdues p
 reformate entre l'écriture du motif et sa recherche : un script qui remplace du texte exact doit
 relire le fichier après chaque formatage. Et le harnais de mutation restaure son instantané à la fin
 — un instantané pris avant une correction l'annule silencieusement.
+
+**Le passage réel a démenti l'hypothèse qui a fait écrire ce sprint — pour la seconde fois.** Les
+trois sondes rendent toujours « le runtime a rendu son code d'erreur générique », **jamais**
+`SANDBOX_GONE`. Autrement dit `is_running` a répondu autre chose que `Some(false)` : le conteneur
+est vivant, et `podman exec` refuse quand même.
+
+Ce n'est donc ni un cgroup occupé qui se libère — `W5.o` l'a écarté — ni une sandbox morte. Ce que
+ce sprint a livré reste vrai et utile : la troisième ignorance est nommable, le constat de vie ne
+sur-affirme plus, et la reprise ne brûle plus son budget contre un conteneur mort. Ce qu'il n'a pas
+livré est la cause.
+
+**Ce qu'on sait maintenant, et qui est étroit.** Après `exceed_pid_quota`, sur ce runner : le
+conteneur tourne, il répond à `inspect`, et `podman exec` rend 255 pendant plus de six secondes
+d'affilée. Trois hypothèses restent debout, et aucune n'est retenue ici — le cgroup PID reste saturé
+au-delà du budget parce que le nettoyage de la sonde n'a pas tourné ; `podman exec` échoue pour une
+raison indépendante des PID ; ou le 255 vient d'ailleurs que d'un refus de fork. Les départager
+demande de lire ce que `podman exec` écrit sur son erreur, que le harnais jette aujourd'hui.
+
+C'est `W5.q`, et c'est la troisième fois que cette enquête resserre sa question au lieu de la
+résoudre. Chaque tour a laissé le harnais plus honnête ; aucun n'a eu le droit de conclure à sa
+place.
