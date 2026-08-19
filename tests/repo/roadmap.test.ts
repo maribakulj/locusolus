@@ -42,6 +42,7 @@ test("un item livré mais non marqué est rapporté", () => {
     planned: new Set(["W5.q"]),
     frontier: [],
     unread: [],
+    awaiting: new Map(),
   });
   const [seul] = findings;
   assert.equal(findings.length, 1);
@@ -65,6 +66,7 @@ test("un item marqué sans entrée au ledger est rapporté", () => {
     planned: new Set(["W5.t"]),
     frontier: [],
     unread: [],
+    awaiting: new Map(),
   });
   const [seul] = findings;
   assert.equal(findings.length, 1);
@@ -89,6 +91,7 @@ test("un registre non lu suspend « marqué sans entrée », jamais l'inverse", 
     planned: new Set(["W5.q", "W2.4"]),
     frontier: [],
     unread: ["canterel"],
+    awaiting: new Map(),
   });
   assert.deepEqual(
     findings.map((finding) => finding.rule),
@@ -113,6 +116,7 @@ test("un item livré hors du plan ne compte pas comme un écart", () => {
       planned: new Set(),
       frontier: [],
       unread: [],
+      awaiting: new Map(),
     }),
     [],
   );
@@ -281,6 +285,7 @@ test("un item décidé bloqué qui a son entrée au ledger est rapporté", () =>
     planned: new Set(["W16.d"]),
     frontier: [],
     unread: [],
+    awaiting: new Map(),
   });
   assert.deepEqual(
     findings.map((finding) => finding.rule),
@@ -446,12 +451,101 @@ test("une ligne faite dont l'entrée dit bloqué a son constat à elle", () => {
     planned: new Set(["W15.f"]),
     frontier: [],
     unread: [],
+    awaiting: new Map(),
   });
   assert.deepEqual(
     findings.map((finding) => finding.rule),
     ["marque-mais-bloque"],
   );
   assert.match(findings[0]?.message ?? "", /W15\.f/);
+});
+
+/**
+ * **Un blocage dont ce qu'il attend est livré a expiré.**
+ *
+ * C'est le défaut qui a failli arrêter une session : `W17.f` disait « attend `locusd`, décomposé en
+ * W20 » alors que `W20` était livré. La frontière calculée était **vide**, la roadmap disait « ne va
+ * pas là », et un item était pourtant prêt. `W0.11` rendait impossible qu'une ligne prétende ne pas
+ * être faite ; celle-ci rend impossible qu'elle prétende être bloquée après coup.
+ */
+test("un blocage dont la dépendance est livrée est rapporté", () => {
+  const findings = reconcile({
+    delivered: new Set(["W20.a", "W20.b"]),
+    marked: new Set(["W20.a", "W20.b"]),
+    blocked: new Set(),
+    decided: new Set(["W17.f"]),
+    planned: new Set(["W17.f", "W20.a", "W20.b"]),
+    frontier: [],
+    unread: [],
+    awaiting: new Map([["W17.f", ["W20"]]]),
+  });
+
+  assert.deepEqual(
+    findings.map((finding) => finding.rule),
+    ["blocage-perime"],
+  );
+  assert.match(findings[0]?.message ?? "", /W17\.f/u);
+});
+
+/** Une phase dont une ligne reste ouverte ne débloque rien. */
+test("un blocage dont la dépendance est incomplète n'est pas rapporté", () => {
+  const findings = reconcile({
+    delivered: new Set(["W20.a"]),
+    marked: new Set(["W20.a"]),
+    blocked: new Set(),
+    decided: new Set(["W17.f"]),
+    planned: new Set(["W17.f", "W20.a", "W20.b"]),
+    frontier: ["W20.b"],
+    unread: [],
+    awaiting: new Map([["W17.f", ["W20"]]]),
+  });
+
+  assert.deepEqual(findings, []);
+});
+
+/**
+ * **`externe` ne se périme jamais**, et c'est ce qui distingue les quatre lignes bloquées.
+ *
+ * `W16.e` attend une messagerie qui n'existe pas, `W18.f` un hôte capable. Ces blocages n'ont pas de
+ * date, et un garde qui prétendrait en connaître une enverrait une session construire une
+ * fonctionnalité pour justifier un test.
+ */
+test("un blocage externe ne se périme pas", () => {
+  const findings = reconcile({
+    delivered: new Set(["W20.a"]),
+    marked: new Set(["W20.a"]),
+    blocked: new Set(),
+    decided: new Set(["W18.f"]),
+    planned: new Set(["W18.f", "W20.a"]),
+    frontier: [],
+    unread: [],
+    awaiting: new Map([["W18.f", ["externe"]]]),
+  });
+
+  assert.deepEqual(findings, []);
+});
+
+/**
+ * **Citer un item n'est pas l'attendre**, et c'est pour cela que le marqueur est explicite.
+ *
+ * La raison de `W18.f` mentionne `W5.f` — « `W5.f` a rendu la condition précise » — sans en dépendre.
+ * Une première version de la règle lisait tout identifiant présent dans la prose ; elle aurait crié
+ * au blocage périmé sur une ligne qui attend un hôte que personne ne peut fournir. Une ligne sans
+ * marqueur n'est donc pas vérifiée du tout, ce qui est le seul comportement honnête : le garde ne
+ * devine pas une dépendance, il lit celle qu'on a déclarée.
+ */
+test("une ligne bloquée sans marqueur n'est jamais rapportée", async () => {
+  const root = await fixture({
+    ledger: "# Ledger\n\n## 2026-08-18 — W5.f — la sonde\n",
+    roadmap: [
+      "| # | Commit | Test |",
+      "|---|---|---|",
+      "| W5.f `[R]` **fait** | une sonde | verte |",
+      "| W18.f `[M]` **reporté** | l'admission de bout en bout | attend un hôte capable, et `W5.f` a rendu la condition précise |",
+    ].join("\n"),
+  });
+
+  assert.deepEqual(await inspectRoadmap(root), []);
 });
 
 /** Un chantier jouet : le dépôt confronté, et les voisins qu'on veut bien lui donner. */
