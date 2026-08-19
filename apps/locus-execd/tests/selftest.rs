@@ -12,12 +12,12 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 use locus_execd::linux::{
-    Execution, INCONCLUSIVE_EXIT_CODE, LAUNCH_ATTEMPTS, PROBE_COMMANDS, PodmanBackend,
-    QUOTA_BYTES_VARIABLE, QUOTA_TARGET_VARIABLE, RUNNING_TEMPLATE, RestrictedProfile, Runner,
-    SANDBOX_GONE, SANDBOX_REFUSED, SeccompProfiles, TRANSIENT_EXIT_CODES, Trial,
-    UNREACHABLE_RUNTIME, UNREACHABLE_TARGET_EXIT_CODE, UNRUNNABLE_EXIT_CODES,
-    UNWRITABLE_TARGET_EXIT_CODE, Workload, certify, exec_arguments, probe_command, run_suite,
-    unrunnable,
+    BOOT_ID_PATH_VARIABLE, Execution, HOST_BOOT_ID_VARIABLE, INCONCLUSIVE_EXIT_CODE,
+    LAUNCH_ATTEMPTS, PROBE_COMMANDS, PodmanBackend, ProbeContext, QUOTA_BYTES_VARIABLE,
+    QUOTA_TARGET_VARIABLE, RUNNING_TEMPLATE, RestrictedProfile, Runner, SANDBOX_GONE,
+    SANDBOX_REFUSED, SeccompProfiles, TRANSIENT_EXIT_CODES, Trial, UNREACHABLE_RUNTIME,
+    UNREACHABLE_TARGET_EXIT_CODE, UNRUNNABLE_EXIT_CODES, UNWRITABLE_TARGET_EXIT_CODE, Workload,
+    boot_id_from, certify, exec_arguments, probe_command, run_suite, unrunnable,
 };
 use locus_execd::{RuntimeError, RuntimePort, SandboxId};
 use locus_execution::{
@@ -1548,7 +1548,14 @@ fn la_cible_du_quota_est_passee_a_la_sonde_quand_il_y_en_a_une() {
     let id = SandboxId::new("locus-0001").expect("identifiant");
     let command = probe_command("exceed_disk_quota").expect("commande");
 
-    let with = exec_arguments(&id, command, Some(("/work", 512 << 20)));
+    let with = exec_arguments(
+        &id,
+        command,
+        &ProbeContext {
+            quota: Some(("/work".to_owned(), 512 << 20)),
+            host_boot_id: None,
+        },
+    );
     assert!(
         with.windows(2)
             .any(|pair| pair[0] == "--env" && pair[1] == format!("{QUOTA_TARGET_VARIABLE}=/work")),
@@ -1560,7 +1567,7 @@ fn la_cible_du_quota_est_passee_a_la_sonde_quand_il_y_en_a_une() {
         "sans la taille, la sonde écrirait un nombre choisi d'avance : {with:?}"
     );
 
-    let without = exec_arguments(&id, command, None);
+    let without = exec_arguments(&id, command, &ProbeContext::default());
     assert!(
         !without.iter().any(|argument| argument == "--env"),
         "rien à borner, rien à annoncer : {without:?}"
@@ -1660,5 +1667,178 @@ fn la_sonde_disque_avoue_quand_sa_cible_ne_s_ecrit_pas() {
         run.status.code(),
         Some(UNWRITABLE_TARGET_EXIT_CODE),
         "un dd raté sur une cible absente n'est pas une preuve que le quota mord"
+    );
+}
+
+// ---------------------------------------------------------------------------------------------
+// W5.i — ce que S4 promet est un autre noyau, pas une lecture refusée
+// ---------------------------------------------------------------------------------------------
+
+/// **Le même `boot_id` veut dire le même noyau, et la sonde réussit.**
+///
+/// C'est ce que `S2` et `S3` promettent : un conteneur partage le noyau de son hôte. La sonde doit
+/// donc y **réussir**, et son succès est une mesure, pas un défaut.
+#[test]
+fn le_meme_boot_id_dit_que_le_noyau_est_celui_de_l_hote() {
+    let script = probe_command("reach_host_kernel_interfaces").expect("commande");
+    let script = script.last().expect("le script est le dernier argument");
+    let notre = std::fs::read_to_string("/proc/sys/kernel/random/boot_id")
+        .expect("cet hôte est un Linux : le test n'a de sens que là");
+    let run = std::process::Command::new("/bin/sh")
+        .arg("-c")
+        .arg(script)
+        .env(HOST_BOOT_ID_VARIABLE, notre.trim())
+        .output()
+        .expect("sh répond");
+    assert_eq!(
+        run.status.code(),
+        Some(0),
+        "ce shell tourne sur le noyau de l'hôte : la sonde doit le constater"
+    );
+}
+
+/// **Un autre `boot_id` veut dire un autre noyau, et la sonde est contenue.**
+///
+/// C'est ce que `S4` promet. Le test le simule en annonçant un `boot_id` qui n'est pas celui de la
+/// machine — ce qu'une micro-VM produirait pour de bon.
+#[test]
+fn un_autre_boot_id_dit_qu_un_autre_noyau_a_demarre() {
+    let script = probe_command("reach_host_kernel_interfaces").expect("commande");
+    let script = script.last().expect("le script est le dernier argument");
+    let run = std::process::Command::new("/bin/sh")
+        .arg("-c")
+        .arg(script)
+        .env(
+            HOST_BOOT_ID_VARIABLE,
+            "00000000-0000-0000-0000-000000000000",
+        )
+        .output()
+        .expect("sh répond");
+    assert_eq!(
+        run.status.code(),
+        Some(1),
+        "un noyau qui n'est pas celui de l'hôte est exactement ce que S4 apporte"
+    );
+}
+
+/// **Sans rien à quoi comparer, elle ne conclut pas.**
+///
+/// Ne pas savoir comparer n'est pas avoir comparé. La version précédente lisait
+/// `/sys/kernel/vmcoreinfo`, réservé à root : son échec ressortait comme un **blocage**, donc comme
+/// une preuve que le noyau était isolé — sur tout hôte, à tout niveau, et sans avoir rien mesuré.
+#[test]
+fn sans_boot_id_de_l_hote_la_sonde_du_noyau_ne_conclut_pas() {
+    let script = probe_command("reach_host_kernel_interfaces").expect("commande");
+    let script = script.last().expect("le script est le dernier argument");
+    let run = std::process::Command::new("/bin/sh")
+        .arg("-c")
+        .arg(script)
+        .env_remove(HOST_BOOT_ID_VARIABLE)
+        .output()
+        .expect("sh répond");
+    assert_eq!(
+        run.status.code(),
+        Some(INCONCLUSIVE_EXIT_CODE),
+        "un aveu d'ignorance, jamais un blocage : sinon l'ignorance passerait pour de l'isolation"
+    );
+}
+
+/// Et le `boot_id` traverse jusqu'à la sonde, quand le backend l'a reçu.
+#[test]
+fn le_boot_id_de_l_hote_est_annonce_a_la_sonde() {
+    let id = SandboxId::new("locus-0001").expect("identifiant");
+    let command = probe_command("reach_host_kernel_interfaces").expect("commande");
+
+    let annonce = exec_arguments(
+        &id,
+        command,
+        &ProbeContext {
+            quota: None,
+            host_boot_id: Some("f00d-cafe".to_owned()),
+        },
+    );
+    assert!(
+        annonce
+            .windows(2)
+            .any(|pair| pair[0] == "--env"
+                && pair[1] == format!("{HOST_BOOT_ID_VARIABLE}=f00d-cafe")),
+        "sans l'annonce, la sonde n'a rien à quoi comparer : {annonce:?}"
+    );
+    assert!(
+        !exec_arguments(&id, command, &ProbeContext::default())
+            .iter()
+            .any(|argument| argument == "--env"),
+        "rien à annoncer quand le harnais n'a pas su lire le boot_id de l'hôte"
+    );
+}
+
+/// **Un `boot_id` qu'on ne peut pas lire ne dit pas « un autre noyau ».**
+///
+/// La mutation a trouvé ce trou en supprimant la garde : la sonde comparait alors une chaîne vide au
+/// `boot_id` annoncé, concluait « différent », donc **contenue** — une ignorance lue comme une
+/// isolation, la faute exacte que `W5.i` répare.
+///
+/// Le chemin réel étant toujours lisible sur une machine de test, la branche n'était traversée par
+/// aucun test. [`BOOT_ID_PATH_VARIABLE`] la rend atteignable.
+#[test]
+fn un_boot_id_illisible_ne_dit_pas_qu_un_autre_noyau_a_demarre() {
+    let script = probe_command("reach_host_kernel_interfaces").expect("commande");
+    let script = script.last().expect("le script est le dernier argument");
+
+    for (cas, chemin) in [
+        ("absent", "/locus-boot-id-qui-n-existe-pas"),
+        ("vide", "/dev/null"),
+    ] {
+        let run = std::process::Command::new("/bin/sh")
+            .arg("-c")
+            .arg(script)
+            .env(HOST_BOOT_ID_VARIABLE, "f00d-cafe")
+            .env(BOOT_ID_PATH_VARIABLE, chemin)
+            .output()
+            .expect("sh répond");
+        assert_eq!(
+            run.status.code(),
+            Some(INCONCLUSIVE_EXIT_CODE),
+            "un boot_id {cas} est une ignorance, pas un noyau différent"
+        );
+    }
+}
+
+/// Et **le backend transmet le `boot_id` qu'on lui a donné**, jusqu'aux arguments d'`exec`.
+///
+/// Sans ce test, un `probe_context` qui perdrait le `boot_id` en chemin laisserait la sonde ne
+/// jamais conclure — silencieusement, puisque `NotRun` est un résultat licite.
+#[test]
+fn le_backend_transmet_le_boot_id_jusqu_a_la_sonde() {
+    let runner = ProbingRunner::airtight();
+    let mut execd = backend(runner).with_host_boot_id(Some("f00d-cafe".to_owned()));
+    let _ = run_suite(&mut execd, &mission(SandboxLevel::S3));
+
+    let calls = execd.runner().calls.lock().expect("verrou");
+    let lancement = calls
+        .iter()
+        .find(|call| call[0] == "exec")
+        .expect("une sonde a été lancée");
+    assert!(
+        lancement
+            .windows(2)
+            .any(|pair| pair[0] == "--env"
+                && pair[1] == format!("{HOST_BOOT_ID_VARIABLE}=f00d-cafe")),
+        "le boot_id doit traverser le contexte : {lancement:?}"
+    );
+}
+
+/// **Ce qui a été lu ne vaut un `boot_id` que s'il en reste quelque chose.**
+///
+/// La décision est séparée de la lecture précisément pour être vérifiable sans dépendre de ce que
+/// la machine contient — voir [`boot_id_from`].
+#[test]
+fn un_fichier_vide_ne_rend_pas_un_boot_id_vide_mais_rien() {
+    assert_eq!(boot_id_from("f00d-cafe\n"), Some("f00d-cafe".to_owned()));
+    assert_eq!(boot_id_from(""), None);
+    assert_eq!(
+        boot_id_from("  \n\t "),
+        None,
+        "de l'espace n'est pas une identité"
     );
 }

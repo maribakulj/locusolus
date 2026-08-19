@@ -7971,3 +7971,63 @@ de distinguer.
 **Tests exécutés.** `cargo test -p locus-execd` → 47 + 22 conformes. `npm run check` → les dix
 portes vertes. Le test de sortie est une paire, et c'est le point : sans la seconde moitié — « un
 runtime absent reste `Unavailable` » — faire rendre `Refused` à tout le monde passerait la première.
+
+---
+
+## 2026-08-19 — W5.i — Ce que `S4` promet est un autre noyau, pas une lecture refusée
+
+**Périmètre.** `apps/locus-execd/src/linux/selftest.rs` (la sonde, `ProbeContext`,
+`HOST_BOOT_ID_VARIABLE`), `src/linux/driver.rs` (`host_boot_id`, le builder), et quatre tests.
+
+**Le défaut.** `reach_host_kernel_interfaces` lisait `head -c 1 /sys/kernel/vmcoreinfo`, un fichier
+réservé à root. Elle échouait donc sur **tout** hôte, à **tout** niveau, et pour une raison qui ne
+dit rien du noyau : « je n'ai pas le droit de lire » ne distingue pas un conteneur d'une micro-VM.
+Sur le runner réel elle était, après `W5.r` et `W5.j`, la **seule** des seize à ressortir en
+sur-confinement.
+
+**L'arbitrage : `boot_id`.** Le noyau régénère cet UUID à chaque démarrage. Un conteneur partage
+celui de son hôte, parce qu'il partage son noyau ; une micro-VM démarre le sien. La version du noyau
+ne discrimine pas — une micro-VM peut faire tourner la même. `S4 microvm-high-risk` veut donc dire,
+de l'intérieur : **« le noyau que j'atteins n'est pas celui de l'hôte »**, et c'est une mesure, pas
+une permission.
+
+**Décisions prises.**
+
+_Le harnais dit à la sonde ce qu'elle ne peut pas savoir._ Une sonde est dedans ; le `boot_id` de
+l'hôte est dehors. `LOCUS_HOST_BOOT_ID` le lui porte, exactement comme `LOCUS_QUOTA_TARGET` lui
+porte l'endroit où le quota mord. Sans lui, la sonde rend **120** : ne pas savoir comparer n'est pas
+avoir comparé, et rendre un blocage ferait de l'ignorance une preuve d'isolation — la faute même
+qu'on répare.
+
+_Un type plutôt qu'un paramètre de plus._ Deux sondes ont maintenant besoin d'un fait venu du
+dehors, et la signature d'`exec_arguments` avait déjà grandi deux fois. `ProbeContext` arrête la
+croissance et nomme la chose : ce ne sont pas « des options », c'est **ce que le dehors doit dire au
+dedans**.
+
+_La lecture reste hors de la construction._ `PodmanBackend::new` est `const fn`, et le rester est
+une garantie : construire un backend ne touche pas le système. Un constructeur qui lirait `/proc` en
+passant rendrait tout test de construction sensible à la machine — « aucune dépendance implicite à
+une machine de développeur ». La lecture est donc explicite, par `host_boot_id()`, et son absence
+est un fait que la sonde sait dire.
+
+**Tests exécutés.** `cargo test -p locus-execd` → 54 conformes pour `selftest`. `npm run check` →
+les dix portes vertes. Mutation : **neuf mutants, neuf tués**, après un premier passage qui en a
+laissé survivre trois.
+
+_Les trois survivants étaient de vrais trous, et deux vivaient là où aucun test ne passait._ Le même
+diagnostic que pour `SystemRunner::run` : le chemin réel de `boot_id` est toujours lisible sur une
+machine de test, donc la branche « je n'ai pas pu lire le mien » n'était traversée par personne — et
+la mutation a montré qu'en la supprimant, la sonde comparait une chaîne vide et concluait « un autre
+noyau », c'est-à-dire **contenue**. Une ignorance lue comme une isolation, la faute même qu'on
+répare, un cran plus loin.
+
+Deux leviers l'ont rendue atteignable, tous deux repris du précédent `with_program` :
+`BOOT_ID_PATH_VARIABLE` déplace le fichier que la sonde lit — le harnais ne la pose jamais, le
+défaut est le chemin réel — et `boot_id_from` sépare la **décision** de la **lecture**, si bien que
+« ce que j'ai lu ne vaut rien » se vérifie sans dépendre de ce que la machine contient.
+
+**Le passage réel : les seize sondes tiennent.** `reach_host_kernel_interfaces` rend **0** et
+réussit, ce que `S2` promet — un conteneur partage bien le noyau de son hôte. Le second test hôte
+est vert pour la première fois ; seul reste
+`cet_hote_tient_il_s2_sous_une_mission_qui_reserve_du_disque`, qui exige un hôte XFS. Ce que cela
+ouvre est `W5.u` : le job cesse d'être toléré.

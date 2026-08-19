@@ -32,7 +32,7 @@ pub mod selftest;
 
 pub use driver::{
     CALL_BUDGET, Execution, FIRST_LAUNCH_PAUSE, PodmanBackend, RUNNING_TEMPLATE, Runner,
-    SystemRunner,
+    SystemRunner, boot_id_from, host_boot_id,
 };
 pub use invocation::{
     INSPECTED_FIELDS, InvocationError, SeccompProfiles, Workload, create_arguments,
@@ -49,9 +49,9 @@ pub use probe::{
 };
 pub use seccomp::{MUST_DENY, ProfileError, RestrictedProfile};
 pub use selftest::{
-    INCONCLUSIVE_EXIT_CODE, LAUNCH_ATTEMPTS, PROBE_COMMANDS, QUOTA_BYTES_VARIABLE,
-    QUOTA_OVERSHOOT_MIB, QUOTA_TARGET_VARIABLE, SANDBOX_GONE, SANDBOX_REFUSED,
-    TRANSIENT_EXIT_CODES, Trial, UNREACHABLE_RUNTIME, UNREACHABLE_TARGET_EXIT_CODE,
-    UNRUNNABLE_EXIT_CODES, UNWRITABLE_TARGET_EXIT_CODE, certify, exec_arguments, probe_command,
-    run_suite, unrunnable, verdicts,
+    BOOT_ID_PATH_VARIABLE, HOST_BOOT_ID_VARIABLE, INCONCLUSIVE_EXIT_CODE, LAUNCH_ATTEMPTS,
+    PROBE_COMMANDS, ProbeContext, QUOTA_BYTES_VARIABLE, QUOTA_OVERSHOOT_MIB, QUOTA_TARGET_VARIABLE,
+    SANDBOX_GONE, SANDBOX_REFUSED, TRANSIENT_EXIT_CODES, Trial, UNREACHABLE_RUNTIME,
+    UNREACHABLE_TARGET_EXIT_CODE, UNRUNNABLE_EXIT_CODES, UNWRITABLE_TARGET_EXIT_CODE, certify,
+    exec_arguments, probe_command, run_suite, unrunnable, verdicts,
 };

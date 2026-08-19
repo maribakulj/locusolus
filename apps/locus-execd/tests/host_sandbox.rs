@@ -61,8 +61,9 @@ use std::path::PathBuf;
 use std::process;
 
 use locus_execd::linux::{
-    MUST_DENY, PodmanBackend, RestrictedProfile, Runner, SANDBOX_REFUSED, SeccompProfiles,
-    SystemRunner, Trial, Workload, exec_arguments, run_suite, verdicts,
+    MUST_DENY, PodmanBackend, ProbeContext, RestrictedProfile, Runner, SANDBOX_REFUSED,
+    SeccompProfiles, SystemRunner, Trial, Workload, exec_arguments, host_boot_id, run_suite,
+    verdicts,
 };
 use locus_execd::{RuntimePort, SandboxId};
 use locus_execution::{
@@ -300,7 +301,10 @@ fn probe(spec: &SandboxSpec, tag: &str) -> Result<Vec<Trial>, String> {
             restricted: Some(restricted),
         },
         workload,
-    );
+    )
+    // `W5.i` : sans le `boot_id` de l'hôte, `reach_host_kernel_interfaces` n'a rien à quoi comparer
+    // et ne conclut pas. Le lui donner est ce qui la fait mesurer ce que son nom annonce.
+    .with_host_boot_id(host_boot_id());
 
     let outcome = exercise(&mut backend, spec);
     let _ = fs::remove_file(&profile_path);
@@ -552,7 +556,10 @@ fn inspect_network(spec: &SandboxSpec) -> Result<String, String> {
             restricted: Some(restricted),
         },
         workload,
-    );
+    )
+    // `W5.i` : sans le `boot_id` de l'hôte, `reach_host_kernel_interfaces` n'a rien à quoi comparer
+    // et ne conclut pas. Le lui donner est ce qui la fait mesurer ce que son nom annonce.
+    .with_host_boot_id(host_boot_id());
 
     let seen = match backend.create(spec) {
         Ok(id) => {
@@ -562,7 +569,7 @@ fn inspect_network(spec: &SandboxSpec) -> Result<String, String> {
                     .run(&exec_arguments(
                         &id,
                         &["sh", "-c", "cat /proc/net/route 2>&1"],
-                        None,
+                        &ProbeContext::default(),
                     ))
                     .map(|execution| execution.stdout)
                     .map_err(|error| error.to_string()),
@@ -634,7 +641,10 @@ fn claim_name(spec: &SandboxSpec, tag: &str) -> Result<String, String> {
             restricted: Some(restricted),
         },
         workload,
-    );
+    )
+    // `W5.i` : sans le `boot_id` de l'hôte, `reach_host_kernel_interfaces` n'a rien à quoi comparer
+    // et ne conclut pas. Le lui donner est ce qui la fait mesurer ce que son nom annonce.
+    .with_host_boot_id(host_boot_id());
     let claimed = match backend.create(spec) {
         Ok(id) => {
             let name = id.as_str().to_owned();

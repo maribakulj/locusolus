@@ -207,6 +207,7 @@ pub struct PodmanBackend<R: Runner> {
     created: BTreeMap<SandboxId, SandboxSpec>,
     counter: u32,
     launch_pause: Duration,
+    host_boot_id: Option<String>,
 }
 
 /// Le gabarit qui ne demande qu'une chose : la sandbox tourne-t-elle ?
@@ -234,7 +235,31 @@ impl<R: Runner> PodmanBackend<R> {
             created: BTreeMap::new(),
             counter: 0,
             launch_pause: FIRST_LAUNCH_PAUSE,
+            host_boot_id: None,
         }
+    }
+
+    /// Dire au backend quel est le `boot_id` de l'hôte.
+    ///
+    /// # Pourquoi ce n'est pas lu à la construction
+    ///
+    /// [`PodmanBackend::new`] est `const fn`, et le rester est une garantie : construire un backend
+    /// ne touche pas le système. Un constructeur qui lirait `/proc` en passant ferait dépendre la
+    /// construction d'un hôte, donc rendrait tout test de construction sensible à la machine — ce
+    /// que ce dépôt refuse (« aucune dépendance implicite à une machine de développeur »).
+    ///
+    /// La lecture est donc explicite, par [`host_boot_id`], et son absence est un fait que la sonde
+    /// sait dire : sans `boot_id` d'hôte, `reach_host_kernel_interfaces` ne conclut pas.
+    #[must_use]
+    pub fn with_host_boot_id(mut self, boot_id: Option<String>) -> Self {
+        self.host_boot_id = boot_id;
+        self
+    }
+
+    /// Le `boot_id` de l'hôte, quand il a été fourni.
+    #[must_use]
+    pub fn host_boot_id(&self) -> Option<&str> {
+        self.host_boot_id.as_deref()
     }
 
     /// Changer la pause entre deux tentatives de lancement d'une sonde.
@@ -453,4 +478,41 @@ fn evidence(observed: &BTreeMap<String, String>) -> Vec<String> {
         .iter()
         .map(|(key, value)| format!("{key}={value}"))
         .collect()
+}
+
+/// Lire le `boot_id` du noyau qui tourne ici.
+///
+/// # Ce qu'il vaut comme discriminant
+///
+/// Un UUID que le noyau régénère à chaque démarrage. Un conteneur **partage** celui de son hôte,
+/// parce qu'il partage son noyau ; une micro-VM démarre le sien. C'est ce qui permet à
+/// `reach_host_kernel_interfaces` de constater ce que `S4` promet — un autre noyau — plutôt que de
+/// constater qu'une lecture est refusée, ce qui ne distingue pas les deux.
+///
+/// `None` quand le fichier n'est pas lisible : un hôte non-Linux, un `/proc` absent. L'absence n'est
+/// pas un échec du backend, c'est un fait que la sonde saura dire — elle ne conclura pas.
+#[must_use]
+pub fn host_boot_id() -> Option<String> {
+    boot_id_from(&std::fs::read_to_string(BOOT_ID_PATH).ok()?)
+}
+
+/// Le fichier où le noyau publie l'identité de son démarrage.
+pub const BOOT_ID_PATH: &str = "/proc/sys/kernel/random/boot_id";
+
+/// Ce qu'un contenu de fichier vaut comme `boot_id`.
+///
+/// # Pourquoi c'est une fonction à part
+///
+/// [`host_boot_id`] lit un fichier, et sur toute machine où les tests tournent ce fichier existe et
+/// n'est pas vide : la branche « ce que j'ai lu ne vaut rien » n'était traversée par aucun test. La
+/// mutation l'a montrée en supprimant le filtre sans que rien ne morde. Séparer la **décision** de
+/// la **lecture** la rend vérifiable sans dépendre de ce que la machine contient.
+///
+/// Un fichier vide, ou qui ne contient que de l'espace, ne rend pas un `boot_id` vide : il ne rend
+/// **rien**. Annoncer une chaîne vide à la sonde lui ferait comparer son `boot_id` à rien, donc
+/// conclure « un autre noyau » — une ignorance lue comme une isolation.
+#[must_use]
+pub fn boot_id_from(read: &str) -> Option<String> {
+    let trimmed = read.trim();
+    (!trimmed.is_empty()).then(|| trimmed.to_owned())
 }

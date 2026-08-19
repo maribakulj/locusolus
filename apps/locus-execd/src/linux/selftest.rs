@@ -90,10 +90,7 @@ pub const PROBE_COMMANDS: [(&str, &[&str]); 16] = [
     ("exceed_disk_quota", &["sh", "-c", DISK_QUOTA]),
     ("open_outbound_connection", &["sh", "-c", EGRESS]),
     ("reach_cloud_metadata_service", &["sh", "-c", METADATA]),
-    (
-        "reach_host_kernel_interfaces",
-        &["sh", "-c", "head -c 1 /sys/kernel/vmcoreinfo"],
-    ),
+    ("reach_host_kernel_interfaces", &["sh", "-c", HOST_KERNEL]),
 ];
 
 /// Les codes de sortie qui disent « je n'ai pas pu lancer », et ce qu'ils disent.
@@ -359,6 +356,51 @@ const PID_QUOTA: &str = concat!(
 /// Elle nettoie sur le chemin où elle a écrit : un fichier laissé derrière elle réduirait l'espace
 /// pour la suite, ce que `W5.r` a rendu impossible entre sandboxes mais pas à l'intérieur de
 /// l'espace de travail, qui reste celui de la mission.
+/// **Le noyau atteint est-il celui de l'hôte ?**
+///
+/// # Ce que la version précédente mesurait
+///
+/// `head -c 1 /sys/kernel/vmcoreinfo` — un fichier réservé à root. Elle échouait donc sur tout hôte,
+/// à tout niveau, et pour une raison qui ne dit rien du noyau : « je n'ai pas le droit de lire » ne
+/// distingue pas un conteneur d'une micro-VM. Sur le runner réel, elle était la **seule** des seize
+/// à ressortir en sur-confinement.
+///
+/// # Les trois sorties
+///
+/// - **Rien à quoi comparer** — le harnais n'a pas su lire le `boot_id` de l'hôte, ou la sandbox ne
+///   sait pas lire le sien : [`INCONCLUSIVE_EXIT_CODE`]. Ne pas savoir comparer n'est pas avoir
+///   comparé, et le rendre comme un blocage ferait d'une ignorance une preuve d'isolation.
+/// - **Le même `boot_id`** : le noyau atteint **est** celui de l'hôte. La sonde réussit — ce que
+///   `S2` et `S3` promettent, et ce que `S4` interdit.
+/// - **Un autre `boot_id`** : un autre noyau. La sonde est contenue.
+const HOST_KERNEL: &str = concat!(
+    "attendu=\"${LOCUS_HOST_BOOT_ID:-}\"; [ -n \"$attendu\" ] || exit 120; ",
+    "s=\"${LOCUS_BOOT_ID_PATH:-/proc/sys/kernel/random/boot_id}\"; ",
+    // Le résultat de la lecture, et non `[ -r ]` : un fichier lisible mais vide donne la même
+    // ignorance qu'un fichier absent, et la comparaison d'une chaîne vide rendrait « un autre
+    // noyau » — une ignorance lue comme une isolation.
+    "notre=$(cat \"$s\" 2>/dev/null); [ -n \"$notre\" ] || exit 120; ",
+    "[ \"$notre\" = \"$attendu\" ]",
+);
+
+/// La variable qui **déplace** le fichier où la sonde lit son propre `boot_id`.
+///
+/// # Pourquoi elle existe, et ce qu'elle n'ouvre pas
+///
+/// Le chemin réel est toujours lisible sur les machines où les tests tournent, donc la branche « je
+/// n'ai pas pu lire le mien » n'était traversée par aucun test. La mutation l'a montrée en la
+/// supprimant sans que rien ne morde : un `boot_id` illisible se comparait alors à une chaîne vide
+/// et ressortait « un autre noyau », c'est-à-dire **contenue**. Une ignorance lue comme une
+/// isolation — la faute exacte que `W5.i` répare, reproduite un cran plus loin.
+///
+/// C'est le précédent de `SystemRunner::with_program` : le seul chemin qu'aucun test ne traverse est
+/// celui où une faute peut vivre indéfiniment.
+///
+/// Elle n'ouvre rien : le harnais ne la pose **jamais**, et le défaut est le chemin réel. Une
+/// sandbox qui se la poserait à elle-même ne tromperait qu'elle — la sonde compare à un `boot_id`
+/// que le **dehors** a annoncé, et c'est cette annonce, pas la lecture, qui fait la mesure.
+pub const BOOT_ID_PATH_VARIABLE: &str = "LOCUS_BOOT_ID_PATH";
+
 const DISK_QUOTA: &str = concat!(
     "target=\"${LOCUS_QUOTA_TARGET:-}\"; [ -n \"$target\" ] || exit 0; ",
     "bytes=\"${LOCUS_QUOTA_BYTES:-0}\"; [ \"$bytes\" -gt 0 ] || exit 0; ",
@@ -494,19 +536,56 @@ pub const QUOTA_BYTES_VARIABLE: &str = "LOCUS_QUOTA_BYTES";
 /// et assez peu pour que le prix de l'épreuve reste celui d'un fichier temporaire.
 pub const QUOTA_OVERSHOOT_MIB: u64 = 64;
 
-/// Les arguments de `podman exec` qui tentent cette sonde.
+/// La variable qui porte à la sonde **l'identité du noyau de l'hôte**.
 ///
-/// `quota` porte **ensemble** le chemin où la borne mord et sa taille, parce qu'aucun des deux n'a
-/// de sens sans l'autre : un chemin sans taille ferait écrire un nombre arbitraire, une taille sans
-/// chemin ne dirait pas où. `None` quand la mission n'a rien réservé.
+/// # Ce que `S4` promet, et ce qu'une lecture refusée ne dit pas
+///
+/// `S4 microvm-high-risk` promet un **autre noyau**. La sonde qui l'éprouve doit donc constater que
+/// le noyau atteint n'est pas celui de l'hôte — ce qui est une autre mesure que « je n'ai pas le
+/// droit de lire ». Sa rédaction précédente lisait `/sys/kernel/vmcoreinfo`, réservé à root : elle
+/// échouait sur **tout** hôte, à **tout** niveau, et pour une raison qui ne dit rien du noyau. Sur
+/// le runner réel elle ressortait « sur-confinement », seule dissidente des seize.
+///
+/// Le discriminant retenu est `boot_id` — un UUID que le noyau régénère à chaque démarrage. Un
+/// conteneur **partage** celui de l'hôte, parce qu'il partage son noyau ; une micro-VM démarre le
+/// sien. La version du noyau ne discrimine pas : une micro-VM peut faire tourner la même.
+///
+/// La sonde ne peut pas connaître seule le `boot_id` de l'hôte — elle est dedans. Le harnais le lui
+/// dit, comme il lui dit où le quota mord. Sans lui, la sonde **ne conclut pas** : elle rend
+/// [`INCONCLUSIVE_EXIT_CODE`], parce que ne pas savoir comparer n'est pas avoir comparé.
+pub const HOST_BOOT_ID_VARIABLE: &str = "LOCUS_HOST_BOOT_ID";
+
+/// Ce que la sandbox doit s'entendre dire pour que les sondes mesurent ce qu'elles annoncent.
+///
+/// # Pourquoi un type plutôt qu'un paramètre de plus
+///
+/// Deux sondes ont désormais besoin d'un fait que la sandbox ne peut pas se procurer seule : où le
+/// quota mord (`W5.j`), et quel est le noyau de l'hôte (`W5.i`). Chacune a d'abord été ajoutée
+/// comme un argument, et la signature a grandi deux fois. Le type arrête la croissance et nomme la
+/// chose : ce n'est pas « des options », c'est **ce que le dehors doit dire au dedans**.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ProbeContext {
+    /// Où la borne disque mord, et de combien. Aucun des deux n'a de sens sans l'autre : un chemin
+    /// sans taille ferait écrire un nombre arbitraire, une taille sans chemin ne dirait pas où.
+    pub quota: Option<(String, u64)>,
+    /// Le `boot_id` de l'hôte, quand le harnais a su le lire.
+    pub host_boot_id: Option<String>,
+}
+
+/// Les arguments de `podman exec` qui tentent cette sonde.
 #[must_use]
-pub fn exec_arguments(id: &SandboxId, command: &[&str], quota: Option<(&str, u64)>) -> Vec<String> {
+pub fn exec_arguments(id: &SandboxId, command: &[&str], context: &ProbeContext) -> Vec<String> {
     let mut arguments = vec!["exec".to_owned()];
-    if let Some((path, bytes)) = quota {
+    let mut declare = |name: &str, value: &str| {
         arguments.push("--env".to_owned());
-        arguments.push(format!("{QUOTA_TARGET_VARIABLE}={path}"));
-        arguments.push("--env".to_owned());
-        arguments.push(format!("{QUOTA_BYTES_VARIABLE}={bytes}"));
+        arguments.push(format!("{name}={value}"));
+    };
+    if let Some((path, bytes)) = &context.quota {
+        declare(QUOTA_TARGET_VARIABLE, path);
+        declare(QUOTA_BYTES_VARIABLE, &bytes.to_string());
+    }
+    if let Some(boot_id) = &context.host_boot_id {
+        declare(HOST_BOOT_ID_VARIABLE, boot_id);
     }
     arguments.push(id.as_str().to_owned());
     arguments.extend(command.iter().map(|part| (*part).to_owned()));
@@ -690,20 +769,35 @@ fn run_alone<R: Runner>(
     // La cible du quota vient du **plan**, pas de la mission : c'est le plan qui sait qu'à partir
     // de `S2` la racine est en lecture seule, donc que le quota ne mord pas là où la mission l'a
     // écrit.
-    let planned = super::plan::plan(spec).ok();
-    let quota = planned
-        .as_ref()
-        .and_then(|confinement| match confinement.quota_target() {
-            super::plan::QuotaTarget::None => None,
-            // La racine inscriptible n'a pas de chemin à nommer : la sonde y écrit depuis `/`.
-            super::plan::QuotaTarget::WritableRoot => Some(("/", confinement.disk_bytes())),
-            super::plan::QuotaTarget::Workspace { target } => {
-                Some((target.as_str(), confinement.disk_bytes()))
-            }
-        });
-    let trial = attempt(backend, &id, name, quota);
+    let context = probe_context(backend, spec);
+    let trial = attempt(backend, &id, name, &context);
     teardown(backend, &id);
     trial
+}
+
+/// Ce que le dehors doit dire au dedans, pour cette mission sur cet hôte.
+///
+/// La cible du quota vient du **plan**, pas de la mission : c'est le plan qui sait qu'à partir de
+/// `S2` la racine est en lecture seule, donc que le quota ne mord pas là où la mission l'a écrit.
+/// Le `boot_id` vient du **backend**, qui l'a reçu de l'hôte — ou ne l'a pas reçu, et la sonde le
+/// dira.
+fn probe_context<R: Runner>(
+    backend: &PodmanBackend<R>,
+    spec: &locus_execution::SandboxSpec,
+) -> ProbeContext {
+    let quota = super::plan::plan(spec).ok().and_then(|confinement| {
+        let bytes = confinement.disk_bytes();
+        match confinement.quota_target() {
+            super::plan::QuotaTarget::None => None,
+            // La racine inscriptible n'a pas de chemin à nommer : la sonde y écrit depuis `/`.
+            super::plan::QuotaTarget::WritableRoot => Some(("/".to_owned(), bytes)),
+            super::plan::QuotaTarget::Workspace { target } => Some((target.clone(), bytes)),
+        }
+    });
+    ProbeContext {
+        quota,
+        host_boot_id: backend.host_boot_id().map(str::to_owned),
+    }
 }
 
 /// Les verdicts seuls, sous la forme que [`locus_execution::standing`] attend.
@@ -723,12 +817,12 @@ fn attempt<R: Runner>(
     backend: &PodmanBackend<R>,
     id: &SandboxId,
     name: &'static str,
-    quota: Option<(&str, u64)>,
+    context: &ProbeContext,
 ) -> Trial {
     let Some(command) = probe_command(name) else {
         return Trial::not_run(name, "aucune commande n'est associée à cette sonde");
     };
-    let arguments = exec_arguments(id, command, quota);
+    let arguments = exec_arguments(id, command, context);
     let mut pause = backend.launch_pause();
     for remaining in (0..LAUNCH_ATTEMPTS).rev() {
         match backend.runner().run(&arguments) {
