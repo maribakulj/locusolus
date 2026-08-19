@@ -8831,3 +8831,79 @@ l'item, mais `apps/locusd` ne pouvait pas faire son aller-retour sans.
 **Prochain item.** `W20.b` — le handler transactionnel comme port, et la règle « toute mutation
 passe par un command handler transactionnel » rendue opposable. Sa dépendance est `W20.a`,
 satisfaite par cette entrée : un handler reçoit une enveloppe, et l'enveloppe existe maintenant.
+
+## 2026-08-19 — W20.b — le handler transactionnel comme port, et une règle qui cesse d'être une exhortation
+
+**Périmètre.** `apps/locusd/src/{handler,transaction}.rs` (neufs), `src/lib.rs`, `Cargo.toml`
+(`locus-event-store` entre), `apps/locusd/tests/transaction.rs` (neuf). Aucun débordement.
+
+**Tests exécutés.** `cargo test -p locusd` — 26 tests verts (14 de `W20.a`, 11 du test de sortie de
+`W20.b`, 1 doctest). `cargo clippy -p locusd --all-targets` — sans avertissement, `-D warnings`
+étant la règle de la CI. `npm run check` — les onze portes, code de sortie 0.
+
+Mutation testing, douze mutants : **11 tués, 1 survivant documenté** (voir plus bas).
+
+**Décisions prises.**
+
+- **La règle tient par la signature, pas par la discipline.** `CLAUDE.md` dit « toute mutation passe
+  par un command handler transactionnel ». Une règle écrite se contourne par distraction ; celle-ci
+  est portée par `Decide::decide`, qui reçoit l'état et rend des brouillons d'événements et ne
+  reçoit **jamais** le journal. Un décideur n'a rien en main qui sache écrire — non parce qu'on le
+  lui interdit, mais parce qu'on ne le lui donne pas. Écrire depuis un décideur demanderait de s'y
+  procurer un journal soi-même, ce qui est un autre geste, visible dans le diff.
+- **Deux vérifications, parce qu'elles n'attrapent pas la même chose.** Le type couvre les
+  décideurs. Il ne couvre pas un module de `locusd` qui se procurerait un journal sans être un
+  décideur du tout ; c'est ce que le test par l'absence couvre, en lisant les sources. Et un second
+  test compte les `store.append(` de `transaction.rs` : il doit y en avoir **un**, parce que deux
+  écritures seraient deux occasions d'en réussir une et de rater l'autre.
+- **La frontière de la garantie est dite, pas suggérée.** `locus-event-store` est un crate public
+  dont `EventStore::append` est publique : rien n'empêche un **autre** crate d'écrire. Ce que
+  `W20.b` rend opposable est la règle _dans `locusd`_, et c'est là qu'elle compte, puisque c'est
+  `locusd` qui détient l'autorité transactionnelle (§4.1). Prétendre à davantage aurait été une
+  promesse invérifiable.
+- **Deux idempotences, qui ne se remplacent pas.** Le journal en porte une, par `command_id`
+  (§10.2). §22.5 en demande une autre, sur l'`idempotency_key` **choisie par le client** — un client
+  qui retente après une coupure réémet sa clé, mais rien ne l'oblige à réémettre un `command_id`
+  qu'il n'a peut-être jamais vu. Celle du journal protège l'écriture, celle du handler protège le
+  client.
+- **La portée se dérive de l'enveloppe, elle ne se passe pas à côté.** `(workspace, principal)`, lu
+  sur la commande. La passer en paramètre séparé aurait ouvert la possibilité de la passer fausse —
+  et une portée fausse est indétectable : elle ne produit ni erreur ni conflit, seulement deux
+  commandes qui se confondent, donc un succès rendu à un client pour une commande qu'il n'a jamais
+  émise.
+- **« Atomique seulement si déclaré » est une interdiction du défaut.** §22.5 se lit comme une
+  permission. Il n'existe donc pas de constructeur de lot qui prenne un `Vec` sans dire lequel des
+  deux il est : c'est le **choix** qui est obligatoire, pas l'atomicité. Un lot atomique vise un
+  seul stream, sinon il est refusé avant d'écrire — promettre une atomicité inter-streams que le
+  journal ne peut pas tenir serait pire que la refuser.
+- **Un lot séquentiel ne rend pas de verdict pour ce qu'il n'a pas tenté.** Un vecteur de même
+  longueur que le lot, complété par des refus fabriqués, laisserait croire que les commandes
+  suivantes ont été soumises et rejetées. Elles n'ont pas été soumises.
+- **`Revision::INITIAL` veut dire « ce stream n'existe pas encore ».** Un stream naît de son premier
+  événement, et sa première révision est 1. La traduction vers `Expected` est en un seul endroit :
+  un décalage d'un rang entre le client et le journal produirait des conflits inexplicables.
+
+**Le survivant, et pourquoi il reste.** Le mutant qui change le bras `AppendError::EmptyBatch` de
+`refusal_for` survit, et c'est correct : ce bras est **inatteignable par construction**, puisque
+`write` refuse avant d'appeler `append` quand la décision est vide — il n'aurait aucun stream où
+écrire. Le mutant symétrique, celui qui supprime cette garde, est **tué** : c'est bien la garde qui
+répond, et non le journal. Le bras reste parce que le `match` sur `AppendError` est exhaustif, et
+l'exhaustivité est ce qui empêchera une variante future d'être avalée sans que personne ait dit
+comment un client doit y réagir. Un mutant équivalent sur du code défensif se consigne ; le compter
+pour un tué aurait été plus flatteur et faux.
+
+**Ce que le mutation testing a aussi corrigé.** Deux survivants du premier tour venaient d'une seule
+redondance : « le décideur n'a rien décidé » avait deux chemins — la garde de `write` et le refus du
+journal — rendant tous deux `internal`, donc indiscernables par un test qui ne lit que la famille.
+Le test lit désormais le **message**, ce qui distingue lequel a répondu. Deux mutants ont par
+ailleurs été ajoutés pour la seule raison de vérifier que les deux tests d'absence **tirent** : un
+test d'absence qui ne tire jamais est vert quoi qu'on fasse, et c'est le mode d'échec le plus
+discret qu'un tel test puisse avoir. Les deux meurent.
+
+**Écart avec la spec.** Aucun. §22.5 est tenu sur ses quatre clauses de concurrence et
+d'idempotence. Les quarante commandes de §22.3 restent non implémentées, et c'est délibéré : `W20.b`
+livre le port, chaque commande sera un `impl Decide` avec son agrégat.
+
+**Prochain item.** `W20.c` — l'ADR du transport (runtime asynchrone et cadre HTTP). C'est un item
+`[M]`, sans dépendance non satisfaite, et il **doit** précéder `W20.d`. `Cargo.toml` ne gagnera sa
+première dépendance de transport qu'après lui.

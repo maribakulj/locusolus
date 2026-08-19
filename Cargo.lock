@@ -219,6 +219,7 @@ dependencies = [
 name = "locusd"
 version = "0.0.0"
 dependencies = [
+ "locus-event-store",
  "locus-protocol",
  "serde",
  "serde_json",

@@ -28,8 +28,12 @@
 
 pub mod command;
 pub mod error;
+pub mod handler;
 pub mod outcome;
+pub mod transaction;
 
 pub use command::{CommandEnvelope, Draft};
 pub use error::{CommandError, Conflict, EmptyResourceRef, Family, ResourceRef, Revision};
+pub use handler::{Batch, Decide, IdempotencyScope, Submission};
 pub use outcome::{Accepted, Outcome};
+pub use transaction::Transaction;
