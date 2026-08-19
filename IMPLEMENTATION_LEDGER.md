@@ -7934,3 +7934,40 @@ _Un survivant qui écrivait quatre gigaoctets pour passer._ Le mutant remplaçai
 sortir » par « pas de cible → écrire à la racine », et le test, qui ne vérifiait que le code de
 sortie, le laissait vivre. Le test épingle désormais **qu'elle n'essaie pas** : `PATH` vidé, `dd`
 introuvable, et la sonde correcte n'en a pas besoin parce qu'elle sort avant.
+
+---
+
+## 2026-08-19 — W5.s — Un runtime qui ne répond pas n'a rien refusé
+
+**Périmètre.** `apps/locus-execd/src/runtime.rs` (`RuntimeError::Refused`), `src/linux/driver.rs`
+(`expect_success`), `src/linux/selftest.rs` (`Trial::refused`), et trois tests.
+
+**Le défaut, et où il était visible.** `expect_success` rendait `Unavailable` pour « le binaire est
+introuvable » comme pour « podman a répondu 125 ». Les deux tests qui l'épinglaient étaient **côte à
+côte** dans `podman.rs` — `un_hote_sans_podman_le_dit_au_lieu_de_pretendre` et
+`un_code_de_sortie_non_nul_devient_une_erreur_qui_porte_stderr` — et affirmaient la **même**
+variante pour les deux causes. Le défaut était écrit, lisible d'un coup d'œil, et il passait.
+
+Il a fallu `W5.r` pour qu'il coûte quelque chose : en faisant remonter le motif jusqu'au rapport de
+sondes, un Podman tué s'est mis à produire « la sandbox a été refusée », alors qu'il n'y avait eu
+aucun refus — seulement un silence. Le nom du motif avait dû être élargi faute de pouvoir tenir la
+distinction ; il la tient maintenant.
+
+**Décisions prises.**
+
+_Le verbe et le code voyagent séparément du texte._ `Refused { verb, code, detail }` plutôt qu'un
+message formaté. Un appelant qui veut décider — retenter, abandonner, changer d'hôte — ne devrait
+pas avoir à analyser une phrase pour retrouver un entier. C'est la leçon de `W5.m`, une couche plus
+bas : le code voyage **à côté** du verdict, jamais dedans.
+
+_`Trial::refused` choisit sur la variante, plus sur un texte._ `Unavailable` rend
+`UNREACHABLE_RUNTIME` et aucun code, parce qu'il n'y en a pas eu ; `Refused` rend `SANDBOX_REFUSED`
+et le code du runtime. `Unsupported` — le backend refuse avant de demander — reste un refus.
+
+_Le `Display` ne change pas d'un caractère._ « podman create a rendu 125 : … » est le même texte
+qu'avant, donc rien de ce qui lit le message ne bouge. Ce qui change est ce que le **type** permet
+de distinguer.
+
+**Tests exécutés.** `cargo test -p locus-execd` → 47 + 22 conformes. `npm run check` → les dix
+portes vertes. Le test de sortie est une paire, et c'est le point : sans la seconde moitié — « un
+runtime absent reste `Unavailable` » — faire rendre `Refused` à tout le monde passerait la première.

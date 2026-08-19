@@ -297,9 +297,10 @@ fn une_sonde_non_lancee_est_notrun_avec_sa_raison() {
             trial.observed(),
             Observed::NotRun {
                 reason
-            } if reason == UNREACHABLE_RUNTIME || reason == SANDBOX_REFUSED
+            } if reason == UNREACHABLE_RUNTIME
         )),
-        "un runtime disparu ne bloque pas les sondes, il empêche de les lancer : {results:?}"
+        "un runtime disparu n'a rien refusé : il n'a pas répondu, et `W5.s` sait maintenant le \
+         dire — {results:?}"
     );
     assert_eq!(
         results[0].observed(),

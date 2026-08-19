@@ -39,9 +39,34 @@ impl fmt::Display for SandboxId {
 pub enum RuntimeError {
     /// Un identifiant vide.
     EmptyId,
-    /// Le runtime n'est pas joignable.
+    /// Le runtime n'est pas joignable : il n'a **pas répondu**.
+    ///
+    /// Le binaire est introuvable, le processus n'a pas pu être lancé, l'appel a été abandonné
+    /// faute d'avoir rendu la main. Distinct de [`RuntimeError::Refused`], où il a répondu — et les
+    /// deux ne se réparent pas pareil : l'une envoie installer ou réveiller un runtime, l'autre
+    /// envoie lire ce qu'il reproche à la demande.
     Unavailable {
-        /// Ce qu'il a dit.
+        /// Ce qui a empêché d'obtenir une réponse.
+        detail: String,
+    },
+    /// Le runtime a répondu, et il a **refusé**.
+    ///
+    /// # Pourquoi cette variante a dû être séparée d'`Unavailable`
+    ///
+    /// `PodmanBackend::expect_success` rendait `Unavailable` dans les deux cas : « podman est
+    /// introuvable » et « podman a répondu 125 ». `W5.r` a rendu la confusion visible en la faisant
+    /// remonter jusqu'au rapport de sondes — un runtime tué produisait alors « la sandbox a été
+    /// refusée », alors qu'il n'y avait eu aucun refus, seulement un silence. Le nom du motif a dû
+    /// être élargi faute de pouvoir tenir la distinction ; elle se tient maintenant.
+    ///
+    /// Le verbe et le code voyagent séparément du texte : un appelant qui veut décider — retenter,
+    /// abandonner, changer d'hôte — ne devrait pas avoir à lire une phrase pour retrouver un entier.
+    Refused {
+        /// Le verbe demandé au runtime : `create`, `start`, `exec`, `stop`, `rm`.
+        verb: String,
+        /// Le code qu'il a rendu.
+        code: i32,
+        /// Ce qu'il a écrit en refusant.
         detail: String,
     },
     /// Le runtime ne sait pas offrir ce que la spécification demande.
@@ -61,6 +86,9 @@ impl fmt::Display for RuntimeError {
         match self {
             Self::EmptyId => formatter.write_str("identifiant de sandbox vide"),
             Self::Unavailable { detail } => write!(formatter, "runtime injoignable : {detail}"),
+            Self::Refused { verb, code, detail } => {
+                write!(formatter, "podman {verb} a rendu {code} : {detail}")
+            }
             Self::Unsupported { capability } => {
                 write!(formatter, "le runtime ne sait pas offrir « {capability} »")
             }

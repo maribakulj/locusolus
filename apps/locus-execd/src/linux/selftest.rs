@@ -159,16 +159,17 @@ pub const SANDBOX_GONE: &str =
 /// Les deux se réparent ailleurs — la première en cherchant ce qui a tué la sandbox, la seconde en
 /// lisant ce qui a fait échouer l'ouverture.
 ///
-/// # Ce qu'elle ne dit pas, et pourquoi elle ne le dit pas
+/// # Ce qu'elle dit, et ce qu'elle ne dit plus
 ///
-/// Elle ne dit **pas** si le runtime a refusé ou s'il était absent. Ce serait deux réparations
-/// différentes, et il faudrait donc deux noms — sauf que le driver ne sait pas encore les
-/// distinguer : `PodmanBackend::expect_success` rend `RuntimeError::Unavailable` aussi bien pour
-/// « le binaire est introuvable » que pour « podman a répondu 125 ». Inventer ici une distinction
-/// que la couche du dessous ne fait pas produirait un nom qui ment une fois sur deux.
+/// Elle couvre le cas où le runtime **a répondu** et a refusé, et celui où le backend lui-même a
+/// refusé avant de demander — un niveau hors de son plafond. Elle ne couvre **plus** le runtime
+/// absent : `W5.s` a séparé `RuntimeError::Refused` d'`Unavailable`, et une sandbox qu'aucun
+/// runtime n'a pu ouvrir faute de runtime rend [`UNREACHABLE_RUNTIME`].
 ///
-/// Ce que le rapport porte à la place est le message lui-même, en [`Trial::detail`] et mot pour
-/// mot — `W5.q` a été écrit pour cela. La séparation des deux erreurs est un item à part.
+/// La distinction a mis un sprint à devenir possible. `W5.r` l'a rendue nécessaire en faisant
+/// remonter le motif jusqu'au rapport de sondes : un Podman tué y produisait « la sandbox a été
+/// refusée », alors qu'il n'y avait eu aucun refus, seulement un silence. Le nom a d'abord été
+/// élargi faute de pouvoir tenir la distinction ; il la tient maintenant.
 ///
 /// # Ce qu'elle remplace
 ///
@@ -603,12 +604,18 @@ impl Trial {
     /// [`Trial::not_run`] reste `const fn` : il **ne peut pas** fabriquer de détail, et ce
     /// constructeur-ci est le seul qui en fabrique.
     fn refused(name: &'static str, why: &crate::runtime::RuntimeError) -> Self {
+        // `W5.s` : le motif se choisit sur la **variante**, pas sur un texte. Un runtime qui n'a pas
+        // répondu n'a rien refusé, et l'écrire « refusé » enverrait lire un reproche que personne
+        // n'a formulé. Le code, quand il y en a un, voyage à côté du verdict comme partout ailleurs.
+        let (reason, code) = match why {
+            crate::runtime::RuntimeError::Unavailable { .. } => (UNREACHABLE_RUNTIME, None),
+            crate::runtime::RuntimeError::Refused { code, .. } => (SANDBOX_REFUSED, Some(*code)),
+            _ => (SANDBOX_REFUSED, None),
+        };
         Self {
             name,
-            observed: Observed::NotRun {
-                reason: SANDBOX_REFUSED,
-            },
-            code: None,
+            observed: Observed::NotRun { reason },
+            code,
             detail: Some(why.to_string()),
         }
     }
