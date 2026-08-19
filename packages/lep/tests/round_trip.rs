@@ -187,3 +187,42 @@ fn un_document_1_0_laisse_le_champ_absent() {
         "et le reste est identique — par `equivalent`, parce que JSON ne distingue pas `4` de `4.0`"
     );
 }
+
+/// **Une dispense absente ne s'accorde pas** — W19.b, tranche 3 du mineur.
+///
+/// C'est la moitié de `un_document_1_0_laisse_le_champ_absent` appliquée à un champ dont l'enjeu
+/// est différent : un rôle absent fait choisir un agent par capacité, une **permission** absente
+/// qu'on remplirait d'un défaut ferait travailler hors ligne sur la mission la plus sensible du
+/// lot, celle dont l'auteur n'a jamais imaginé qu'on le lui demanderait. `Option<bool>` distingue
+/// les trois états qu'un `bool` confondrait : absente, refusée, accordée.
+#[test]
+fn une_permission_hors_ligne_absente_ne_s_accorde_pas() {
+    let document = body("mission-envelope-nominal.json");
+    assert!(document.get("offline_allowed").is_none(), "un document 1.0");
+
+    let mission: MissionEnvelope = serde_json::from_value(document).expect("document 1.0");
+    assert_eq!(mission.offline_allowed, None, "absente, pas `false`");
+    assert_eq!(mission.offline_budget_ms, None);
+
+    let reencode = serde_json::to_value(&mission).expect("ré-encodage");
+    assert!(
+        reencode.get("offline_allowed").is_none(),
+        "et elle ne revient pas en null, ce qu'un lecteur 1.0 verrait comme un champ inconnu"
+    );
+}
+
+/// Refusée explicitement n'est pas absente, et le fil garde les deux.
+#[test]
+fn une_permission_refusee_voyage_comme_telle() {
+    let mut document = body("mission-envelope-nominal.json");
+    document
+        .as_object_mut()
+        .expect("un objet")
+        .insert("offline_allowed".to_owned(), Value::Bool(false));
+
+    let mission: MissionEnvelope = serde_json::from_value(document).expect("document 1.1");
+    assert_eq!(mission.offline_allowed, Some(false));
+
+    let reencode = serde_json::to_value(&mission).expect("ré-encodage");
+    assert_eq!(reencode["offline_allowed"], Value::Bool(false));
+}

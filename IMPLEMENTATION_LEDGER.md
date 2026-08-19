@@ -8700,3 +8700,68 @@ relancer, pas d'élargir la borne jusqu'à ce qu'elle ne borne plus.
 
 **Prochain item.** `W19.b` — la permission de fonctionnement hors ligne, activable et désactivable
 (`SPEC_V1.md` §1.2, dernier invariant). Tranche 3 du mineur, et la dernière que W19 porte.
+
+---
+
+## 2026-08-19 — W19.b `[M]` — La permission de fonctionnement hors ligne
+
+**Périmètre.** `schemas/lep/1.0/mission-envelope.schema.json` (`offline_allowed` et
+`offline_budget_ms`, `x-since: "1.1"`), `packages/lep/src/generated.{rs,ts}` (régénérés),
+`packages/lep/tests/round_trip.rs` (2 tests), `tests/schemas/lep.test.ts` (4 tests),
+`docs/10_V1_ROADMAP.md`, ce fichier. Le lecteur vit dans `canterel` et **existait déjà** : voir
+ci-dessous.
+
+**L'ADR décrivait un état du code qui a bougé.** ADR 0017 §5.3 dit « Lecteur : à écrire. C'est celui
+des quatre dont le consommateur est le moins avancé », et en tire que le sprint doit commencer par
+lui. Or `W2.16` a livré `offlineVerdict` depuis : il est écrit, testé, **deny-by-default**, et son
+commentaire nomme précisément le manque — « le schéma épinglé `lep/1.0` ne porte aucun champ de
+permission offline […] l'écart est écrit au ledger plutôt que comblé par un champ inventé côté
+worker ». C'est la troisième fois de la journée qu'un document maître décrit un code qui a avancé
+depuis : `W18.a`, les six motifs de `W19.a`, et celui-ci. La leçon est la même à chaque fois —
+**instruire avant de croire**, et l'ordre des pas se déduit de l'état, pas du texte.
+
+Conséquence pratique : ce sprint pose le champ, et le brancher sur `offlineVerdict` est un pas
+`canterel` qui suit — il n'y avait aucune raison de faire l'inverse, la contrainte de la décision 2
+étant déjà satisfaite.
+
+**Deux champs distincts de `sandbox.network_mode`, et le schéma rend l'indépendance observable.**
+`network_mode: deny` est une **contrainte** qui retire le réseau au worker ; la permission est une
+**dispense** qui l'autorise à ne pas échouer quand le réseau manque. Un test parcourt les **quatre**
+combinaisons et les accepte toutes : si le schéma en interdisait une, il aurait choisi une
+dérivation. `deny` sans dispense décrit une mission qui n'a jamais eu de réseau à perdre ; `full`
+sans dispense décrit une mission qui **doit** échouer si le réseau tombe. Les deux existent, et les
+confondre ferait disparaître la seconde — c'est la séparation qu'ADR 0004 tient partout ailleurs.
+
+**Absente n'est pas refusée, et refusée n'est pas absente.** `Option<bool>` porte les trois états
+qu'un `bool` confondrait. Un défaut à `false` serait presque juste et complètement faux : il dirait
+qu'un émetteur ancien a **refusé** la dispense, alors qu'il n'en a jamais parlé. Et un défaut à
+`true` — « accordée parce que le pair est ancien » — ferait travailler hors ligne sur la mission la
+plus sensible du lot, celle dont l'auteur n'a jamais imaginé qu'on le lui demanderait.
+
+**Un budget n'est pas une permission**, et `exclusiveMinimum: 0` le tient : un budget nul dirait «
+autorisé pendant zéro milliseconde », c'est-à-dire refusé — une seconde façon d'écrire un refus, qui
+se lirait comme une permission.
+
+**Tests exécutés.** `node --test tests/schemas/lep.test.ts` — 42, dont 4 neufs.
+`cargo test -p locus-lep` — 10, dont 2 neufs. `npm run check` — onze portes vertes. Mutation testing
+: **4 mutants, 4 tués**.
+
+**Deux défauts du harnais de mutation, corrigés en le rendant utilisable.** Un mutant qui ajoutait
+`"type": "string"` **avant** `"type": "integer"` produisait une clé JSON dupliquée : le dernier
+gagne, le mutant était inerte et se comptait « survivant ». Et le drapeau de régénération devait
+être **faux dans les deux cas**, pour deux raisons opposées : un mutant purement schéma ne doit pas
+régénérer, sinon le SDK change, le test Rust cesse de compiler et le **compilateur** répond à la
+place des tests ; un mutant du SDK ne doit pas régénérer non plus, sinon la régénération **écrase**
+la mutation et le mutant survit sans avoir jamais existé. Les deux sont arrivés dans ce sprint.
+
+**Plan de rollback `[M]`.** Deux champs optionnels ajoutés à un document existant. Les retirer ne
+change aucun document `1.0` — ils ne les portaient pas — et le lecteur est deny-by-default, donc
+leur disparition ramène exactement le comportement d'avant. C'est la propriété qu'un mineur promet,
+et elle est ici littérale.
+
+**Écart avec la spec.** Aucun. `SPEC_V1.md` §1.2 pose l'invariant, §24.3 décrit le verdict, et les
+deux se rencontrent maintenant sur le fil.
+
+**Prochain item.** Brancher `offlineVerdict` sur le champ, dans `canterel`, puis re-vendorer le SDK
+épinglé. Ensuite `W20.a` — le `CommandEnvelope` de §22.2 et les huit familles d'erreurs typées de
+§22.5, sans transport : le premier item d'un `apps/locusd` encore vide.

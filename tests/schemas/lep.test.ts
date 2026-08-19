@@ -673,3 +673,69 @@ test("aucune énumération d'un schéma ancien ne porte un code de refus", () =>
     }
   }
 });
+
+//
+// W19.b — la permission de fonctionnement hors ligne, tranche 3 du mineur `lep/1.1`.
+//
+
+/**
+ * **La permission et le mode réseau sont indépendants, et le schéma le rend observable.**
+ *
+ * Les quatre combinaisons sont valides, et c'est le sens de « aucune fonction ne dérive l'une de
+ * l'autre » : si le schéma en interdisait une, il aurait choisi une dérivation. `deny` sans
+ * dispense décrit une mission qui n'a jamais eu de réseau à perdre ; `full` sans dispense décrit
+ * une mission qui doit échouer si le réseau tombe. Les deux existent, et confondre le confinement
+ * avec l'autorisation ferait disparaître la seconde.
+ */
+test("la permission hors ligne et le mode réseau ne se contraignent pas", () => {
+  for (const network of ["deny", "full"]) {
+    for (const offline of [true, false]) {
+      const envelope = mission();
+      (envelope["sandbox"] as Record<string, unknown>)["network"] = network;
+      envelope["offline_allowed"] = offline;
+      assert.equal(accepts(MISSION, envelope), true, `${network} / ${offline}`);
+    }
+  }
+});
+
+test("un budget hors ligne est un entier de millisecondes, strictement positif", () => {
+  // Un budget nul ou négatif dirait « autorisé pendant zéro milliseconde », c'est-à-dire refusé —
+  // une seconde façon d'écrire un refus, qui se lirait comme une permission.
+  const envelope = mission();
+  envelope["offline_allowed"] = true;
+  for (const budget of [1, 60_000]) {
+    assert.equal(accepts(MISSION, { ...envelope, offline_budget_ms: budget }), true, `${budget}`);
+  }
+  for (const budget of [0, -1, 1.5, "60000"]) {
+    assert.equal(
+      accepts(MISSION, { ...envelope, offline_budget_ms: budget }),
+      false,
+      String(budget),
+    );
+  }
+});
+
+test("la permission est un booléen, et rien d'autre", () => {
+  // « oui », « 1 », « true » : trois écritures qu'un émetteur pourrait croire équivalentes, et que
+  // le lecteur devrait alors interpréter. Une permission qui se lit de plusieurs façons est une
+  // permission qu'on finit par accorder par erreur.
+  for (const valeur of ["true", "oui", 1, null, {}]) {
+    assert.equal(
+      accepts(MISSION, { ...mission(), offline_allowed: valeur }),
+      false,
+      JSON.stringify(valeur),
+    );
+  }
+  for (const valeur of [true, false]) {
+    assert.equal(accepts(MISSION, { ...mission(), offline_allowed: valeur }), true, String(valeur));
+  }
+});
+
+test("un document sans permission reste valide, et la permission reste absente", () => {
+  // « Absente » et « refusée explicitement » sont deux faits différents pour un lecteur ; ce que le
+  // schéma garantit est qu'un document `1.0` n'a pas à la porter. Ce que l'absence *vaut* est la
+  // décision du lecteur, et `offlineVerdict` la prend deny-by-default.
+  const ancien = mission();
+  assert.equal(accepts(MISSION, ancien), true);
+  assert.equal("offline_allowed" in ancien, false);
+});

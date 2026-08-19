@@ -668,6 +668,12 @@ pub struct MissionEnvelope {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     /// Le rôle de l'instance d'agent, au sens de `SPEC_V1.md` §7.1 (`AgentTemplate.role`) et §20 (`- role: logical-reviewer`). Optionnel : un document `1.0` le laisse absent, et absent ne se remplit pas d'un défaut. Chaîne libre et non énumération, parce qu'un mineur ajoute des champs et jamais des valeurs (ADR 0017, interdit 3) — un rôle nouveau dans une énumération fermée ferait échouer la désérialisation chez tout consommateur `1.0`. Ne prend jamais le pas sur `review_policy` : l'invariant 11 décide avant le rôle.
     pub role: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    /// La permission de poursuivre **hors ligne** — `SPEC_V1.md` §1.2 (dernier invariant) et §24.3. Distincte de `sandbox.network_mode`, et les deux ne se dérivent jamais l'une de l'autre : `network_mode: deny` est une **contrainte** imposée au worker, qui lui retire le réseau ; cette permission est une **dispense**, qui l'autorise à ne pas échouer quand le réseau manque. Une mission peut exiger `full` et n'avoir aucune dispense — elle échoue si le réseau tombe ; une autre peut être en `deny` sans dispense — elle n'a jamais eu de réseau à perdre. Les confondre ferait d'un confinement une autorisation, ce qu'ADR 0004 sépare partout ailleurs. Absente, elle ne s'accorde pas : un document `1.0` ne demande pas cette dispense, il n'en parle pas.
+    pub offline_allowed: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    /// Le plafond de travail hors ligne, en millisecondes. Sans effet sans `offline_allowed` : un budget n'est pas une permission. Le lecteur retient de toute façon le plus contraignant de ce budget et du lease restant — un budget plus long que le lease donnerait le droit de travailler après la fin du droit de travailler.
+    pub offline_budget_ms: Option<i64>,
     /// Ce que l'attempt doit rendre. `epistemic-commit/1` n'a aucune autorité de validation avant traitement par Locus Solus (§15.7).
     pub output_contract: String,
     #[serde(skip_serializing_if = "Option::is_none", default)]
