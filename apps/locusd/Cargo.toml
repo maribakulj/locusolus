@@ -32,6 +32,9 @@ tokio = { version = "1", features = ["rt-multi-thread", "net", "macros"] }
 # la règle « toute mutation passe par un command handler » opposable plutôt que recommandée. Ce
 # n'est pas une dépendance de transport — le port est pur, et `CLAUDE.md` demande précisément qu'il
 # le soit avant tout runtime.
+# W17.f : les six capacités de branche vivent déjà dans ces deux crates ; `locusd` les expose.
+locus-coordination = { path = "../../packages/coordination" }
+locus-domain = { path = "../../packages/domain" }
 locus-event-store = { path = "../../packages/event-store" }
 # W20.d : le composition root câble les projections de §9.5 et le moteur de politique de §20.2.
 # Aucune des deux n'est une dépendance de transport — elles sont le domaine que `locusd` assemble.
@@ -39,6 +42,9 @@ locus-policy = { path = "../../packages/policy" }
 locus-projections = { path = "../../packages/projections" }
 locus-protocol = { path = "../../packages/protocol" }
 serde = { workspace = true }
+# W17.f : la charge d'un `EventDraft` est une `serde_json::Value`, donc le crate passe de
+# dev-dependency à dépendance. Déjà autorisé par `dependencies.json`, portée `*`, ADR 0011.
+serde_json = { workspace = true }
 
 [dev-dependencies]
 # Le test de sortie de W20.g ouvre un vrai socket et écrit une requête HTTP à la main : la feature

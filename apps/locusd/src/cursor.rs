@@ -46,6 +46,12 @@ pub enum Collection {
     /// celles du fil — et un cursor qui aurait silencieusement fonctionné des deux côtés se mettrait
     /// à sauter des événements sans que rien ne le dise.
     Events,
+    /// L'histoire d'un stream — §W17.f, la navigation dans le temps.
+    ///
+    /// Indexée par la **révision de stream**, et non par la position globale : deux streams ont tous
+    /// deux une révision 1, et c'est ce qui rend cette collection distincte de `Timeline`. Un cursor
+    /// d'histoire lu comme une timeline désignerait un tout autre événement.
+    History,
 }
 
 impl Collection {
@@ -57,6 +63,7 @@ impl Collection {
             Self::Workers => "workers",
             Self::Conflicts => "conflicts",
             Self::Events => "events",
+            Self::History => "history",
         }
     }
 

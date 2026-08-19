@@ -9311,3 +9311,75 @@ ne produit pas de travail en double, il produit un **arrêt**.
 **Prochain item.** `W17.f`, que cet item vient de débloquer et de doter d'un test de sortie : les
 six capacités de branche — diff, preview, ombre, approbation, rollback, navigation dans le temps —
 joignables depuis `apps/locusd`. La frontière le nomme désormais, et c'est le garde qui le dit.
+
+## 2026-08-19 — W17.f — les six capacités de branche, et une lacune nommée plutôt que comblée
+
+**Périmètre.** `apps/locusd/src/branch.rs` (neuf), `src/cursor.rs` (`Collection::History`),
+`src/lib.rs`, `Cargo.toml` (`locus-coordination`, `locus-domain`, `serde_json` passe de dev-dep à
+dépendance), `apps/locusd/tests/branch.rs` (neuf).
+
+**Tests exécutés.** `cargo test -p locusd` — 7 tests neufs, 76 au total dans le crate.
+`cargo clippy --all-targets --all-features -- -D warnings` — propre. `check:deps` et
+`check:boundaries` — verts, la règle 7 vérifiée sur 342 fichiers.
+
+Mutation testing, treize mutants : **13 tués, 0 survivant** (après correction, voir plus bas).
+
+**La ligne disait vrai, et c'est vérifié avant d'écrire.** « La logique des six est écrite, il ne
+leur manque qu'une façade » :
+
+| Capacité                 | Où elle vivait déjà                                           |
+| ------------------------ | ------------------------------------------------------------- |
+| diff                     | `locus_coordination::diff::Diff::between(from, to)`           |
+| preview                  | `locus_coordination::barrier::Barriers::admits(diff)`         |
+| ombre                    | `locus_coordination::simulation::run(…, Fidelity::Shadow, …)` |
+| approbation              | `locus_domain::branch::Branch::validate(witness)`             |
+| rollback                 | `locus_domain::branch::Branch::reopen(into)`                  |
+| navigation dans le temps | `locus_event_store` — `read_stream(stream, from)`             |
+
+Ce module ne réécrit aucune des six. Deux implémentations d'une même règle divergent le jour où
+l'une est corrigée.
+
+**Décisions prises.**
+
+- **Les six se répartissent d'elles-mêmes de part et d'autre de la frontière de `W20.g`.** Le diff,
+  la preview, l'ombre et la navigation **répondent** — elles prennent `&self`. L'approbation et le
+  rollback **décident** — ce sont des `Decide`. Ce n'est pas une commodité : c'est ce qui rend la
+  clause « l'ombre et la preview ne produisent aucun événement » vraie **par construction**, une
+  lecture n'ayant aucun chemin vers la transaction. Un test le tient quand même par le journal.
+- **Une lacune nommée plutôt que comblée.** Un décideur doit produire un `EventDraft`, qui exige un
+  `event_id` et un `project_id` ; `Branch` ne porte ni l'un ni l'autre, et **rien dans ce dépôt ne
+  fabrique d'identifiants**. En fabriquer demanderait de l'entropie, donc un crate, donc un ADR et
+  une entrée dans `dependencies.json`. Un item de façade n'est pas le lieu de cette décision :
+  `BranchContext` reçoit le contexte et documente pourquoi. C'est l'arbitrage de `W20.c` pour le
+  transport, appliqué ici.
+- **`Collection::History` est distincte de `Timeline`.** Les deux suivent un rang, mais l'une compte
+  des révisions de stream et l'autre des positions globales — et deux streams ont tous deux une
+  révision 1. Un cursor d'histoire lu comme une timeline désignerait un tout autre événement, sans
+  que rien dans la réponse ne le dise.
+- **Un refus d'approbation est une `policy`, pas une `validation`.** Le client a demandé quelque
+  chose de bien écrit ; c'est l'état de la branche qui l'interdit. Lui rendre `validation`
+  l'enverrait relire sa requête, où il ne trouverait rien.
+- **Le rollback allonge le journal.** Invariant 12 vu du bon côté : ce qui a eu lieu ne cesse pas
+  d'avoir eu lieu parce qu'on est revenu dessus. Un test compte les faits avant et après.
+
+**Les deux survivants, et le motif qu'ils forment.** Ils portaient sur le diff : inverser les deux
+bornes, et rendre chaque opération sous forme de chaîne vide. Les deux passaient parce que le test
+**comptait** les opérations sans en lire aucune — alors que la documentation de `DiffView` promet «
+le nombre d'opérations **et leur nature** : un approbateur qui lirait "47 changements" sans savoir
+lesquels n'approuverait rien, il signerait ».
+
+C'est la **quatrième fois de cette session** qu'un survivant désigne une phrase de documentation
+qu'aucun test ne tenait — après le message de conflit de `W20.a`, l'ordre canonique de `W20.e` et
+les quatre propriétés de `W20.g`. Le motif est stable et vaut d'être écrit : une phrase qui explique
+_pourquoi_ une propriété compte est une phrase qui décrit une propriété, et une propriété décrite
+sans être testée est une propriété qu'on croit tenir.
+
+**Écart avec la spec.** Aucun. Les six sont joignables sous les noms de `SPEC_V1.md`. La liaison
+**HTTP** des quatre lectures n'est pas livrée ici : `W20.g` a posé la surface, et l'y ajouter
+demanderait de décider comment un client nomme une `Version` — ce que ni §22.4 ni la ligne de
+`W17.f` ne tranchent. Le test de sortie demandait « joignables depuis `apps/locusd` », et elles le
+sont.
+
+**Prochain item.** La frontière est de nouveau vide, et cette fois les quatre lignes restantes
+portent toutes `attend:externe` — un consommateur, une messagerie, un hôte capable. `W0.16` le
+vérifie désormais : aucune ne peut se périmer sans que le garde le dise.
