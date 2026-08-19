@@ -250,6 +250,35 @@ fn une_quarantaine_empeche_de_se_dire_pret() {
 
 /// **Un assemblage qui n'a jamais rattrapé n'est pas prêt.**
 ///
+/// `all()` sur un itérateur vide rend `true` : sans la garde, un `Runtime` construit et jamais
+/// rattrapé se serait déclaré disponible **avec zéro projection câblée**. C'est le même mensonge que
+/// la quarantaine, obtenu par un chemin plus discret — et il compte double depuis `W20.g`, où
+/// `is_ready()` décide si le port s'ouvre et ce que `GET /projections/status` annonce.
+///
+/// Le défaut a été corrigé dans le code avant que ce test n'existe ; un mutant l'a signalé, et
+/// c'est lui qui a rappelé qu'une correction sans test est une correction qu'on peut défaire sans
+/// s'en apercevoir.
+#[test]
+fn un_assemblage_qui_n_a_jamais_rattrape_n_est_pas_pret() {
+    let vide = Readiness {
+        projections: Vec::new(),
+    };
+    assert!(
+        !vide.is_ready(),
+        "zéro projection câblée n'est pas une disponibilité"
+    );
+    assert!(vide.quarantined().is_empty());
+
+    // Et le runtime neuf, avant tout rattrapage, dit la même chose.
+    let neuf = Runtime::in_memory();
+    assert!(
+        !neuf.readiness().is_ready(),
+        "un assemblage qui n'a rien lu ne peut pas se dire prêt"
+    );
+}
+
+/// **Un assemblage qui n'a jamais rattrapé n'est pas prêt.**
+///
 /// `all()` sur un itérateur vide rend `true` : sans la garde, un rapport à zéro projection se serait
 /// déclaré disponible. C'est le même mensonge que la quarantaine, obtenu par un chemin plus discret
 /// — et un mutant a montré que rien ne le tenait.

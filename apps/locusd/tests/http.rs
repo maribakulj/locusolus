@@ -178,6 +178,38 @@ async fn le_fil_reprend_depuis_last_event_id() {
     assert!(reponse.contains("event: task.completed"), "{reponse}");
 }
 
+/// **L'en-tête gagne sur le paramètre**, quand les deux sont là.
+///
+/// La documentation du module l'affirme ; rien ne le vérifiait, et un mutant qui inversait la
+/// priorité survivait. L'ordre compte pour de vrai : après une reconnexion automatique, c'est
+/// `Last-Event-ID` que le protocole a mis à jour, tandis que le `?cursor=` de l'URL est celui,
+/// périmé, avec lequel le client s'était connecté la première fois. Prendre le paramètre ferait
+/// donc **rejouer** au client tout ce qu'il a déjà reçu, à chaque reconnexion.
+#[tokio::test]
+async fn l_en_tete_gagne_sur_le_parametre_quand_les_deux_sont_la() {
+    let adresse = serveur(&["task.started", "artifact.declared", "task.completed"]).await;
+
+    let reponse = demander(
+        &adresse,
+        &format!("/events?cursor={}", Cursor::issue(Collection::Events, 0)),
+        &[(
+            "Last-Event-ID",
+            Cursor::issue(Collection::Events, 2).as_str(),
+        )],
+    )
+    .await;
+
+    assert!(
+        !reponse.contains("event: task.started"),
+        "l'en-tête dit que les deux premiers sont reçus : {reponse}"
+    );
+    assert!(
+        !reponse.contains("event: artifact.declared"),
+        "l'en-tête dit que les deux premiers sont reçus : {reponse}"
+    );
+    assert!(reponse.contains("event: task.completed"), "{reponse}");
+}
+
 // ---------------------------------------------------------------------------------------------
 // 2. Les queries de §22.4 se servent par HTTP
 // ---------------------------------------------------------------------------------------------
@@ -261,6 +293,44 @@ async fn la_pagination_http_honore_la_limite_et_rend_un_cursor_de_suite() {
         !seconde.contains("task.started"),
         "la seconde page rend la suite, pas le début : {seconde}"
     );
+}
+
+/// **La limite demandée est honorée, et le cursor de suite voyage.**
+///
+/// Deux propriétés que la liaison doit transmettre et que rien ne vérifiait : un mutant qui
+/// ignorait `?limit=` survivait, et un autre qui rendait `"next": null` en permanence aussi. La
+/// seconde est la plus grave des deux — un client qui ne reçoit jamais de cursor croit avoir tout
+/// lu, et s'arrête à la première page sans que rien ne le signale.
+#[tokio::test]
+async fn la_limite_est_honoree_et_le_cursor_de_suite_voyage() {
+    let adresse = serveur(&["task.started", "artifact.declared", "task.completed"]).await;
+
+    let page = demander(&adresse, "/timeline?limit=1", &[]).await;
+    let corps = page.split("\r\n\r\n").nth(1).unwrap_or_default().to_owned();
+
+    assert!(corps.contains("task.started"), "{corps}");
+    assert!(
+        !corps.contains("artifact.declared"),
+        "« limit=1 » n'a pas été honoré : {corps}"
+    );
+    assert!(
+        !corps.contains("\"next\":null"),
+        "il reste des éléments : le cursor de suite doit voyager. {corps}"
+    );
+
+    // Et ce cursor reprend bien où la page s'est arrêtée.
+    let suite_cursor = corps
+        .split("\"next\":\"")
+        .nth(1)
+        .and_then(|reste| reste.split('"').next())
+        .expect("le corps porte un cursor de suite")
+        .to_owned();
+    let suite = demander(&adresse, &format!("/timeline?cursor={suite_cursor}"), &[]).await;
+    assert!(
+        !suite.contains("task.started"),
+        "la reprise ne répète pas : {suite}"
+    );
+    assert!(suite.contains("artifact.declared"), "{suite}");
 }
 
 // ---------------------------------------------------------------------------------------------
