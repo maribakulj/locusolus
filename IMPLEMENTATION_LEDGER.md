@@ -7538,3 +7538,45 @@ de ce que les sondes voient, la suite ne mesure pas ce qu'elle prétend.
 
 **Tests exécutés.** `cargo test -p locus-execd --test selftest` → 29 conformes, dont deux neufs.
 `npm run check` → les dix portes vertes.
+
+---
+
+## 2026-08-19 — W5.o — Une sonde ne contamine plus la suivante
+
+**Périmètre.** `apps/locus-execd/src/linux/selftest.rs` (la reprise), `src/linux/driver.rs` (la
+pause, réglable), et le test. Aucune sonde modifiée.
+
+**Ce que `W5.n` avait laissé.** Cataloguer 255 faisait passer les sondes contaminées de « fausse
+preuve » à « aveu d'ignorance ». C'était la bonne valeur, et ce n'était toujours pas une mesure :
+tant que l'ordre de `SUITE` décide de ce que les sondes voient, la suite ne mesure pas ce qu'elle
+prétend.
+
+**Décisions prises.**
+
+_Deux familles parmi les codes réservés, et elles ne se confondent pas._ 126 et 127 sont des
+propriétés de l'**image** : une sonde absente ne le sera pas moins à la deuxième tentative, et
+réessayer ne ferait que retarder l'aveu — en rendant six fois plus lente chaque campagne sur une
+image incomplète. 125 et 255 sont des échecs du **runtime au moment où il a essayé** : il n'a pas pu
+forker, il n'a pas su démarrer. Ceux-là peuvent tenir à ce que la sonde précédente était en train de
+faire, et ce sont les seuls qu'on retente. Un test tient les deux fautes symétriques : une liste
+transitoire vide désactiverait toute reprise, une qui contiendrait 127 ferait boucler pour rien.
+
+_La reprise est bornée, et le budget se lit._ `LAUNCH_ATTEMPTS` vaut six, avec des pauses qui
+doublent depuis cent millisecondes : la somme couvre à la seconde près le pire cas connu —
+`exceed_pid_quota` tenant le cgroup le temps de ses `sleep 5` si son propre nettoyage n'a pas
+tourné. Un budget plus court laisserait la contamination passer une fois sur deux, ce qui est pire
+qu'un budget nul : on croirait le problème réglé. Le coût n'est payé que lorsque quelque chose ne va
+pas — une sonde qui se lance du premier coup ne dort jamais.
+
+_Le code rapporté est celui de la tentative qui a abouti._ Pas celui des refus : ce qui intéresse le
+lecteur est ce que la sonde a mesuré, et les refus n'ont rien mesuré. Un test le tient.
+
+**La pause appartient au backend, pas à l'algorithme — et c'est le test qui l'a exigé.** Le premier
+passage a fait durer la suite **quarante-neuf secondes** : le test du refus persistant dormait le
+budget entier pour chacune des seize sondes. Contre un double, ces pauses ne mesurent rien et
+coûtent tout, puisque chaque itération y est immédiate. `PodmanBackend::with_launch_pause` les met à
+zéro dans les tests, et cela n'affaiblit pas ce qu'ils vérifient : le **nombre** de tentatives, qui
+est ce qui décide si une sonde a été mesurée. La suite est repassée à trois centièmes de seconde.
+
+**Tests exécutés.** `cargo test -p locus-execd --test selftest` → 33 conformes, dont quatre neufs.
+`npm run check` → les dix portes vertes. Mutation : sept mutants, **sept tués**, zéro survivant.

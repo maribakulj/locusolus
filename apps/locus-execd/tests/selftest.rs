@@ -9,12 +9,13 @@
 //! sans runtime obtienne la confiance faute de contre-preuve.
 
 use std::sync::Mutex;
+use std::time::Duration;
 
 use locus_execd::linux::{
-    Execution, INCONCLUSIVE_EXIT_CODE, PROBE_COMMANDS, PodmanBackend, RestrictedProfile, Runner,
-    SeccompProfiles, Trial, UNREACHABLE_RUNTIME, UNREACHABLE_TARGET_EXIT_CODE,
-    UNRUNNABLE_EXIT_CODES, Workload, assess, certify, exec_arguments, probe_command, run_suite,
-    unrunnable,
+    Execution, INCONCLUSIVE_EXIT_CODE, LAUNCH_ATTEMPTS, PROBE_COMMANDS, PodmanBackend,
+    RestrictedProfile, Runner, SeccompProfiles, TRANSIENT_EXIT_CODES, Trial, UNREACHABLE_RUNTIME,
+    UNREACHABLE_TARGET_EXIT_CODE, UNRUNNABLE_EXIT_CODES, Workload, assess, certify, exec_arguments,
+    probe_command, run_suite, unrunnable,
 };
 use locus_execd::{RuntimeError, RuntimePort, SandboxId};
 use locus_execution::{
@@ -135,8 +136,17 @@ fn mission(level: SandboxLevel) -> SandboxSpec {
     .expect("spécification valide")
 }
 
+/// Le backend des tests, **sans pause de reprise**.
+///
+/// `W5.o` fait retenter une sonde que le runtime n'a pas pu lancer, avec des pauses qui doublent et
+/// dont la somme couvre le pire cas contre un vrai runtime. Contre un double, ces pauses ne mesurent
+/// rien et coûtent tout : la suite dormait cinquante secondes pour éprouver une reprise dont chaque
+/// itération est immédiate.
+///
+/// Les mettre à zéro ici n'affaiblit pas ce que les tests vérifient — le **nombre** de tentatives —
+/// et c'est ce nombre, pas la durée, qui décide si une sonde a été mesurée.
 fn backend<R: Runner>(runner: R) -> PodmanBackend<R> {
-    PodmanBackend::new(runner, profiles(), workload())
+    PodmanBackend::new(runner, profiles(), workload()).with_launch_pause(Duration::ZERO)
 }
 
 fn started<R: Runner>(runner: R) -> (PodmanBackend<R>, SandboxId) {
@@ -865,6 +875,168 @@ impl Runner for FixedCode {
         let probing = arguments.first().is_some_and(|verb| verb == "exec");
         Ok(Execution {
             code: if probing { self.0 } else { 0 },
+            stdout: String::new(),
+            stderr: String::new(),
+        })
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// W5.o — une sonde ne contamine pas la suivante
+// ---------------------------------------------------------------------------------------------
+
+/// **Un lancement qui échoue de façon transitoire est retenté, et la mesure a lieu.**
+///
+/// `W5.n` a montré le coût de l'inverse : `exceed_pid_quota` saturait le quota de PID, `podman exec`
+/// ne pouvait plus forker pour les quatre sondes suivantes, et le harnais rapportait quatre verdicts
+/// qui n'étaient l'observation de rien. Le catalogage de 255 les a fait passer de fausse preuve à
+/// aveu d'ignorance ; il ne les a pas rendues **mesurables**.
+#[test]
+fn une_sonde_que_le_runtime_n_a_pas_pu_lancer_est_retentee() {
+    let (execd, id) = started(FlakyLaunch::new(255, 3));
+    let trials = run_suite(&execd, &id);
+    let first = trials.first().expect("la suite n'est pas vide");
+    assert_eq!(
+        first.observed(),
+        Observed::Blocked,
+        "après trois refus de lancement, la commande a fini par tourner et rendre son verdict"
+    );
+    assert_eq!(
+        first.code(),
+        Some(1),
+        "le code rapporté est celui de la tentative qui a abouti, pas celui des refus"
+    );
+}
+
+/// **Un refus qui persiste reste un aveu**, et il est borné.
+///
+/// Réessayer indéfiniment transformerait une sonde qui ne peut pas tourner en une campagne qui ne
+/// finit pas. Le budget est fixe et se lit dans `LAUNCH_ATTEMPTS`.
+#[test]
+fn un_refus_qui_persiste_reste_un_aveu_et_le_nombre_de_tentatives_est_borne() {
+    let runner = FlakyLaunch::new(255, u32::MAX);
+    let (execd, id) = started(runner);
+    let trials = run_suite(&execd, &id);
+    let first = trials.first().expect("la suite n'est pas vide");
+    assert!(
+        matches!(first.observed(), Observed::NotRun { .. }),
+        "ce qui n'a jamais été lancé n'a rien prouvé, quel que soit le nombre d'essais"
+    );
+    assert_eq!(first.code(), Some(255));
+
+    let launches = execd
+        .runner()
+        .calls
+        .lock()
+        .expect("verrou")
+        .iter()
+        .filter(|call| call.first().is_some_and(|verb| verb == "exec"))
+        .count();
+    assert_eq!(
+        launches,
+        LAUNCH_ATTEMPTS as usize * SUITE.len(),
+        "chaque sonde a droit au même budget, et à pas un essai de plus"
+    );
+}
+
+/// **Une sonde absente de l'image n'est pas retentée.**
+///
+/// 126 et 127 sont des propriétés de l'image : elle ne gagnera pas un binaire entre deux essais, et
+/// réessayer ne ferait que retarder l'aveu. C'est la distinction que `TRANSIENT_EXIT_CODES` porte,
+/// et la confondre rendrait chaque campagne sur une image incomplète six fois plus lente sans rien
+/// apprendre de plus.
+#[test]
+fn une_sonde_absente_de_l_image_n_est_pas_retentee() {
+    let (execd, id) = started(FlakyLaunch::new(127, u32::MAX));
+    let trials = run_suite(&execd, &id);
+    assert!(
+        trials
+            .iter()
+            .all(|trial| matches!(trial.observed(), Observed::NotRun { .. })),
+        "127 reste « absente de l'image »"
+    );
+
+    let launches = execd
+        .runner()
+        .calls
+        .lock()
+        .expect("verrou")
+        .iter()
+        .filter(|call| call.first().is_some_and(|verb| verb == "exec"))
+        .count();
+    assert_eq!(
+        launches,
+        SUITE.len(),
+        "une tentative par sonde : l'image ne changera pas d'ici la suivante"
+    );
+}
+
+/// Les deux familles sont disjointes, et aucune n'est vide.
+///
+/// Un `TRANSIENT_EXIT_CODES` vide désactiverait silencieusement toute reprise ; un qui contiendrait
+/// 127 ferait boucler six fois sur une image incomplète. Le test nomme les deux fautes.
+#[test]
+fn les_codes_transitoires_sont_un_sous_ensemble_strict_des_codes_reserves() {
+    let reserved: Vec<i32> = UNRUNNABLE_EXIT_CODES
+        .into_iter()
+        .map(|(code, _)| code)
+        .collect();
+    assert!(
+        !TRANSIENT_EXIT_CODES.is_empty(),
+        "aucune reprise ne serait tentée"
+    );
+    for code in TRANSIENT_EXIT_CODES {
+        assert!(
+            reserved.contains(&code),
+            "{code} serait retenté sans être lu comme « pas lancée » : la reprise masquerait un verdict"
+        );
+    }
+    for definitive in [126, 127] {
+        assert!(
+            !TRANSIENT_EXIT_CODES.contains(&definitive),
+            "{definitive} est une propriété de l'image : la retenter retarde l'aveu sans rien changer"
+        );
+    }
+}
+
+/// Un runtime qui refuse de lancer les `n` premières fois, puis bloque franchement.
+struct FlakyLaunch {
+    calls: Mutex<Vec<Vec<String>>>,
+    refusals: Mutex<u32>,
+    code: i32,
+    budget: u32,
+}
+
+impl FlakyLaunch {
+    fn new(code: i32, budget: u32) -> Self {
+        Self {
+            calls: Mutex::new(Vec::new()),
+            refusals: Mutex::new(0),
+            code,
+            budget,
+        }
+    }
+}
+
+impl Runner for FlakyLaunch {
+    fn run(&self, arguments: &[String]) -> Result<Execution, RuntimeError> {
+        self.calls.lock().expect("verrou").push(arguments.to_vec());
+        if arguments.first().is_none_or(|verb| verb != "exec") {
+            return Ok(Execution {
+                code: 0,
+                stdout: String::new(),
+                stderr: String::new(),
+            });
+        }
+        let mut refusals = self.refusals.lock().expect("verrou");
+        let code = if *refusals < self.budget {
+            *refusals += 1;
+            self.code
+        } else {
+            1
+        };
+        Ok(Execution {
+            code,
             stdout: String::new(),
             stderr: String::new(),
         })

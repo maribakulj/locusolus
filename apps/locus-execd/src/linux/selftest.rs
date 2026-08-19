@@ -37,6 +37,8 @@
 //! sur une sonde critique — les seize le sont. Un hôte sans Podman ne peut donc pas obtenir de
 //! `Trusted` par absence de contre-preuve.
 
+use std::thread;
+
 use locus_execution::{Observed, SUITE, SandboxLevel, Standing, standing};
 
 use super::driver::PodmanBackend;
@@ -128,6 +130,34 @@ pub const UNRUNNABLE_EXIT_CODES: [(i32, &str); 4] = [
         "le runtime a rendu son code d'erreur générique : la commande n'a pas été lancée",
     ),
 ];
+
+/// Les codes réservés qui peuvent **passer**, par opposition à ceux qui ne passeront pas.
+///
+/// # Deux façons de ne pas avoir été lancé
+///
+/// 126 et 127 sont des propriétés de l'**image** : une sonde absente ne le sera pas moins à la
+/// deuxième tentative, et réessayer ne ferait que retarder l'aveu. 125 et 255 sont des échecs du
+/// **runtime au moment où il a essayé** : il n'a pas pu forker, il n'a pas su démarrer la commande.
+/// Ceux-là peuvent tenir à ce que la sonde précédente était en train de faire.
+///
+/// `W5.n` a montré ce que coûte de ne pas distinguer : `exceed_pid_quota` saturait le quota de PID,
+/// et les quatre sondes suivantes ne pouvaient plus être lancées. Le catalogage de 255 les a fait
+/// passer de fausse preuve à aveu d'ignorance — c'était la bonne valeur, mais ce n'est toujours pas
+/// une mesure.
+///
+/// Séparer les deux familles est ce qui permet de réessayer là où ça a un sens, et seulement là.
+pub const TRANSIENT_EXIT_CODES: [i32; 2] = [125, 255];
+
+/// Combien de fois une sonde est retentée quand le runtime n'a pas pu la lancer.
+///
+/// Les pauses doublent, et leur somme couvre la seconde près le pire cas connu : `exceed_pid_quota`
+/// tient le cgroup le temps de ses `sleep 5` si son propre nettoyage n'a pas tourné. Un budget plus
+/// court laisserait la contamination passer une fois sur deux, ce qui est pire qu'un budget nul —
+/// on croirait le problème réglé.
+///
+/// Le coût n'est payé que lorsque quelque chose ne va pas : une sonde qui se lance du premier coup
+/// ne dort jamais.
+pub const LAUNCH_ATTEMPTS: u32 = 6;
 
 /// Le code qu'une sonde rend quand elle n'a pas pu conclure.
 ///
@@ -421,19 +451,36 @@ fn attempt<R: Runner>(backend: &PodmanBackend<R>, id: &SandboxId, name: &'static
     let Some(command) = probe_command(name) else {
         return Trial::not_run(name, "aucune commande n'est associée à cette sonde");
     };
-    match backend.runner().run(&exec_arguments(id, command)) {
-        Ok(execution) => Trial {
-            name,
-            observed: if execution.code == 0 {
-                Observed::Succeeded
-            } else {
-                unrunnable(execution.code)
-                    .map_or(Observed::Blocked, |reason| Observed::NotRun { reason })
-            },
-            code: Some(execution.code),
-        },
-        Err(_) => Trial::not_run(name, UNREACHABLE_RUNTIME),
+    let arguments = exec_arguments(id, command);
+    let mut pause = backend.launch_pause();
+    for remaining in (0..LAUNCH_ATTEMPTS).rev() {
+        match backend.runner().run(&arguments) {
+            Ok(execution) => {
+                if remaining > 0 && TRANSIENT_EXIT_CODES.contains(&execution.code) {
+                    // Le runtime n'a pas pu lancer la commande **cette fois**. Ce que la sonde
+                    // devait mesurer n'a pas encore été mesuré : rendre un verdict ici rendrait un
+                    // verdict sur l'état du runtime, pas sur le confinement.
+                    thread::sleep(pause);
+                    pause *= 2;
+                    continue;
+                }
+                return Trial {
+                    name,
+                    observed: if execution.code == 0 {
+                        Observed::Succeeded
+                    } else {
+                        unrunnable(execution.code)
+                            .map_or(Observed::Blocked, |reason| Observed::NotRun { reason })
+                    },
+                    code: Some(execution.code),
+                };
+            }
+            Err(_) => return Trial::not_run(name, UNREACHABLE_RUNTIME),
+        }
     }
+    // Inatteignable : la dernière itération rend toujours. La boucle est écrite pour que le
+    // compilateur n'ait pas à le croire sur parole.
+    Trial::not_run(name, UNREACHABLE_RUNTIME)
 }
 
 /// Ce que le backend a le droit d'annoncer à ce niveau, après passage de la suite.

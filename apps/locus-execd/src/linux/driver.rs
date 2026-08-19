@@ -18,6 +18,7 @@
 
 use std::collections::BTreeMap;
 use std::process::Command;
+use std::time::Duration;
 
 use locus_execution::{SandboxAttestation, SandboxLevel, SandboxSpec};
 
@@ -79,7 +80,13 @@ pub struct PodmanBackend<R: Runner> {
     workload: Workload,
     created: BTreeMap<SandboxId, SandboxSpec>,
     counter: u32,
+    launch_pause: Duration,
 }
+
+/// La pause avant la première reprise d'un lancement, quand le runtime n'a pas pu.
+///
+/// Elle double à chaque tentative ; avec `LAUNCH_ATTEMPTS`, la somme couvre le pire cas connu.
+pub const FIRST_LAUNCH_PAUSE: Duration = Duration::from_millis(100);
 
 impl<R: Runner> PodmanBackend<R> {
     /// Construire le backend.
@@ -94,7 +101,33 @@ impl<R: Runner> PodmanBackend<R> {
             workload,
             created: BTreeMap::new(),
             counter: 0,
+            launch_pause: FIRST_LAUNCH_PAUSE,
         }
+    }
+
+    /// Changer la pause entre deux tentatives de lancement d'une sonde.
+    ///
+    /// # Pourquoi c'est réglable, et pourquoi le défaut n'est pas zéro
+    ///
+    /// `W5.o` fait retenter une sonde que le runtime n'a pas pu lancer, avec des pauses qui doublent
+    /// et dont la somme couvre le pire cas connu — une sonde précédente qui tient le cgroup PID le
+    /// temps de ses `sleep`. Ce budget se compte en secondes, et il est juste **contre un vrai
+    /// runtime**.
+    ///
+    /// Contre un double, il ne mesure rien et coûte tout : la suite de tests dormait cinquante
+    /// secondes pour éprouver une reprise dont chaque itération est immédiate. Le passer à zéro dans
+    /// les tests n'affaiblit pas ce qu'ils vérifient — le **nombre** de tentatives — et c'est ce
+    /// nombre, pas la durée, qui décide si une sonde a été mesurée.
+    #[must_use]
+    pub const fn with_launch_pause(mut self, pause: Duration) -> Self {
+        self.launch_pause = pause;
+        self
+    }
+
+    /// La pause avant la première reprise ; elle double ensuite.
+    #[must_use]
+    pub const fn launch_pause(&self) -> Duration {
+        self.launch_pause
     }
 
     /// Le lanceur, pour qu'un test puisse lire ce qui lui a été demandé.
