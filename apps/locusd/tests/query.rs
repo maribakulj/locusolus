@@ -232,6 +232,16 @@ fn une_projection_se_pagine_aussi_sans_trou_ni_doublon() {
         .items;
     assert!(tout.len() >= 2, "plusieurs workers distincts : {tout:?}");
 
+    // **L'ordre est canonique**, et non seulement cohérent avec lui-même. Comparer le parcours
+    // paginé à une lecture complète ne dit rien de l'ordre : les deux passent par le même code, et
+    // un tri inversé les inverserait toutes les deux — un mutant l'a montré. Une projection est un
+    // ensemble sans ordre naturel ; c'est le tri lexicographique qui rend sa pagination
+    // reproductible d'un appel à l'autre, et c'est donc lui qu'il faut affirmer.
+    assert!(
+        tout.windows(2).all(|paire| paire[0] < paire[1]),
+        "l'ordre n'est pas lexicographique strict : {tout:?}"
+    );
+
     let mut parcouru = Vec::new();
     let mut cursor = None;
     loop {
