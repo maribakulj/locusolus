@@ -45,6 +45,7 @@ pub use probe::{
 };
 pub use seccomp::{MUST_DENY, ProfileError, RestrictedProfile};
 pub use selftest::{
-    INCONCLUSIVE_EXIT_CODE, PROBE_COMMANDS, UNREACHABLE_RUNTIME, UNREACHABLE_TARGET_EXIT_CODE,
-    UNRUNNABLE_EXIT_CODES, assess, certify, exec_arguments, probe_command, run_suite, unrunnable,
+    INCONCLUSIVE_EXIT_CODE, PROBE_COMMANDS, Trial, UNREACHABLE_RUNTIME,
+    UNREACHABLE_TARGET_EXIT_CODE, UNRUNNABLE_EXIT_CODES, assess, certify, exec_arguments,
+    probe_command, run_suite, unrunnable, verdicts,
 };
