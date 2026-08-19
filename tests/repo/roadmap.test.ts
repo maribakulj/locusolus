@@ -37,7 +37,9 @@ test("un item livré mais non marqué est rapporté", () => {
   const findings = reconcile({
     delivered: new Set(["W5.q"]),
     marked: new Set(),
+    decided: new Set(),
     planned: new Set(["W5.q"]),
+    frontier: [],
     unread: [],
   });
   const [seul] = findings;
@@ -57,7 +59,9 @@ test("un item marqué sans entrée au ledger est rapporté", () => {
   const findings = reconcile({
     delivered: new Set(),
     marked: new Set(["W5.t"]),
+    decided: new Set(),
     planned: new Set(["W5.t"]),
+    frontier: [],
     unread: [],
   });
   const [seul] = findings;
@@ -78,7 +82,9 @@ test("un registre non lu suspend « marqué sans entrée », jamais l'inverse", 
   const findings = reconcile({
     delivered: new Set(["W5.q"]),
     marked: new Set(["W2.4"]),
+    decided: new Set(),
     planned: new Set(["W5.q", "W2.4"]),
+    frontier: [],
     unread: ["canterel"],
   });
   assert.deepEqual(
@@ -99,7 +105,9 @@ test("un item livré hors du plan ne compte pas comme un écart", () => {
     reconcile({
       delivered: new Set(["W5.z"]),
       marked: new Set(),
+      decided: new Set(),
       planned: new Set(),
+      frontier: [],
       unread: [],
     }),
     [],
@@ -226,6 +234,86 @@ function run(runner: string, root: string): Promise<{ code: number | null; out: 
     });
   });
 }
+
+/**
+ * **« Bloqué » n'est pas « à faire », et les confondre coûte un sprint.**
+ *
+ * La première version de la garde ne connaissait que deux états, et la première lecture de la
+ * frontière qu'elle a permise a désigné `W16.d` — une ligne qui dit **bloqué** depuis qu'ADR 0017 a
+ * constaté qu'il lui manque un consommateur. Les deux se ressemblent dans un tableau et pas du tout
+ * dans une session : l'une attend une décision extérieure, l'autre attend qu'on l'écrive.
+ */
+test("bloqué et reporté ne sont pas la frontière", async () => {
+  const root = await fixture({
+    ledger: "# Ledger\n",
+    roadmap: [
+      "| # | Commit | Test |",
+      "|---|---|---|",
+      "| W16.d `[M]` **bloqué** | il manque un consommateur | non |",
+      "| W18.f `[M]` **reporté** | attend un hôte capable | non |",
+      "| W20.a `[R]` | le CommandEnvelope | non |",
+      "",
+    ].join("\n"),
+  });
+
+  const state = await readReconciliation(root);
+  assert.deepEqual(state.frontier, ["W20.a"]);
+  assert.deepEqual([...state.decided].sort(), ["W16.d", "W18.f"]);
+  assert.deepEqual(reconcile(state), []);
+});
+
+/**
+ * **Un item livré n'attend plus rien.**
+ *
+ * `bloqué` avec une entrée au registre est une contradiction, et la plus trompeuse des trois : la
+ * ligne dit « n'y va pas » d'un travail déjà fait, donc personne ne va vérifier, donc elle reste.
+ */
+test("un item décidé bloqué qui a son entrée au ledger est rapporté", () => {
+  const findings = reconcile({
+    delivered: new Set(["W16.d"]),
+    marked: new Set(),
+    decided: new Set(["W16.d"]),
+    planned: new Set(["W16.d"]),
+    frontier: [],
+    unread: [],
+  });
+  assert.deepEqual(
+    findings.map((finding) => finding.rule),
+    ["decide-et-livre"],
+  );
+  assert.match(findings[0]?.message ?? "", /W16\.d/);
+});
+
+/**
+ * **La frontière s'imprime, sinon elle se relit à l'œil.**
+ *
+ * Et une lecture à l'œil a déjà produit une erreur. Le runner la nomme à chaque passage, y compris
+ * quand elle est vide — un silence se lirait « je n'ai pas regardé » aussi bien que « il n'y a
+ * rien ».
+ */
+test("le runner nomme la frontière, vide ou non", async () => {
+  const runner = fileURLToPath(new URL("../../tooling/repo/check-roadmap.ts", import.meta.url));
+
+  const ouverte = await run(
+    runner,
+    await fixture({
+      ledger: "# Ledger\n",
+      roadmap: "| # |\n|---|\n| W20.a `[R]` |\n| W16.d `[M]` **bloqué** |\n",
+    }),
+  );
+  assert.equal(ouverte.code, 0);
+  assert.match(ouverte.out, /frontière — W20\.a$/m);
+
+  const close = await run(
+    runner,
+    await fixture({
+      ledger: "# Ledger\n\n## 2026-08-18 — W20.a — fait\n",
+      roadmap: "| # |\n|---|\n| W20.a `[R]` **fait** |\n",
+    }),
+  );
+  assert.equal(close.code, 0);
+  assert.match(close.out, /frontière vide/);
+});
 
 /** Un chantier jouet : le dépôt confronté, et les voisins qu'on veut bien lui donner. */
 async function fixture(contents: {

@@ -18,4 +18,17 @@ if (state.unread.length > 0) {
   );
 }
 
+/**
+ * La frontière, calculée plutôt que lue à l'œil.
+ *
+ * « Le premier item non terminé dont les dépendances sont satisfaites » se lisait en parcourant le
+ * tableau, et une lecture à l'œil a déjà confondu `bloqué` avec « à faire ». Les lignes qui ne
+ * déclarent rien sont les seules candidates ; les nommer ici évite de refaire le tri à chaque tour.
+ */
+process.stdout.write(
+  state.frontier.length > 0
+    ? `roadmap: frontière — ${state.frontier.join(", ")}\n`
+    : "roadmap: frontière vide — toute ligne du plan est faite, bloquée ou reportée\n",
+);
+
 process.exitCode = report("roadmap", reconcile(state));

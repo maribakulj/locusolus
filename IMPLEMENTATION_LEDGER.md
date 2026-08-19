@@ -8236,3 +8236,99 @@ un item livré sans trace redevient indiscernable d'un item à faire au sprint s
 **Prochain item.** `W16.d` — visibilité institutionnelle facultative des sous-agents internes du
 harnais, tranche 4 du mineur. À vérifier avant de commencer, maintenant que le cas est connu : que
 `packages/coordination` ne la porte pas déjà.
+
+---
+
+## 2026-08-19 — W18.a — Les onze déclencheurs, livrés sans trace eux aussi
+
+**Périmètre.** `docs/10_V1_ROADMAP.md` (la ligne `W18.a` marquée), `IMPLEMENTATION_LEDGER.md` (cette
+entrée). **Aucun code.** L'item était livré ; il lui manquait sa preuve exercée et sa trace.
+
+**Troisième instance du même défaut, et c'est ce qui en fait un motif.** Après `W0.10` et `W7.a` :
+`W18.a` n'était ni marqué ni consigné, `W18.b` à `W18.e` étaient marqués, et
+`packages/adaptation/src/spawn.rs` existait avec ses onze variantes. À chaque fois la même mécanique
+— un sprint a besoin de l'item précédent, l'écrit en passant, et consigne celui qu'il avait annoncé.
+Ce n'est pas de la négligence isolée : c'est ce que produit un plan dont les items « a » sont des
+fondations d'items « b ».
+
+**Les trois clauses, exercées.** (1) « les onze se lisent sous leur nom et un douzième n'existe pas
+» — `the_eleven_triggers_read_under_their_spec_name`, `each_spec_name_round_trips`,
+`a_twelfth_trigger_does_not_exist`, et `Trigger::ALL: [Self; 11]`. (2) « une proposition à qui il
+manque un champ n'est pas construite, et le refus nomme le champ » —
+`the_nine_keys_of_the_spec_are_the_nine_fields`, `a_missing_text_field_is_refused_by_its_name`, et
+trois refus de plus que la clause ne demandait pas (`value_claim` hors de l'unité, `time_to_live`
+nul, estimation de coût non bornée). (3) « aucun chemin ne mène d'un déclencheur à une flotte sans
+passer par la réponse du moteur, et un test le tient par l'absence de constructeur » —
+`nothing_but_dispose_produces_an_admission`.
+
+**La troisième clause était bien tenue, et pour une fois sans trou.** C'est le contraire de `W7.a`,
+où la garantie structurelle n'était pinée par rien. Ici le test lit le **source**, commentaires
+retirés — parce qu'expliquer pourquoi un terme est absent le fait apparaître dans la prose, et un
+test qui confondrait code et commentaire interdirait d'écrire la raison. Il retire la déclaration et
+le bloc `impl` **par leur nom** plutôt qu'en ajustant un compte, « qu'un ajout ultérieur ferait
+corriger sans réfléchir ». Rien à ajouter : le sprint qui l'a écrit avait vu les deux pièges.
+
+**Tests exécutés.** `cargo test -p locus-adaptation --test spawn --test admission` — 11 + 19, verts.
+Le test de sortie de l'item, nommément : les trois clauses ci-dessus.
+
+**Décisions prises.** Aucune. L'entrée est le livrable.
+
+**Écart avec la spec.** Aucun.
+
+**Prochain item.** `W19.a` — les six motifs de refus d'admission sur le fil, comme document. Vérifié
+avant de l'annoncer, maintenant que le motif est connu : `LevelUnavailable` n'apparaît nulle part
+dans `packages/` ni `schemas/`, et `apps/locusd` ne contient aucun fichier. La frontière est réelle
+à partir d'ici.
+
+---
+
+## 2026-08-19 — W0.12 — « Bloqué » n'est pas « à faire »
+
+**Périmètre.** `tooling/repo/roadmap.ts` (trois états au lieu de deux, la frontière, la règle
+`decide-et-livre`), `tooling/repo/check-roadmap.ts` (la frontière imprimée),
+`tests/repo/roadmap.test.ts` (trois tests de plus), `docs/10_V1_ROADMAP.md`,
+`IMPLEMENTATION_LEDGER.md`.
+
+**Le défaut, trouvé en s'y jetant dedans.** `W0.11` avait rendu la roadmap honnête et donné une
+liste : les lignes non marquées **fait**. Le sprint suivant a lu cette liste et a désigné `W16.d`
+comme prochain item. Or `W16.d` porte **bloqué** — ADR 0017 a constaté qu'il lui manque un
+consommateur, pas une décision. Une garde qui ne connaît que « fait » et « pas fait » range ensemble
+deux choses qui ne se ressemblent que dans un tableau : ce qui attend une décision extérieure, et ce
+qui attend qu'on l'écrive. `reporté` est du même genre — `W18.f` attend un hôte.
+
+Le tableau, lui, disait la différence depuis toujours : 119 lignes `fait`, 2 `bloqué`, 2 `reporté`,
+9 vides. Personne ne la lisait.
+
+**La frontière se calcule maintenant, et s'imprime.** Neuf lignes, dans l'ordre du plan. Une lecture
+à l'œil avait déjà produit une erreur en un tour ; celle-ci ne se refait pas. Elle s'imprime **même
+vide** : un silence se lirait « je n'ai pas regardé » aussi bien que « il n'y a rien », et c'est la
+règle 3 de « Rythme de session ».
+
+**Une règle nouvelle, et une correction de la première.** `decide-et-livre` : un item déclaré bloqué
+ou reporté qui a pourtant son entrée au ledger. C'est la plus trompeuse des contradictions — la
+ligne dit « n'y va pas » d'un travail déjà fait, donc personne ne va vérifier, donc elle reste. Et
+`livre-non-marque` **saute** désormais les lignes décidées : sans quoi un même fait produisait deux
+constats, le moins juste en premier — « ajoute **fait** » au lieu de « cette ligne dit de ne pas y
+aller, et c'est faux ».
+
+**Ce que ce sprint a aussi consigné.** `W18.a`, troisième livraison silencieuse d'affilée après
+`W0.10` et `W7.a`, a son entrée. Après quoi la frontière est réelle : `W19.a` et `W20.a` à `W20.f`
+sont vierges, vérifié — `LevelUnavailable` n'apparaît nulle part, `apps/locusd` ne contient aucun
+fichier.
+
+**Tests exécutés.** `node --test tests/repo/roadmap.test.ts` — 12/12. Le test de sortie de l'item,
+nommément : une ligne `bloqué` ou `reporté` ne figure pas dans la frontière et rejoint `decided` ;
+un item décidé qui a son entrée au ledger est rapporté sous `decide-et-livre` **et une seule fois**
+; le runner nomme la frontière, ouverte comme vide. `npm run check` — onze portes vertes. Mutation
+testing : **6 mutants, 6 tués**, dont « `reporté` n'est plus un état décidé », « un item décidé et
+livré est rapporté deux fois » et « la frontière ne s'imprime plus ».
+
+**Décisions prises.** Le vocabulaire des états est **fermé** à `fait`, `bloqué`, `reporté` — un
+quatrième mot tomberait dans la frontière et enverrait un sprint sur un item qui ne l'attend pas.
+C'est délibéré : un mot que la garde ne connaît pas doit produire du travail, pas du silence.
+
+**Écart avec la spec.** Aucun.
+
+**Prochain item.** `W19.a` — les six motifs de refus d'admission sur le fil, comme document
+(`LevelUnavailable`, `CapacityExhausted`, …). Dépendances satisfaites : ADR 0017 est écrit, et
+`packages/protocol` porte déjà l'enveloppe d'erreur structurée depuis `W0.4`.
