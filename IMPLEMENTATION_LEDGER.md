@@ -8031,3 +8031,38 @@ réussit, ce que `S2` promet — un conteneur partage bien le noyau de son hôte
 est vert pour la première fois ; seul reste
 `cet_hote_tient_il_s2_sous_une_mission_qui_reserve_du_disque`, qui exige un hôte XFS. Ce que cela
 ouvre est `W5.u` : le job cesse d'être toléré.
+
+---
+
+## 2026-08-19 — W5.u — La tolérance tombe : les seize sondes font rougir la CI
+
+**Périmètre.** `.github/workflows/ci.yml` (le job `sandbox`), et les paragraphes de
+`docs/10_V1_ROADMAP.md` que la levée rend faux.
+
+**Une condition de sortie écrite d'avance, et honorée.** Le job portait `continue-on-error: true`
+avec sa propre condition inscrite dans le commentaire : « s'il devient vert, `continue-on-error`
+tombe et `W5.f` est clos ». La tolérance n'était donc pas une habitude, c'était une dette datée — et
+sept sprints l'ont payée.
+
+`W5.h` a corrigé les sondes que le premier hôte réel démentait. `W5.l` a rendu les noms. `W5.n` et
+`W5.o` ont catalogué 255. `W5.q` a lu ce que le runtime écrit. `W5.r` a rendu la contamination
+inexprimable. `W5.j` a mis le quota là où la sandbox écrit. `W5.i` a fait dire à `S4` ce qu'il
+promet. Les seize tiennent maintenant sur un runner ordinaire.
+
+**Une garantie tolérée n'est plus une garantie.** C'est le fond de cet item : un confinement qu'on
+sait vérifier à chaque passage et qu'on laisse échouer sans conséquence est une habitude, pas une
+garde. Le pas des seize sondes fait donc rougir la CI.
+
+**Ce qui reste toléré est nommé, pas subi.**
+`cet_hote_tient_il_s2_sous_une_mission_qui_reserve_du_disque` exige un hôte XFS avec quotas de
+projet, que le runner n'est pas — et ça ne se répare pas en CI, le système de fichiers du runner
+n'étant pas un réglage. Elle a donc **son propre pas**, avec son `continue-on-error` à elle, son
+motif écrit, et sa sortie au résumé. `--skip` la nomme dans le workflow : une exclusion qu'on peut
+relire n'est pas un test sauté en silence.
+
+Le jour où le runner devient XFS, ce pas **rejoint** le précédent au lieu d'être supprimé. C'est
+l'arbitrage de `W5.f`, et il attend un hôte, pas une décision.
+
+**Ce que ce sprint ne prétend pas.** Il ne clôt pas `W5.f`, dont la moitié « `S2` sous une mission
+qui réserve du disque » attend toujours cette VM. Il clôt l'autre moitié : quinze seizièmes
+d'information sont devenus seize seizièmes de garde.

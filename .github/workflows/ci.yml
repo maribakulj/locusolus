@@ -160,21 +160,31 @@ jobs:
   # rootless n'est garanti — c'est-à-dire en CI » ; ce job va vérifier si cette phrase est encore
   # vraie sur les images de runner d'aujourd'hui.
   #
-  # `continue-on-error: true` est DÉLIBÉRÉ ET TEMPORAIRE. Ce job est une question, pas une garde :
-  # personne ne sait encore ce qu'un runner GitHub sait confiner, et un job rouge pour cette raison
-  # ferait rejeter des PR qui n'y sont pour rien. Le passage suivant est un arbitrage, pas une
-  # habitude :
+  # Ce job a été une **question** avant d'être une garde. `continue-on-error: true` y était délibéré
+  # et temporaire, avec sa condition de sortie écrite d'avance : « s'il devient vert,
+  # `continue-on-error` tombe ». Sept sprints ont répondu — `W5.h` a corrigé les sondes que le
+  # premier hôte réel démentait, `W5.l` a rendu les noms, `W5.n` et `W5.o` ont catalogué 255, `W5.q`
+  # a lu ce que le runtime écrit, `W5.r` a rendu la contamination inexprimable, `W5.j` a mis le
+  # quota là où la sandbox écrit, `W5.i` a fait dire à `S4` ce qu'il promet.
   #
-  #   - s'il devient vert, `continue-on-error` tombe et `W5.f` est clos ;
-  #   - s'il reste rouge, la table imprimée dit POURQUOI — pas de runtime, pas de cgroups, ou un
-  #     confinement qui ne tient pas — et `W5.f` part vers une VM dédiée ou un report écrit.
+  # Les seize sondes tiennent maintenant sur un runner ordinaire, et la tolérance est levée : une
+  # garantie qu'on peut vérifier à chaque passage et qu'on tolère quand même n'est plus une
+  # garantie, c'est une habitude.
   #
-  # Le job imprime donc beaucoup et n'affirme rien qu'il ne puisse montrer.
+  # Le job imprime toujours autant et n'affirme rien qu'il ne puisse montrer — la table reste le
+  # produit, verte ou rouge.
   sandbox:
     name: sandbox
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    continue-on-error: true
+    # `continue-on-error` est **tombé** — W5.u. Il avait été posé parce que « personne ne sait
+    # encore ce qu'un runner GitHub sait confiner, et un job rouge pour cette raison ferait rejeter
+    # des PR qui n'y sont pour rien ». On sait maintenant : les seize sondes tiennent sur un runner
+    # ordinaire. Une garantie qu'on peut vérifier à chaque passage et qu'on tolère quand même n'est
+    # plus une garantie, c'est une habitude.
+    #
+    # Ce qui reste toléré est nommé, pas subi : l'épreuve du quota disque exige un hôte XFS que le
+    # runner n'est pas, et elle a son propre pas.
     steps:
       - uses: actions/checkout@v4
 
@@ -257,16 +267,33 @@ jobs:
 
       # `--ignored` est ce qui lance le test, et `--nocapture` ce qui laisse passer la table. Sans
       # elle, un échec dirait « le niveau n'est pas tenu » sans dire laquelle des seize.
-      # Les deux tests `#[ignore]` du fichier tournent ensemble : `cargo test` les exécute tous
-      # et rapporte toutes les défaillances, donc l'échec du premier n'empêche pas le second de
-      # produire sa table — qui est justement ce qu'on vient chercher.
-      - name: Les sondes contre un conteneur réel
+      # Ce pas **fait rougir la CI**. Les seize sondes sont exercées à chaque passage sur un
+      # conteneur rootless réel, et un confinement qui cesse de tenir doit se voir tout de suite —
+      # c'est la seule chose que ni `sh -n` ni un double ne peuvent dire.
+      #
+      # `--skip` nomme l'exclusion. L'épreuve du quota disque exige un hôte XFS avec quotas de
+      # projet ; sur un runner extfs, `podman create` refuse la spécification et le test rend le
+      # message du runtime mot pour mot. L'écarter ici n'est pas la sauter en silence : elle a son
+      # propre pas, juste en dessous, et ce qu'elle dit y reste lisible.
+      - name: Les seize sondes contre un conteneur réel
         run: |
-          # `--test-threads=1` n'est pas une précaution de confort. Les trois tests
-          # construisent chacun leur `PodmanBackend`, dont le compteur de noms repart à zéro :
-          # lancés en parallèle dans le même processus, ils se disputent le nom `locus-0001`, et
-          # celui qui perd rapporte l'erreur de nom là où on attend un verdict de confinement.
-          cargo test -p locus-execd --test host_sandbox -- --ignored --nocapture --test-threads=1 2>&1 | tee sondes.txt
+          # `--test-threads=1` n'est pas une précaution de confort. Les tests construisent chacun
+          # leur `PodmanBackend`, dont le compteur de noms repart à zéro : lancés en parallèle dans
+          # le même processus, ils se disputent le nom `locus-0001`, et celui qui perd rapporte
+          # l'erreur de nom là où on attend un verdict de confinement.
+          cargo test -p locus-execd --test host_sandbox -- --ignored --nocapture --test-threads=1 \
+            --skip cet_hote_tient_il_s2_sous_une_mission_qui_reserve_du_disque 2>&1 | tee sondes.txt
+          exit "${PIPESTATUS[0]}"
+
+      # Celle-ci reste tolérée, et son motif est écrit : elle demande un hôte XFS. Le jour où le
+      # runner en devient un, ce pas rejoint le précédent au lieu d'être supprimé — c'est
+      # l'arbitrage de `W5.f`, et il attend un hôte, pas une décision.
+      - name: L'épreuve du quota disque, qui attend un hôte XFS
+        if: always()
+        continue-on-error: true
+        run: |
+          cargo test -p locus-execd --test host_sandbox -- --ignored --nocapture --test-threads=1 \
+            cet_hote_tient_il_s2_sous_une_mission_qui_reserve_du_disque 2>&1 | tee quota.txt
           exit "${PIPESTATUS[0]}"
 
       # La table est le produit de ce job, verte ou rouge. Elle doit être lisible sans ouvrir les
@@ -275,8 +302,12 @@ jobs:
         if: always()
         run: |
           {
-            echo "## Les sondes contre un conteneur réel"
+            echo "## Les seize sondes contre un conteneur réel"
             echo '```'
             cat sondes.txt 2>/dev/null || echo "le test n'a rien produit"
+            echo '```'
+            echo "## L'épreuve du quota disque, qui attend un hôte XFS"
+            echo '```'
+            cat quota.txt 2>/dev/null || echo "le test n'a rien produit"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
