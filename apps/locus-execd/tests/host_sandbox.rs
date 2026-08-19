@@ -17,11 +17,13 @@
 //!
 //! Ce fichier est le seul du dépôt qui fasse **tourner** les sondes dans un conteneur réel.
 //!
-//! # Deux tests, et le second ne remplace pas le premier
+//! # Quatre tests, et aucun ne remplace un autre
 //!
-//! Le premier demande si cet hôte tient `S2` sous une mission qui réserve du disque. Le second
+//! Le premier demande si cet hôte tient `S2` sous une mission qui réserve du disque. Le deuxième
 //! éprouve les **quinze** sondes qui ne dépendent pas du quota disque, et **n'établit jamais
-//! `S2`** — l'exclusion y est nommée plutôt que silencieuse.
+//! `S2`** — l'exclusion y est nommée plutôt que silencieuse. Le troisième regarde le réseau depuis
+//! l'intérieur, et il a servi une fois à réfuter celui qui l'avait écrit. Le quatrième constate que
+//! le retrait rend le nom, en le redemandant.
 //!
 //! Cette séparation vient du premier passage réel, qui a montré ce qu'aucun double ne pouvait
 //! dire : le runner GitHub fait tourner Podman rootless, et `podman create` refuse malgré tout la
@@ -324,27 +326,13 @@ fn exercise(
     Ok(results)
 }
 
-/// Arrêter **et retirer** la sandbox.
+/// Arrêter **et retirer** la sandbox, par le port.
 ///
-/// # Pourquoi les tests le font eux-mêmes, et pourquoi c'est une dette et non une solution
-///
-/// `RuntimePort::stop` lance `podman stop`, et rien ne lance `podman rm`. Un conteneur arrêté garde
-/// son nom et sa couche inscriptible : le suivant qui demande le même nom échoue avec « the
-/// container name "locus-0001" is already in use », et c'est très exactement ce qui a rendu trois
-/// passages de CI illisibles — chaque test construit son propre `PodmanBackend`, dont le compteur de
-/// noms repart à zéro.
-///
-/// Le module `selftest` avait vu la conséquence sans voir la cause : « un hôte qui accumule des
-/// conteneurs d'épreuve finit par ne plus pouvoir en créer ». Arrêter n'est pas retirer.
-///
-/// Le retrait passe ici par le runner et non par le port, parce que le port **n'a pas** cette
-/// opération. L'y ajouter est le sujet de `W5.l` ; en attendant, un test qui laisse derrière lui de
-/// quoi faire échouer le suivant ne mesure plus rien.
+/// `W5.l` a mis le retrait au port, sous son nom. La version précédente de cette fonction passait
+/// par le runner parce que le port n'avait pas l'opération — une dette assumée qui n'existe plus.
 fn teardown(backend: &mut PodmanBackend<SystemRunner>, id: &SandboxId) {
     let _ = backend.stop(id);
-    let _ = backend
-        .runner()
-        .run(&["rm".to_owned(), "-f".to_owned(), id.as_str().to_owned()]);
+    let _ = backend.remove(id);
 }
 
 /// Ce qu'une sonde a produit, ou l'aveu qu'elle est absente du rapport.
@@ -505,4 +493,74 @@ fn inspect_network(spec: &SandboxSpec) -> Result<String, String> {
     };
     let _ = fs::remove_file(&profile_path);
     seen
+}
+
+// ---------------------------------------------------------------------------------------------
+// W5.l — arrêter n'est pas retirer
+// ---------------------------------------------------------------------------------------------
+
+/// **Le nom est libre après le retrait**, constaté en le redemandant.
+///
+/// # Pourquoi c'est ce test-là et pas un autre
+///
+/// « Le conteneur n'existe plus » ne se vérifie pas en demandant au backend qui vient de l'oublier :
+/// il répondrait ce qu'il a noté, pas ce que l'hôte tient. Ce qui se vérifie est ce qui manquait au
+/// suivant — **le nom**. Deux backends successifs, chacun avec son compteur repartant de zéro,
+/// demandent donc le même `locus-0001`, et le second doit l'obtenir.
+///
+/// C'est très exactement le scénario qui a rendu trois passages de CI illisibles : le second
+/// conteneur échouait avec « the container name `locus-0001` is already in use », et le harnais
+/// lisait cette erreur là où il attendait un verdict de confinement.
+///
+/// La couche inscriptible s'en va avec le nom — `podman rm` retire les deux — et il n'y a pas de
+/// façon de constater l'une sans l'autre depuis ici. Le test affirme donc ce qu'il peut affirmer, et
+/// pas davantage.
+#[test]
+#[ignore = "exige Podman rootless et LOCUS_PROBE_IMAGE"]
+fn le_nom_est_libre_apres_le_retrait() {
+    let workspace = workspace_dir("retrait");
+    let spec = probed_spec(&workspace.to_string_lossy(), 0);
+
+    let first = claim_name(&spec, "retrait-un");
+    let second = claim_name(&spec, "retrait-deux");
+    let _ = fs::remove_dir_all(&workspace);
+
+    let taken = first.expect("le premier conteneur doit se créer");
+    let reused = second.unwrap_or_else(|error| {
+        panic!(
+            "le second backend redemande « {taken} » et ne l'obtient pas : le retrait n'a donc pas \
+             rendu le nom. C'est ce qui faisait lire, à la place d'un verdict de confinement, une \
+             erreur de nom. Ce que le runtime a dit :\n\n    {error}"
+        )
+    });
+    assert_eq!(
+        taken, reused,
+        "les deux backends repartent du même compteur : sans cela le test ne redemanderait pas le \
+         même nom, et ne prouverait rien"
+    );
+}
+
+/// Créer une sandbox, en rendre le nom, puis la retirer — ou dire pourquoi elle n'a pas été créée.
+fn claim_name(spec: &SandboxSpec, tag: &str) -> Result<String, String> {
+    let image = env::var(IMAGE).expect("LOCUS_PROBE_IMAGE");
+    let workload = Workload::new(&image, vec!["sleep".to_owned(), "600".to_owned()])
+        .expect("une image à digest et une commande non vide");
+    let (profile_path, restricted) = write_restricted_profile(tag);
+    let mut backend = PodmanBackend::new(
+        SystemRunner,
+        SeccompProfiles {
+            restricted: Some(restricted),
+        },
+        workload,
+    );
+    let claimed = match backend.create(spec) {
+        Ok(id) => {
+            let name = id.as_str().to_owned();
+            teardown(&mut backend, &id);
+            Ok(name)
+        }
+        Err(error) => Err(error.to_string()),
+    };
+    let _ = fs::remove_file(&profile_path);
+    claimed
 }

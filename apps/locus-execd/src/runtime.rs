@@ -105,12 +105,44 @@ pub trait RuntimePort: Send + Sync {
     /// [`RuntimeError`] quand le démarrage échoue.
     fn start(&mut self, id: &SandboxId) -> Result<(), RuntimeError>;
 
-    /// Arrêter la sandbox et rendre ce qu'elle tenait.
+    /// Arrêter l'exécution. **La sandbox existe toujours après.**
+    ///
+    /// La formulation compte, parce que la précédente promettait de « rendre ce qu'elle tenait » et
+    /// que l'implémentation ne le faisait pas : `podman stop` arrête les processus et laisse
+    /// derrière lui le **nom** et la **couche inscriptible**. Rendre est le travail de
+    /// [`RuntimePort::remove`].
+    ///
+    /// Les deux restent séparés parce que l'entre-deux est un état légitime : une sandbox arrêtée
+    /// se réinspecte, et [`RuntimePort::attestation`] se lit après l'arrêt.
     ///
     /// # Errors
     ///
     /// [`RuntimeError`] quand l'arrêt échoue.
     fn stop(&mut self, id: &SandboxId) -> Result<(), RuntimeError>;
+
+    /// Retirer la sandbox : son nom redevient libre, sa couche inscriptible disparaît.
+    ///
+    /// # Ce que son absence coûtait
+    ///
+    /// `selftest` avait vu la conséquence sans en voir la cause : « un hôte qui accumule des
+    /// conteneurs d'épreuve finit par ne plus pouvoir en créer ». La précaution qu'il en tirait —
+    /// arrêter même quand la suite s'est mal passée — ne suffit pas, parce que **c'est le nom, pas
+    /// l'exécution, qui manque au suivant**. Trois passages de CI l'ont montré : le second
+    /// conteneur échouait avec « the container name `locus-0001` is already in use », et le harnais
+    /// lisait cette erreur là où il attendait un verdict de confinement.
+    ///
+    /// # Et ce qu'elle rendait invérifiable
+    ///
+    /// La sonde `persist_after_teardown` demande qu'un fichier écrit dans la sandbox ne survive pas
+    /// au démontage. Sans retrait, il n'y a **pas de démontage** : la sonde ne pouvait pas mesurer
+    /// ce qu'elle annonce.
+    ///
+    /// # Errors
+    ///
+    /// [`RuntimeError`] quand le retrait échoue. Retirer une sandbox déjà inconnue rend
+    /// [`RuntimeError::Unknown`] : « je ne l'ai jamais eue » et « je l'ai rendue » sont deux faits
+    /// différents, et les confondre laisserait croire à un nettoyage qui n'a pas eu lieu.
+    fn remove(&mut self, id: &SandboxId) -> Result<(), RuntimeError>;
 
     /// Ce que le runtime atteste avoir réellement appliqué.
     ///

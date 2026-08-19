@@ -334,11 +334,22 @@ pub fn assess<R: Runner>(
     standing(level, &run_suite(backend, id))
 }
 
-/// Créer, démarrer et éprouver une sandbox à ce niveau, puis l'arrêter.
+/// Créer, démarrer et éprouver une sandbox à ce niveau, puis **la retirer**.
 ///
-/// La sandbox est arrêtée **même quand la suite s'est mal passée** : une sonde qui a échoué laisse
-/// derrière elle un conteneur qui tourne, et un hôte qui accumule des conteneurs d'épreuve finit
-/// par ne plus pouvoir en créer.
+/// # Arrêter ne suffisait pas, et cette fonction le disait déjà à moitié
+///
+/// La rédaction précédente promettait que « la sandbox est arrêtée même quand la suite s'est mal
+/// passée », avec la bonne raison : « un hôte qui accumule des conteneurs d'épreuve finit par ne
+/// plus pouvoir en créer ». La raison était juste et la précaution insuffisante — `podman stop`
+/// laisse le **nom** et la **couche inscriptible**, et c'est le nom qui manque au suivant. Trois
+/// passages de CI ont échoué sur « the container name `locus-0001` is already in use » avant que
+/// quiconque le remarque, et le harnais lisait cette erreur là où il attendait un verdict.
+///
+/// # Le démontage a lieu sur **tous** les chemins
+///
+/// Y compris celui où le démarrage échoue : la version précédente y rendait l'erreur par `?` et
+/// abandonnait un conteneur créé mais jamais démarré, c'est-à-dire le cas le plus silencieux — rien
+/// ne tournait, donc rien ne signalait la fuite, et le nom restait pris.
 ///
 /// # Errors
 ///
@@ -351,8 +362,22 @@ pub fn certify<R: Runner>(
     level: SandboxLevel,
 ) -> Result<Standing, crate::runtime::RuntimeError> {
     let id = backend.create(spec)?;
-    backend.start(&id)?;
+    if let Err(error) = backend.start(&id) {
+        teardown(backend, &id);
+        return Err(error);
+    }
     let verdict = assess(backend, &id, level);
-    let _ = backend.stop(&id);
+    teardown(backend, &id);
     Ok(verdict)
+}
+
+/// Arrêter puis retirer, en ignorant l'échec de l'un comme de l'autre.
+///
+/// Les erreurs sont écartées parce qu'un démontage est du **nettoyage** : le verdict qu'on est en
+/// train de rendre porte sur le confinement, pas sur la capacité du runtime à ranger. Les masquer
+/// serait grave si rien d'autre ne les voyait — mais un nom resté pris se signale au suivant, très
+/// bruyamment, et c'est précisément comme cela que le défaut a été trouvé.
+fn teardown<R: Runner>(backend: &mut PodmanBackend<R>, id: &SandboxId) {
+    let _ = backend.stop(id);
+    let _ = backend.remove(id);
 }

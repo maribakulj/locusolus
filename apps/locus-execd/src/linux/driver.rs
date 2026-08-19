@@ -153,6 +153,24 @@ impl<R: Runner> RuntimePort for PodmanBackend<R> {
         Ok(())
     }
 
+    fn remove(&mut self, id: &SandboxId) -> Result<(), RuntimeError> {
+        self.known(id)?;
+        // `--force` parce qu'un retrait doit aboutir même sur une sandbox encore en marche : le
+        // rôle de cette méthode est de **rendre le nom**, et un retrait qui exigerait un arrêt
+        // préalable laisserait le nom pris exactement dans le cas où on a le plus besoin de le
+        // libérer — celui où la suite s'est mal passée.
+        self.expect_success(&[
+            "rm".to_owned(),
+            "--force".to_owned(),
+            id.as_str().to_owned(),
+        ])?;
+        // Retirée du registre **après** le succès du runtime. L'inverse rendrait la sandbox
+        // inconnue du backend alors qu'elle existe encore sur l'hôte, et plus personne n'aurait de
+        // quoi la retirer.
+        self.created.remove(id);
+        Ok(())
+    }
+
     fn attestation(&self, id: &SandboxId) -> Result<SandboxAttestation, RuntimeError> {
         self.known(id)?;
         let execution = self.expect_success(&inspect_arguments(id.as_str()))?;
