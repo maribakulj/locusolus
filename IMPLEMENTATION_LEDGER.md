@@ -8538,3 +8538,76 @@ lui donne ses deux valeurs d'exemple ; les deux sont dans la table du lecteur.
 `W19.a` — les six motifs de refus d'admission sur le fil. Instruit d'avance : l'énumération en
 mémoire en porte **sept**, pas six ; `DiskQuotaNotEnforceable` est né avec `W5.g` et `W5.j`, après
 l'écriture de la ligne de roadmap.
+
+---
+
+## 2026-08-19 — W0.15 — Le générateur de SDK apprend les unions discriminées
+
+**Périmètre.** `tooling/sdk/ir.ts` (le type `Union`, la détection, un défaut latent corrigé),
+`tooling/sdk/emit-rust.ts` et `emit-ts.ts` (un émetteur chacun), `tests/sdk/unions.test.ts` (neuf, 6
+tests), `docs/10_V1_ROADMAP.md`, ce fichier. **Aucun schéma ne change**, et les deux fichiers
+générés sont identiques au bit près : `npm run check:generated` le vérifie.
+
+**Trouvé en instruisant `W19.a`.** Le refus d'admission d'ADR 0017 §5.2 est un document à sept
+motifs qui ne portent pas les mêmes données — un niveau exigé et un meilleur niveau pour l'un, un
+genre d'accélérateur pour l'autre, rien du tout pour un troisième. `tooling/sdk/ir.ts` refusait tout
+`oneOf` qui n'était pas un choix de motifs : il rendait `pub type Reason = serde_json::Value;` et
+des alias auto-référents qui ne compilent pas.
+
+**C'est la réponse mesurée à la clause de falsification d'ADR 0017.** L'ADR affirme que le coût d'un
+mineur est fixe — « c'est le péage qui coûte, pas le champ » — et demande que le constat s'écrive «
+dans un sens ou dans l'autre ». Le voici dans l'autre : **un document coûte plus qu'une propriété**,
+et pas d'un peu. La tranche 1 était une ligne de schéma et une régénération ; celle-ci a demandé un
+concept de plus dans l'IR et un émetteur par langage. Le péage est bien fixe, mais il n'est pas seul
+: une **forme** que le générateur ne connaît pas se paie une fois, à la première occurrence, et
+cette dépense-là ne se partage pas entre les quatre ajouts. La décision de grouper n'est pas remise
+en cause — le mineur reste un ; mais son devis, si.
+
+**Les variantes portent leurs champs, pas un nom de structure.** C'est ce qui permet aux deux
+émetteurs d'être idiomatiques sans se contredire : Rust met l'étiquette dans `#[serde(tag)]` et n'en
+veut **pas** dans la variante — serde refuse qu'elle soit écrite deux fois — tandis que TypeScript
+la remet comme **type littéral**, parce que c'est elle qui permet à un `switch (reason.code)` de
+rétrécir le type. Une structure partagée aurait forcé l'un des deux à mentir, puisqu'elle vient du
+même `properties`.
+
+**L'étiquette est trouvée, jamais devinée.** Le générateur cherche la propriété que **toutes** les
+branches épinglent par un `const` textuel, plutôt que de croire à un nom conventionnel comme `type`
+ou `kind`. Une convention se contredit le jour où un document choisit un autre mot, et elle échoue
+alors en silence.
+
+**Trois refus, chacun sous son nom.** Un `oneOf` non étiqueté reste `sdk-unsupported-oneof` — la
+règle d'origine ne se relâche pas, un lecteur devrait essayer les branches une à une. Deux branches
+de même étiquette sont `sdk-duplicate-variant` : `oneOf` les accepterait, mais la seconde écraserait
+la première à la génération, et c'est donc une contrainte du générateur qui mérite son nom plutôt
+qu'une erreur de compilation en aval. Une branche désignée par `$ref` est `sdk-union-branch-by-ref`,
+et ce message-là dit **quoi faire** — « les écrire inline » — parce que le premier document réel a
+été écrit avec des `$ref` et a rencontré ce refus.
+
+**Un défaut latent, corrigé au passage.** Une définition qui **est** une structure recevait aussi un
+alias vers elle-même : `pub type X = X;`, qui ne compile pas. Le défaut dormait depuis `W0.8` parce
+qu'aucune définition n'était un objet inline jusqu'ici. Il est mort avec un test qui le nomme.
+
+**Tests exécutés.** `node --test tests/sdk/` — 16, dont 6 neufs. `npm run check` — onze portes
+vertes, `check:generated` compris : les schémas réels produisent exactement ce qu'ils produisaient.
+Mutation testing : **10 mutants, 10 tués**, dont « l'étiquette est devinée par convention », « une
+branche sans `const` passe pour étiquetée », « l'étiquette reste un champ de la variante » et «
+TypeScript perd le type littéral qui discrimine ».
+
+**Ce qu'un test par expression régulière ne prouve pas, et comment ça a été prouvé quand même.** Les
+tests vérifient la **forme** du texte émis. Que serde accepte cet `enum` est une autre question, et
+un émetteur qui produirait du Rust bien formé mais non compilable passerait les six. Le document de
+`W19.a` a donc été introduit **temporairement** : `cargo build -p locus-lep` compile, et un
+aller-retour serde sur une fixture à quatre motifs rend le même JSON. Le document a ensuite été
+retiré pour que ce sprint ne mêle pas outillage et protocole. La preuve définitive tiendra dans
+`W19.a`, où elle sera permanente.
+
+**Décisions prises.** Les branches d'une union s'écrivent **inline**. Une variante n'a pas
+d'existence hors de son union : la nommer dans `definitions` produirait une structure autonome que
+personne n'instancie, et deux endroits à corriger le jour où la forme change. La contrainte est
+portée par un refus nommé plutôt que par une convention écrite quelque part.
+
+**Écart avec la spec.** Aucun — l'outillage, pas le protocole.
+
+**Prochain item.** `W19.a` — les motifs de refus d'admission sur le fil, comme document. Le schéma
+est écrit et validé, ses trois fixtures aussi ; ce qui reste est la conversion depuis
+`RefusalReason` et les tests des deux propriétés que l'ADR nomme.
