@@ -7580,3 +7580,71 @@ est ce qui décide si une sonde a été mesurée. La suite est repassée à troi
 
 **Tests exécutés.** `cargo test -p locus-execd --test selftest` → 33 conformes, dont quatre neufs.
 `npm run check` → les dix portes vertes. Mutation : sept mutants, **sept tués**, zéro survivant.
+
+**Ce que le premier passage réel a rendu, et la question qu'il aiguise.** La reprise a fait la
+moitié du travail : les trois faux « sur-confinements » sont devenus des **« non concluant »**, ce
+qui est le verdict honnête. Mais les trois sondes rendent toujours 255 **après six tentatives
+étalées sur 6,3 secondes**.
+
+Un cgroup occupé se libère ; ceci ne se libère pas. L'hypothèse à instruire devient donc : le
+**conteneur lui-même** ne répond plus. `exceed_pid_quota` le tuerait — directement ou par épuisement
+— auquel cas aucune reprise ne peut aboutir, et ce n'est pas de la contamination mais une
+**destruction**. C'est `W5.p`, et son test de sortie constate l'état du conteneur après chaque sonde
+: une sandbox morte doit être dite morte, et les sondes qui suivent ne doivent pas être rapportées
+comme « pas lancées » — elles ne doivent **pas être rapportées du tout**, puisqu'il n'y avait plus
+rien pour les lancer.
+
+L'hypothèse n'est pas retenue ici. `W5.k` a coûté assez cher pour qu'on ne conclue plus avant
+d'avoir regardé.
+
+---
+
+## 2026-08-19 — W5.p — Une sandbox morte est dite morte, et on cesse de lui parler
+
+**Périmètre.** `apps/locus-execd/src/linux/driver.rs` (`is_running`), `src/linux/selftest.rs` (la
+troisième ignorance), et le test. Aucune sonde modifiée.
+
+**Ce que `W5.o` supposait, et que l'hôte a démenti.** La reprise faisait retenter les lancements que
+le runtime refusait, en supposant la cause **transitoire** — un cgroup occupé se libère. Le premier
+passage réel a rendu les trois sondes toujours en 255 après six tentatives étalées sur plus de six
+secondes. **Ce qui ne se libère pas n'était pas occupé.**
+
+**Une troisième ignorance, et elle ne se range avec aucune des deux autres.** 120 dit « ce que je
+devais lire n'était pas là ». 121 dit « ce que je devais atteindre n'a pas répondu ». `SANDBOX_GONE`
+dit **« il n'y avait rien pour me lancer »** — et elle se répare encore ailleurs : pas en complétant
+l'image, pas en changeant d'hôte, mais en comprenant ce qui a tué la sandbox. Rapporter ces sondes
+comme « le runtime n'a pas pu » enverrait chercher un runtime fatigué là où il n'y a plus de
+conteneur.
+
+**Décisions prises.**
+
+_`is_running` rend trois réponses, parce qu'il y a trois états._ `Some(true)` : elle tourne.
+`Some(false)` : le runtime a répondu, et elle ne tourne plus. `None` : le runtime n'a pas répondu,
+ou a répondu quelque chose qu'on ne sait pas lire. Un booléen forcerait la troisième dans l'une des
+deux autres — et vers `false`, un runtime muet ferait déclarer mortes des sandboxes bien vivantes.
+C'est exactement la faute que `W5.n` et `W5.o` ont passé deux sprints à retirer d'ici.
+
+_Une réponse illisible n'est pas une mort._ La première rédaction lisait `stdout.trim() == "true"`,
+ce qui range tout ce qui n'est pas « true » — y compris `<no value>` — avec « ne tourne plus ».
+Trois mutants l'ont montrée en même temps. La lecture est désormais explicite : « true », « false »,
+et **rien d'autre**.
+
+_Le constat de vie est dans la boucle de reprise, pas après elle._ Placé après, il laissait brûler
+le budget entier — six tentatives — contre un conteneur mort, pour chacune des sondes restantes. Un
+mutant a montré qu'il devait aussi valoir pour la **dernière** tentative : sans cela, une sandbox
+qui meurt au sixième essai serait rapportée « le runtime n'a pas pu ». Un double qui refuse cinq
+fois puis meurt le tient.
+
+_Le rapport reste complet._ Les sondes d'après la mort y figurent toutes, avec leur raison, et ne
+sont **pas lancées** — pas même une fois. Une suite tronquée se lirait comme une suite passée ; une
+suite qui relancerait seize fois six tentatives contre un conteneur mort paierait une minute pour
+réapprendre ce qu'elle sait.
+
+**Tests exécutés.** `cargo test -p locus-execd --test selftest` → 37 conformes, dont quatre neufs.
+`npm run check` → les dix portes vertes. Mutation : sept mutants, **sept tués**, zéro survivant —
+après trois passages, chacun ayant révélé un vrai trou plutôt qu'un mutant équivalent.
+
+_Note de méthode, la seconde de la session._ Deux éditions ont été perdues parce que `cargo fmt`
+reformate entre l'écriture du motif et sa recherche : un script qui remplace du texte exact doit
+relire le fichier après chaque formatage. Et le harnais de mutation restaure son instantané à la fin
+— un instantané pris avant une correction l'annule silencieusement.

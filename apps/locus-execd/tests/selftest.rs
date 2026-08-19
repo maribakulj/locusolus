@@ -13,9 +13,10 @@ use std::time::Duration;
 
 use locus_execd::linux::{
     Execution, INCONCLUSIVE_EXIT_CODE, LAUNCH_ATTEMPTS, PROBE_COMMANDS, PodmanBackend,
-    RestrictedProfile, Runner, SeccompProfiles, TRANSIENT_EXIT_CODES, Trial, UNREACHABLE_RUNTIME,
-    UNREACHABLE_TARGET_EXIT_CODE, UNRUNNABLE_EXIT_CODES, Workload, assess, certify, exec_arguments,
-    probe_command, run_suite, unrunnable,
+    RUNNING_TEMPLATE, RestrictedProfile, Runner, SANDBOX_GONE, SeccompProfiles,
+    TRANSIENT_EXIT_CODES, Trial, UNREACHABLE_RUNTIME, UNREACHABLE_TARGET_EXIT_CODE,
+    UNRUNNABLE_EXIT_CODES, Workload, assess, certify, exec_arguments, probe_command, run_suite,
+    unrunnable,
 };
 use locus_execd::{RuntimeError, RuntimePort, SandboxId};
 use locus_execution::{
@@ -50,6 +51,9 @@ impl ProbingRunner {
 impl Runner for ProbingRunner {
     fn run(&self, arguments: &[String]) -> Result<Execution, RuntimeError> {
         self.calls.lock().expect("verrou").push(arguments.to_vec());
+        if let Some(answer) = alive(arguments) {
+            return Ok(answer);
+        }
         let joined = arguments.join(" ");
         let blocked = self.blocked.iter().any(|name| {
             probe_command(name).is_some_and(|command| joined.ends_with(&command.join(" ")))
@@ -74,6 +78,9 @@ struct FailingStart {
 impl Runner for FailingStart {
     fn run(&self, arguments: &[String]) -> Result<Execution, RuntimeError> {
         self.calls.lock().expect("verrou").push(arguments.to_vec());
+        if let Some(answer) = alive(arguments) {
+            return Ok(answer);
+        }
         let code = i32::from(arguments.first().is_some_and(|verb| verb == "start"));
         Ok(Execution {
             code,
@@ -134,6 +141,23 @@ fn mission(level: SandboxLevel) -> SandboxSpec {
         ResourceSpec::new(1_000, 1 << 30, 64, 0, 300).expect("quotas non nuls"),
     )
     .expect("spécification valide")
+}
+
+/// La réponse d'un double à la question « la sandbox tourne-t-elle ? ».
+///
+/// `W5.p` fait demander l'état de la sandbox après chaque sonde qui n'a rien rendu. Un double qui ne
+/// répondrait pas à cette question précise la verrait lue comme « le runtime a répondu, et elle ne
+/// tourne plus » — et toutes les sondes suivantes seraient rapportées comme n'ayant rien eu pour les
+/// lancer. Les doubles de ce fichier modélisent une sandbox **vivante** ; ils le disent.
+fn alive(arguments: &[String]) -> Option<Execution> {
+    arguments
+        .iter()
+        .any(|argument| argument == RUNNING_TEMPLATE)
+        .then(|| Execution {
+            code: 0,
+            stdout: "true\n".to_owned(),
+            stderr: String::new(),
+        })
 }
 
 /// Le backend des tests, **sans pause de reprise**.
@@ -447,6 +471,9 @@ struct BrokenImage {
 
 impl Runner for BrokenImage {
     fn run(&self, arguments: &[String]) -> Result<Execution, RuntimeError> {
+        if let Some(answer) = alive(arguments) {
+            return Ok(answer);
+        }
         // Le cycle de vie réussit : ce qu'on met à l'épreuve est la lecture des codes de sortie
         // des sondes, pas la création du conteneur.
         if arguments.first().map(String::as_str) != Some("exec") {
@@ -1021,6 +1048,9 @@ impl FlakyLaunch {
 impl Runner for FlakyLaunch {
     fn run(&self, arguments: &[String]) -> Result<Execution, RuntimeError> {
         self.calls.lock().expect("verrou").push(arguments.to_vec());
+        if let Some(answer) = alive(arguments) {
+            return Ok(answer);
+        }
         if arguments.first().is_none_or(|verb| verb != "exec") {
             return Ok(Execution {
                 code: 0,
@@ -1037,6 +1067,248 @@ impl Runner for FlakyLaunch {
         };
         Ok(Execution {
             code,
+            stdout: String::new(),
+            stderr: String::new(),
+        })
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// W5.p — une sandbox morte est dite morte
+// ---------------------------------------------------------------------------------------------
+
+/// **« Il n'y avait rien pour la lancer » n'est pas « le runtime n'a pas pu ».**
+///
+/// Les deux se répareraient ailleurs : le premier en comprenant ce qui a tué la sandbox, le second
+/// en cherchant un runtime fatigué. `W5.o` faisait retenter les lancements refusés en supposant la
+/// cause transitoire — un cgroup occupé se libère. Le premier passage réel a démenti la supposition,
+/// et ce qui ne se libère pas n'était pas occupé.
+///
+/// Le rapport reste **complet** : chaque sonde y figure, avec la raison exacte pour laquelle elle
+/// n'a rien mesuré. Une suite tronquée se lirait comme une suite passée.
+#[test]
+fn les_sondes_qui_suivent_une_sandbox_morte_le_disent() {
+    let (execd, id) = started(DyingSandbox::after(SURVIVED));
+    let trials = run_suite(&execd, &id);
+
+    assert_eq!(trials.len(), SUITE.len(), "le rapport reste complet");
+    let gone: Vec<&Trial> = trials
+        .iter()
+        .filter(|trial| {
+            trial.observed()
+                == (Observed::NotRun {
+                    reason: SANDBOX_GONE,
+                })
+        })
+        .collect();
+    assert!(
+        !gone.is_empty(),
+        "la sandbox meurt en cours de campagne : les sondes suivantes doivent le dire"
+    );
+    assert!(
+        gone.iter().all(|trial| trial.code().is_none()),
+        "aucune commande n'a été lancée : leur prêter un code inventerait une observation"
+    );
+    assert_eq!(
+        trials.last().expect("la suite n'est pas vide").observed(),
+        Observed::NotRun {
+            reason: SANDBOX_GONE
+        },
+        "une fois la sandbox perdue, elle ne revient pas : rien après elle n'est mesuré"
+    );
+
+    // La sonde qui **constate** la mort le dit elle aussi. Lui laisser « le runtime n'a pas pu »
+    // enverrait chercher un runtime fatigué à l'endroit précis où le conteneur a disparu.
+    assert_eq!(
+        trials[SURVIVED].observed(),
+        Observed::NotRun {
+            reason: SANDBOX_GONE
+        },
+        "la première sonde qui échoue est celle qui découvre la mort : c'est elle qui la nomme"
+    );
+
+    // Et on cesse de lancer. Une sandbox morte ne redevient pas vivante, et lui redemander seize
+    // fois six tentatives ferait payer une minute pour réapprendre ce qu'on sait déjà.
+    let launches = execd
+        .runner()
+        .calls
+        .lock()
+        .expect("verrou")
+        .iter()
+        .filter(|call| call.first().is_some_and(|verb| verb == "exec"))
+        .count();
+    assert_eq!(
+        launches,
+        SURVIVED + 1,
+        "les sondes d'après la mort ne sont pas lancées du tout — pas même une fois"
+    );
+}
+
+/// Combien de sondes la sandbox de ce test laisse aboutir avant de mourir.
+const SURVIVED: usize = 3;
+
+/// **Un runtime muet ne fait pas déclarer la sandbox morte.**
+///
+/// « Je n'ai pas pu demander » n'est pas « elle ne tourne plus ». Confondre les deux ferait écrire
+/// qu'il n'y avait rien pour lancer la sonde alors qu'on n'en sait rien — et c'est très exactement
+/// la faute que `W5.n` et `W5.o` ont passé deux sprints à retirer d'ici.
+#[test]
+fn un_runtime_muet_ne_fait_pas_declarer_la_sandbox_morte() {
+    let (execd, id) = started(VanishingRuntime::new(2));
+    let trials = run_suite(&execd, &id);
+    assert!(
+        trials.iter().all(|trial| trial.observed()
+            != (Observed::NotRun {
+                reason: SANDBOX_GONE
+            })),
+        "sans réponse du runtime, l'état de la sandbox est inconnu — et l'inconnu ne s'écrit pas \
+         comme un constat"
+    );
+}
+
+/// Une sandbox qui cesse de tourner après un nombre donné de sondes.
+struct DyingSandbox {
+    calls: Mutex<Vec<Vec<String>>>,
+    survives: usize,
+    launched: Mutex<usize>,
+}
+
+impl DyingSandbox {
+    fn after(survives: usize) -> Self {
+        Self {
+            calls: Mutex::new(Vec::new()),
+            survives,
+            launched: Mutex::new(0),
+        }
+    }
+
+    fn dead(&self) -> bool {
+        *self.launched.lock().expect("verrou") > self.survives
+    }
+}
+
+impl Runner for DyingSandbox {
+    fn run(&self, arguments: &[String]) -> Result<Execution, RuntimeError> {
+        self.calls.lock().expect("verrou").push(arguments.to_vec());
+        if arguments
+            .iter()
+            .any(|argument| argument == RUNNING_TEMPLATE)
+        {
+            return Ok(Execution {
+                code: 0,
+                stdout: if self.dead() { "false\n" } else { "true\n" }.to_owned(),
+                stderr: String::new(),
+            });
+        }
+        if arguments.first().is_none_or(|verb| verb != "exec") {
+            return Ok(Execution {
+                code: 0,
+                stdout: String::new(),
+                stderr: String::new(),
+            });
+        }
+        let mut launched = self.launched.lock().expect("verrou");
+        *launched += 1;
+        let alive = *launched <= self.survives;
+        Ok(Execution {
+            // Une fois morte, le runtime refuse de lancer quoi que ce soit : c'est le 255 observé
+            // sur l'hôte réel.
+            code: if alive { 1 } else { 255 },
+            stdout: String::new(),
+            stderr: String::new(),
+        })
+    }
+}
+
+/// **Une réponse qu'on ne sait pas lire n'est pas une mort.**
+///
+/// Le runtime a répondu, mais pas « true » ni « false ». Ranger cela avec « ne tourne plus » ferait
+/// déclarer mortes des sandboxes sur une réponse qu'on n'a pas comprise — troisième forme de la même
+/// faute, après « le runtime n'a pas pu » et « je n'ai pas pu demander ».
+#[test]
+fn une_reponse_illisible_ne_fait_pas_declarer_la_sandbox_morte() {
+    let (execd, id) = started(Unreadable);
+    let trials = run_suite(&execd, &id);
+    assert!(
+        trials.iter().all(|trial| trial.observed()
+            != (Observed::NotRun {
+                reason: SANDBOX_GONE
+            })),
+        "« je n'ai pas compris » ne s'écrit pas « il n'y avait rien pour la lancer »"
+    );
+}
+
+/// Un runtime dont l'inspection répond autre chose que « true » ou « false ».
+struct Unreadable;
+
+impl Runner for Unreadable {
+    fn run(&self, arguments: &[String]) -> Result<Execution, RuntimeError> {
+        if arguments
+            .iter()
+            .any(|argument| argument == RUNNING_TEMPLATE)
+        {
+            return Ok(Execution {
+                code: 0,
+                stdout: "<no value>\n".to_owned(),
+                stderr: String::new(),
+            });
+        }
+        // Les lancements sont refusés par un code **transitoire** : sans cela la question de l'état
+        // de la sandbox ne se poserait jamais, et le test ne mesurerait rien de ce qu'il prétend.
+        Ok(Execution {
+            code: i32::from(arguments.first().is_some_and(|verb| verb == "exec")) * 255,
+            stdout: String::new(),
+            stderr: String::new(),
+        })
+    }
+}
+
+/// **La sandbox est interrogée à chaque tentative, y compris la dernière.**
+///
+/// Placer le constat de vie derrière la condition de reprise aurait un effet unique et discret : une
+/// sandbox qui meurt pendant la dernière tentative serait rapportée « le runtime n'a pas pu » au lieu
+/// de « il n'y avait rien pour la lancer ». Un mutant a montré que rien ne le tenait — cinq refus
+/// suivis d'une mort est exactement le cas que le budget de reprise rend possible.
+#[test]
+fn la_mort_survenue_a_la_derniere_tentative_est_nommee() {
+    let (execd, id) = started(DiesLast::default());
+    let trials = run_suite(&execd, &id);
+    assert_eq!(
+        trials.first().expect("la suite n'est pas vide").observed(),
+        Observed::NotRun {
+            reason: SANDBOX_GONE
+        },
+        "la mort découverte au dernier essai se nomme comme celle découverte au premier"
+    );
+}
+
+/// Un runtime qui refuse les lancements et dont la sandbox ne meurt qu'au dernier essai.
+#[derive(Default)]
+struct DiesLast {
+    inspections: Mutex<u32>,
+}
+
+impl Runner for DiesLast {
+    fn run(&self, arguments: &[String]) -> Result<Execution, RuntimeError> {
+        if arguments
+            .iter()
+            .any(|argument| argument == RUNNING_TEMPLATE)
+        {
+            let mut inspections = self.inspections.lock().expect("verrou");
+            *inspections += 1;
+            return Ok(Execution {
+                code: 0,
+                stdout: if *inspections < LAUNCH_ATTEMPTS {
+                    "true\n"
+                } else {
+                    "false\n"
+                }
+                .to_owned(),
+                stderr: String::new(),
+            });
+        }
+        Ok(Execution {
+            code: i32::from(arguments.first().is_some_and(|verb| verb == "exec")) * 255,
             stdout: String::new(),
             stderr: String::new(),
         })
