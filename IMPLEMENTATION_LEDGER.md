@@ -7937,6 +7937,52 @@ introuvable, et la sonde correcte n'en a pas besoin parce qu'elle sort avant.
 
 ---
 
+## 2026-08-19 — W5.t — Aucun appel au runtime ne dure indéfiniment
+
+**Périmètre.** `apps/locus-execd/src/linux/driver.rs` (`CALL_BUDGET`, `SystemRunner`), et trois
+tests dans `tests/podman.rs`.
+
+_Livré dans la PR de `W5.r`, et consigné ici sous son propre titre parce qu'il est un item et non un
+détail de celui-là._ La garde `check:roadmap` l'a exigé : un item marqué fait sans entrée au ledger
+est soit non livré, soit livré sans que ce qu'il a coûté soit consigné nulle part. C'était le second
+cas, et c'est le premier écart que cette garde ait trouvé.
+
+**Le défaut.** `SystemRunner::run` appelait `Command::output()`, qui attend **sans limite**. C'était
+le seul endroit du dépôt sans borne, contre sa propre règle — « timeouts et cancellation » — et il y
+tenait parce que c'était aussi le seul chemin qu'aucun test ne traversait.
+
+**Comment il a été trouvé, et le faux coupable.** Le job de CI de `W5.r` a **paru** pendre, et
+l'hypothèse construite là-dessus — une sandbox saturée en PID bloquant son propre démontage — était
+**fausse** : le job avait fini en 3 min 36, et c'est l'état rapporté par l'API qui était périmé. Ce
+que la fausse piste a fait trouver est réel. `W5.r` n'a pas créé le risque, il l'a multiplié par
+seize : un appel non borné par campagne devient quatre-vingts.
+
+**Décisions prises.**
+
+_Soixante secondes._ Très au-dessus de ce que `create`, `start`, `exec`, `stop` ou `rm` demandent
+sur un hôte sain — la campagne complète en tient cent quatre-vingts pour quatre-vingts appels — donc
+jamais atteint quand tout va bien, et très en dessous de ce qu'une attente sans fin coûte quand ça
+va mal.
+
+_Les deux flux sont drainés par des fils dédiés._ Les laisser dans le tuyau ferait bloquer `podman`
+dès qu'il écrit plus que la capacité du tube, et un processus bloqué en écriture ne finit jamais —
+ce qui rendrait le budget inopérant **au moment précis où il sert**.
+
+_Tuer d'abord, rendre ensuite._ Les fils de drainage attendent la fermeture des tuyaux ; un
+processus qu'on abandonnerait sans le tuer les retiendrait.
+
+_Le programme devient nommable._ `with_program` ouvre le seul chemin qu'aucun test ne traversait —
+c'est là que l'absence de borne avait pu vivre. `&'static str` et non `String` : le programme se
+nomme **dans le code**, jamais dans une configuration ni un message, parce que `locus-execd` est le
+composant privilégié du système.
+
+**Tests exécutés.** Trois, et tenus **sans Podman** : `sleep` pour l'abandon, `echo` pour la sortie
+intacte, `sh -c 'exit 3'` pour le code et le `stderr`. Chacun seul serait passé par une rédaction
+fausse — une borne qui tue tout passe le premier, un lanceur qui écrit `code: 0` en dur passe le
+second. Mutation : sept mutants, sept tués.
+
+---
+
 ## 2026-08-19 — W5.s — Un runtime qui ne répond pas n'a rien refusé
 
 **Périmètre.** `apps/locus-execd/src/runtime.rs` (`RuntimeError::Refused`), `src/linux/driver.rs`
@@ -8066,3 +8112,76 @@ l'arbitrage de `W5.f`, et il attend un hôte, pas une décision.
 **Ce que ce sprint ne prétend pas.** Il ne clôt pas `W5.f`, dont la moitié « `S2` sous une mission
 qui réserve du disque » attend toujours cette VM. Il clôt l'autre moitié : quinze seizièmes
 d'information sont devenus seize seizièmes de garde.
+
+---
+
+## 2026-08-19 — W0.11 — La roadmap ne peut plus mentir sur son état
+
+**Périmètre.** `tooling/repo/roadmap.ts` et `tooling/repo/check-roadmap.ts` (neufs),
+`tests/repo/roadmap.test.ts` (neuf), `package.json` (`check:roadmap` inséré dans `check`),
+`docs/10_V1_ROADMAP.md` (107 lignes marquées **fait**, une ligne `W0.11` ajoutée),
+`IMPLEMENTATION_LEDGER.md` (cette entrée, et celle de `W5.t` qui manquait).
+
+**Le défaut.** Le ledger enregistrait plus de cent items livrés avec leur test de sortie ; la
+roadmap en marquait vingt-neuf. « Règle de session » dit de prendre _le premier item non terminé
+dont les dépendances sont satisfaites_ — une instruction sans objet quand le tableau ne dit pas ce
+qui est terminé. Ce n'est pas cosmétique : une session qui la suit refait du travail livré, ou saute
+un item ouvert en le croyant clos. Marquer la ligne après chaque merge était une **discipline**,
+c'est-à-dire quelque chose qui tient jusqu'à ce que ça ne tienne plus — et ça n'a pas tenu cent-sept
+fois.
+
+**Les deux sens, parce qu'un seul laisse passer l'autre moitié.** _Livré non marqué_ : la roadmap
+sous-estime, une session refait. _Marqué non livré_ : elle sur-estime, une session saute — le plus
+coûteux, parce qu'il ne se découvre qu'en aval. La garde a trouvé un exemplaire du second dès le
+premier passage : `W5.t`, livré dans la PR de `W5.r` et sans entrée à lui. Il en a une maintenant.
+
+**Ce que la première version ratait, et qui valait le double.** Elle ne lisait que le registre de
+`locusolus` et concluait « ok ». Or la roadmap est celle du chantier : `W2.*` est livré dans
+`canterel`, `W10.*` dans `xiiif`, `W0.1` et `W0.10` dans les quatre. Vingt-deux lignes faites et non
+marquées lui étaient structurellement invisibles — dont **les dix-neuf de W2**, c'est-à-dire le
+worker entier. Une garde qui couvre un quart du tableau et dit « ok » ment de la forme exacte
+qu'elle prétend interdire. Les identifiants étant uniques sur le chantier, elle cherche désormais
+chaque item dans les quatre registres.
+
+**Ce qu'un checkout absent ne prouve pas.** La CI de ce dépôt ne voit qu'un dépôt sur quatre. Un
+`W2.4` marqué y est indiscernable d'un `W2.4` inventé, et accuser ferait rougir la CI sur du travail
+réellement livré. La règle « marqué sans entrée » est donc **suspendue** dès qu'un registre n'a pas
+pu être lu, et les registres manquants sont **imprimés** : « pas vérifié n'est jamais réussi » vaut
+dans les deux sens, et un `ok` muet ferait passer une suspension pour une vérification. Le sens
+inverse reste sûr sans condition — ce qui a été lu a été lu. Le registre **local**, lui, n'est
+jamais « non lu » : son absence est un checkout cassé, et la garde échoue dessus au lieu de
+conclure. C'est la règle 3 de « Rythme de session » appliquée à l'outillage.
+
+**Ce que cette garde ne verra jamais.** Elle confronte deux documents : elle attrape leur désaccord,
+pas leur **silence commun**. Un item livré dans le code, absent des deux, lui est indiscernable d'un
+item jamais commencé — et c'est le cas normal d'un item à faire. Le premier passage en a trouvé un
+exemplaire vivant, et c'est le prochain item : `W7.a` n'est ni marqué ni consigné, et
+`packages/review/src/dossier.rs` existe, écrit par le sprint de `W7.b` qui en avait besoin. Seul le
+test de sortie tranche. La garde réduit la fenêtre de mensonge, elle ne la ferme pas, et l'entrée le
+dit plutôt que de laisser croire le contraire.
+
+**Tests exécutés.** `node --test tests/repo/roadmap.test.ts` — 9/9. Le test de sortie de l'item,
+nommément : un item livré dont la ligne ne porte pas **fait** est rapporté (`livre-non-marque`), un
+item marqué sans entrée aussi (`marque-non-livre`), un registre non lu est nommé et suspend la
+seconde règle sans toucher à la première, un item livré chez un voisin est vu, et un registre local
+absent fait échouer la garde au lieu de la suspendre, et le runner **imprime** les registres qu'il
+n'a pas lus — sans quoi la suspension serait invisible et `ok` se lirait « tout a été vérifié ».
+`npm run check` — onze portes, vertes. Mutation testing sur la garde et son runner : **10 mutants,
+10 tués**, dont « la suspension avale aussi _livré non marqué_ », « les registres voisins sont lus
+mais jamais fusionnés » et « le runner ne nomme plus ce qu'il n'a pas lu ».
+
+**Décisions prises.** (1) Seul le **titre** d'une entrée atteste une livraison : le corps peut
+nommer un item futur, et c'est même ainsi qu'un sprint transmet ce qu'il a trouvé. (2) Un item livré
+que la roadmap **ne connaît pas** n'est pas une violation — `W5.g` à `W5.u` sont nés en cours de
+route, et exiger leur présence au plan avant qu'ils existent interdirait à un sprint de trouver quoi
+que ce soit. (3) La CI de `locusolus` ne va pas chercher les trois autres dépôts : ce serait une
+dépendance implicite à trois checkouts, contre la règle du dépôt. Elle vérifie ce qu'elle a et nomme
+ce qui lui manque.
+
+**Écart avec la spec.** Aucun — `W0.11` est un item de discipline de dépôt, pas de `SPEC_V1.md`.
+
+**Prochain item.** `W7.a` — `packages/review` : `ReviewDossier` figé, `Review`, `Finding`, et
+l'attestation d'indépendance de §14.4. Dépendances satisfaites : `W13.c` et `W13.d` sont livrés, et
+le reste de W7 aussi — c'est précisément l'anomalie. Le sprint commence donc par exercer le test de
+sortie contre ce qui existe déjà, avant d'écrire quoi que ce soit : l'item est peut-être à moitié
+livré sans que rien ne l'atteste.
