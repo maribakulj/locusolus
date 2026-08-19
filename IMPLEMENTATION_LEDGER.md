@@ -7669,3 +7669,75 @@ demande de lire ce que `podman exec` écrit sur son erreur, que le harnais jette
 C'est `W5.q`, et c'est la troisième fois que cette enquête resserre sa question au lieu de la
 résoudre. Chaque tour a laissé le harnais plus honnête ; aucun n'a eu le droit de conclure à sa
 place.
+
+---
+
+## 2026-08-19 — W5.q — Ce que le runtime écrit en refusant cesse d'être jeté
+
+**Périmètre.** `apps/locus-execd/src/linux/selftest.rs` (`Trial::detail`), le rendu de la table dans
+`tests/host_sandbox.rs`, et quatre tests. Aucune sonde modifiée, aucun verdict déplacé.
+
+**Ce qu'il restait à lire.** Trois sprints ont resserré la question sans la résoudre. `W5.n` a
+catalogué 255 ; `W5.o` a supposé la cause transitoire et l'hôte l'a démentie ; `W5.p` a supposé la
+sandbox morte et l'hôte l'a démentie aussi — `is_running` répond, le conteneur **tourne**, et
+`podman exec` refuse pendant plus de six secondes. À ce point le harnais avait montré tout ce qu'il
+gardait. Il gardait le code de sortie. Il **jetait** ce que le runtime écrit sur son erreur, et
+c'était la seule pièce jamais lue.
+
+**Décisions prises.**
+
+_Le détail est une chaîne facultative, pas une chaîne._ `detail: Option<String>`. Un refus muet rend
+`None` ; il ne rend pas `""`. Les deux se ressembleraient dans un rapport où chaque ligne porte une
+chaîne, et la distinction qu'on est venu chercher — qui parle, qui se tait — repasserait à l'œil du
+lecteur au lieu d'être portée par le rapport. Un runtime qui ferme son flux sur un `\n` n'a rien dit
+non plus : le détail est nettoyé, et de l'espace n'est pas une parole.
+
+_Trois absences, trois noms, et aucune ne se collapse dans les autres._ Une sonde qui **aboutit** ne
+porte pas de détail — commenter les succès noierait les refus qui, eux, s'expliquent. Une sonde
+**jamais lancée** n'en porte pas davantage, et surtout n'emprunte pas sa `reason` : la `reason` est
+ce que _nous_ avons constaté, le détail est ce que le _runtime_ a écrit. Les recopier l'une dans
+l'autre donnerait à une absence l'allure d'un refus motivé. C'est la règle de tout ce fichier — «
+pas vérifié n'est jamais réussi », et ici « pas lancé n'est jamais refusé ».
+
+_La table imprime le détail sous la ligne, pas dedans._ `↳` en retrait, sous sonde/code/verdict. Le
+message d'un runtime fait parfois plusieurs lignes ; l'aligner en colonne casserait la table
+exactement quand elle devient utile.
+
+**Ce que le compilateur garantit, et ce qu'un test doit garantir.** `Trial::not_run` est une
+`const fn` : y fabriquer une `String` ne compile pas, donc une absence **ne peut pas** porter de
+détail par inadvertance. Mais un mutant qui ne compile pas n'est pas un mutant tué — la garantie
+disparaîtrait avec la constance, sans qu'aucun test proteste. Le mutant lève donc la `const` en même
+temps, et c'est un test qui répond.
+
+**Tests exécutés.** `cargo test -p locus-execd` → 42 conformes, dont quatre neufs. `npm run check` →
+les dix portes vertes. Mutation : cinq mutants, **cinq tués**, zéro survivant. Deux passages : le
+premier a laissé survivre « le détail n'est plus nettoyé » — aucun test ne fixait le nettoyage,
+parce que le double d'alors écrivait un message sans saut de ligne, ce qu'aucun runtime réel ne
+fait.
+
+**L'instrument a répondu du premier coup, et en une ligne.** Le passage de CI de cette PR même a
+rendu le `stderr`, et il dit autre chose que les trois hypothèses tombées :
+
+- `exceed_pid_quota` → code **2**, `sh: can't fork: Resource temporarily unavailable`. Le shell de
+  la sonde est **mort** au premier fork refusé : son `kill $pids; wait` n'a jamais tourné. Le
+  commentaire de `PID_QUOTA` annonçait exactement ce risque résiduel — « si le shell lui-même meurt
+  de ne pouvoir forker, le nettoyage ne tourne pas » — et le voilà constaté plutôt que craint.
+- les **quatre** sondes suivantes → code **255**, `container create failed (no logs from conmon)`.
+  `podman exec` crée un `conmon` par session ; ce `conmon` naît dans le cgroup PID du conteneur, qui
+  est encore à `pids.max` ; il meurt avant d'écrire son JSON de synchronisation, et Podman lit un
+  tuyau vide comme son code générique.
+
+Ni cgroup transitoire, ni sandbox morte : **un cgroup saturé que plus personne ne peut vider**. Ce
+qui explique aussi pourquoi la reprise de `W5.o` n'aboutissait pas — il n'y avait rien à attendre.
+
+**Ce que cela ouvre, et qui n'est pas une réparation de sonde.** Aucune sonde ne peut promettre de
+survivre à ce qu'elle épuise ; un nettoyage plus soigneux resterait une discipline. La suite est
+donc structurelle : **une sonde par sandbox**, et la contamination cesse d'être évitée pour devenir
+inexprimable. C'est `W5.r`.
+
+_Un défaut de ce sprint, trouvé par le même passage._ Le détail s'imprimait avec un `\n` en tête et
+aucun en queue : une ligne vide avant chaque détail, et la ligne suivante du tableau collée derrière
+lui. Le tableau devenait illisible exactement là où il devient utile, et c'était le livrable. Le
+rendu est corrigé, le retrait vaut pour **toutes** les lignes d'un détail, et il est désormais tenu
+par un test **non `#[ignore]`** — sinon la faute aurait attendu un hôte pour être vue une seconde
+fois.

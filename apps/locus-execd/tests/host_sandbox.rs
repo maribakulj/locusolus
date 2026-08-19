@@ -345,6 +345,52 @@ fn observation(results: &[Trial], name: &str) -> Observed {
     )
 }
 
+/// Ce que le runtime a écrit en refusant, ou rien.
+///
+/// `W5.q` : c'était la dernière chose que le harnais jetait. Trois hypothèses sont tombées sur les
+/// sondes qui rendent 255 — cgroup transitoire, sandbox morte, contamination — et la seule chose
+/// qu'on n'avait pas lue est ce que le runtime **dit** en refusant.
+fn detail_of(results: &[Trial], name: &str) -> String {
+    results
+        .iter()
+        .find(|trial| trial.name() == name)
+        .and_then(Trial::detail)
+        .map_or_else(String::new, indented)
+}
+
+/// Le détail, en retrait sous sa ligne — **chaque** ligne du détail.
+///
+/// Le premier passage réel a montré la faute que la relecture n'avait pas vue : un `\n` en tête et
+/// aucun en queue, donc une ligne vide avant le détail et la ligne suivante du tableau collée
+/// derrière lui. Le tableau devenait illisible exactement là où il devient utile.
+///
+/// Le retrait vaut pour toutes les lignes, pas seulement la première : un runtime écrit parfois
+/// plusieurs lignes, et une suite désindentée se lirait comme des colonnes du tableau.
+fn indented(detail: &str) -> String {
+    use std::fmt::Write as _;
+
+    detail.lines().fold(String::new(), |mut rendered, line| {
+        let _ = writeln!(rendered, "      ↳ {line}");
+        rendered
+    })
+}
+
+/// Le rendu du détail n'a pas besoin d'un hôte : il se vérifie ici, et il tourne partout.
+///
+/// Les quatre tests de ce fichier sont `#[ignore]` parce qu'ils exigent un runtime. Celui-ci ne
+/// l'est pas — sinon la faute que le premier passage a rendue visible aurait attendu le passage
+/// suivant pour l'être une seconde fois.
+#[test]
+fn le_detail_est_en_retrait_et_ferme_sa_ligne() {
+    assert_eq!(indented("conmon: rien"), "      ↳ conmon: rien\n");
+    assert_eq!(
+        indented("premiere\nseconde"),
+        "      ↳ premiere\n      ↳ seconde\n",
+        "une suite désindentée se lirait comme des colonnes"
+    );
+    assert_eq!(indented(""), "", "rien à dire ne prend pas de ligne");
+}
+
 /// Le code brut que la commande a rendu, quand il y en a eu un.
 ///
 /// `—` et non `0` pour l'absence : un runtime qui n'a pas répondu n'a pas de code, et afficher un
@@ -394,6 +440,7 @@ fn report(results: &[Trial]) {
                 other => other.to_string(),
             }
         );
+        print!("{}", detail_of(results, probe.name));
     }
     println!();
 }

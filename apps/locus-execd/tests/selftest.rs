@@ -1314,3 +1314,114 @@ impl Runner for DiesLast {
         })
     }
 }
+
+// ---------------------------------------------------------------------------------------------
+// W5.q — ce que le runtime dit en refusant
+// ---------------------------------------------------------------------------------------------
+
+/// **Un refus qui s'explique et un refus muet ne sont pas le même refus.**
+///
+/// C'était la dernière chose que le harnais jetait. `W5.m` a mis le code à côté du verdict, et le
+/// code a nommé le motif ; `W5.n`, `W5.o` et `W5.p` ont écarté trois hypothèses l'une après l'autre,
+/// et le refus persiste sur un conteneur vivant. Ce qu'on n'avait jamais lu est ce que le runtime
+/// **écrit**.
+#[test]
+fn ce_que_le_runtime_ecrit_en_refusant_est_conserve() {
+    let (execd, id) = started(Explaining(
+        "crun: cannot fork: Resource temporarily unavailable\n",
+    ));
+    let trials = run_suite(&execd, &id);
+    let first = trials.first().expect("la suite n'est pas vide");
+    assert_eq!(
+        first.detail(),
+        Some("crun: cannot fork: Resource temporarily unavailable"),
+        "le refus porte ce qui l'explique, mot pour mot — sans le saut de ligne que tout runtime \
+         ajoute, qui ferait passer deux fois le même message pour deux messages"
+    );
+    assert_eq!(first.code(), Some(255), "et le code, qui ne l'explique pas");
+}
+
+/// **Un saut de ligne seul n'est pas une explication.**
+///
+/// Un runtime qui ferme son flux d'erreur sur un `\n` n'a rien dit. Sans nettoyage, ce `\n`
+/// deviendrait un détail : chaque refus muet de la suite en porterait un, et la distinction que
+/// [`ce_que_le_runtime_ecrit_en_refusant_est_conserve`] est venue chercher — qui parle, qui se tait
+/// — serait rendue à l'œil du lecteur au lieu d'être portée par le rapport.
+#[test]
+fn un_saut_de_ligne_seul_n_est_pas_une_explication() {
+    let (execd, id) = started(Explaining("  \n"));
+    let trials = run_suite(&execd, &id);
+    assert!(
+        trials.iter().all(|trial| trial.detail().is_none()),
+        "de l'espace n'est pas une parole"
+    );
+}
+
+/// **Rien d'écrit se dit `None`, pas une chaîne vide.**
+///
+/// Les deux se ressembleraient dans un rapport où tout le monde porte une chaîne, et la distinction
+/// qu'on est venu chercher disparaîtrait : un refus muet et un refus qui s'explique n'appellent pas
+/// la même suite.
+#[test]
+fn un_refus_muet_se_distingue_d_un_refus_qui_parle() {
+    let (execd, id) = started(Explaining(""));
+    let trials = run_suite(&execd, &id);
+    assert!(
+        trials.iter().all(|trial| trial.detail().is_none()),
+        "une chaîne vide n'est pas ce que le runtime a dit : c'est qu'il n'a rien dit"
+    );
+}
+
+/// **Une sonde jamais lancée ne porte aucun détail non plus.**
+///
+/// La `reason` d'un `NotRun` est ce que *nous* avons constaté ; le détail est ce que le *runtime* a
+/// écrit. Recopier la première dans le second donnerait à une absence l'allure d'un refus motivé, et
+/// le rapport ne distinguerait plus « le runtime a expliqué son refus » de « nous avons expliqué son
+/// silence ». C'est la même règle qu'ailleurs dans ce fichier : pas vérifié n'est jamais réussi, et
+/// pas lancé n'est jamais refusé.
+#[test]
+fn une_sonde_jamais_lancee_ne_porte_aucun_detail() {
+    let (execd, id) = started(VanishingRuntime::new(2));
+    let trials = run_suite(&execd, &id);
+    assert!(
+        trials
+            .iter()
+            .all(|trial| matches!(trial.observed(), Observed::NotRun { .. })
+                && trial.detail().is_none()),
+        "ce que nous constatons n'est pas ce que le runtime a dit : {trials:?}"
+    );
+}
+
+/// Une sonde qui aboutit ne porte pas de détail — il n'y a rien à expliquer.
+#[test]
+fn une_sonde_qui_aboutit_ne_porte_aucun_detail() {
+    let (execd, id) = started(ProbingRunner::new(Vec::new()));
+    let trials = run_suite(&execd, &id);
+    assert!(
+        trials
+            .iter()
+            .all(|trial| trial.detail().is_none() && trial.observed() == Observed::Succeeded),
+        "un rapport qui commenterait les succès noierait les refus qui, eux, s'expliquent"
+    );
+}
+
+/// Un runtime qui refuse les lancements en disant pourquoi.
+struct Explaining(&'static str);
+
+impl Runner for Explaining {
+    fn run(&self, arguments: &[String]) -> Result<Execution, RuntimeError> {
+        if let Some(answer) = alive(arguments) {
+            return Ok(answer);
+        }
+        let probing = arguments.first().is_some_and(|verb| verb == "exec");
+        Ok(Execution {
+            code: if probing { 255 } else { 0 },
+            stdout: String::new(),
+            stderr: if probing {
+                self.0.to_owned()
+            } else {
+                String::new()
+            },
+        })
+    }
+}

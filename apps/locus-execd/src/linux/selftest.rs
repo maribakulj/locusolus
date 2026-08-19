@@ -400,6 +400,7 @@ pub struct Trial {
     name: &'static str,
     observed: Observed,
     code: Option<i32>,
+    detail: Option<String>,
 }
 
 impl Trial {
@@ -421,6 +422,24 @@ impl Trial {
         self.code
     }
 
+    /// Ce que le runtime a **écrit** en refusant, quand il a écrit quelque chose.
+    ///
+    /// # La dernière chose que le harnais jetait
+    ///
+    /// `W5.m` a mis le code à côté du verdict, et le code a nommé le motif : toutes les sondes
+    /// suivant `exceed_pid_quota` rendaient 255. `W5.n` a catalogué ce code, `W5.o` a fait
+    /// retenter, `W5.p` a écarté la sandbox morte — et le refus persiste sur un conteneur vivant.
+    /// Trois hypothèses sont tombées, et la seule chose qui n'avait pas été lue est ce que le
+    /// runtime **dit** en refusant.
+    ///
+    /// `None` quand rien n'a été écrit : un refus muet et un refus qui s'explique n'appellent pas la
+    /// même suite, et les confondre — en rendant une chaîne vide pour les deux — effacerait
+    /// précisément la distinction qu'on est venu chercher.
+    #[must_use]
+    pub fn detail(&self) -> Option<&str> {
+        self.detail.as_deref()
+    }
+
     /// Une sonde qui n'a pas tourné, et qui n'a donc **aucun** code.
     ///
     /// # Un constructeur, et pas deux affectations
@@ -438,6 +457,7 @@ impl Trial {
             name,
             observed: Observed::NotRun { reason },
             code: None,
+            detail: None,
         }
     }
 }
@@ -510,6 +530,7 @@ fn attempt<R: Runner>(backend: &PodmanBackend<R>, id: &SandboxId, name: &'static
                         continue;
                     }
                 }
+                let written = execution.stderr.trim();
                 return Trial {
                     name,
                     observed: if execution.code == 0 {
@@ -519,6 +540,9 @@ fn attempt<R: Runner>(backend: &PodmanBackend<R>, id: &SandboxId, name: &'static
                             .map_or(Observed::Blocked, |reason| Observed::NotRun { reason })
                     },
                     code: Some(execution.code),
+                    // Vide veut dire « il n'a rien dit », et c'est un fait ; le rendre comme une
+                    // chaîne vide le ferait disparaître dans un rapport où tout le monde en a une.
+                    detail: (!written.is_empty()).then(|| written.to_owned()),
                 };
             }
             Err(_) => return Trial::not_run(name, UNREACHABLE_RUNTIME),
