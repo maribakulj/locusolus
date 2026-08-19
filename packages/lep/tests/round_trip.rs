@@ -123,3 +123,67 @@ fn an_absent_field_stays_absent() {
         "un champ absent ne doit pas réapparaître en null"
     );
 }
+
+// ---------------------------------------------------------------------------------------------
+// W15.f — les deux tests qui **définissent** ce que « mineur » veut dire ici
+// ---------------------------------------------------------------------------------------------
+//
+// ADR 0017 décide `lep/1.1` une fois pour quatre ajouts, et `role` est la tranche 1. Les deux
+// tests ci-dessous ne portent pas sur `role` : ils portent sur ce qu'un **mineur** promet, et
+// `role` est le premier champ qui permet de les écrire. Ils sont donc écrits sur le champ réel
+// plutôt que sur un champ fictif — un `some_field_added_in_1_1` prouve que le SDK tolère
+// l'inconnu, pas qu'un ajout réel se comporte comme un mineur.
+
+/// Un document `1.1` reste lisible par un consommateur `1.0`.
+///
+/// Le sens du mineur, et la moitié la plus visible : un émetteur qui a mis à jour ne casse pas un
+/// lecteur qui ne l'a pas fait. Ici le lecteur est le SDK d'avant `role` — approché par ce qu'il
+/// **ferait** : lire le document, en tirer les champs qu'il connaît, et ne trébucher sur aucun
+/// autre.
+#[test]
+fn un_document_1_1_se_lit_chez_un_consommateur_1_0() {
+    let mut document = body("mission-envelope-nominal.json");
+    let objet = document.as_object_mut().expect("un objet");
+    objet.insert("protocol".to_owned(), Value::String("lep/1.1".to_owned()));
+    objet.insert(
+        "role".to_owned(),
+        Value::String("logical-reviewer".to_owned()),
+    );
+
+    let mission: MissionEnvelope =
+        serde_json::from_value(document).expect("un consommateur ne rejette pas un mineur");
+    assert_eq!(mission.role.as_deref(), Some("logical-reviewer"));
+    assert_eq!(mission.protocol, "lep/1.1");
+}
+
+/// Un document `1.0` laisse le champ **absent**, jamais rempli par un défaut.
+///
+/// L'autre moitié, et la plus facile à rater : un consommateur `1.1` qui remplirait `role` d'un
+/// défaut ferait croire qu'un émetteur ancien a demandé quelque chose. « Absent » et « demandé
+/// explicitement » sont deux faits différents, et c'est `Option` qui les sépare — un `String`
+/// vide, ou un rôle par défaut, les confondrait.
+///
+/// Le ré-encodage est vérifié aussi : `skip_serializing_if` fait qu'un `role` absent ne réapparaît
+/// pas en `null`. Un lecteur `1.0` qui recevrait `"role": null` verrait un champ qu'il ne connaît
+/// pas, là où le document d'origine n'en avait aucun.
+#[test]
+fn un_document_1_0_laisse_le_champ_absent() {
+    let document = body("mission-envelope-nominal.json");
+    assert!(
+        document.get("role").is_none(),
+        "la fixture est bien un document d'avant le mineur"
+    );
+
+    let mission: MissionEnvelope = serde_json::from_value(document.clone()).expect("document 1.0");
+    assert_eq!(mission.role, None, "absent ne se remplit pas d'un défaut");
+
+    let reencode = serde_json::to_value(&mission).expect("ré-encodage");
+    assert!(
+        reencode.get("role").is_none(),
+        "un champ absent ne revient pas en null"
+    );
+    assert!(
+        equivalent(&reencode, &document),
+        "et le reste est identique — par `equivalent`, parce que JSON ne distingue pas `4` de `4.0`"
+    );
+}

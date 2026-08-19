@@ -373,25 +373,30 @@ fn a_split_leaves_the_rest_of_the_organisation_alone() {
 /// Vérification par l'absence — ADR 0016, décision 4.
 ///
 /// Le test échouera le jour où quelqu'un ajoutera une variante attributaire sans lui donner de
-/// lecteur, et c'est ce qu'on lui demande. Les quatre noms sont écrits en toutes lettres pour que
+/// lecteur, et c'est ce qu'on lui demande. Les trois noms sont écrits en toutes lettres pour que
 /// l'échec dise **laquelle** est entrée sans son consommateur.
+///
+/// Ils étaient quatre. `SET_ROLE` est sorti de cette liste par W15.f, et **seulement** parce que
+/// son lecteur existe : `selectOverlay`, dans le worker Canterel, lit le rôle sur le fil depuis la
+/// tranche 1 du mineur `lep/1.1`. La décision 4 n'interdit pas les opérations attributaires, elle
+/// interdit celles que rien n'honore — la retirer de la liste sans ce lecteur aurait été
+/// exactement ce qu'elle refuse.
 #[test]
-fn the_four_attribute_operations_await_their_reader() {
-    for absent in [
-        "SET_ROLE",
-        "SET_VISIBILITY",
-        "SET_VALIDATOR",
-        "SET_EXECUTION_ORDER",
-    ] {
+fn the_three_remaining_attribute_operations_await_their_reader() {
+    for absent in ["SET_VISIBILITY", "SET_VALIDATOR", "SET_EXECUTION_ORDER"] {
         assert!(
             !Operation::NAMES.contains(&absent),
             "{absent} écrirait un attribut qu'aucun lecteur ne lit"
         );
     }
+    assert!(
+        Operation::NAMES.contains(&"SET_ROLE"),
+        "SET_ROLE est entrée avec son lecteur, et la liste doit le dire"
+    );
     assert_eq!(
         Operation::NAMES.len(),
-        7,
-        "sept structurelles, et pas une de plus sans consommateur exécutable"
+        8,
+        "sept structurelles et une attributaire, pas une de plus sans consommateur exécutable"
     );
 }
 
@@ -607,4 +612,305 @@ fn a_root_refuses_a_dangling_edge() {
     let error = Version::root(&[agent(1)], &[reviews(agent(1), agent(2))], &Fnv)
         .expect_err("agent(2) n'est pas membre");
     assert!(matches!(error, VersionError::DanglingEdge { .. }));
+}
+
+// ---------------------------------------------------------------------------------------------
+// 5. `SET_ROLE` — W15.f, tranche 1 du mineur `lep/1.1`
+// ---------------------------------------------------------------------------------------------
+
+/// Poser un rôle, et le lire.
+#[test]
+fn un_role_se_pose_et_se_lit() {
+    let base = Version::root(&[agent(1)], &[], &Fnv).expect("fixture cohérente");
+    let posee = base
+        .apply(&set_role(agent(1), None, Some("logical-reviewer")), &Fnv)
+        .expect("le rôle se pose");
+
+    assert_eq!(posee.role(&agent(1)), Some("logical-reviewer"));
+    assert_eq!(posee.roles().len(), 1);
+    assert_eq!(
+        base.role(&agent(1)),
+        None,
+        "la version d'avant ne change pas"
+    );
+}
+
+/// **La migration `[M]` ne déplace rien de ce qui existe.**
+///
+/// Une version sans rôle produit les mêmes octets qu'avant `SET_ROLE` : la table vide n'ajoute
+/// aucune ligne, donc `canonical_form_is_frozen` passe **sans être touché** — c'est lui la preuve,
+/// et ce test-ci le dit à voix haute pour que le plan de rollback ne repose pas sur une lecture de
+/// diff. Seules les versions qui usent de l'opération nouvelle ont une forme nouvelle, et elles ne
+/// pouvaient pas exister avant elle.
+#[test]
+fn une_version_sans_role_garde_sa_forme_canonique() {
+    let version = Version::root(&[agent(1), agent(2)], &[reviews(agent(1), agent(2))], &Fnv)
+        .expect("fixture cohérente");
+    let first = agent(1);
+    let second = agent(2);
+
+    assert_eq!(
+        version.canonical(),
+        format!("coordination-content/1\ne\t{first}\treview\t{second}\nn\t{first}\nn\t{second}\n"),
+        "aucune ligne `r` là où aucun rôle n'est posé"
+    );
+    assert!(version.roles().is_empty());
+}
+
+/// La ligne de rôle entre dans la forme canonique, triée avec les autres.
+#[test]
+fn un_role_pose_entre_dans_la_forme_canonique() {
+    let version = Version::root(&[agent(1)], &[], &Fnv)
+        .expect("fixture cohérente")
+        .apply(&set_role(agent(1), None, Some("provenance-reviewer")), &Fnv)
+        .expect("le rôle se pose");
+    let node = agent(1);
+
+    assert_eq!(
+        version.canonical(),
+        format!("coordination-content/1\nn\t{node}\nr\t{node}\tprovenance-reviewer\n")
+    );
+}
+
+/// L'inverse est **exact**, et c'est pour cela que l'opération énonce ce qu'elle remplace.
+///
+/// Sans `from`, l'inverse devrait deviner le rôle d'avant, et une annulation rendrait un contenu
+/// que personne n'a approuvé. Le test compare les **hashes de contenu**, pas les identités : une
+/// annulation n'est pas un retour en arrière, c'est un commit qui rend le contenu d'avant.
+#[test]
+fn defaire_un_changement_de_role_rend_le_contenu_d_avant() {
+    let base = Version::root(&[agent(1)], &[], &Fnv)
+        .expect("fixture cohérente")
+        .apply(&set_role(agent(1), None, Some("logical-reviewer")), &Fnv)
+        .expect("rôle initial");
+
+    let operation = set_role(
+        agent(1),
+        Some("logical-reviewer"),
+        Some("provenance-reviewer"),
+    );
+    let changee = base.apply(&operation, &Fnv).expect("le rôle change");
+    let inverse = operation.undo().exact().expect("exact").clone();
+    let defaite = changee.apply(&inverse, &Fnv).expect("l'inverse s'applique");
+
+    assert_eq!(defaite.content_hash(), base.content_hash());
+    assert_ne!(defaite.id(), base.id(), "l'histoire ne se défait pas");
+    assert_eq!(defaite.role(&agent(1)), Some("logical-reviewer"));
+}
+
+/// Retirer un rôle, et le rendre : les deux sens de l'absence.
+#[test]
+fn retirer_un_role_se_defait_aussi() {
+    let porteur = Version::root(&[agent(1)], &[], &Fnv)
+        .expect("fixture cohérente")
+        .apply(&set_role(agent(1), None, Some("logical-reviewer")), &Fnv)
+        .expect("rôle posé");
+
+    let retrait = set_role(agent(1), Some("logical-reviewer"), None);
+    let nue = porteur.apply(&retrait, &Fnv).expect("le rôle se retire");
+    assert_eq!(nue.role(&agent(1)), None);
+    assert!(nue.roles().is_empty());
+
+    let rendue = nue
+        .apply(retrait.undo().exact().expect("exact"), &Fnv)
+        .expect("l'inverse s'applique");
+    assert_eq!(rendue.content_hash(), porteur.content_hash());
+}
+
+/// **Un diff calculé sur un état périmé ne s'applique pas.**
+///
+/// `from` n'est pas décoratif : il est vérifié. Une opération qui déclarerait un rôle d'avant qui
+/// n'est plus celui du nœud s'appliquerait à autre chose que ce que l'approbateur a vu — et son
+/// inverse rendrait un contenu qui n'a jamais existé.
+#[test]
+fn un_role_d_avant_qui_ne_correspond_pas_est_refuse() {
+    let version = Version::root(&[agent(1)], &[], &Fnv)
+        .expect("fixture cohérente")
+        .apply(&set_role(agent(1), None, Some("logical-reviewer")), &Fnv)
+        .expect("rôle posé");
+
+    let erreur = version
+        .apply(
+            &set_role(agent(1), Some("provenance-reviewer"), Some("write")),
+            &Fnv,
+        )
+        .expect_err("l'état déclaré est faux");
+    assert_eq!(
+        erreur,
+        VersionError::RoleMismatch {
+            node: agent(1).to_string(),
+            held: Some("logical-reviewer".to_owned()),
+            declared: Some("provenance-reviewer".to_owned()),
+        }
+    );
+
+    let sur_un_nu = Version::root(&[agent(1)], &[], &Fnv)
+        .expect("fixture cohérente")
+        .apply(
+            &set_role(agent(1), Some("logical-reviewer"), Some("write")),
+            &Fnv,
+        )
+        .expect_err("le nœud ne porte rien");
+    assert_eq!(
+        sur_un_nu,
+        VersionError::RoleMismatch {
+            node: agent(1).to_string(),
+            held: None,
+            declared: Some("logical-reviewer".to_owned()),
+        }
+    );
+}
+
+/// Une ligne de diff sans effet se lit comme un changement approuvé.
+#[test]
+fn une_operation_qui_ne_change_rien_est_refusee() {
+    let version = Version::root(&[agent(1)], &[], &Fnv).expect("fixture cohérente");
+    assert_eq!(
+        version
+            .apply(&set_role(agent(1), None, None), &Fnv)
+            .expect_err("rien ne change"),
+        VersionError::RoleUnchanged {
+            node: agent(1).to_string()
+        }
+    );
+}
+
+/// Un rôle blanc ne se distingue pas d'une absence, pour aucun lecteur.
+#[test]
+fn un_role_vide_est_refuse() {
+    let version = Version::root(&[agent(1)], &[], &Fnv).expect("fixture cohérente");
+    for blanc in ["", "   ", "\t"] {
+        assert_eq!(
+            version
+                .apply(&set_role(agent(1), None, Some(blanc)), &Fnv)
+                .expect_err("un rôle blanc n'est pas un rôle"),
+            VersionError::EmptyRole {
+                node: agent(1).to_string()
+            },
+            "{blanc:?}"
+        );
+    }
+}
+
+/// Un rôle ne se pose pas sur un nœud qui n'est pas là.
+#[test]
+fn un_role_sur_un_nœud_absent_est_refuse() {
+    let version = Version::root(&[agent(1)], &[], &Fnv).expect("fixture cohérente");
+    assert_eq!(
+        version
+            .apply(&set_role(agent(2), None, Some("write")), &Fnv)
+            .expect_err("agent(2) n'est pas membre"),
+        VersionError::NoSuchNode {
+            node: agent(2).to_string()
+        }
+    );
+}
+
+/// **Ce qu'un inverse ne saurait pas rendre est refusé** — retrait, scission, fusion.
+///
+/// C'est la règle des arêtes, appliquée au rôle. `REMOVE_NODE` emporterait le rôle et son
+/// `ADD_NODE` inverse ne le rendrait pas ; une scission ne dit pas laquelle des deux moitiés le
+/// garde ; une fusion recevrait deux rôles pour une identité. Dans les trois cas l'appelant le
+/// retire d'abord, dans le diff, où l'approbateur le voit.
+#[test]
+fn retrait_scission_et_fusion_refusent_un_nœud_qui_porte_un_role() {
+    let porteur = Version::root(&[agent(1), agent(2)], &[], &Fnv)
+        .expect("fixture cohérente")
+        .apply(&set_role(agent(1), None, Some("logical-reviewer")), &Fnv)
+        .expect("rôle posé");
+    let attendu = VersionError::NodeStillHasRole {
+        node: agent(1).to_string(),
+        role: "logical-reviewer".to_owned(),
+    };
+
+    assert_eq!(
+        porteur
+            .apply(&Operation::RemoveNode(agent(1)), &Fnv)
+            .expect_err("le retrait perdrait le rôle"),
+        attendu
+    );
+    assert_eq!(
+        porteur
+            .apply(
+                &Operation::SplitNode {
+                    node: agent(1),
+                    into: (agent(3), agent(4)),
+                    follows_first: BTreeSet::new(),
+                },
+                &Fnv
+            )
+            .expect_err("la scission ne dit pas qui garde le rôle"),
+        attendu
+    );
+    assert_eq!(
+        porteur
+            .apply(
+                &Operation::MergeNodes {
+                    first: agent(1),
+                    second: agent(2),
+                    into: agent(5),
+                },
+                &Fnv
+            )
+            .expect_err("la fusion recevrait deux rôles pour une identité"),
+        attendu
+    );
+}
+
+/// Le remplacement, lui, **emporte** le rôle — et son inverse le rend.
+///
+/// L'asymétrie avec les trois précédents n'est pas un oubli : un remplacement est un isomorphisme,
+/// son inverse est le remplacement opposé, et rien ne se perd. Le refuser obligerait à retirer puis
+/// reposer un rôle inchangé, c'est-à-dire à écrire dans le diff un changement qui n'a pas lieu.
+#[test]
+fn le_remplacement_emporte_le_role_et_son_inverse_le_rend() {
+    let porteur = Version::root(&[agent(1)], &[], &Fnv)
+        .expect("fixture cohérente")
+        .apply(&set_role(agent(1), None, Some("logical-reviewer")), &Fnv)
+        .expect("rôle posé");
+
+    let remplacement = Operation::ReplaceNode {
+        from: agent(1),
+        to: agent(2),
+    };
+    let remplacee = porteur
+        .apply(&remplacement, &Fnv)
+        .expect("le remplacement passe");
+    assert_eq!(remplacee.role(&agent(2)), Some("logical-reviewer"));
+    assert_eq!(remplacee.role(&agent(1)), None);
+
+    let rendue = remplacee
+        .apply(remplacement.undo().exact().expect("exact"), &Fnv)
+        .expect("l'inverse s'applique");
+    assert_eq!(rendue.content_hash(), porteur.content_hash());
+}
+
+/// La forme canonique de l'opération porte les deux rôles, pas seulement le nouveau.
+///
+/// Deux `SET_ROLE` de même cible et de même `to` mais de `from` différents sont deux opérations :
+/// l'une part d'une absence, l'autre écrase un rôle. Une forme qui n'écrirait que le nouveau les
+/// ferait se ressembler, et l'approbation aurait porté sur celle qu'on n'applique pas.
+#[test]
+fn la_forme_canonique_de_set_role_porte_les_deux_roles() {
+    let node = agent(1);
+    assert_eq!(
+        set_role(node, None, Some("write")).canonical(),
+        format!("SET_ROLE\t{node}\t-\twrite")
+    );
+    assert_eq!(
+        set_role(node, Some("logical-reviewer"), Some("write")).canonical(),
+        format!("SET_ROLE\t{node}\tlogical-reviewer\twrite")
+    );
+    assert_ne!(
+        set_role(node, None, Some("write")).canonical(),
+        set_role(node, Some("logical-reviewer"), Some("write")).canonical()
+    );
+}
+
+fn set_role(node: Id<Agent>, from: Option<&str>, to: Option<&str>) -> Operation {
+    Operation::SetRole {
+        node,
+        from: from.map(ToOwned::to_owned),
+        to: to.map(ToOwned::to_owned),
+    }
 }

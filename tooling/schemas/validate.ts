@@ -70,6 +70,12 @@ export function compile(
   // `format` is annotation-only in draft-07 unless a validator asserts it. On a wire contract a
   // date that is not a date is a defect, so it is asserted.
   addFormats(ajv, ["date-time", "uri", "email"]);
+  // `x-since` marks the minor that introduced a property — ADR 0017: no `schemas/lep/1.1/`
+  // directory, the additions carry their version where they fall. It is an annotation and must
+  // never constrain an instance: a `1.0` document is not less valid for lacking a `1.1` property.
+  // Declaring it is what keeps `strict` on — dropping strict to accommodate one annotation would
+  // silence every future typo alongside it.
+  ajv.addKeyword({ keyword: "x-since", metaSchema: { type: "string" } });
   const findings: Finding[] = [];
   // A schema can legitimately be both: referenced by others AND validated against its own
   // examples. Registering it twice is what Ajv refuses, not declaring it in both lists — so the

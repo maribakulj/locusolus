@@ -8446,3 +8446,95 @@ test **amont** — `Identifier.create` empaquette environ 53 bits dans six octet
 se replie tous les 795 jours, et le dernier repli date du 14 août 2026. Le corriger touche un
 fichier amont, payé à chaque synchronisation (ADR 0010). Détail dans l'entrée de `W15.f` du registre
 de `canterel`.
+
+---
+
+## 2026-08-19 — W15.f `[M]` — `SET_ROLE`, et la tranche 1 du mineur `lep/1.1`
+
+**Périmètre.** `schemas/lep/1.0/mission-envelope.schema.json` (le champ `role`, `x-since: "1.1"`),
+`tooling/schemas/validate.ts` (le mot-clé `x-since` déclaré à Ajv),
+`packages/lep/src/generated.{rs,ts}` (régénérés), `packages/lep/tests/round_trip.rs` (les deux tests
+du mineur), `packages/coordination/src/version.rs` et `region.rs` (`SET_ROLE`, la table des rôles,
+trois refus), `packages/coordination/tests/{version,region}.rs`, `docs/10_V1_ROADMAP.md`, ce
+fichier. Le lecteur côté worker est parti d'abord et a son entrée dans le registre de `canterel`.
+
+**L'ordre des trois pas, et pourquoi il n'était pas libre.** ADR 0016 décision 4 : une opération
+attributaire n'entre dans l'énumération que lorsque son consommateur existe. `PINNED.json`, de son
+côté, référence un commit de `locusolus` qui doit exister avant d'être épinglé. Le lecteur est donc
+parti en premier (`canterel#22`), le champ et l'opération ici, le re-vendoring du SDK ensuite.
+
+**Le champ est une chaîne libre, pas une énumération.** Interdit 3 d'ADR 0017 : un mineur ajoute des
+champs, jamais des valeurs. `packages/lep/src/generated.rs` émet des `enum` Rust fermés, donc un
+membre nouveau sur une énumération ancienne ferait échouer la désérialisation chez tout consommateur
+`1.0`, **en silence pour l'émetteur**. Une énumération de rôles aurait donc transformé chaque rôle
+nouveau en rupture.
+
+**`x-since` a dû être déclaré à Ajv.** ADR 0017 veut l'annotation dans les schémas et pas de
+répertoire `schemas/lep/1.1/` ; Ajv en mode `strict` refuse un mot-clé inconnu. Le déclarer sans
+méta-schéma contraignant vaut mieux que relâcher `strict`, qui aurait aussi tu toutes les fautes de
+frappe à venir. L'annotation ne contraint jamais une instance : un document `1.0` n'est pas moins
+valide parce qu'il lui manque une propriété `1.1`.
+
+**Les deux tests qui définissent « mineur », écrits sur le champ réel.** Un
+`some_field_added_in_1_1` fictif prouve que le SDK tolère l'inconnu, pas qu'un ajout réel se
+comporte en mineur. (1) Un document `lep/1.1` portant `role` se lit chez un consommateur qui ne
+connaît pas le champ. (2) Un document `1.0` laisse le rôle **absent** — jamais rempli d'un défaut —
+et le ré-encodage ne le fait pas revenir en `null`, ce que `skip_serializing_if` garantit. « Absent
+» et « demandé explicitement » sont deux faits différents.
+
+**`SET_ROLE` énonce ce qu'elle remplace.** Elle porte `from` **et** `to`, comme la scission énonce
+sa partition, et pour la même raison : sans `from`, son inverse devrait deviner le rôle d'avant, et
+une annulation rendrait un contenu que personne n'a approuvé. `apply` **vérifie** `from` contre ce
+que le nœud porte — un diff calculé sur un état périmé s'appliquerait sinon à autre chose que ce
+qu'il montrait à l'approbateur. Son inverse est l'opération aux deux rôles échangés, exact dans les
+deux sens, y compris pour poser et retirer.
+
+**Trois refus, et une asymétrie voulue.** Retirer, scinder ou fusionner un nœud qui porte un rôle
+est **refusé** : `REMOVE_NODE` l'emporterait et son `ADD_NODE` inverse ne le rendrait pas, une
+scission ne dit pas laquelle des deux moitiés le garde, une fusion recevrait deux rôles pour une
+identité. C'est la règle des arêtes appliquée au rôle, et l'appelant le retire d'abord, dans le
+diff. `REPLACE_NODE`, lui, **emporte** le rôle : c'est un isomorphisme, son inverse est le
+remplacement opposé, rien ne se perd. Le refuser obligerait à écrire dans le diff un changement qui
+n'a pas lieu.
+
+**Le plan de rollback, et pourquoi il est trivial.** La forme canonique gagne des lignes
+`r\t<nœud>\t<rôle>`, triées avec les autres — donc les hashes changent, d'où `[M]`. Mais **une
+version sans rôle produit les mêmes octets qu'avant** : la table vide n'ajoute aucune ligne.
+`canonical_form_is_frozen` passe sans être touché, et c'est lui la preuve ; un test de W15.f le
+redit à voix haute pour que le plan ne repose pas sur une lecture de diff. Revenir en arrière, c'est
+donc retirer la variante et la table : aucune version existante ne change d'identité, et les seules
+qui useraient de l'opération nouvelle ne pouvaient pas exister avant elle.
+
+**`region.rs` : `SET_ROLE` ne menace aucun invariant, et ce n'est pas un oubli.** Elle ne touche ni
+membre ni arête, donc aucun chemin de revue n'en naît. Le danger qu'un rôle porte est ailleurs et il
+est tenu ailleurs : `selectOverlay` place la politique de revue **avant** le rôle, de sorte qu'un
+rôle ne peut pas renvoyer une revue indépendante vers le profil du générateur. L'écrire ici comme
+une menace d'acyclicité nommerait le mauvais invariant et ferait relâcher le bon.
+
+**Un test de frontière a mordu, et il avait raison.** `proposal.rs` refuse le nom du document de
+mission dans tout `packages/coordination`, **commentaires compris**, parce que ce crate ne doit
+avoir aucun moyen de toucher à une mission émise. Le commentaire de `NAMES` le nommait pour dire où
+vit le lecteur ; il a été reformulé plutôt que la garde relâchée. C'est plus strict que `W18.a`, qui
+retire les commentaires avant de scanner — la version stricte coûte une périphrase et évite d'avoir
+à décider, à chaque relecture, si une occurrence est un usage ou une explication.
+
+**Tests exécutés.** `cargo test -p locus-coordination` — 182 conformes, dont douze neufs pour
+`SET_ROLE`. `cargo test -p locus-lep` — 8, dont les deux du mineur.
+`cargo clippy --workspace --all-targets` — zéro remarque. `npm run check` — onze portes vertes.
+Mutation testing : **11 mutants, 11 tués**, dont « l'état déclaré n'est plus vérifié », « le
+remplacement perd le rôle au lieu de l'emporter », « l'inverse n'échange pas les deux rôles » et «
+un rôle absent revient en `null` sur le fil ».
+
+**Le test de sortie de l'item, clause par clause.** (1) L'overlay lit le rôle et un test l'exerce de
+bout en bout, par `mapMission` — dans `canterel`. (2) Sans ce lecteur l'opération reste hors de
+l'énumération : le test d'absence porte désormais sur les **trois** restantes et exige que
+`SET_ROLE` y soit, en disant pourquoi. (3) Le rôle ne prend jamais le pas sur l'invariant 11 : huit
+cas dans `canterel`. (4) Un document `1.0` laisse le rôle absent — ici, et le ré-encodage aussi.
+
+**Écart avec la spec.** Aucun. `SPEC_V1.md` §7.1 fait de `role` un champ d'`AgentTemplate` et §20
+lui donne ses deux valeurs d'exemple ; les deux sont dans la table du lecteur.
+
+**Prochain item.** Le re-vendoring du SDK épinglé dans `canterel`, qui referme les trois pas, puis
+`W19.a` — les six motifs de refus d'admission sur le fil. Instruit d'avance : l'énumération en
+mémoire en porte **sept**, pas six ; `DiskQuotaNotEnforceable` est né avec `W5.g` et `W5.j`, après
+l'écriture de la ligne de roadmap.

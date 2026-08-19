@@ -618,25 +618,30 @@ fn a_vetoed_batch_keeps_what_the_region_required() {
 
 /// Une région ne s'autorise pas une opération qui n'existe pas.
 ///
-/// `SET_ROLE` est nommée par `docs/13` et attend son lecteur (W15.e). L'accepter ici ne permettrait
+/// `SET_VISIBILITY` est nommée par `docs/13` et attend son lecteur. L'accepter ici ne permettrait
 /// rien pendant que l'auteur de la région croirait le contraire — le pire des deux états.
+///
+/// Le test visait `SET_ROLE` jusqu'à W15.f, qui lui a donné son lecteur. Le remplacer par une autre
+/// attributaire est ce que ce test demande à devenir : il tient une **règle**, pas une liste, et le
+/// jour où les trois restantes auront leur consommateur il n'aura plus de sujet — ce sera le bon
+/// moment pour le retirer, pas avant.
 #[test]
 fn a_region_cannot_allow_an_operation_that_does_not_exist_yet() {
     let error = Region::declare(
         "coeur",
         &[agent(1)],
-        &["ADD_NODE", "SET_ROLE"],
+        &["ADD_NODE", "SET_VISIBILITY"],
         1,
         8,
         8,
         ApprovalMode::Human,
         false,
     )
-    .expect_err("SET_ROLE n'existe pas");
+    .expect_err("SET_VISIBILITY n'existe pas");
     assert_eq!(
         error,
         RegionError::UnknownOperation {
-            operation: "SET_ROLE".to_owned()
+            operation: "SET_VISIBILITY".to_owned()
         }
     );
 }

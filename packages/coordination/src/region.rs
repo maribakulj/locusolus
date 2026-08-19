@@ -112,12 +112,18 @@ pub fn threatens(operation: &Operation) -> BTreeSet<Invariant> {
         // Une arête de visibilité, un nœud isolé, un retrait, un remplacement — qui est un
         // isomorphisme — et une scission, qui ne fait que répartir des arêtes existantes : aucun ne
         // crée de chemin de revue.
+        // `SET_ROLE` ne touche ni membre ni arête : aucun chemin de revue n'en naît. Le danger
+        // qu'un rôle porte est ailleurs et il est déjà tenu ailleurs — `selectOverlay` place la
+        // politique de revue **avant** le rôle, de sorte qu'un rôle ne peut pas renvoyer une revue
+        // indépendante vers le profil du générateur (ADR 0017 §5.1). L'écrire ici comme une menace
+        // d'acyclicité nommerait le mauvais invariant et ferait relâcher le bon.
         Operation::AddEdge(_)
         | Operation::AddNode(_)
         | Operation::RemoveNode(_)
         | Operation::ReplaceNode { .. }
         | Operation::RemoveEdge(_)
-        | Operation::SplitNode { .. } => BTreeSet::new(),
+        | Operation::SplitNode { .. }
+        | Operation::SetRole { .. } => BTreeSet::new(),
     }
 }
 
@@ -333,7 +339,11 @@ impl Region {
 /// décrit.
 fn touched(operation: &Operation) -> Vec<Id<Agent>> {
     match operation {
-        Operation::AddNode(node) | Operation::RemoveNode(node) => vec![*node],
+        Operation::AddNode(node)
+        | Operation::RemoveNode(node)
+        | Operation::SetRole { node, .. } => {
+            vec![*node]
+        }
         Operation::ReplaceNode { from, to } => vec![*from, *to],
         Operation::AddEdge(relation) | Operation::RemoveEdge(relation) => {
             vec![relation.from, relation.to]

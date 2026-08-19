@@ -22,7 +22,7 @@
 //! Une cascade est un script — elle fait au commit des choses que le diff ne montrait pas, et
 //! l'approbation aurait porté sur autre chose que ce qui s'applique.
 //!
-//! # Sept opérations, et quatre qui attendent leur lecteur
+//! # Huit opérations, et trois qui attendent leur lecteur
 //!
 //! `docs/13` nomme onze opérations cibles. La règle « aucune sémantique inerte » (ADR 0016,
 //! décision 4) vaut pour une opération comme pour une sorte de relation, et elle trace ici une
@@ -32,9 +32,20 @@
 //! vit ailleurs ; l'écrire ici produirait un attribut que le système sait versionner, différencier,
 //! approuver et afficher, et que rien n'honore.
 //!
-//! Les quatre absentes, et ce que chacune attend :
+//! `SET_ROLE` est entrée par W15.f, et **uniquement** parce que ce lecteur existe désormais :
+//! `selectOverlay`, dans le worker Canterel, choisit l'agent par rôle depuis le champ que la
+//! tranche 1 du mineur `lep/1.1` ajoute (ADR 0017 §5.1). La décision 4 n'interdit pas les
+//! opérations attributaires, elle interdit celles que rien n'honore — c'est une condition, pas un
+//! verdict, et elle se lève quand la condition tombe.
 //!
-//! - `SET_ROLE` : les `extraInstructions` additives de l'overlay du worker (décision 4) ;
+//! Elle porte une conséquence que les structurelles n'avaient pas : un rôle est une information
+//! qu'un nœud emporte. Retirer, scinder ou fusionner un nœud qui en porte un est donc **refusé**,
+//! comme pour une arête et pour la même raison — l'opération inverse ne saurait pas le rendre.
+//! Remplacer, en revanche, l'emporte avec l'identité : un remplacement est un isomorphisme, rien ne
+//! s'y perd.
+//!
+//! Les trois absentes, et ce que chacune attend :
+//!
 //! - `SET_VISIBILITY` : la construction de `ContextView` (décision 11) ;
 //! - `SET_VALIDATOR` : qu'un validateur soit un nœud — `docs/13` le range dans les nœuds « plus
 //!   tard », et il n'y en a pas aujourd'hui ;
@@ -44,7 +55,7 @@
 //!
 //! # Fusionner se compense, se défait pas
 //!
-//! Six des sept opérations ont un inverse exact. La fusion n'en a pas, et pour une raison qui se
+//! Sept des huit opérations ont un inverse exact. La fusion n'en a pas, et pour une raison qui se
 //! lit dans sa définition : elle perd la partition. Deux arêtes `X → premier` et `X → second`
 //! deviennent une seule `X → fusionné`, et rien dans le résultat ne dit qu'elles étaient deux. La
 //! scission, elle, énonce sa partition, donc sa fusion inverse la restitue.
@@ -53,7 +64,7 @@
 //! rendrait une scission approximative. ADR 0016, décision 5 : « une modification non inversible ne
 //! peut être que compensée, et elle le déclare à la proposition ».
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
 use locus_domain::ContentHash;
@@ -99,7 +110,8 @@ impl fmt::Display for VersionId {
     }
 }
 
-/// Les sept opérations structurelles de `docs/13` qui ont un consommateur exécutable.
+/// Les huit opérations de `docs/13` qui ont un consommateur exécutable — sept structurelles, et
+/// `SET_ROLE`, la première attributaire à avoir trouvé son lecteur.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Operation {
     /// `ADD_NODE` — une instance d'agent entre.
@@ -135,15 +147,41 @@ pub enum Operation {
         /// L'identité produite, neuve.
         into: Id<Agent>,
     },
+    /// `SET_ROLE` — l'instance reçoit, change ou perd son rôle (`SPEC_V1.md` §7.1, §20).
+    ///
+    /// Elle **énonce ce qu'elle remplace**, comme la scission énonce sa partition, et pour la même
+    /// raison : sans `from`, son inverse devrait deviner le rôle d'avant, et une annulation
+    /// rendrait un contenu que personne n'a approuvé. [`Version::apply`] vérifie que `from` est
+    /// bien ce que le nœud porte — un diff calculé sur un état périmé s'applique alors à autre
+    /// chose que ce qu'il montrait.
+    SetRole {
+        /// L'instance.
+        node: Id<Agent>,
+        /// Ce qu'elle porte aujourd'hui — `None` si elle n'a pas de rôle.
+        from: Option<String>,
+        /// Ce qu'elle portera — `None` la lui retire.
+        to: Option<String>,
+    },
 }
 
 impl Operation {
-    /// Les sept noms, ceux de `docs/13`.
+    /// Les huit noms, ceux de `docs/13`.
     ///
-    /// Les quatre absents — `SET_ROLE`, `SET_VISIBILITY`, `SET_VALIDATOR`, `SET_EXECUTION_ORDER` —
-    /// le sont parce qu'aucun lecteur n'existe pour l'attribut qu'ils écriraient, et un test le
-    /// tient par l'absence. La liste est ici pour que ce test ait quelque chose à lire.
-    pub const NAMES: [&'static str; 7] = [
+    /// Les trois absents — `SET_VISIBILITY`, `SET_VALIDATOR`, `SET_EXECUTION_ORDER` — le sont
+    /// parce qu'aucun lecteur n'existe pour l'attribut qu'ils écriraient, et un test le tient par
+    /// l'absence. La liste est ici pour que ce test ait quelque chose à lire.
+    ///
+    /// `SET_ROLE` était le quatrième et ne l'est plus : `selectOverlay`, dans le worker Canterel,
+    /// lit le rôle sur le fil — la tranche 1 du mineur `lep/1.1`, ADR 0017 §5.1, qui nomme le
+    /// document et le champ. C'est la règle de la décision 4 appliquée dans le sens où elle ouvre :
+    /// une opération attributaire entre **quand** son consommateur existe, pas avant.
+    ///
+    /// Le document en question ne se nomme pas ici, et ce n'est pas une pudeur : un test de
+    /// `proposal.rs` refuse ce nom dans tout le crate, commentaires compris, parce que ce crate ne
+    /// doit avoir aucun moyen de toucher à une mission émise. Sa version stricte — le nom interdit
+    /// jusque dans la prose — coûte cette périphrase et évite d'avoir à décider, à chaque relecture,
+    /// si une occurrence est un usage ou une explication.
+    pub const NAMES: [&'static str; 8] = [
         "ADD_NODE",
         "REMOVE_NODE",
         "REPLACE_NODE",
@@ -151,6 +189,7 @@ impl Operation {
         "REMOVE_EDGE",
         "SPLIT_NODE",
         "MERGE_NODES",
+        "SET_ROLE",
     ];
 
     /// Son nom, celui de `docs/13`.
@@ -164,6 +203,7 @@ impl Operation {
             Self::RemoveEdge(_) => "REMOVE_EDGE",
             Self::SplitNode { .. } => "SPLIT_NODE",
             Self::MergeNodes { .. } => "MERGE_NODES",
+            Self::SetRole { .. } => "SET_ROLE",
         }
     }
 
@@ -203,6 +243,14 @@ impl Operation {
                 second,
                 into,
             } => format!("{}\t{first}\t{second}\t{into}", self.name()),
+            Self::SetRole { node, from, to } => {
+                format!(
+                    "{}\t{node}\t{}\t{}",
+                    self.name(),
+                    slot(from.as_ref()),
+                    slot(to.as_ref())
+                )
+            }
         }
     }
 
@@ -233,6 +281,11 @@ impl Operation {
                 into: *node,
             }),
             Self::MergeNodes { .. } => Undo::Compensating,
+            Self::SetRole { node, from, to } => Undo::Exact(Self::SetRole {
+                node: *node,
+                from: to.clone(),
+                to: from.clone(),
+            }),
         }
     }
 }
@@ -279,6 +332,7 @@ pub struct Version {
     parent: Option<VersionId>,
     members: BTreeSet<Id<Agent>>,
     relations: BTreeSet<Relation>,
+    roles: BTreeMap<Id<Agent>, String>,
     content: ContentHash,
 }
 
@@ -300,7 +354,13 @@ impl Version {
         for relation in &relations {
             check_relation(relation, &members)?;
         }
-        Ok(Self::seal(None, members, relations, digest))
+        Ok(Self::seal(
+            None,
+            members,
+            relations,
+            BTreeMap::new(),
+            digest,
+        ))
     }
 
     /// Son identité.
@@ -333,6 +393,21 @@ impl Version {
         &self.relations
     }
 
+    /// Les rôles portés, par instance.
+    ///
+    /// La racine n'en porte aucun : un rôle arrive par `SET_ROLE`, qui est une ligne de diff comme
+    /// une autre. Le poser à la racine le ferait entrer sans approbation.
+    #[must_use]
+    pub const fn roles(&self) -> &BTreeMap<Id<Agent>, String> {
+        &self.roles
+    }
+
+    /// Le rôle d'une instance, s'il y en a un.
+    #[must_use]
+    pub fn role(&self, node: &Id<Agent>) -> Option<&str> {
+        self.roles.get(node).map(String::as_str)
+    }
+
     /// La forme canonique du contenu.
     ///
     /// Les lignes sont triées **en tant que chaînes**, pas dans l'ordre d'un conteneur : deux
@@ -340,7 +415,7 @@ impl Version {
     /// octets, sinon le hash cesse de dire ce qu'il prétend dire.
     #[must_use]
     pub fn canonical(&self) -> String {
-        content_canonical(&self.members, &self.relations)
+        content_canonical(&self.members, &self.relations, &self.roles)
     }
 
     /// Appliquer une opération, produisant la version suivante.
@@ -352,11 +427,12 @@ impl Version {
     pub fn apply(&self, operation: &Operation, digest: &impl Digest) -> Result<Self, VersionError> {
         let mut members = self.members.clone();
         let mut relations = self.relations.clone();
+        let mut roles = self.roles.clone();
         match operation {
             Operation::AddNode(node) => add_node(&mut members, *node)?,
-            Operation::RemoveNode(node) => remove_node(&mut members, &relations, *node)?,
+            Operation::RemoveNode(node) => remove_node(&mut members, &relations, &roles, *node)?,
             Operation::ReplaceNode { from, to } => {
-                replace_node(&mut members, &mut relations, *from, *to)?;
+                replace_node(&mut members, &mut relations, &mut roles, *from, *to)?;
             }
             Operation::AddEdge(relation) => add_edge(&members, &mut relations, *relation)?,
             Operation::RemoveEdge(relation) => remove_edge(&mut relations, *relation)?,
@@ -364,17 +440,28 @@ impl Version {
                 node,
                 into,
                 follows_first,
-            } => split_node(&mut members, &mut relations, *node, *into, follows_first)?,
+            } => split_node(
+                &mut members,
+                &mut relations,
+                &roles,
+                *node,
+                *into,
+                follows_first,
+            )?,
             Operation::MergeNodes {
                 first,
                 second,
                 into,
-            } => merge_nodes(&mut members, &mut relations, *first, *second, *into)?,
+            } => merge_nodes(&mut members, &mut relations, &roles, *first, *second, *into)?,
+            Operation::SetRole { node, from, to } => {
+                set_role(&mut roles, &members, *node, from.as_deref(), to.as_deref())?;
+            }
         }
         Ok(Self::seal(
             Some(self.id.clone()),
             members,
             relations,
+            roles,
             digest,
         ))
     }
@@ -383,15 +470,17 @@ impl Version {
         parent: Option<VersionId>,
         members: BTreeSet<Id<Agent>>,
         relations: BTreeSet<Relation>,
+        roles: BTreeMap<Id<Agent>, String>,
         digest: &impl Digest,
     ) -> Self {
-        let content = digest.digest(&content_canonical(&members, &relations));
+        let content = digest.digest(&content_canonical(&members, &relations, &roles));
         let id = VersionId(digest.digest(&identity_canonical(parent.as_ref(), &content)));
         Self {
             id,
             parent,
             members,
             relations,
+            roles,
             content,
         }
     }
@@ -414,6 +503,7 @@ fn add_node(members: &mut BTreeSet<Id<Agent>>, node: Id<Agent>) -> Result<(), Ve
 fn remove_node(
     members: &mut BTreeSet<Id<Agent>>,
     relations: &BTreeSet<Relation>,
+    roles: &BTreeMap<Id<Agent>, String>,
     node: Id<Agent>,
 ) -> Result<(), VersionError> {
     if !members.contains(&node) {
@@ -421,6 +511,7 @@ fn remove_node(
             node: node.to_string(),
         });
     }
+    check_roleless(roles, &node)?;
     let attached = incident(relations, &node).count();
     if attached > 0 {
         return Err(VersionError::NodeStillConnected {
@@ -432,9 +523,16 @@ fn remove_node(
     Ok(())
 }
 
+/// Le rôle **suit** l'identité, comme les arêtes.
+///
+/// C'est le seul des quatre à ne pas refuser un nœud qui porte un rôle, et l'asymétrie n'est pas un
+/// oubli : un remplacement est un isomorphisme, son inverse est le remplacement opposé, et il rend
+/// le rôle à `from` exactement. Retrait, scission et fusion perdent de l'information — le rôle
+/// disparaîtrait sans que l'inverse sache le rendre.
 fn replace_node(
     members: &mut BTreeSet<Id<Agent>>,
     relations: &mut BTreeSet<Relation>,
+    roles: &mut BTreeMap<Id<Agent>, String>,
     from: Id<Agent>,
     to: Id<Agent>,
 ) -> Result<(), VersionError> {
@@ -456,6 +554,9 @@ fn replace_node(
     members.remove(&from);
     members.insert(to);
     *relations = substitute(relations, &[(from, to)]);
+    if let Some(role) = roles.remove(&from) {
+        roles.insert(to, role);
+    }
     Ok(())
 }
 
@@ -490,6 +591,7 @@ fn remove_edge(relations: &mut BTreeSet<Relation>, relation: Relation) -> Result
 fn split_node(
     members: &mut BTreeSet<Id<Agent>>,
     relations: &mut BTreeSet<Relation>,
+    roles: &BTreeMap<Id<Agent>, String>,
     node: Id<Agent>,
     into: (Id<Agent>, Id<Agent>),
     follows_first: &BTreeSet<Relation>,
@@ -505,6 +607,11 @@ fn split_node(
             node: node.to_string(),
         });
     }
+    // L'opération énonce la partition des **arêtes**, pas celle du rôle : laquelle des deux
+    // moitiés le garde n'est écrit nulle part, et le dupliquer inventerait un second agent qui
+    // porte le même rôle sans que personne l'ait demandé. L'appelant le retire d'abord, dans le
+    // diff, comme il retire les arêtes.
+    check_roleless(roles, &node)?;
     for produced in [first, second] {
         if members.contains(&produced) {
             return Err(VersionError::NodeAlreadyPresent {
@@ -552,6 +659,7 @@ fn split_node(
 fn merge_nodes(
     members: &mut BTreeSet<Id<Agent>>,
     relations: &mut BTreeSet<Relation>,
+    roles: &BTreeMap<Id<Agent>, String>,
     first: Id<Agent>,
     second: Id<Agent>,
     into: Id<Agent>,
@@ -567,6 +675,9 @@ fn merge_nodes(
                 node: absorbed.to_string(),
             });
         }
+        // Deux rôles pour une identité produite : en garder un serait choisir sans le dire, et le
+        // refus est déjà la règle pour ce qu'une fusion perd.
+        check_roleless(roles, &absorbed)?;
     }
     if members.contains(&into) {
         return Err(VersionError::NodeAlreadyPresent {
@@ -595,7 +706,15 @@ fn merge_nodes(
 }
 
 /// La forme canonique d'un contenu — voir [`Version::canonical`].
-fn content_canonical(members: &BTreeSet<Id<Agent>>, relations: &BTreeSet<Relation>) -> String {
+/// Une version sans rôle produit les **mêmes octets** qu'avant `SET_ROLE` : la table vide
+/// n'ajoute aucune ligne. C'est ce qui rend la migration `[M]` sans effet sur l'existant — seules
+/// les versions qui usent de l'opération nouvelle ont une forme nouvelle, et elles ne pouvaient pas
+/// exister avant.
+fn content_canonical(
+    members: &BTreeSet<Id<Agent>>,
+    relations: &BTreeSet<Relation>,
+    roles: &BTreeMap<Id<Agent>, String>,
+) -> String {
     let mut lines: Vec<String> =
         members
             .iter()
@@ -603,6 +722,11 @@ fn content_canonical(members: &BTreeSet<Id<Agent>>, relations: &BTreeSet<Relatio
             .chain(relations.iter().map(|relation| {
                 format!("e\t{}\t{}\t{}", relation.from, relation.kind, relation.to)
             }))
+            .chain(
+                roles
+                    .iter()
+                    .map(|(node, role)| format!("r\t{node}\t{role}")),
+            )
             .collect();
     lines.sort_unstable();
     let mut canonical = String::from(CONTENT_MAGIC);
@@ -618,6 +742,75 @@ fn content_canonical(members: &BTreeSet<Id<Agent>>, relations: &BTreeSet<Relatio
 fn identity_canonical(parent: Option<&VersionId>, content: &ContentHash) -> String {
     let parent = parent.map_or_else(|| "-".to_owned(), ToString::to_string);
     format!("{VERSION_MAGIC}\nparent\t{parent}\ncontent\t{content}\n")
+}
+
+/// Poser, changer ou retirer le rôle d'une instance.
+///
+/// `from` est vérifié contre ce que le nœud porte, et non ignoré : un diff calculé sur un état
+/// périmé s'appliquerait sinon à autre chose que ce qu'il montrait à l'approbateur. C'est la même
+/// exigence que la partition d'une scission, écrite au moment de l'application plutôt qu'à celui de
+/// la lecture.
+fn set_role(
+    roles: &mut BTreeMap<Id<Agent>, String>,
+    members: &BTreeSet<Id<Agent>>,
+    node: Id<Agent>,
+    from: Option<&str>,
+    to: Option<&str>,
+) -> Result<(), VersionError> {
+    if !members.contains(&node) {
+        return Err(VersionError::NoSuchNode {
+            node: node.to_string(),
+        });
+    }
+    if to.is_some_and(|role| role.trim().is_empty()) {
+        return Err(VersionError::EmptyRole {
+            node: node.to_string(),
+        });
+    }
+    let held = roles.get(&node).map(String::as_str);
+    if held != from {
+        return Err(VersionError::RoleMismatch {
+            node: node.to_string(),
+            held: held.map(ToOwned::to_owned),
+            declared: from.map(ToOwned::to_owned),
+        });
+    }
+    if held == to {
+        return Err(VersionError::RoleUnchanged {
+            node: node.to_string(),
+        });
+    }
+    match to {
+        Some(role) => roles.insert(node, role.to_owned()),
+        None => roles.remove(&node),
+    };
+    Ok(())
+}
+
+/// Un rôle, ou son absence, dans un message d'erreur.
+fn role_or_none(role: Option<&str>) -> String {
+    role.map_or_else(|| "aucun rôle".to_owned(), |role| format!("« {role} »"))
+}
+
+/// Refuser une opération qui perdrait un rôle sans que son inverse sache le rendre.
+fn check_roleless(
+    roles: &BTreeMap<Id<Agent>, String>,
+    node: &Id<Agent>,
+) -> Result<(), VersionError> {
+    match roles.get(node) {
+        Some(role) => Err(VersionError::NodeStillHasRole {
+            node: node.to_string(),
+            role: role.clone(),
+        }),
+        None => Ok(()),
+    }
+}
+
+/// Un champ facultatif dans la forme canonique d'une opération : `-` pour l'absence.
+///
+/// Un rôle vide est refusé par [`set_role`], donc `-` ne peut pas se confondre avec un rôle réel.
+fn slot(value: Option<&String>) -> &str {
+    value.map_or("-", String::as_str)
 }
 
 fn render(relation: &Relation) -> String {
@@ -704,6 +897,32 @@ pub enum VersionError {
         /// Combien d'arêtes.
         edges: usize,
     },
+    /// Ce nœud porte encore un rôle. Le retirer d'abord, dans le diff.
+    NodeStillHasRole {
+        /// Lequel.
+        node: String,
+        /// Le rôle qu'il porte.
+        role: String,
+    },
+    /// Le rôle déclaré comme « celui d'aujourd'hui » n'est pas celui que le nœud porte.
+    RoleMismatch {
+        /// Lequel.
+        node: String,
+        /// Ce qu'il porte réellement.
+        held: Option<String>,
+        /// Ce que l'opération déclarait qu'il portait.
+        declared: Option<String>,
+    },
+    /// L'opération ne change rien : `from` et `to` sont le même rôle.
+    RoleUnchanged {
+        /// Lequel.
+        node: String,
+    },
+    /// Un rôle vide ou blanc — indistinguable d'une absence pour tout lecteur.
+    EmptyRole {
+        /// Lequel.
+        node: String,
+    },
     /// Cette arête est déjà là.
     EdgeAlreadyPresent {
         /// Laquelle.
@@ -749,6 +968,32 @@ impl fmt::Display for VersionError {
                 formatter,
                 "{node} porte encore {edges} arête(s) : les retirer d'abord, une par une — une \
                  cascade ferait au commit ce que le diff ne montrait pas"
+            ),
+            Self::NodeStillHasRole { node, role } => write!(
+                formatter,
+                "{node} porte encore le rôle « {role} » : le retirer d'abord, dans le diff — un \
+                 retrait, une scission ou une fusion le perdrait, et l'opération inverse ne \
+                 saurait pas le rendre"
+            ),
+            Self::RoleMismatch {
+                node,
+                held,
+                declared,
+            } => write!(
+                formatter,
+                "{node} porte {} et l'opération déclarait {} : le diff a été calculé sur un état \
+                 périmé, et s'appliquerait à autre chose que ce qu'il montrait",
+                role_or_none(held.as_deref()),
+                role_or_none(declared.as_deref())
+            ),
+            Self::RoleUnchanged { node } => write!(
+                formatter,
+                "l'opération ne changerait rien au rôle de {node} : une ligne de diff sans effet \
+                 se lit comme un changement approuvé"
+            ),
+            Self::EmptyRole { node } => write!(
+                formatter,
+                "le rôle donné à {node} est vide : aucun lecteur ne le distinguerait d'une absence"
             ),
             Self::EdgeAlreadyPresent { edge } => write!(formatter, "« {edge} » existe déjà"),
             Self::NoSuchEdge { edge } => write!(formatter, "« {edge} » n'existe pas"),
