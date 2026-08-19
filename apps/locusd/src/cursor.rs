@@ -38,6 +38,14 @@ pub enum Collection {
     Workers,
     /// Les conflits ouverts — §9.4, et l'invariant 12 : rien n'y est supprimé.
     Conflicts,
+    /// Le fil d'événements clients de §22.1 — `Last-Event-ID` en SSE.
+    ///
+    /// Distincte de `Timeline` alors que les deux suivent la même position globale, et le choix est
+    /// délibéré : la timeline est une **query** paginée, qui pourra recevoir un filtre, tandis que
+    /// le fil est une **souscription**. Le jour où la timeline filtre, ses positions ne seront plus
+    /// celles du fil — et un cursor qui aurait silencieusement fonctionné des deux côtés se mettrait
+    /// à sauter des événements sans que rien ne le dise.
+    Events,
 }
 
 impl Collection {
@@ -48,11 +56,12 @@ impl Collection {
             Self::Timeline => "timeline",
             Self::Workers => "workers",
             Self::Conflicts => "conflicts",
+            Self::Events => "events",
         }
     }
 
-    /// Les trois, dans l'ordre de déclaration.
-    pub const ALL: [Self; 3] = [Self::Timeline, Self::Workers, Self::Conflicts];
+    /// Toutes, dans l'ordre de déclaration.
+    pub const ALL: [Self; 4] = [Self::Timeline, Self::Workers, Self::Conflicts, Self::Events];
 }
 
 impl fmt::Display for Collection {

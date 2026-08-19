@@ -9109,3 +9109,72 @@ déclarée**, pas un écart.
 **Prochain item.** `W20.f` — les événements clients de §22.1, WebSocket ou SSE avec cursor. Sa
 dépendance `W20.d` est satisfaite, et l'ADR 0018 y a laissé une décision ouverte à dessein : la
 feature `ws` coûte vingt paquets mesurés, et se pèse contre SSE avec le besoin sous les yeux.
+
+## 2026-08-19 — W20.f — le fil d'événements clients, et la condition 4 de l'ADR 0018 tranchée
+
+**Périmètre.** `apps/locusd/src/stream.rs` (neuf), `src/cursor.rs` (la collection `Events`),
+`src/lib.rs`, `apps/locusd/tests/stream.rs` (neuf). Aucun débordement, et **aucune dépendance
+ajoutée**.
+
+**Tests exécutés.** `npm run check` — les douze portes, code de sortie 0. `cargo test -p locusd` —
+53 tests. Mutation testing, quatorze mutants : **14 tués, 0 survivant**.
+
+**La décision du transport, prise avec le besoin sous les yeux.** L'ADR 0018 avait laissé le choix
+ouvert et mesuré ce qu'il met en jeu : la feature `ws` coûte **vingt paquets**. Le besoin ne les
+justifie pas, et pour deux raisons de forme plutôt que de coût :
+
+1. **Le fil client est unidirectionnel.** §22.1 fait voyager les commandes par JSON-RPC ou des
+   endpoints typés, et les queries par REST. Ce qui reste pour ce fil est serveur → client ; la
+   bidirectionnalité de WebSocket serait payée et inutilisée.
+2. **SSE porte déjà la reprise.** `Last-Event-ID` _est_ « reprend depuis sa séquence », la clause
+   que le test de sortie exige. Avec WebSocket il faudrait la réinventer dans le protocole
+   applicatif, donc l'écrire et la tester ; ici elle est dans la norme.
+
+Le coût de sortie reste borné : si un besoin bidirectionnel apparaît, `Frame` est la seule chose à
+réécrire.
+
+**Décisions prises.**
+
+- **Aucun spool par client, et c'est un écart assumé avec `W2.12`.** Le worker a un spool durable
+  parce qu'il **produit** des événements que rien d'autre ne détient. Le fil client est l'inverse :
+  le journal détient déjà tout, durablement et dans l'ordre. Un spool par client dupliquerait un
+  stockage durable — et deux stockages durables du même fait sont **deux vérités**, qui divergent le
+  jour où l'une est purgée. Un client lent perd donc des _notifications_, jamais des événements, et
+  rattrape par son cursor : c'est « ce qu'il n'a pas pu recevoir se relit », mot pour mot.
+- **`Collection::Events` est distincte de `Collection::Timeline`**, alors que les deux suivent la
+  même position globale. La timeline est une **query** paginée, qui pourra recevoir un filtre ; le
+  fil est une **souscription**. Le jour où la timeline filtre, ses positions cesseront d'être celles
+  du fil — et un cursor qui aurait silencieusement fonctionné des deux côtés se mettrait à sauter
+  des événements sans que rien ne le dise.
+- **La coalescence est deny-by-default**, cinq types, comme `W2.12` et §18.3 — et un événement non
+  coalescible **coupe** la rafale. Sans la coupure, un `progress` postérieur à un
+  `artifact.declared` remonterait avant lui, et le client verrait une progression annoncée avant le
+  fait qu'elle décrit. Le compte de fusion voyage : une barre qui saute de 10 % à 80 % sans le dire
+  fait douter du serveur.
+- **Le keep-alive ne porte pas d'`id`.** Un maintien de connexion qui avancerait la reprise ferait
+  perdre des événements à chaque silence — c'est-à-dire précisément quand rien ne permet de s'en
+  apercevoir.
+- **`Delivery` et non `Batch`.** `handler::Batch` est un lot de commandes ; deux types du même nom
+  pour deux choses différentes finiraient importés l'un pour l'autre, et `CLAUDE.md` interdit le
+  vocabulaire parallèle jusque dans les noms de types.
+
+**Deux tests qui promettaient plus qu'ils ne tenaient.**
+`un_retard_plus_long_que_la_borne_se_signale` n'exerçait que le cas **court** : le drapeau serait
+resté bloqué à `false` sans que rien ne bronche. Il exerce désormais les deux, et vérifie que le
+second passage rend exactement le reste. Et un mutant a été rendu **inexploitable** par `cargo fmt`,
+qui avait reformaté la ligne visée — un motif absent n'est pas un résultat, c'est une propriété non
+testée ; le motif a été remis en accord avec la source et le mutant meurt.
+
+**Ce que cet item ne livre pas, et qui reste dû.** Le fil est un **port** : sémantique de reprise,
+borne, coalescence, et cadrage `text/event-stream` exact. Il n'ouvre **aucun socket** — les trois
+clauses du test de sortie portent sur la sémantique du journal, qu'un vrai socket ne rendrait pas
+plus vérifiée, et rendrait moins déterministe. La liaison HTTP — une route `axum` qui rend
+`Frame::event` sur un `text/event-stream` — est la seule chose qui manque à §22.1 côté fil, et elle
+entre avec les dépendances que l'ADR 0018 autorise. Elle est inscrite comme `W20.g` plutôt que
+laissée implicite.
+
+**Écart avec la spec.** §22.1 nomme « WebSocket/SSE » ; SSE est choisi, motivé, et le motif est
+consigné. Ce n'est pas un écart mais un choix que la spec offre.
+
+**Prochain item.** `W20.g` — la liaison HTTP du fil et des queries, avec les premières dépendances
+de transport et le diff qui cite l'ADR 0018.

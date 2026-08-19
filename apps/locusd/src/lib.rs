@@ -41,6 +41,7 @@ pub mod error;
 pub mod handler;
 pub mod outcome;
 pub mod query;
+pub mod stream;
 pub mod transaction;
 
 pub use command::{CommandEnvelope, Draft};
@@ -50,4 +51,5 @@ pub use error::{CommandError, Conflict, EmptyResourceRef, Family, ResourceRef, R
 pub use handler::{Batch, Decide, IdempotencyScope, Submission};
 pub use outcome::{Accepted, Outcome};
 pub use query::{Page, TimelineEntry};
+pub use stream::{ClientEvent, Delivery, Frame};
 pub use transaction::Transaction;
