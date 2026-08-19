@@ -77,9 +77,26 @@ const roadmapRow = /^\| (W\d+\.[a-z0-9]+) ([^|]*)\|/gm;
 export type Reconciliation = {
   readonly delivered: ReadonlySet<string>;
   readonly marked: ReadonlySet<string>;
+  readonly decided: ReadonlySet<string>;
   readonly planned: ReadonlySet<string>;
+  readonly frontier: readonly string[];
   readonly unread: readonly string[];
 };
+
+/**
+ * Les trois états qu'une ligne du plan peut déclarer, et pourquoi ils sont trois.
+ *
+ * Une première lecture n'en connaissait que deux — marqué **fait**, ou non — et elle a failli
+ * envoyer un sprint sur `W16.d`, dont la ligne dit **bloqué** depuis qu'ADR 0017 a constaté qu'il
+ * lui manque un consommateur. « Bloqué » et « à faire » se ressemblent dans un tableau et ne se
+ * ressemblent pas du tout dans une session : l'un attend une décision extérieure, l'autre attend
+ * qu'on l'écrive. `reporté` est du même genre — `W18.f` attend un hôte, pas du travail.
+ *
+ * D'où la **frontière** : les lignes qui ne déclarent rien. C'est la seule liste sur laquelle
+ * « le premier item non terminé dont les dépendances sont satisfaites » a un sens, et la calculer
+ * évite de la lire à l'œil — ce qui, à l'œil, a déjà produit une erreur.
+ */
+const DECIDED = ["bloqué", "reporté"] as const;
 
 /**
  * Les items qu'un registre atteste avoir livrés.
@@ -119,7 +136,9 @@ export async function readReconciliation(root: string): Promise<Reconciliation> 
   }
 
   const marked = new Set<string>();
+  const decided = new Set<string>();
   const planned = new Set<string>();
+  const frontier: string[] = [];
   for (const [, item, tail] of roadmap.matchAll(roadmapRow)) {
     if (item === undefined || tail === undefined) {
       continue;
@@ -127,10 +146,14 @@ export async function readReconciliation(root: string): Promise<Reconciliation> 
     planned.add(item);
     if (tail.includes("fait")) {
       marked.add(item);
+    } else if (DECIDED.some((state) => tail.includes(state))) {
+      decided.add(item);
+    } else {
+      frontier.push(item);
     }
   }
 
-  return { delivered, marked, planned, unread };
+  return { delivered, marked, decided, planned, frontier, unread };
 }
 
 /**
@@ -145,12 +168,25 @@ export async function readReconciliation(root: string): Promise<Reconciliation> 
 export function reconcile(state: Reconciliation): readonly Finding[] {
   const findings: Finding[] = [];
 
+  // Un item décidé et livré est signalé plus bas, sous son nom propre. Le signaler ici aussi
+  // rendrait deux constats pour un fait, et le moins juste des deux en premier : « ajoute **fait** »
+  // alors que ce qu'il faut lire est « cette ligne dit de ne pas y aller, et c'est faux ».
   for (const item of [...state.delivered].sort()) {
-    if (state.planned.has(item) && !state.marked.has(item)) {
+    if (state.planned.has(item) && !state.marked.has(item) && !state.decided.has(item)) {
       findings.push({
         rule: "livre-non-marque",
         where: "docs/10_V1_ROADMAP.md",
         message: `« ${item} » a son entrée au ledger : sa ligne doit porter **fait**, sinon une session le refera`,
+      });
+    }
+  }
+
+  for (const item of [...state.decided].sort()) {
+    if (state.delivered.has(item)) {
+      findings.push({
+        rule: "decide-et-livre",
+        where: "docs/10_V1_ROADMAP.md",
+        message: `« ${item} » est déclaré bloqué ou reporté et a pourtant son entrée au ledger : un item livré n'attend plus rien`,
       });
     }
   }
