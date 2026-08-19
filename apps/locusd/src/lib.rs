@@ -25,15 +25,20 @@
 //!
 //! # Les dépendances, et leur absence
 //!
-//! Quatre crates du workspace — `locus-protocol` pour les identifiants, `locus-event-store` pour le
+//! Six crates du workspace — `locus-protocol` pour les identifiants, `locus-event-store` pour le
 //! journal que la transaction possède, `locus-projections` et `locus-policy` pour ce que le
-//! composition root câble — et `serde` pour la forme sur le fil.
+//! composition root câble, `locus-coordination` et `locus-domain` pour les six capacités de branche
+//! de `W17.f`.
 //!
-//! **Aucune dépendance externe hors `serde`, et c'est vérifié** : `dependencies.json` porte la liste
-//! close, `check:deps` refuse ce qui n'y est pas. L'ADR 0018 a choisi `tokio` et `axum` sans les
-//! introduire — ils entreront avec `W20.f`, qui a un fil à servir. Un runtime asynchrone câblé avant
-//! d'avoir quelque chose à transporter serait une dépendance prise sur une intention.
+//! Quatre crates externes, et **pas une de plus que ce que `dependencies.json` autorise** :
+//! `serde` et `serde_json` pour la forme sur le fil, `tokio` et `axum` pour le transport, entrés
+//! avec `W20.g` sous l'ADR 0018. `check:deps` refuse le reste, et refuse aussi `tokio/full`.
+//!
+//! Ce que ce crate n'a **pas** : de quoi fabriquer un identifiant. Cela demanderait de l'entropie,
+//! donc un crate, donc un ADR — voir [`branch::BranchContext`], qui préfère nommer la lacune plutôt
+//! que la combler en passant.
 
+pub mod branch;
 pub mod command;
 pub mod composition;
 pub mod cursor;
@@ -45,6 +50,7 @@ pub mod query;
 pub mod stream;
 pub mod transaction;
 
+pub use branch::{Approve, BranchContext, DiffView, HistoryEntry, Rollback};
 pub use command::{CommandEnvelope, Draft};
 pub use composition::{Readiness, Runtime, Wired};
 pub use cursor::{Collection, Cursor, CursorError};

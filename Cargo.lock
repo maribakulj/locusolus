@@ -409,6 +409,8 @@ name = "locusd"
 version = "0.0.0"
 dependencies = [
  "axum",
+ "locus-coordination",
+ "locus-domain",
  "locus-event-store",
  "locus-policy",
  "locus-projections",
