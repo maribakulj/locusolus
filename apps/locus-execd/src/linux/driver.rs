@@ -83,6 +83,12 @@ pub struct PodmanBackend<R: Runner> {
     launch_pause: Duration,
 }
 
+/// Le gabarit qui ne demande qu'une chose : la sandbox tourne-t-elle ?
+///
+/// Distinct de celui de l'attestation, qui relit douze champs. Demander les douze pour n'en lire
+/// qu'un ferait payer une inspection complète à chaque sonde qui n'a rien rendu.
+pub const RUNNING_TEMPLATE: &str = "{{.State.Running}}";
+
 /// La pause avant la première reprise d'un lancement, quand le runtime n'a pas pu.
 ///
 /// Elle double à chaque tentative ; avec `LAUNCH_ATTEMPTS`, la somme couvre le pire cas connu.
@@ -218,6 +224,38 @@ impl<R: Runner> RuntimePort for PodmanBackend<R> {
 }
 
 impl<R: Runner> PodmanBackend<R> {
+    /// La sandbox tourne-t-elle encore ? `None` quand on n'a pas pu le demander.
+    ///
+    /// # Trois réponses, parce qu'il y a trois états
+    ///
+    /// `Some(true)` : elle tourne. `Some(false)` : le runtime a répondu, et elle ne tourne plus.
+    /// `None` : le runtime n'a pas répondu, et **on ne sait pas**.
+    ///
+    /// Rendre un booléen forcerait la troisième dans l'une des deux autres. Vers `false`, un
+    /// runtime muet ferait déclarer mortes des sandboxes bien vivantes, et l'appelant écrirait
+    /// « la sandbox ne tournait plus » là où la vérité est « je n'ai pas pu demander ». C'est
+    /// exactement la faute que `W5.n` et `W5.o` ont passé deux sprints à retirer du harnais.
+    #[must_use]
+    pub fn is_running(&self, id: &SandboxId) -> Option<bool> {
+        self.runner
+            .run(&[
+                "inspect".to_owned(),
+                "--format".to_owned(),
+                RUNNING_TEMPLATE.to_owned(),
+                id.as_str().to_owned(),
+            ])
+            .ok()
+            .filter(|execution| execution.code == 0)
+            .and_then(|execution| match execution.stdout.trim() {
+                "true" => Some(true),
+                "false" => Some(false),
+                // Ni l'un ni l'autre : le runtime a répondu quelque chose qu'on ne sait pas lire.
+                // C'est une **troisième** ignorance, et la ranger avec « ne tourne plus » ferait
+                // déclarer mortes des sandboxes sur une réponse qu'on n'a pas comprise.
+                _ => None,
+            })
+    }
+
     fn known(&self, id: &SandboxId) -> Result<(), RuntimeError> {
         if self.created.contains_key(id) {
             return Ok(());

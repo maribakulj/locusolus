@@ -30,7 +30,9 @@ pub mod probe;
 pub mod seccomp;
 pub mod selftest;
 
-pub use driver::{Execution, FIRST_LAUNCH_PAUSE, PodmanBackend, Runner, SystemRunner};
+pub use driver::{
+    Execution, FIRST_LAUNCH_PAUSE, PodmanBackend, RUNNING_TEMPLATE, Runner, SystemRunner,
+};
 pub use invocation::{
     INSPECTED_FIELDS, InvocationError, SeccompProfiles, Workload, create_arguments,
     inspect_arguments,
@@ -45,7 +47,7 @@ pub use probe::{
 };
 pub use seccomp::{MUST_DENY, ProfileError, RestrictedProfile};
 pub use selftest::{
-    INCONCLUSIVE_EXIT_CODE, LAUNCH_ATTEMPTS, PROBE_COMMANDS, TRANSIENT_EXIT_CODES, Trial,
-    UNREACHABLE_RUNTIME, UNREACHABLE_TARGET_EXIT_CODE, UNRUNNABLE_EXIT_CODES, assess, certify,
-    exec_arguments, probe_command, run_suite, unrunnable, verdicts,
+    INCONCLUSIVE_EXIT_CODE, LAUNCH_ATTEMPTS, PROBE_COMMANDS, SANDBOX_GONE, TRANSIENT_EXIT_CODES,
+    Trial, UNREACHABLE_RUNTIME, UNREACHABLE_TARGET_EXIT_CODE, UNRUNNABLE_EXIT_CODES, assess,
+    certify, exec_arguments, probe_command, run_suite, unrunnable, verdicts,
 };

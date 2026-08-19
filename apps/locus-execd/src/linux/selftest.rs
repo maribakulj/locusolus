@@ -131,6 +131,25 @@ pub const UNRUNNABLE_EXIT_CODES: [(i32, &str); 4] = [
     ),
 ];
 
+/// La raison inscrite quand la sandbox elle-même a disparu.
+///
+/// # Une troisième ignorance, et elle n'est pas des deux autres
+///
+/// [`INCONCLUSIVE_EXIT_CODE`] dit « ce que je devais lire n'était pas là ».
+/// [`UNREACHABLE_TARGET_EXIT_CODE`] dit « ce que je devais atteindre n'a pas répondu ». Celle-ci dit
+/// **« il n'y avait rien pour me lancer »** — et elle se répare encore ailleurs : pas en complétant
+/// l'image, pas en changeant d'hôte, mais en comprenant ce qui a tué la sandbox.
+///
+/// `W5.o` a fait retenter les lancements que le runtime refusait, en supposant la cause
+/// **transitoire** — un cgroup occupé se libère. Le premier passage réel a démenti la supposition :
+/// les trois dernières sondes rendaient toujours 255 après six tentatives étalées sur plus de six
+/// secondes. Ce qui ne se libère pas n'était pas occupé.
+///
+/// Rapporter ces sondes comme « le runtime n'a pas pu les lancer » enverrait chercher un runtime
+/// fatigué là où il n'y a plus de conteneur.
+pub const SANDBOX_GONE: &str =
+    "la sandbox ne tournait plus : il n'y avait rien pour lancer la sonde";
+
 /// Les codes réservés qui peuvent **passer**, par opposition à ceux qui ne passeront pas.
 ///
 /// # Deux façons de ne pas avoir été lancé
@@ -428,10 +447,27 @@ impl Trial {
 /// L'ordre est celui de `SUITE`, et chaque sonde apparaît exactement une fois — y compris celles
 /// qui n'ont pas pu être lancées. Une suite tronquée se lirait comme une suite passée.
 pub fn run_suite<R: Runner>(backend: &PodmanBackend<R>, id: &SandboxId) -> Vec<Trial> {
-    SUITE
-        .iter()
-        .map(|probe| attempt(backend, id, probe.name))
-        .collect()
+    let mut trials = Vec::with_capacity(SUITE.len());
+    let mut gone = false;
+    for probe in &SUITE {
+        if gone {
+            // La suite n'est pas tronquée pour autant : chaque sonde reste au rapport, avec la
+            // raison exacte pour laquelle elle n'a rien mesuré. Une suite tronquée se lirait comme
+            // une suite passée, et une suite qui dirait « le runtime n'a pas pu » enverrait
+            // chercher un runtime fatigué là où il n'y a plus de conteneur.
+            trials.push(Trial::not_run(probe.name, SANDBOX_GONE));
+            continue;
+        }
+        let trial = attempt(backend, id, probe.name);
+        // C'est `attempt` qui interroge la sandbox, parce que c'est lui qui allait réessayer.
+        // Constater la mort ici, après coup, aurait laissé brûler le budget de reprise d'abord.
+        gone = trial.observed()
+            == Observed::NotRun {
+                reason: SANDBOX_GONE,
+            };
+        trials.push(trial);
+    }
+    trials
 }
 
 /// Les verdicts seuls, sous la forme que [`locus_execution::standing`] attend.
@@ -456,13 +492,23 @@ fn attempt<R: Runner>(backend: &PodmanBackend<R>, id: &SandboxId, name: &'static
     for remaining in (0..LAUNCH_ATTEMPTS).rev() {
         match backend.runner().run(&arguments) {
             Ok(execution) => {
-                if remaining > 0 && TRANSIENT_EXIT_CODES.contains(&execution.code) {
-                    // Le runtime n'a pas pu lancer la commande **cette fois**. Ce que la sonde
-                    // devait mesurer n'a pas encore été mesuré : rendre un verdict ici rendrait un
-                    // verdict sur l'état du runtime, pas sur le confinement.
-                    thread::sleep(pause);
-                    pause *= 2;
-                    continue;
+                if TRANSIENT_EXIT_CODES.contains(&execution.code) {
+                    // Avant de réessayer, demander s'il y a encore une sandbox. `W5.o` supposait la
+                    // cause transitoire — un cgroup occupé se libère — et brûlait donc son budget
+                    // entier contre un conteneur mort, six fois, pour chacune des sondes restantes.
+                    // Une sandbox morte ne redevient pas vivante : réessayer n'apprend rien et
+                    // coûte le budget.
+                    if backend.is_running(id) == Some(false) {
+                        return Trial::not_run(name, SANDBOX_GONE);
+                    }
+                    if remaining > 0 {
+                        // Le runtime n'a pas pu lancer la commande **cette fois**. Ce que la sonde
+                        // devait mesurer n'a pas encore été mesuré : rendre un verdict ici rendrait
+                        // un verdict sur l'état du runtime, pas sur le confinement.
+                        thread::sleep(pause);
+                        pause *= 2;
+                        continue;
+                    }
                 }
                 return Trial {
                     name,
