@@ -103,9 +103,15 @@ remplacent, parce qu'elles se vérifient et qu'une exhortation ne se vérifie pa
 1. **Une PR ouverte sans réveil armé est un arrêt.** Avant de finir un tour alors qu'une PR attend
    sa CI, une commande d'attente doit tourner en arrière-plan : elle réveille la session quand elle
    se termine. Le tour a le droit de finir ; la boucle n'a pas le droit de dépendre de mon envie de
-   resonder. `tools/attendre-ci.sh` le fait là où un jeton GitHub est lisible ; là où il n'y en a
-   pas, une simple temporisation de fond suffit — ce qui compte est qu'**un réveil existe**, pas
-   lequel. Un réveil grossier qui rend la main vaut mieux qu'un réveil fin qui n'est pas armé.
+   resonder. `tools/attendre-ci.sh` le fait là où l'API GitHub **répond** — un jeton lisible ne
+   suffit pas, et la session qui a écrit cette règle en a fait l'expérience au tour suivant : le
+   jeton était présent et l'API a rendu `403`, l'App GitHub n'étant pas connectée pour cette
+   organisation en HTTP direct alors que le serveur MCP, lui, répondait. Le script a refusé
+   bruyamment, comme prévu ; le réveil, lui, n'existait plus. Là où l'API ne répond pas, une simple
+   temporisation de fond suffit : ce qui compte est qu'**un réveil existe**, pas lequel. Un réveil
+   grossier qui rend la main vaut mieux qu'un réveil fin qui n'est pas armé. Corollaire : ne jamais
+   passer une commande d'attente dans un tube — le code de sortie devient celui de `tail`, et un
+   refus bruyant se lit « exit 0 ».
 2. **Un bilan ne finit pas un tour.** Il va dans le corps de la PR et dans le ledger, écrits en
    passant. Un bilan en dernière position est le signe qu'il n'y avait plus de réveil.
 3. **Un compteur qui n'a rien lu ne vaut pas zéro.** Le premier réveil de cette session lisait
