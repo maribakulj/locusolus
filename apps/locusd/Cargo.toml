@@ -1,0 +1,27 @@
+[package]
+name = "locusd"
+description = "Le daemon Locus Solus : commandes, queries et événements clients (SPEC_V1 §22)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+name = "locusd"
+path = "src/lib.rs"
+
+# Aucune dépendance de transport, et c'est l'objet de W20.a : le domaine de commande d'abord, le
+# runtime asynchrone et le cadre HTTP après leur ADR. `CLAUDE.md` : « construire domain/protocol/
+# event-store d'abord, avec des ports purs ».
+[dependencies]
+locus-protocol = { path = "../../packages/protocol" }
+serde = { workspace = true }
+
+[dev-dependencies]
+# `locus-protocol` est déjà une dépendance ; le doctest `compile_fail` de `command.rs` le nomme
+# explicitement, et un doctest ne voit que ce que le crate déclare.
+serde_json = { workspace = true }
