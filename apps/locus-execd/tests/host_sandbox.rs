@@ -61,8 +61,8 @@ use std::path::PathBuf;
 use std::process;
 
 use locus_execd::linux::{
-    MUST_DENY, PodmanBackend, RestrictedProfile, Runner, SeccompProfiles, SystemRunner, Trial,
-    Workload, exec_arguments, run_suite, verdicts,
+    MUST_DENY, PodmanBackend, RestrictedProfile, Runner, SANDBOX_REFUSED, SeccompProfiles,
+    SystemRunner, Trial, Workload, exec_arguments, run_suite, verdicts,
 };
 use locus_execd::{RuntimePort, SandboxId};
 use locus_execution::{
@@ -300,7 +300,7 @@ fn probe(spec: &SandboxSpec, tag: &str) -> Result<Vec<Trial>, String> {
 
     let (profile_path, restricted) = write_restricted_profile(tag);
     let mut backend = PodmanBackend::new(
-        SystemRunner,
+        SystemRunner::new(),
         SeccompProfiles {
             restricted: Some(restricted),
         },
@@ -316,20 +316,45 @@ fn exercise(
     backend: &mut PodmanBackend<SystemRunner>,
     spec: &SandboxSpec,
 ) -> Result<Vec<Trial>, String> {
-    let id: SandboxId = backend.create(spec).map_err(|error| error.to_string())?;
-    if let Err(error) = backend.start(&id) {
-        teardown(backend, &id);
-        return Err(error.to_string());
-    }
-    let results = run_suite(backend, &id);
-    teardown(backend, &id);
-    Ok(results)
+    let results = run_suite(backend, spec);
+    refused_throughout(&results).map_or(Ok(results), Err)
+}
+
+/// Le message du runtime quand **aucune** des seize sandboxes n'a pu être ouverte.
+///
+/// `W5.r` fait ouvrir une sandbox par sonde : un refus de la spécification ne s'échappe donc plus
+/// par une erreur, il se rapporte seize fois. La distinction que ce fichier tenait reste vraie et
+/// devient plus précise — **toutes** refusées veut dire zéro observation et une raison, ce qui
+/// n'appelle pas la même lecture qu'une table ; **certaines** refusées est une observation, neuve,
+/// et elle a sa place dans la table.
+fn refused_throughout(results: &[Trial]) -> Option<String> {
+    let refused: Vec<&Trial> = results
+        .iter()
+        .filter(|trial| {
+            trial.observed()
+                == Observed::NotRun {
+                    reason: SANDBOX_REFUSED,
+                }
+        })
+        .collect();
+    (refused.len() == results.len())
+        .then(|| {
+            refused
+                .iter()
+                .find_map(|trial| trial.detail())
+                .map(str::to_owned)
+        })
+        .flatten()
 }
 
 /// Arrêter **et retirer** la sandbox, par le port.
 ///
 /// `W5.l` a mis le retrait au port, sous son nom. La version précédente de cette fonction passait
 /// par le runner parce que le port n'avait pas l'opération — une dette assumée qui n'existe plus.
+///
+/// `run_suite` ne passe plus par ici depuis `W5.r` — il démonte lui-même la sandbox de chaque sonde.
+/// Ce qui reste sont les deux tests qui ouvrent un conteneur pour leur propre compte : celui qui
+/// regarde le réseau depuis l'intérieur, et celui qui vérifie qu'un nom est rendu.
 fn teardown(backend: &mut PodmanBackend<SystemRunner>, id: &SandboxId) {
     let _ = backend.stop(id);
     let _ = backend.remove(id);
@@ -523,7 +548,7 @@ fn inspect_network(spec: &SandboxSpec) -> Result<String, String> {
         .expect("une image à digest et une commande non vide");
     let (profile_path, restricted) = write_restricted_profile("reseau");
     let mut backend = PodmanBackend::new(
-        SystemRunner,
+        SystemRunner::new(),
         SeccompProfiles {
             restricted: Some(restricted),
         },
@@ -604,7 +629,7 @@ fn claim_name(spec: &SandboxSpec, tag: &str) -> Result<String, String> {
         .expect("une image à digest et une commande non vide");
     let (profile_path, restricted) = write_restricted_profile(tag);
     let mut backend = PodmanBackend::new(
-        SystemRunner,
+        SystemRunner::new(),
         SeccompProfiles {
             restricted: Some(restricted),
         },

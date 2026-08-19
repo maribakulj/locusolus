@@ -13,12 +13,11 @@ use std::time::Duration;
 
 use locus_execd::linux::{
     Execution, INCONCLUSIVE_EXIT_CODE, LAUNCH_ATTEMPTS, PROBE_COMMANDS, PodmanBackend,
-    RUNNING_TEMPLATE, RestrictedProfile, Runner, SANDBOX_GONE, SeccompProfiles,
+    RUNNING_TEMPLATE, RestrictedProfile, Runner, SANDBOX_GONE, SANDBOX_REFUSED, SeccompProfiles,
     TRANSIENT_EXIT_CODES, Trial, UNREACHABLE_RUNTIME, UNREACHABLE_TARGET_EXIT_CODE,
-    UNRUNNABLE_EXIT_CODES, Workload, assess, certify, exec_arguments, probe_command, run_suite,
-    unrunnable,
+    UNRUNNABLE_EXIT_CODES, Workload, certify, probe_command, run_suite, unrunnable,
 };
-use locus_execd::{RuntimeError, RuntimePort, SandboxId};
+use locus_execd::{RuntimeError, RuntimePort};
 use locus_execution::{
     Mount, NetworkMode, Observed, ResourceSpec, SUITE, SandboxLevel, SandboxProfile, SandboxSpec,
     Standing, Verdict,
@@ -173,11 +172,14 @@ fn backend<R: Runner>(runner: R) -> PodmanBackend<R> {
     PodmanBackend::new(runner, profiles(), workload()).with_launch_pause(Duration::ZERO)
 }
 
-fn started<R: Runner>(runner: R) -> (PodmanBackend<R>, SandboxId) {
-    let mut execd = backend(runner);
-    let id = execd.create(&mission(SandboxLevel::S3)).expect("création");
-    execd.start(&id).expect("démarrage");
-    (execd, id)
+/// Un backend prêt, et la mission à laquelle la suite sera soumise.
+///
+/// `W5.r` : `run_suite` ouvre une sandbox par sonde et la retire derrière elle. Il n'y a donc plus
+/// de sandbox à créer d'avance, et plus d'identifiant à porter d'un appel à l'autre — ce qui voyage
+/// à sa place est la **spécification**. Le nom de la fonction reste juste : ce qui est prêt à
+/// éprouver, c'est le backend.
+fn started<R: Runner>(runner: R) -> (PodmanBackend<R>, SandboxSpec) {
+    (backend(runner), mission(SandboxLevel::S3))
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -208,8 +210,8 @@ fn aucune_commande_ne_vise_une_sonde_qui_n_existe_pas() {
 
 #[test]
 fn le_rapport_porte_chaque_sonde_exactement_une_fois() {
-    let (execd, id) = started(ProbingRunner::airtight());
-    let results = run_suite(&execd, &id);
+    let (mut execd, spec) = started(ProbingRunner::airtight());
+    let results = run_suite(&mut execd, &spec);
     assert_eq!(results.len(), SUITE.len());
     for probe in &SUITE {
         assert_eq!(
@@ -230,8 +232,8 @@ fn le_rapport_porte_chaque_sonde_exactement_une_fois() {
 
 #[test]
 fn un_code_nul_veut_dire_que_la_sonde_a_reussi() {
-    let (execd, id) = started(ProbingRunner::new(Vec::new()));
-    let results = run_suite(&execd, &id);
+    let (mut execd, spec) = started(ProbingRunner::new(Vec::new()));
+    let results = run_suite(&mut execd, &spec);
     assert!(
         results
             .iter()
@@ -242,14 +244,26 @@ fn un_code_nul_veut_dire_que_la_sonde_a_reussi() {
 
 #[test]
 fn la_sonde_est_lancee_dans_la_sandbox_qui_tourne() {
-    let (execd, id) = started(ProbingRunner::airtight());
-    let _ = run_suite(&execd, &id);
-    let expected = exec_arguments(
-        &id,
-        probe_command("write_outside_workspace").expect("commande"),
+    let (mut execd, spec) = started(ProbingRunner::airtight());
+    let _ = run_suite(&mut execd, &spec);
+
+    let calls = execd.runner().calls.lock().expect("verrou");
+    let first = calls
+        .iter()
+        .find(|call| call[0] == "exec")
+        .expect("une sonde a été lancée");
+    assert_eq!(first[1], "locus-0001", "dans la sandbox, pas à côté d'elle");
+    assert!(
+        first.ends_with(
+            probe_command("write_outside_workspace")
+                .expect("commande")
+                .iter()
+                .map(|part| (*part).to_owned())
+                .collect::<Vec<_>>()
+                .as_slice()
+        ),
+        "et c'est bien la commande de la première sonde de SUITE : {first:?}"
     );
-    assert_eq!(expected[0], "exec");
-    assert_eq!(expected[1], "locus-0001");
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -268,23 +282,32 @@ fn un_hote_sans_runtime_ne_prouve_rien_et_n_obtient_pas_la_confiance() {
 
 #[test]
 fn une_sonde_non_lancee_est_notrun_avec_sa_raison() {
-    // La sandbox est créée et démarrée par un runtime qui répond, puis le runtime disparaît :
-    // c'est le cas d'un Podman tué en cours de campagne, et le seul où `run_suite` rencontre un
-    // échec de lancement sonde par sonde.
-    let (execd, id) = started(VanishingRuntime::new(2));
-    let results = run_suite(&execd, &id);
+    // La première sandbox est créée et démarrée par un runtime qui répond, puis le runtime
+    // disparaît : c'est le cas d'un Podman tué en cours de campagne. La première sonde est donc
+    // lancée dans le vide — `UNREACHABLE_RUNTIME` — et les quinze suivantes n'ont même plus de quoi
+    // ouvrir leur sandbox — `SANDBOX_REFUSED`. Deux ignorances, et pas une : la première dit « je
+    // l'ai lancée et personne n'a répondu », la seconde « je n'ai pas pu la lancer ».
+    let (mut execd, spec) = started(VanishingRuntime::new(2));
+    let results = run_suite(&mut execd, &spec);
 
     assert!(
         results.iter().all(|trial| matches!(
             trial.observed(),
             Observed::NotRun {
                 reason
-            } if reason == UNREACHABLE_RUNTIME
+            } if reason == UNREACHABLE_RUNTIME || reason == SANDBOX_REFUSED
         )),
         "un runtime disparu ne bloque pas les sondes, il empêche de les lancer : {results:?}"
     );
+    assert_eq!(
+        results[0].observed(),
+        Observed::NotRun {
+            reason: UNREACHABLE_RUNTIME
+        },
+        "la seule dont la sandbox existait encore a bien été lancée, et n'a rien obtenu"
+    );
 
-    let verdict = assess(&execd, &id, SandboxLevel::S3);
+    let verdict = certify(&mut execd, &spec, SandboxLevel::S3);
     match verdict {
         Standing::NotTrusted { level, blocking } => {
             assert_eq!(level, SandboxLevel::S3);
@@ -341,9 +364,9 @@ impl Runner for VanishingRuntime {
 
 #[test]
 fn un_backend_qui_contient_tout_est_trusted_au_niveau_annonce() {
-    let (execd, id) = started(ProbingRunner::airtight());
+    let (mut execd, spec) = started(ProbingRunner::airtight());
     assert_eq!(
-        assess(&execd, &id, SandboxLevel::S3),
+        certify(&mut execd, &spec, SandboxLevel::S3),
         Standing::Trusted {
             level: SandboxLevel::S3
         }
@@ -357,9 +380,9 @@ fn une_sonde_qui_echappe_retire_la_confiance_et_se_nomme() {
         .map(|probe| probe.name)
         .filter(|name| *name != "read_host_secret_files")
         .collect();
-    let (execd, id) = started(ProbingRunner::new(leaky));
+    let (mut execd, spec) = started(ProbingRunner::new(leaky));
 
-    match assess(&execd, &id, SandboxLevel::S3) {
+    match certify(&mut execd, &spec, SandboxLevel::S3) {
         Standing::NotTrusted { blocking, .. } => {
             assert_eq!(blocking.len(), 1);
             assert!(
@@ -376,8 +399,8 @@ fn une_sonde_qui_echappe_retire_la_confiance_et_se_nomme() {
 
 #[test]
 fn au_niveau_ou_rien_n_est_promis_tout_contenir_n_est_pas_un_echec_de_confiance() {
-    let (execd, id) = started(ProbingRunner::airtight());
-    let verdict = assess(&execd, &id, SandboxLevel::S0);
+    let (mut execd, spec) = started(ProbingRunner::airtight());
+    let verdict = certify(&mut execd, &spec, SandboxLevel::S0);
     assert_eq!(
         verdict,
         Standing::Trusted {
@@ -406,8 +429,7 @@ fn au_niveau_ou_rien_n_est_promis_tout_contenir_n_est_pas_un_echec_de_confiance(
 #[test]
 fn certify_cree_demarre_eprouve_arrete_puis_retire() {
     let mut execd = backend(ProbingRunner::airtight());
-    let verdict = certify(&mut execd, &mission(SandboxLevel::S2), SandboxLevel::S2)
-        .expect("campagne menée à son terme");
+    let verdict = certify(&mut execd, &mission(SandboxLevel::S2), SandboxLevel::S2);
     assert_eq!(
         verdict,
         Standing::Trusted {
@@ -416,47 +438,105 @@ fn certify_cree_demarre_eprouve_arrete_puis_retire() {
     );
 
     let calls = execd.runner().calls.lock().expect("verrou");
-    assert_eq!(calls[0][0], "create");
-    assert_eq!(calls[1][0], "start");
-    let tail: Vec<&str> = calls
+    let verbs: Vec<&str> = calls
         .iter()
-        .rev()
-        .take(2)
         .map(|call| call[0].as_str())
+        .filter(|verb| *verb != "inspect")
         .collect();
     assert_eq!(
-        tail,
-        vec!["rm", "stop"],
-        "arrêter n'est pas retirer : sans le second, le nom reste pris et le prochain conteneur          échoue là où on attend un verdict"
+        verbs,
+        ["create", "start", "exec", "stop", "rm"].repeat(SUITE.len()),
+        "le cycle complet, une fois par sonde : arrêter n'est pas retirer, et sans le retrait le \
+         nom reste pris — trois passages de CI l'ont payé"
     );
-    assert_eq!(calls.len(), SUITE.len() + 4);
+}
+
+/// **Aucune sonde ne partage sa sandbox avec une autre** — le test de sortie de `W5.r`.
+///
+/// C'est la propriété que quatre sprints ont cherchée en la contournant. `W5.n` a découvert que
+/// `exceed_pid_quota` rendait les sondes suivantes inlançables, `W5.o` a fait retenter, `W5.p` a
+/// écarté la sandbox morte, `W5.q` a lu le refus du runtime : un cgroup PID saturé que plus
+/// personne ne peut vider, parce que le shell de la sonde meurt avant son propre nettoyage.
+///
+/// Aucun nettoyage ne peut être promis par ce qui est en train d'être épuisé. Ce qui peut l'être,
+/// c'est qu'il n'y ait rien à nettoyer : seize sandboxes, seize noms, aucun état partagé. La
+/// contamination cesse d'être évitée — elle devient **inexprimable**.
+#[test]
+fn aucune_sonde_ne_partage_sa_sandbox_avec_une_autre() {
+    let mut execd = backend(ProbingRunner::airtight());
+    let _ = certify(&mut execd, &mission(SandboxLevel::S2), SandboxLevel::S2);
+
+    let calls = execd.runner().calls.lock().expect("verrou");
+    let sandboxes: Vec<&str> = calls
+        .iter()
+        .filter(|call| call[0] == "exec")
+        .map(|call| call[1].as_str())
+        .collect();
+    assert_eq!(
+        sandboxes.len(),
+        SUITE.len(),
+        "seize sondes, seize lancements"
+    );
+    let distinct: std::collections::BTreeSet<&str> = sandboxes.iter().copied().collect();
+    assert_eq!(
+        distinct.len(),
+        SUITE.len(),
+        "deux sondes dans la même sandbox, et l'une peut de nouveau faire mentir l'autre : \
+         {sandboxes:?}"
+    );
 }
 
 /// **Un démarrage qui échoue retire quand même**, et c'est le cas le plus silencieux.
 ///
-/// Rien ne tourne, donc rien ne signale la fuite — mais le nom reste pris. La version précédente de
-/// `certify` rendait l'erreur par `?` et abandonnait un conteneur créé et jamais démarré.
+/// Rien ne tourne, donc rien ne signale la fuite — mais le nom reste pris. Avec une sandbox par
+/// sonde, la faute serait seize fois plus fréquente qu'avant : elle est donc épinglée seize fois.
 #[test]
 fn un_demarrage_qui_echoue_ne_laisse_pas_le_nom_pris() {
     let mut execd = backend(FailingStart::default());
-    certify(&mut execd, &mission(SandboxLevel::S2), SandboxLevel::S2)
-        .expect_err("un démarrage qui échoue n'a rien à éprouver");
+    let verdict = certify(&mut execd, &mission(SandboxLevel::S2), SandboxLevel::S2);
+    assert!(
+        matches!(verdict, Standing::NotTrusted { .. }),
+        "rien n'a été éprouvé : le seul verdict permis est le refus de confiance"
+    );
 
     let calls = execd.runner().calls.lock().expect("verrou");
-    assert!(
-        calls.iter().any(|call| call[0] == "rm"),
-        "le conteneur a été créé : il doit être retiré, même si rien n'a jamais tourné dedans —          {calls:?}"
+    let created = calls.iter().filter(|call| call[0] == "create").count();
+    let removed = calls.iter().filter(|call| call[0] == "rm").count();
+    assert_eq!(created, SUITE.len());
+    assert_eq!(
+        removed, created,
+        "chaque conteneur créé doit être retiré, même si rien n'a jamais tourné dedans : {calls:?}"
     );
 }
 
+/// Un niveau que le backend ne sait pas tenir se **rapporte**, il ne s'échappe pas.
+///
+/// L'ancienne signature rendait `Err` et le rapport était vide. Seize absences nommées, chacune
+/// portant le mot du runtime, disent la même chose et la disent **dans la table** — et le verdict
+/// rendu là-dessus reste juste : rien n'a été vérifié, donc pas de confiance.
 #[test]
 fn certify_refuse_un_niveau_que_le_backend_ne_sait_pas_tenir() {
     let mut execd = backend(ProbingRunner::airtight());
-    let refused = certify(&mut execd, &mission(SandboxLevel::S4), SandboxLevel::S4);
+    let spec = mission(SandboxLevel::S4);
+    let trials = run_suite(&mut execd, &spec);
+
     assert!(
-        matches!(refused, Err(RuntimeError::Unsupported { .. })),
-        "rendre un Standing sur une sandbox qui n'existe pas serait un verdict sur rien : {refused:?}"
+        trials.iter().all(|trial| trial.observed()
+            == Observed::NotRun {
+                reason: SANDBOX_REFUSED
+            }),
+        "aucune sonde n'a pu être ouverte : {trials:?}"
     );
+    assert!(
+        trials
+            .iter()
+            .all(|trial| trial.detail().is_some_and(|why| why.contains("S4"))),
+        "et le refus dit lequel : sans le mot du runtime, la table n'apprendrait rien"
+    );
+    assert!(matches!(
+        certify(&mut execd, &spec, SandboxLevel::S4),
+        Standing::NotTrusted { .. }
+    ));
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -506,9 +586,9 @@ fn une_sonde_absente_de_l_image_ne_prouve_pas_l_isolation() {
         code: 127,
     };
     let mut execd = backend(runner);
-    let id = execd.create(&mission(SandboxLevel::S3)).expect("création");
+    let spec = mission(SandboxLevel::S3);
 
-    let results = run_suite(&execd, &id);
+    let results = run_suite(&mut execd, &spec);
     let absent: Vec<Observed> = results
         .iter()
         .filter(|trial| {
@@ -524,7 +604,7 @@ fn une_sonde_absente_de_l_image_ne_prouve_pas_l_isolation() {
         "127 dit « la sonde est absente », pas « la sonde a été contenue » : {absent:?}"
     );
 
-    match assess(&execd, &id, SandboxLevel::S3) {
+    match certify(&mut execd, &spec, SandboxLevel::S3) {
         Standing::NotTrusted { blocking, .. } => {
             assert_eq!(
                 blocking.len(),
@@ -551,8 +631,8 @@ fn les_trois_codes_reserves_disent_chacun_ce_qui_manque() {
             missing: vec!["escalate_to_root"],
             code,
         });
-        let id = execd.create(&mission(SandboxLevel::S3)).expect("création");
-        let results = run_suite(&execd, &id);
+        let spec = mission(SandboxLevel::S3);
+        let results = run_suite(&mut execd, &spec);
         let observed = results
             .iter()
             .find(|trial| trial.name() == "escalate_to_root")
@@ -579,9 +659,9 @@ fn un_blocage_franc_reste_un_blocage() {
         missing: Vec::new(),
         code: 1,
     });
-    let id = execd.create(&mission(SandboxLevel::S3)).expect("création");
+    let spec = mission(SandboxLevel::S3);
     assert_eq!(
-        assess(&execd, &id, SandboxLevel::S3),
+        certify(&mut execd, &spec, SandboxLevel::S3),
         Standing::Trusted {
             level: SandboxLevel::S3
         },
@@ -702,8 +782,8 @@ fn une_sonde_qui_n_a_pas_pu_conclure_est_notrun() {
         missing: vec!["exceed_memory_quota"],
         code: INCONCLUSIVE_EXIT_CODE,
     });
-    let id = execd.create(&mission(SandboxLevel::S3)).expect("création");
-    let results = run_suite(&execd, &id);
+    let spec = mission(SandboxLevel::S3);
+    let results = run_suite(&mut execd, &spec);
     let observed = results
         .iter()
         .find(|trial| trial.name() == "exceed_memory_quota")
@@ -714,7 +794,7 @@ fn une_sonde_qui_n_a_pas_pu_conclure_est_notrun() {
         "« ce que je devais lire n'était pas là » n'est pas « j'ai été contenue » : {observed:?}"
     );
     assert!(matches!(
-        assess(&execd, &id, SandboxLevel::S3),
+        certify(&mut execd, &spec, SandboxLevel::S3),
         Standing::NotTrusted { .. }
     ));
 }
@@ -833,8 +913,8 @@ fn le_constat_de_route_ne_demande_rien_a_l_image() {
 fn deux_codes_qui_bloquent_restent_discernables() {
     let mut seen = Vec::new();
     for code in [1, 13] {
-        let (execd, id) = started(FixedCode(code));
-        let trials = run_suite(&execd, &id);
+        let (mut execd, spec) = started(FixedCode(code));
+        let trials = run_suite(&mut execd, &spec);
         let trial = trials
             .iter()
             .find(|trial| trial.name() == "escalate_to_root")
@@ -861,8 +941,8 @@ fn deux_codes_qui_bloquent_restent_discernables() {
 fn un_runtime_muet_ne_rend_aucun_code() {
     // Créée et démarrée par un runtime qui répond, puis le runtime disparaît : c'est le seul
     // chemin par lequel `run_suite` rencontre un échec de lancement sonde par sonde.
-    let (execd, id) = started(VanishingRuntime::new(2));
-    let trials = run_suite(&execd, &id);
+    let (mut execd, spec) = started(VanishingRuntime::new(2));
+    let trials = run_suite(&mut execd, &spec);
     assert!(
         trials.iter().all(|trial| trial.code().is_none()),
         "aucune commande n'a tourné : leur prêter un code inventerait une observation"
@@ -881,8 +961,8 @@ fn un_runtime_muet_ne_rend_aucun_code() {
 /// choses : réussi, ou pas lancé.
 #[test]
 fn le_code_d_un_succes_est_rapporte_lui_aussi() {
-    let (execd, id) = started(ProbingRunner::new(Vec::new()));
-    let trials = run_suite(&execd, &id);
+    let (mut execd, spec) = started(ProbingRunner::new(Vec::new()));
+    let trials = run_suite(&mut execd, &spec);
     assert!(
         trials
             .iter()
@@ -920,8 +1000,8 @@ impl Runner for FixedCode {
 /// aveu d'ignorance ; il ne les a pas rendues **mesurables**.
 #[test]
 fn une_sonde_que_le_runtime_n_a_pas_pu_lancer_est_retentee() {
-    let (execd, id) = started(FlakyLaunch::new(255, 3));
-    let trials = run_suite(&execd, &id);
+    let (mut execd, spec) = started(FlakyLaunch::new(255, 3));
+    let trials = run_suite(&mut execd, &spec);
     let first = trials.first().expect("la suite n'est pas vide");
     assert_eq!(
         first.observed(),
@@ -942,8 +1022,8 @@ fn une_sonde_que_le_runtime_n_a_pas_pu_lancer_est_retentee() {
 #[test]
 fn un_refus_qui_persiste_reste_un_aveu_et_le_nombre_de_tentatives_est_borne() {
     let runner = FlakyLaunch::new(255, u32::MAX);
-    let (execd, id) = started(runner);
-    let trials = run_suite(&execd, &id);
+    let (mut execd, spec) = started(runner);
+    let trials = run_suite(&mut execd, &spec);
     let first = trials.first().expect("la suite n'est pas vide");
     assert!(
         matches!(first.observed(), Observed::NotRun { .. }),
@@ -974,8 +1054,8 @@ fn un_refus_qui_persiste_reste_un_aveu_et_le_nombre_de_tentatives_est_borne() {
 /// apprendre de plus.
 #[test]
 fn une_sonde_absente_de_l_image_n_est_pas_retentee() {
-    let (execd, id) = started(FlakyLaunch::new(127, u32::MAX));
-    let trials = run_suite(&execd, &id);
+    let (mut execd, spec) = started(FlakyLaunch::new(127, u32::MAX));
+    let trials = run_suite(&mut execd, &spec);
     assert!(
         trials
             .iter()
@@ -1088,8 +1168,8 @@ impl Runner for FlakyLaunch {
 /// n'a rien mesuré. Une suite tronquée se lirait comme une suite passée.
 #[test]
 fn les_sondes_qui_suivent_une_sandbox_morte_le_disent() {
-    let (execd, id) = started(DyingSandbox::after(SURVIVED));
-    let trials = run_suite(&execd, &id);
+    let (mut execd, spec) = started(DyingSandbox::after(SURVIVED));
+    let trials = run_suite(&mut execd, &spec);
 
     assert_eq!(trials.len(), SUITE.len(), "le rapport reste complet");
     let gone: Vec<&Trial> = trials
@@ -1114,7 +1194,7 @@ fn les_sondes_qui_suivent_une_sandbox_morte_le_disent() {
         Observed::NotRun {
             reason: SANDBOX_GONE
         },
-        "une fois la sandbox perdue, elle ne revient pas : rien après elle n'est mesuré"
+        "un runtime durablement fâché le reste : la dernière sonde le constate comme les autres"
     );
 
     // La sonde qui **constate** la mort le dit elle aussi. Lui laisser « le runtime n'a pas pu »
@@ -1127,20 +1207,28 @@ fn les_sondes_qui_suivent_une_sandbox_morte_le_disent() {
         "la première sonde qui échoue est celle qui découvre la mort : c'est elle qui la nomme"
     );
 
-    // Et on cesse de lancer. Une sandbox morte ne redevient pas vivante, et lui redemander seize
-    // fois six tentatives ferait payer une minute pour réapprendre ce qu'on sait déjà.
-    let launches = execd
-        .runner()
-        .calls
-        .lock()
-        .expect("verrou")
+    // Et chacune est quand même **lancée** : depuis `W5.r`, la mort d'une sandbox n'atteint que la
+    // sonde qui était dedans. Les suivantes ouvrent la leur, et la découvrent morte à leur tour
+    // parce que ce double-ci modélise un runtime durablement fâché — pas parce qu'elles auraient
+    // hérité de quoi que ce soit.
+    let calls = execd.runner().calls.lock().expect("verrou");
+    let launches = calls
         .iter()
         .filter(|call| call.first().is_some_and(|verb| verb == "exec"))
         .count();
     assert_eq!(
         launches,
-        SURVIVED + 1,
-        "les sondes d'après la mort ne sont pas lancées du tout — pas même une fois"
+        SUITE.len(),
+        "chaque sonde a eu sa chance — une seule fois : une sandbox morte ne redevient pas vivante, \
+         et lui redemander six tentatives ferait payer une minute pour réapprendre ce qu'on sait"
+    );
+    assert_eq!(
+        calls
+            .iter()
+            .filter(|call| call.first().is_some_and(|verb| verb == "create"))
+            .count(),
+        SUITE.len(),
+        "et chacune dans la sienne"
     );
 }
 
@@ -1154,8 +1242,8 @@ const SURVIVED: usize = 3;
 /// la faute que `W5.n` et `W5.o` ont passé deux sprints à retirer d'ici.
 #[test]
 fn un_runtime_muet_ne_fait_pas_declarer_la_sandbox_morte() {
-    let (execd, id) = started(VanishingRuntime::new(2));
-    let trials = run_suite(&execd, &id);
+    let (mut execd, spec) = started(VanishingRuntime::new(2));
+    let trials = run_suite(&mut execd, &spec);
     assert!(
         trials.iter().all(|trial| trial.observed()
             != (Observed::NotRun {
@@ -1227,8 +1315,8 @@ impl Runner for DyingSandbox {
 /// faute, après « le runtime n'a pas pu » et « je n'ai pas pu demander ».
 #[test]
 fn une_reponse_illisible_ne_fait_pas_declarer_la_sandbox_morte() {
-    let (execd, id) = started(Unreadable);
-    let trials = run_suite(&execd, &id);
+    let (mut execd, spec) = started(Unreadable);
+    let trials = run_suite(&mut execd, &spec);
     assert!(
         trials.iter().all(|trial| trial.observed()
             != (Observed::NotRun {
@@ -1271,8 +1359,8 @@ impl Runner for Unreadable {
 /// suivis d'une mort est exactement le cas que le budget de reprise rend possible.
 #[test]
 fn la_mort_survenue_a_la_derniere_tentative_est_nommee() {
-    let (execd, id) = started(DiesLast::default());
-    let trials = run_suite(&execd, &id);
+    let (mut execd, spec) = started(DiesLast::default());
+    let trials = run_suite(&mut execd, &spec);
     assert_eq!(
         trials.first().expect("la suite n'est pas vide").observed(),
         Observed::NotRun {
@@ -1327,10 +1415,10 @@ impl Runner for DiesLast {
 /// **écrit**.
 #[test]
 fn ce_que_le_runtime_ecrit_en_refusant_est_conserve() {
-    let (execd, id) = started(Explaining(
+    let (mut execd, spec) = started(Explaining(
         "crun: cannot fork: Resource temporarily unavailable\n",
     ));
-    let trials = run_suite(&execd, &id);
+    let trials = run_suite(&mut execd, &spec);
     let first = trials.first().expect("la suite n'est pas vide");
     assert_eq!(
         first.detail(),
@@ -1349,8 +1437,8 @@ fn ce_que_le_runtime_ecrit_en_refusant_est_conserve() {
 /// — serait rendue à l'œil du lecteur au lieu d'être portée par le rapport.
 #[test]
 fn un_saut_de_ligne_seul_n_est_pas_une_explication() {
-    let (execd, id) = started(Explaining("  \n"));
-    let trials = run_suite(&execd, &id);
+    let (mut execd, spec) = started(Explaining("  \n"));
+    let trials = run_suite(&mut execd, &spec);
     assert!(
         trials.iter().all(|trial| trial.detail().is_none()),
         "de l'espace n'est pas une parole"
@@ -1364,39 +1452,60 @@ fn un_saut_de_ligne_seul_n_est_pas_une_explication() {
 /// la même suite.
 #[test]
 fn un_refus_muet_se_distingue_d_un_refus_qui_parle() {
-    let (execd, id) = started(Explaining(""));
-    let trials = run_suite(&execd, &id);
+    let (mut execd, spec) = started(Explaining(""));
+    let trials = run_suite(&mut execd, &spec);
     assert!(
         trials.iter().all(|trial| trial.detail().is_none()),
         "une chaîne vide n'est pas ce que le runtime a dit : c'est qu'il n'a rien dit"
     );
 }
 
-/// **Une sonde jamais lancée ne porte aucun détail non plus.**
+/// **Un détail n'est jamais une copie de la raison.**
 ///
-/// La `reason` d'un `NotRun` est ce que *nous* avons constaté ; le détail est ce que le *runtime* a
-/// écrit. Recopier la première dans le second donnerait à une absence l'allure d'un refus motivé, et
-/// le rapport ne distinguerait plus « le runtime a expliqué son refus » de « nous avons expliqué son
-/// silence ». C'est la même règle qu'ailleurs dans ce fichier : pas vérifié n'est jamais réussi, et
-/// pas lancé n'est jamais refusé.
+/// La `reason` d'un `NotRun` est ce que *nous* avons constaté ; le détail est ce que quelqu'un
+/// d'autre a **écrit**. Recopier la première dans le second donnerait à notre propre constat
+/// l'autorité d'un témoignage, et le rapport ne distinguerait plus « on nous a expliqué » de « nous
+/// avons supposé ». C'est la même règle qu'ailleurs dans ce fichier : pas vérifié n'est jamais
+/// réussi, et notre constat n'est jamais la parole d'un autre.
+///
+/// `W5.r` a rendu ce test plus fort qu'il n'était : il affirmait « aucune absence ne porte de
+/// détail », ce qui était vrai par accident — aucune absence n'avait alors de message à porter. Une
+/// sandbox qui ne s'ouvre pas en a un, et le test aurait dû être réécrit plutôt qu'assoupli.
 #[test]
-fn une_sonde_jamais_lancee_ne_porte_aucun_detail() {
-    let (execd, id) = started(VanishingRuntime::new(2));
-    let trials = run_suite(&execd, &id);
+fn un_detail_n_est_jamais_une_copie_de_la_raison() {
+    let mut absences: Vec<Trial> = Vec::new();
+    // Un runtime qui s'évapore, un runtime absent d'emblée, un niveau que le backend ne tient pas :
+    // les trois chemins qui produisent des absences, et aucun ne doit se citer lui-même.
+    let (mut execd, spec) = started(VanishingRuntime::new(2));
+    absences.extend(run_suite(&mut execd, &spec));
+    let (mut execd, spec) = started(AbsentRuntime);
+    absences.extend(run_suite(&mut execd, &spec));
+    let mut execd = backend(ProbingRunner::airtight());
+    absences.extend(run_suite(&mut execd, &mission(SandboxLevel::S4)));
+
+    let named: Vec<&Trial> = absences
+        .iter()
+        .filter(|trial| matches!(trial.observed(), Observed::NotRun { .. }))
+        .collect();
+    assert_eq!(
+        named.len(),
+        absences.len(),
+        "les trois doubles ne produisent que des absences : {absences:?}"
+    );
     assert!(
-        trials
-            .iter()
-            .all(|trial| matches!(trial.observed(), Observed::NotRun { .. })
-                && trial.detail().is_none()),
-        "ce que nous constatons n'est pas ce que le runtime a dit : {trials:?}"
+        named.iter().all(|trial| match trial.observed() {
+            Observed::NotRun { reason } => trial.detail() != Some(reason),
+            _ => true,
+        }),
+        "une absence qui se cite elle-même se lirait comme une absence expliquée : {named:?}"
     );
 }
 
 /// Une sonde qui aboutit ne porte pas de détail — il n'y a rien à expliquer.
 #[test]
 fn une_sonde_qui_aboutit_ne_porte_aucun_detail() {
-    let (execd, id) = started(ProbingRunner::new(Vec::new()));
-    let trials = run_suite(&execd, &id);
+    let (mut execd, spec) = started(ProbingRunner::new(Vec::new()));
+    let trials = run_suite(&mut execd, &spec);
     assert!(
         trials
             .iter()

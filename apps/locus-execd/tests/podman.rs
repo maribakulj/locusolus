@@ -9,10 +9,11 @@
 //! W4.a en ayant tout raté, et personne ne le saurait jamais.
 
 use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 use locus_execd::linux::{
     Execution, InvocationError, PodmanBackend, RestrictedProfile, Runner, SeccompProfiles,
-    Workload, create_arguments, inspect_arguments, plan,
+    SystemRunner, Workload, create_arguments, inspect_arguments, plan,
 };
 use locus_execd::{RuntimeError, RuntimePort, SandboxId};
 use locus_execution::{
@@ -501,4 +502,77 @@ impl Inspectable for PodmanBackend<ScriptedRunner> {
     fn runner_calls(&self) -> usize {
         self.runner().calls.lock().expect("verrou").len()
     }
+}
+
+// ---------------------------------------------------------------------------------------------
+// W5.r — aucun appel au runtime ne dure indéfiniment
+// ---------------------------------------------------------------------------------------------
+
+/// **Le seul chemin qui lance un vrai processus était le seul qu'aucun test ne traversait.**
+///
+/// `SystemRunner::run` appelait `Command::output()`, qui attend sans limite — contre la règle du
+/// dépôt, « timeouts et cancellation », à l'unique endroit qu'aucun test ne traversait.
+///
+/// Il a été trouvé en cherchant autre chose : le job de CI de `W5.r` a paru pendre. Il ne pendait
+/// pas — il avait fini en trois minutes et demie, et l'état rapporté était périmé. Le défaut trouvé
+/// en route est réel quand même : `W5.r` fait passer les appels non bornés d'une poignée à
+/// quatre-vingts par campagne, et un broker privilégié qui attend sans fin ne rapporte rien.
+#[test]
+fn un_appel_qui_ne_rend_pas_la_main_est_abandonne() {
+    let runner = SystemRunner::new()
+        .with_program("sleep")
+        .with_budget(Duration::from_millis(100));
+
+    // Trente secondes, et pas six cents : trois cents fois le budget suffisent à prouver que la
+    // borne mord, et si un jour elle cesse de mordre, ce test durera trente secondes au lieu de dix
+    // minutes. Un test qui se plante doit le dire vite.
+    let started = Instant::now();
+    let outcome = runner.run(&["30".to_owned()]);
+    let waited = started.elapsed();
+
+    match outcome {
+        Err(RuntimeError::Unavailable { detail }) => {
+            assert!(
+                detail.contains("n'a pas rendu la main"),
+                "le motif dit que l'appel a été abandonné, pas qu'un binaire manque : {detail}"
+            );
+        }
+        other => panic!("un appel sans fin doit être abandonné, pas attendu : {other:?}"),
+    }
+    assert!(
+        waited < Duration::from_secs(5),
+        "abandonné veut dire tout de suite : {waited:?}"
+    );
+}
+
+/// Et un appel qui répond dans son budget répond **normalement** — sortie comprise.
+///
+/// Sans cette moitié, une borne qui tuerait tout passerait le test précédent.
+#[test]
+fn un_appel_qui_repond_dans_son_budget_rend_ce_qu_il_a_ecrit() {
+    let runner = SystemRunner::new()
+        .with_program("echo")
+        .with_budget(Duration::from_secs(10));
+    let execution = runner.run(&["locus".to_owned()]).expect("echo répond");
+    assert_eq!(execution.code, 0);
+    assert_eq!(execution.stdout.trim(), "locus");
+    assert!(execution.stderr.is_empty());
+}
+
+/// **Et un refus rend son code**, pas un zéro.
+///
+/// C'est la moitié qui manquait : `echo` réussit toujours, donc un lanceur qui écrirait `code: 0` en
+/// dur passait le test précédent. Or tout le harnais de sondes lit ce code — `W5.m` l'a mis à côté
+/// du verdict, `W5.n` y a trouvé le 255 — et un zéro inventé y ferait lire un succès partout.
+#[test]
+fn un_appel_qui_echoue_rend_son_code_et_ce_qu_il_a_dit() {
+    let runner = SystemRunner::new()
+        .with_program("sh")
+        .with_budget(Duration::from_secs(10));
+    let execution = runner
+        .run(&["-c".to_owned(), "printf 'refus\\n' >&2; exit 3".to_owned()])
+        .expect("sh répond");
+    assert_eq!(execution.code, 3, "le code vient du processus, pas de nous");
+    assert_eq!(execution.stderr.trim(), "refus");
+    assert!(execution.stdout.is_empty());
 }
