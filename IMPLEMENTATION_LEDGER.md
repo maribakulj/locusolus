@@ -7741,3 +7741,97 @@ lui. Le tableau devenait illisible exactement là où il devient utile, et c'ét
 rendu est corrigé, le retrait vaut pour **toutes** les lignes d'un détail, et il est désormais tenu
 par un test **non `#[ignore]`** — sinon la faute aurait attendu un hôte pour être vue une seconde
 fois.
+
+---
+
+## 2026-08-19 — W5.r — Une sonde par sandbox, et la contamination devient inexprimable
+
+**Périmètre.** `apps/locus-execd/src/linux/selftest.rs` (`run_suite`, `run_alone`, `certify`,
+`Trial::refused`, `SANDBOX_REFUSED`), l'export, et les deux fichiers de tests. Aucune sonde
+modifiée, aucun verdict déplacé.
+
+**Le défaut, après quatre sprints à tourner autour.** `exceed_pid_quota` sature délibérément le
+quota de PID. `W5.n` a découvert que les sondes suivantes n'étaient plus lançables, `W5.o` a fait
+retenter en supposant la cause transitoire, `W5.p` a écarté la sandbox morte, `W5.q` a fini par lire
+ce que le runtime écrivait — et la réponse tient en deux lignes de `stderr` :
+
+- `exceed_pid_quota` rend **2**, `sh: can't fork: Resource temporarily unavailable` — son propre
+  shell meurt au premier fork refusé, donc son `kill $pids; wait` ne tourne jamais ;
+- les quatre suivantes rendent **255**, `container create failed (no logs from conmon)` —
+  `podman exec` crée un `conmon` par session, ce `conmon` naît dans le cgroup PID du conteneur, il y
+  est encore à `pids.max`, et il meurt avant d'écrire sa synchronisation.
+
+Un cgroup saturé que **plus personne ne peut vider**.
+
+**Pourquoi ce n'est pas une réparation de sonde.** On pouvait rendre `PID_QUOTA` plus prudente —
+s'arrêter avant la limite, attraper le refus dans un sous-shell. Cela aurait marché, et cela serait
+resté une **discipline** : quelque chose qui tient jusqu'à ce qu'il ne tienne plus. Aucune sonde ne
+peut promettre de survivre à ce qu'elle épuise ; c'est la définition de ce qu'elle épuise.
+
+Ce qui peut être promis, c'est qu'il n'y ait **rien à nettoyer**. Seize sandboxes, seize noms, aucun
+état partagé. La contamination cesse d'être évitée : elle devient inexprimable, faute d'endroit où
+se produire. Et avec elle disparaissent le drapeau de propagation, la question de savoir si la
+reprise est assez longue, et l'ordre de `SUITE` comme variable cachée de ce que les sondes mesurent.
+
+**Décisions prises.**
+
+_`run_suite` prend la spécification, pas un identifiant._ Il n'y a plus de sandbox à ouvrir
+d'avance, donc plus rien à passer. C'est la signature qui rend la faute impossible : on ne peut plus
+demander à deux sondes de partager un conteneur, parce qu'il n'y a pas d'argument pour le dire.
+
+_`certify` absorbe `assess`._ Avec l'ouverture et le démontage rendus à chaque sonde, « créer,
+démarrer, éprouver, retirer » et « juger ce qu'une sandbox a rendu » sont la même opération. Deux
+noms pour elle seraient du vocabulaire parallèle, ce que ce dépôt refuse ailleurs.
+
+_Le `Result` de `certify` disparaît, et le rapport y gagne._ L'ancienne signature rendait `Err`
+quand le runtime refusait la spécification, avec la bonne raison — « un `Standing` sur zéro
+observation serait un verdict sur rien ». Sauf que ce n'est plus zéro observation : c'est seize
+absences nommées, chacune portant le message en clair, et le verdict rendu là-dessus est juste —
+`NotTrusted`, parce que rien n'a été vérifié. Le `Err` cachait le rapport.
+
+_`SANDBOX_REFUSED` a été renommé en cours de route, et c'est le point le plus intéressant du
+sprint._ Il disait d'abord « le runtime a refusé d'ouvrir une sandbox ». Les doubles ont montré que
+c'était faux une fois sur deux : `VanishingRuntime` modélise un Podman **tué**, et l'échec
+d'ouverture qui s'ensuit n'est pas un refus, c'est un silence. La cause est en dessous —
+`expect_success` rend `RuntimeError::Unavailable` pour « binaire introuvable » comme pour « podman a
+répondu 125 ». Plutôt que d'inventer ici une distinction que la couche du dessous ne fait pas, le
+nom dit ce qu'il couvre vraiment — « la sandbox n'a pas pu être ouverte » — le message part en
+`detail`, et la séparation des deux erreurs devient `W5.s`. Un nom qu'on ne peut pas honorer est
+pire qu'un nom large.
+
+_Un test s'est révélé vrai par accident, et a été réécrit plutôt qu'assoupli._
+`une_sonde_jamais_lancee_ne_porte_aucun_detail` affirmait qu'aucune absence ne porte de détail — ce
+qui tenait parce qu'aucune absence n'avait alors de message à porter. Il est devenu
+`un_detail_n_est_jamais_une_copie_de_la_raison`, qui énonce l'invariant réel sur les trois chemins
+qui produisent des absences. Baisser une assertion parce que le code a changé est la façon ordinaire
+de perdre un test ; ici l'assertion visait à côté depuis le début.
+
+**Tests exécutés.** `cargo test -p locus-execd` → 43 conformes. `npm run check` → les dix portes
+vertes. Le test de sortie est `aucune_sonde_ne_partage_sa_sandbox_avec_une_autre` : seize
+lancements, seize noms **distincts**.
+
+**Ce que ce sprint ne prétend pas.** Il ne dit pas que les quinze sondes tiennent sur le runner —
+`exceed_pid_quota` sature toujours son propre cgroup, et ce qu'elle mesure dans sa propre sandbox
+reste à constater. Il dit qu'elle ne peut plus faire mentir les autres.
+
+**Le passage réel, et il confirme cette fois.** Les quatre sondes qui suivaient `exceed_pid_quota`
+rendent **1, 1, 0 et 0** au lieu de 255. Quatorze des quinze tiennent. `open_outbound_connection` et
+`reach_cloud_metadata_service` **réussissent**, ce qui clôt du même coup la question ouverte de
+`W5.m` : la route était bien là, et ces deux sondes ne la trouvaient pas parce qu'elles ne
+**tournaient pas**. Trois sprints d'hypothèses sur l'`awk` de busybox et sur deux `/proc` différents
+portaient sur des sondes qui n'avaient jamais été lancées.
+
+Reste une seule dissidente, `reach_host_kernel_interfaces`, et son motif est en clair sous la ligne
+— `head: /sys/kernel/vmcoreinfo: No such file or directory`. C'est `W5.i`, déjà écrit.
+
+Coût mesuré : **180 s contre 39 s**, pour seize fois plus de conteneurs.
+
+_Un défaut trouvé en chemin, et un faux coupable._ Le job a **paru** pendre pendant vingt minutes.
+L'hypothèse construite là-dessus — une sandbox saturée en PID bloquant son propre démontage — était
+**fausse** : le job avait fini en 3 min 36, et c'est l'état rapporté par l'API qui était périmé. Ce
+que la fausse piste a fait trouver est réel : `SystemRunner::run` appelait `Command::output()`, sans
+borne, au seul endroit du dépôt qu'aucun test ne traversait et contre sa propre règle — « timeouts
+et cancellation ». `W5.r` fait passer ces appels non bornés d'une poignée à quatre-vingts par
+campagne. La borne est posée, elle vaut 60 s, et deux tests la tiennent **sans Podman** — en visant
+`sleep` pour l'abandon et `echo` pour la sortie intacte, parce qu'une borne qui tuerait tout
+passerait le premier test seul. C'est `W5.t`.

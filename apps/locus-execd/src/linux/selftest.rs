@@ -150,6 +150,34 @@ pub const UNRUNNABLE_EXIT_CODES: [(i32, &str); 4] = [
 pub const SANDBOX_GONE: &str =
     "la sandbox ne tournait plus : il n'y avait rien pour lancer la sonde";
 
+/// La raison inscrite quand la sandbox de cette sonde n'a pas pu être **ouverte**.
+///
+/// # Une quatrième ignorance, et elle ne se range avec aucune des trois autres
+///
+/// [`SANDBOX_GONE`] dit « il n'y avait plus rien pour me lancer » — la sandbox a existé, puis a
+/// cessé. Celle-ci dit **« il n'y a jamais rien eu »** : l'ouverture a échoué, avant toute sonde.
+/// Les deux se réparent ailleurs — la première en cherchant ce qui a tué la sandbox, la seconde en
+/// lisant ce qui a fait échouer l'ouverture.
+///
+/// # Ce qu'elle ne dit pas, et pourquoi elle ne le dit pas
+///
+/// Elle ne dit **pas** si le runtime a refusé ou s'il était absent. Ce serait deux réparations
+/// différentes, et il faudrait donc deux noms — sauf que le driver ne sait pas encore les
+/// distinguer : `PodmanBackend::expect_success` rend `RuntimeError::Unavailable` aussi bien pour
+/// « le binaire est introuvable » que pour « podman a répondu 125 ». Inventer ici une distinction
+/// que la couche du dessous ne fait pas produirait un nom qui ment une fois sur deux.
+///
+/// Ce que le rapport porte à la place est le message lui-même, en [`Trial::detail`] et mot pour
+/// mot — `W5.q` a été écrit pour cela. La séparation des deux erreurs est un item à part.
+///
+/// # Ce qu'elle remplace
+///
+/// Tant que les seize sondes partageaient une sandbox, un échec d'ouverture était une **erreur** qui
+/// interrompait tout : `certify` rendait un `Err` et le rapport était vide. Avec une sandbox par
+/// sonde, le même échec rend seize absences nommées, chacune portant le message en clair. Le
+/// rapport reste complet, et il dit pourquoi — ce qu'un `Err` ne faisait pas.
+pub const SANDBOX_REFUSED: &str = "la sandbox de cette sonde n'a pas pu être ouverte";
+
 /// Les codes réservés qui peuvent **passer**, par opposition à ceux qui ne passeront pas.
 ///
 /// # Deux façons de ne pas avoir été lancé
@@ -460,34 +488,96 @@ impl Trial {
             detail: None,
         }
     }
+
+    /// Une sonde dont la sandbox n'a pas pu être ouverte, et **ce qui l'en a empêchée**.
+    ///
+    /// La seule absence qui porte un détail, et elle le porte pour une raison précise : ici il y a
+    /// eu un message, distinct de notre constat. Ailleurs — sonde orpheline, runtime injoignable,
+    /// sandbox disparue — ce que nous inscrivons est notre propre constat et rien d'autre ; le
+    /// recopier en détail donnerait à une ignorance l'allure d'un refus motivé. C'est pourquoi
+    /// [`Trial::not_run`] reste `const fn` : il **ne peut pas** fabriquer de détail, et ce
+    /// constructeur-ci est le seul qui en fabrique.
+    fn refused(name: &'static str, why: &crate::runtime::RuntimeError) -> Self {
+        Self {
+            name,
+            observed: Observed::NotRun {
+                reason: SANDBOX_REFUSED,
+            },
+            code: None,
+            detail: Some(why.to_string()),
+        }
+    }
 }
 
-/// Tenter les seize sondes dans une sandbox qui tourne, et rendre ce qu'elles ont produit.
+/// Éprouver les seize sondes, **chacune dans une sandbox que nulle autre n'a touchée**.
 ///
-/// L'ordre est celui de `SUITE`, et chaque sonde apparaît exactement une fois — y compris celles
-/// qui n'ont pas pu être lancées. Une suite tronquée se lirait comme une suite passée.
-pub fn run_suite<R: Runner>(backend: &PodmanBackend<R>, id: &SandboxId) -> Vec<Trial> {
+/// # Pourquoi une par sonde, et pas une pour toutes
+///
+/// Quatre sprints ont tourné autour du même défaut. `exceed_pid_quota` sature délibérément le quota
+/// de PID ; `W5.n` a découvert que les sondes suivantes n'étaient plus lançables, `W5.o` a fait
+/// retenter en supposant la cause transitoire, `W5.p` a écarté la sandbox morte, et `W5.q` a fini
+/// par lire ce que le runtime écrivait :
+///
+/// - `exceed_pid_quota` rend **2**, avec `sh: can't fork` — son propre shell meurt au premier fork
+///   refusé, donc son `kill $pids; wait` ne tourne jamais ;
+/// - les sondes suivantes rendent **255**, avec `container create failed (no logs from conmon)` —
+///   `podman exec` crée un `conmon` par session, ce `conmon` naît dans le cgroup PID du conteneur,
+///   il y est encore à `pids.max`, et il meurt avant d'écrire sa synchronisation.
+///
+/// Un cgroup saturé que **plus personne ne peut vider**. Et aucune sonde ne peut promettre de
+/// survivre à ce qu'elle épuise : un nettoyage plus soigneux resterait une discipline, c'est-à-dire
+/// quelque chose qui tient jusqu'à ce qu'il ne tienne plus.
+///
+/// Une sandbox par sonde ne rend pas la contamination plus rare : elle la rend **inexprimable**. Il
+/// n'y a plus d'état partagé où elle pourrait se produire, donc plus de reprise à calibrer, plus
+/// d'ordre de `SUITE` qui décide de ce que les sondes mesurent, et plus de propagation à propager.
+///
+/// # Ce que cela coûte, et pourquoi c'est borné
+///
+/// Seize créations au lieu d'une. Elles sont séquentielles et chacune est retirée derrière elle, si
+/// bien que l'hôte n'en porte jamais plus d'une à la fois. En regard, la campagne précédente payait
+/// six reprises étalées sur plus de six secondes pour **chacune** des sondes contaminées, et n'en
+/// tirait aucune mesure.
+///
+/// # Le rapport reste complet, y compris quand rien ne s'ouvre
+///
+/// L'ordre est celui de `SUITE`, et chaque sonde y apparaît exactement une fois — y compris celle
+/// dont la sandbox n'a pas pu être créée, qui porte alors [`SANDBOX_REFUSED`] et le message du
+/// runtime. Une suite tronquée se lirait comme une suite passée.
+pub fn run_suite<R: Runner>(
+    backend: &mut PodmanBackend<R>,
+    spec: &locus_execution::SandboxSpec,
+) -> Vec<Trial> {
     let mut trials = Vec::with_capacity(SUITE.len());
-    let mut gone = false;
     for probe in &SUITE {
-        if gone {
-            // La suite n'est pas tronquée pour autant : chaque sonde reste au rapport, avec la
-            // raison exacte pour laquelle elle n'a rien mesuré. Une suite tronquée se lirait comme
-            // une suite passée, et une suite qui dirait « le runtime n'a pas pu » enverrait
-            // chercher un runtime fatigué là où il n'y a plus de conteneur.
-            trials.push(Trial::not_run(probe.name, SANDBOX_GONE));
-            continue;
-        }
-        let trial = attempt(backend, id, probe.name);
-        // C'est `attempt` qui interroge la sandbox, parce que c'est lui qui allait réessayer.
-        // Constater la mort ici, après coup, aurait laissé brûler le budget de reprise d'abord.
-        gone = trial.observed()
-            == Observed::NotRun {
-                reason: SANDBOX_GONE,
-            };
-        trials.push(trial);
+        trials.push(run_alone(backend, spec, probe.name));
     }
     trials
+}
+
+/// Ouvrir une sandbox pour cette seule sonde, l'éprouver, puis la retirer.
+///
+/// Le retrait a lieu sur **tous** les chemins où quelque chose a été créé — y compris celui où le
+/// démarrage échoue, qui est le plus silencieux : rien ne tourne, donc rien ne signale la fuite, et
+/// le nom reste pris pour la sonde suivante. C'est la faute que `W5.l` a trouvée après trois
+/// passages de CI illisibles, et seize créations par campagne au lieu d'une la rendraient seize fois
+/// plus probable si elle revenait.
+fn run_alone<R: Runner>(
+    backend: &mut PodmanBackend<R>,
+    spec: &locus_execution::SandboxSpec,
+    name: &'static str,
+) -> Trial {
+    let id = match backend.create(spec) {
+        Ok(id) => id,
+        Err(error) => return Trial::refused(name, &error),
+    };
+    if let Err(error) = backend.start(&id) {
+        teardown(backend, &id);
+        return Trial::refused(name, &error);
+    }
+    let trial = attempt(backend, &id, name);
+    teardown(backend, &id);
+    trial
 }
 
 /// Les verdicts seuls, sous la forme que [`locus_execution::standing`] attend.
@@ -554,49 +644,27 @@ fn attempt<R: Runner>(backend: &PodmanBackend<R>, id: &SandboxId, name: &'static
 }
 
 /// Ce que le backend a le droit d'annoncer à ce niveau, après passage de la suite.
-pub fn assess<R: Runner>(
-    backend: &PodmanBackend<R>,
-    id: &SandboxId,
-    level: SandboxLevel,
-) -> Standing {
-    standing(level, &verdicts(&run_suite(backend, id)))
-}
-
-/// Créer, démarrer et éprouver une sandbox à ce niveau, puis **la retirer**.
 ///
-/// # Arrêter ne suffisait pas, et cette fonction le disait déjà à moitié
+/// # Un seul nom, parce qu'il n'y a plus qu'une opération
 ///
-/// La rédaction précédente promettait que « la sandbox est arrêtée même quand la suite s'est mal
-/// passée », avec la bonne raison : « un hôte qui accumule des conteneurs d'épreuve finit par ne
-/// plus pouvoir en créer ». La raison était juste et la précaution insuffisante — `podman stop`
-/// laisse le **nom** et la **couche inscriptible**, et c'est le nom qui manque au suivant. Trois
-/// passages de CI ont échoué sur « the container name `locus-0001` is already in use » avant que
-/// quiconque le remarque, et le harnais lisait cette erreur là où il attendait un verdict.
+/// Tant que les seize sondes partageaient une sandbox, `certify` — créer, démarrer, éprouver,
+/// retirer — et `assess` — juger ce qu'une sandbox déjà ouverte a rendu — étaient deux choses. Avec
+/// une sandbox par sonde, l'ouverture et le démontage appartiennent à chaque sonde : il ne reste
+/// qu'une opération, et deux noms pour elle seraient du vocabulaire parallèle.
 ///
-/// # Le démontage a lieu sur **tous** les chemins
+/// # Ce que le `Result` disparu disait, et qui se dit mieux
 ///
-/// Y compris celui où le démarrage échoue : la version précédente y rendait l'erreur par `?` et
-/// abandonnait un conteneur créé mais jamais démarré, c'est-à-dire le cas le plus silencieux — rien
-/// ne tournait, donc rien ne signalait la fuite, et le nom restait pris.
-///
-/// # Errors
-///
-/// L'erreur du runtime, quand la sandbox n'a pas pu être créée ou démarrée. Une sandbox qui n'a pas
-/// démarré n'a rien à éprouver, et rendre un `Standing` sur zéro observation serait rendre un
-/// verdict sur rien.
+/// L'ancienne signature rendait `Err` quand le runtime refusait la spécification, avec la bonne
+/// raison : « rendre un `Standing` sur zéro observation serait rendre un verdict sur rien ». Sauf
+/// que ce n'est plus zéro observation — c'est seize absences nommées, chacune portant le message du
+/// runtime. Et le verdict rendu là-dessus est juste : `NotTrusted`, parce que rien n'a été vérifié,
+/// ce qui est exactement la règle de ce fichier. Le `Err` cachait le rapport ; le rapport le dit.
 pub fn certify<R: Runner>(
     backend: &mut PodmanBackend<R>,
     spec: &locus_execution::SandboxSpec,
     level: SandboxLevel,
-) -> Result<Standing, crate::runtime::RuntimeError> {
-    let id = backend.create(spec)?;
-    if let Err(error) = backend.start(&id) {
-        teardown(backend, &id);
-        return Err(error);
-    }
-    let verdict = assess(backend, &id, level);
-    teardown(backend, &id);
-    Ok(verdict)
+) -> Standing {
+    standing(level, &verdicts(&run_suite(backend, spec)))
 }
 
 /// Arrêter puis retirer, en ignorant l'échec de l'un comme de l'autre.
