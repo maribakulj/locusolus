@@ -12,8 +12,9 @@ use std::sync::Mutex;
 
 use locus_execd::linux::{
     Execution, INCONCLUSIVE_EXIT_CODE, PROBE_COMMANDS, PodmanBackend, RestrictedProfile, Runner,
-    SeccompProfiles, UNREACHABLE_RUNTIME, UNREACHABLE_TARGET_EXIT_CODE, UNRUNNABLE_EXIT_CODES,
-    Workload, assess, certify, exec_arguments, probe_command, run_suite, unrunnable,
+    SeccompProfiles, Trial, UNREACHABLE_RUNTIME, UNREACHABLE_TARGET_EXIT_CODE,
+    UNRUNNABLE_EXIT_CODES, Workload, assess, certify, exec_arguments, probe_command, run_suite,
+    unrunnable,
 };
 use locus_execd::{RuntimeError, RuntimePort, SandboxId};
 use locus_execution::{
@@ -180,7 +181,7 @@ fn le_rapport_porte_chaque_sonde_exactement_une_fois() {
         assert_eq!(
             results
                 .iter()
-                .filter(|(name, _)| *name == probe.name)
+                .filter(|trial| trial.name() == probe.name)
                 .count(),
             1,
             "« {} » devrait apparaître une fois et une seule",
@@ -200,7 +201,7 @@ fn un_code_nul_veut_dire_que_la_sonde_a_reussi() {
     assert!(
         results
             .iter()
-            .all(|(_, observed)| *observed == Observed::Succeeded),
+            .all(|trial| trial.observed() == Observed::Succeeded),
         "un runtime qui laisse tout passer doit produire seize succès, pas seize blocages"
     );
 }
@@ -240,11 +241,11 @@ fn une_sonde_non_lancee_est_notrun_avec_sa_raison() {
     let results = run_suite(&execd, &id);
 
     assert!(
-        results.iter().all(|(_, observed)| matches!(
-            observed,
+        results.iter().all(|trial| matches!(
+            trial.observed(),
             Observed::NotRun {
                 reason
-            } if *reason == UNREACHABLE_RUNTIME
+            } if reason == UNREACHABLE_RUNTIME
         )),
         "un runtime disparu ne bloque pas les sondes, il empêche de les lancer : {results:?}"
     );
@@ -471,10 +472,12 @@ fn une_sonde_absente_de_l_image_ne_prouve_pas_l_isolation() {
     let id = execd.create(&mission(SandboxLevel::S3)).expect("création");
 
     let results = run_suite(&execd, &id);
-    let absent: Vec<&Observed> = results
+    let absent: Vec<Observed> = results
         .iter()
-        .filter(|(name, _)| *name == "exceed_cpu_quota" || *name == "open_outbound_connection")
-        .map(|(_, observed)| observed)
+        .filter(|trial| {
+            trial.name() == "exceed_cpu_quota" || trial.name() == "open_outbound_connection"
+        })
+        .map(Trial::observed)
         .collect();
     assert_eq!(absent.len(), 2);
     assert!(
@@ -515,12 +518,12 @@ fn les_trois_codes_reserves_disent_chacun_ce_qui_manque() {
         let results = run_suite(&execd, &id);
         let observed = results
             .iter()
-            .find(|(name, _)| *name == "escalate_to_root")
-            .map(|(_, observed)| observed)
+            .find(|trial| trial.name() == "escalate_to_root")
+            .map(Trial::observed)
             .expect("la sonde est au rapport");
         assert_eq!(
             observed,
-            &Observed::NotRun { reason: expected },
+            Observed::NotRun { reason: expected },
             "le code {code} doit dire ce qui manque"
         );
     }
@@ -643,8 +646,8 @@ fn une_sonde_qui_n_a_pas_pu_conclure_est_notrun() {
     let results = run_suite(&execd, &id);
     let observed = results
         .iter()
-        .find(|(name, _)| *name == "exceed_memory_quota")
-        .map(|(_, observed)| observed)
+        .find(|trial| trial.name() == "exceed_memory_quota")
+        .map(Trial::observed)
         .expect("la sonde est au rapport");
     assert!(
         matches!(observed, Observed::NotRun { .. }),
@@ -752,5 +755,95 @@ fn le_constat_de_route_ne_demande_rien_a_l_image() {
             "« ip » est un binaire que l'image peut ne pas porter ; « /proc/net/route » existe \
              toujours : {command}"
         );
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// W5.m — le code de sortie voyage à côté du verdict
+// ---------------------------------------------------------------------------------------------
+
+/// **Deux codes différents, un même verdict, et on peut les distinguer.**
+///
+/// C'est tout l'objet de l'item. `Observed` a trois valeurs, et c'est le bon compte pour juger ;
+/// mais plusieurs codes très différents tombent dans « bloquée », et sans le code brut rien ne dit
+/// **où** la sonde s'est arrêtée. Quand `open_outbound_connection` est ressortie bloquée sur un hôte
+/// dont un autre test montrait la route par défaut, la question « au constat de route, à `curl`, ou
+/// avant ? » n'avait aucune réponse dans le rapport.
+#[test]
+fn deux_codes_qui_bloquent_restent_discernables() {
+    let mut seen = Vec::new();
+    for code in [1, 13] {
+        let (execd, id) = started(FixedCode(code));
+        let trials = run_suite(&execd, &id);
+        let trial = trials
+            .iter()
+            .find(|trial| trial.name() == "escalate_to_root")
+            .expect("la sonde est au rapport");
+        assert_eq!(
+            trial.observed(),
+            Observed::Blocked,
+            "les deux codes se jugent pareil — c'est justement pourquoi le verdict ne suffit pas"
+        );
+        seen.push(trial.code());
+    }
+    assert_eq!(
+        seen,
+        vec![Some(1), Some(13)],
+        "le verdict les confond, le rapport ne doit pas"
+    );
+}
+
+/// **Un runtime qui n'a pas répondu n'a pas de code**, et ce n'est pas zéro.
+///
+/// `None` plutôt qu'un `-1` ou un `0` : les deux sont des valeurs que quelqu'un finirait par lire
+/// comme un vrai code de sortie, et `0` signifierait un succès. L'absence reste une absence.
+#[test]
+fn un_runtime_muet_ne_rend_aucun_code() {
+    // Créée et démarrée par un runtime qui répond, puis le runtime disparaît : c'est le seul
+    // chemin par lequel `run_suite` rencontre un échec de lancement sonde par sonde.
+    let (execd, id) = started(VanishingRuntime::new(2));
+    let trials = run_suite(&execd, &id);
+    assert!(
+        trials.iter().all(|trial| trial.code().is_none()),
+        "aucune commande n'a tourné : leur prêter un code inventerait une observation"
+    );
+    assert!(
+        trials
+            .iter()
+            .all(|trial| matches!(trial.observed(), Observed::NotRun { .. })),
+        "et le verdict reste « pas lancée »"
+    );
+}
+
+/// Le code d'un succès est rapporté aussi, et il vaut zéro.
+///
+/// Sans cela le rapport ne porterait le code que des échecs, et « pas de code » voudrait dire deux
+/// choses : réussi, ou pas lancé.
+#[test]
+fn le_code_d_un_succes_est_rapporte_lui_aussi() {
+    let (execd, id) = started(ProbingRunner::new(Vec::new()));
+    let trials = run_suite(&execd, &id);
+    assert!(
+        trials
+            .iter()
+            .all(|trial| trial.code() == Some(0) && trial.observed() == Observed::Succeeded),
+        "un rapport qui tairait le code des succès rendrait « pas de code » ambigu"
+    );
+}
+
+/// Un runtime qui rend un code fixe **aux sondes**, et réussit le cycle de vie.
+///
+/// Le distinguo est nécessaire : un runtime qui échouerait aussi à `create` ne laisserait jamais
+/// arriver jusqu'aux sondes, et le test ne mesurerait rien.
+struct FixedCode(i32);
+
+impl Runner for FixedCode {
+    fn run(&self, arguments: &[String]) -> Result<Execution, RuntimeError> {
+        let probing = arguments.first().is_some_and(|verb| verb == "exec");
+        Ok(Execution {
+            code: if probing { self.0 } else { 0 },
+            stdout: String::new(),
+            stderr: String::new(),
+        })
     }
 }

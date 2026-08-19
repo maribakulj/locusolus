@@ -295,33 +295,109 @@ pub fn exec_arguments(id: &SandboxId, command: &[&str]) -> Vec<String> {
     arguments
 }
 
+/// Ce qu'une sonde a rendu, et ce que le harnais en a conclu.
+///
+/// # Deux choses, jamais une
+///
+/// [`Observed`] a trois valeurs, et c'est le bon compte pour un **verdict** : réussie, bloquée, pas
+/// lancée. Mais trois valeurs ne suffisent pas à *diagnostiquer*, parce que plusieurs codes de
+/// sortie très différents tombent dans « bloquée ». Quand `open_outbound_connection` est ressortie
+/// bloquée sur un hôte dont un autre test montrait la route par défaut, rien ne permettait de dire
+/// **où** la sonde s'était arrêtée : au constat de route, à `curl`, ou avant.
+///
+/// Le code brut voyage donc **à côté** du verdict, jamais dedans. L'y mettre ferait entrer un
+/// détail de Podman dans le vocabulaire de `packages/execution`, qui ne connaît pas de runtime ;
+/// et un verdict à quatre-vingt-dix valeurs n'est plus un verdict.
+///
+/// `code` est `Option` parce qu'un runtime qui n'a pas répondu **n'a pas** de code de sortie.
+/// Inventer un `-1` produirait une valeur que quelqu'un finirait par lire comme un vrai code.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Trial {
+    name: &'static str,
+    observed: Observed,
+    code: Option<i32>,
+}
+
+impl Trial {
+    /// La sonde.
+    #[must_use]
+    pub const fn name(&self) -> &'static str {
+        self.name
+    }
+
+    /// Ce que le harnais en a conclu.
+    #[must_use]
+    pub const fn observed(&self) -> Observed {
+        self.observed
+    }
+
+    /// Le code que la commande a rendu, s'il y en a eu un.
+    #[must_use]
+    pub const fn code(&self) -> Option<i32> {
+        self.code
+    }
+
+    /// Une sonde qui n'a pas tourné, et qui n'a donc **aucun** code.
+    ///
+    /// # Un constructeur, et pas deux affectations
+    ///
+    /// Il y a deux façons pour une sonde de ne pas tourner — aucune commande ne lui est associée, ou
+    /// le runtime n'a pas répondu — et toutes deux doivent rendre `code: None`. Écrit deux fois, ce
+    /// `None` est deux occasions de se tromper : la mutation l'a montré en prêtant un `127` à la
+    /// première sans qu'aucun test ne morde, parce que ce chemin est **inatteignable** tant qu'aucune
+    /// sonde n'est orpheline — ce qu'un autre test garantit.
+    ///
+    /// Passer par un constructeur ne rend pas ce chemin testable ; il rend la faute inexprimable
+    /// sans réécrire ce constructeur, et le test qui couvre l'autre chemin garde alors les deux.
+    const fn not_run(name: &'static str, reason: &'static str) -> Self {
+        Self {
+            name,
+            observed: Observed::NotRun { reason },
+            code: None,
+        }
+    }
+}
+
 /// Tenter les seize sondes dans une sandbox qui tourne, et rendre ce qu'elles ont produit.
 ///
 /// L'ordre est celui de `SUITE`, et chaque sonde apparaît exactement une fois — y compris celles
 /// qui n'ont pas pu être lancées. Une suite tronquée se lirait comme une suite passée.
-pub fn run_suite<R: Runner>(
-    backend: &PodmanBackend<R>,
-    id: &SandboxId,
-) -> Vec<(&'static str, Observed)> {
+pub fn run_suite<R: Runner>(backend: &PodmanBackend<R>, id: &SandboxId) -> Vec<Trial> {
     SUITE
         .iter()
-        .map(|probe| (probe.name, attempt(backend, id, probe.name)))
+        .map(|probe| attempt(backend, id, probe.name))
         .collect()
 }
 
-fn attempt<R: Runner>(backend: &PodmanBackend<R>, id: &SandboxId, name: &str) -> Observed {
+/// Les verdicts seuls, sous la forme que [`locus_execution::standing`] attend.
+///
+/// La conversion est explicite plutôt qu'implicite : `standing` juge, et juger se fait sur les trois
+/// valeurs d'[`Observed`]. Lui passer les codes bruts l'inviterait à les regarder, et un jugement
+/// qui dépendrait d'un code de Podman ne serait plus transposable à un autre runtime.
+#[must_use]
+pub fn verdicts(trials: &[Trial]) -> Vec<(&'static str, Observed)> {
+    trials
+        .iter()
+        .map(|trial| (trial.name, trial.observed))
+        .collect()
+}
+
+fn attempt<R: Runner>(backend: &PodmanBackend<R>, id: &SandboxId, name: &'static str) -> Trial {
     let Some(command) = probe_command(name) else {
-        return Observed::NotRun {
-            reason: "aucune commande n'est associée à cette sonde",
-        };
+        return Trial::not_run(name, "aucune commande n'est associée à cette sonde");
     };
     match backend.runner().run(&exec_arguments(id, command)) {
-        Ok(execution) if execution.code == 0 => Observed::Succeeded,
-        Ok(execution) => unrunnable(execution.code)
-            .map_or(Observed::Blocked, |reason| Observed::NotRun { reason }),
-        Err(_) => Observed::NotRun {
-            reason: UNREACHABLE_RUNTIME,
+        Ok(execution) => Trial {
+            name,
+            observed: if execution.code == 0 {
+                Observed::Succeeded
+            } else {
+                unrunnable(execution.code)
+                    .map_or(Observed::Blocked, |reason| Observed::NotRun { reason })
+            },
+            code: Some(execution.code),
         },
+        Err(_) => Trial::not_run(name, UNREACHABLE_RUNTIME),
     }
 }
 
@@ -331,7 +407,7 @@ pub fn assess<R: Runner>(
     id: &SandboxId,
     level: SandboxLevel,
 ) -> Standing {
-    standing(level, &run_suite(backend, id))
+    standing(level, &verdicts(&run_suite(backend, id)))
 }
 
 /// Créer, démarrer et éprouver une sandbox à ce niveau, puis **la retirer**.

@@ -7431,3 +7431,57 @@ pas de démontage. Ce qu'elle rendra une fois mesurée n'est pas supposé ici.
 
 **Tests exécutés.** `cargo test -p locus-execd` → 25 conformes dans `selftest`, dont deux neufs, et
 31 dans `linux`. `npm run check` → les dix portes vertes.
+
+---
+
+## 2026-08-19 — W5.m — Le code de sortie voyage à côté du verdict, jamais dedans
+
+**Périmètre.** `apps/locus-execd/src/linux/selftest.rs` (le type `Trial`), le module qui l'exporte,
+et les deux fichiers de tests. Aucune sonde modifiée, aucun verdict changé.
+
+**La question que le rapport ne pouvait pas poser.** `Observed` a trois valeurs, et c'est le bon
+compte pour **juger** : réussie, bloquée, pas lancée. Mais plusieurs codes de sortie très différents
+tombent dans « bloquée », et quand `open_outbound_connection` est ressortie bloquée sur un hôte dont
+un autre test montrait la route par défaut, rien ne permettait de dire **où** la sonde s'était
+arrêtée — au constat de route, à `curl`, ou avant. Trois suites étaient possibles et le rapport n'en
+départageait aucune.
+
+**Décisions prises.**
+
+_Le code brut voyage à côté du verdict, jamais dedans._ L'y mettre ferait entrer un détail de Podman
+dans le vocabulaire de `packages/execution`, qui ne connaît aucun runtime — et un verdict à
+quatre-vingt-dix valeurs n'est plus un verdict. D'où `Trial { name, observed, code }`, et une
+conversion **explicite** `verdicts()` pour ce que `standing` attend : juger se fait sur les trois
+valeurs, et un jugement qui dépendrait d'un code de Podman ne serait plus transposable.
+
+_`code` est une `Option`._ Un runtime qui n'a pas répondu **n'a pas** de code. Inventer un `-1`
+produirait une valeur que quelqu'un finirait par lire comme un vrai code, et un `0` signifierait un
+succès.
+
+_Le code d'un succès est rapporté aussi._ Sans cela, « pas de code » voudrait dire deux choses —
+réussi, ou pas lancé — et le rapport reconstruirait à l'intérieur de lui-même l'ambiguïté qu'il est
+censé lever. Un test le tient.
+
+**Un survivant de mutation rendu inexprimable plutôt que couvert.** Le mutant prêtait un `127` à la
+sonde sans commande. Aucun test ne mordait, et pour une raison qui n'est pas une négligence : ce
+chemin est **inatteignable** tant qu'aucune sonde n'est orpheline, ce qu'un autre test garantit dans
+les deux sens. Le couvrir aurait demandé de fabriquer une sonde orpheline, c'est-à-dire de casser
+l'invariant pour tester ce qui arrive quand il est cassé.
+
+Les deux façons de ne pas tourner passent donc par un seul constructeur, `Trial::not_run`, qui pose
+`code: None` par construction. Cela ne rend pas le chemin testable ; cela rend la faute inexprimable
+sans réécrire le constructeur — et le test qui couvre l'**autre** chemin garde alors les deux. Le
+mutant réécrit sur le constructeur meurt.
+
+**Ce que ça donne au prochain passage.** La table du job `sandbox` porte désormais une colonne
+`code`. Les trois sondes sur-confinées diront enfin où elles s'arrêtent : `1` au constat de route,
+un code de `curl` après lui, ou autre chose avant. La réponse n'est pas devinée ici — c'est
+précisément la faute qui a coûté une hypothèse fausse à `W5.k`.
+
+**Tests exécutés.** `cargo test -p locus-execd` → 28 conformes dans `selftest`, dont trois neufs.
+`npm run check` → les dix portes vertes. Mutation : cinq mutants, **cinq tués**, zéro survivant.
+
+_Note de méthode._ Le premier passage de mutation avait restauré un instantané pris **avant**
+l'édition, annulant silencieusement le correctif — l'instantané périmé a été supprimé et la
+vérification refaite. Un harnais de mutation qui écrit dans l'arbre de travail doit être relu comme
+tout le reste.

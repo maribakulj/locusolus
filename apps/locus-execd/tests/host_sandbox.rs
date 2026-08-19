@@ -61,8 +61,8 @@ use std::path::PathBuf;
 use std::process;
 
 use locus_execd::linux::{
-    MUST_DENY, PodmanBackend, RestrictedProfile, Runner, SeccompProfiles, SystemRunner, Workload,
-    exec_arguments, run_suite,
+    MUST_DENY, PodmanBackend, RestrictedProfile, Runner, SeccompProfiles, SystemRunner, Trial,
+    Workload, exec_arguments, run_suite, verdicts,
 };
 use locus_execd::{RuntimePort, SandboxId};
 use locus_execution::{
@@ -205,7 +205,7 @@ fn cet_hote_tient_il_s2_sous_une_mission_qui_reserve_du_disque() {
         failures.join("\n"),
     );
     assert_eq!(
-        locus_execution::standing(LEVEL, &results),
+        locus_execution::standing(LEVEL, &verdicts(&results)),
         Standing::Trusted { level: LEVEL },
         "les seize tiennent une à une : le `Standing` doit le dire aussi, sans quoi c'est \
          l'agrégation qui est fausse et non les sondes"
@@ -288,7 +288,7 @@ fn workspace_dir(tag: &str) -> PathBuf {
 /// L'erreur est une chaîne et non un `Vec` de seize `NotRun` : « le runtime a refusé la
 /// spécification » n'est pas seize observations, c'est zéro observation et une raison. Les rendre
 /// comme seize `NotRun` produirait une table qui ressemble à un échec de confinement.
-fn probe(spec: &SandboxSpec, tag: &str) -> Result<Vec<(&'static str, Observed)>, String> {
+fn probe(spec: &SandboxSpec, tag: &str) -> Result<Vec<Trial>, String> {
     let image = env::var(IMAGE).unwrap_or_else(|_| {
         panic!(
             "{IMAGE} doit porter une image avec son digest (…@sha256:…) — sans image, il n'y a \
@@ -315,7 +315,7 @@ fn probe(spec: &SandboxSpec, tag: &str) -> Result<Vec<(&'static str, Observed)>,
 fn exercise(
     backend: &mut PodmanBackend<SystemRunner>,
     spec: &SandboxSpec,
-) -> Result<Vec<(&'static str, Observed)>, String> {
+) -> Result<Vec<Trial>, String> {
     let id: SandboxId = backend.create(spec).map_err(|error| error.to_string())?;
     if let Err(error) = backend.start(&id) {
         teardown(backend, &id);
@@ -336,20 +336,29 @@ fn teardown(backend: &mut PodmanBackend<SystemRunner>, id: &SandboxId) {
 }
 
 /// Ce qu'une sonde a produit, ou l'aveu qu'elle est absente du rapport.
-fn observation(results: &[(&'static str, Observed)], name: &str) -> Observed {
-    results.iter().find(|(probe, _)| *probe == name).map_or(
+fn observation(results: &[Trial], name: &str) -> Observed {
+    results.iter().find(|trial| trial.name() == name).map_or(
         Observed::NotRun {
             reason: "sonde absente du rapport",
         },
-        |(_, observed)| *observed,
+        Trial::observed,
     )
 }
 
+/// Le code brut que la commande a rendu, quand il y en a eu un.
+///
+/// `—` et non `0` pour l'absence : un runtime qui n'a pas répondu n'a pas de code, et afficher un
+/// zéro y ferait lire un succès.
+fn code_of(results: &[Trial], name: &str) -> String {
+    results
+        .iter()
+        .find(|trial| trial.name() == name)
+        .and_then(Trial::code)
+        .map_or_else(|| "—".to_owned(), |code| code.to_string())
+}
+
 /// Les verdicts qui ne sont pas `Holds`, les sondes nommées dans `excluded` mises à part.
-fn verdicts_other_than_holds(
-    results: &[(&'static str, Observed)],
-    excluded: &[&str],
-) -> Vec<String> {
+fn verdicts_other_than_holds(results: &[Trial], excluded: &[&str]) -> Vec<String> {
     SUITE
         .iter()
         .filter(|probe| !excluded.contains(&probe.name))
@@ -363,17 +372,18 @@ fn verdicts_other_than_holds(
 }
 
 /// La table, imprimée avant toute assertion.
-fn report(results: &[(&'static str, Observed)]) {
+fn report(results: &[Trial]) {
     println!("\nsondes à {} — hôte réel\n", LEVEL.code());
     for probe in &SUITE {
         let observed = observation(results, probe.name);
         println!(
-            "  {:<32} attendu {:<10} observé {:<28} → {}",
+            "  {:<32} attendu {:<10} code {:>4}  observé {:<28} → {}",
             probe.name,
             match expectation(probe, LEVEL) {
                 Expectation::Contained => "contenue",
                 Expectation::Allowed => "permise",
             },
+            code_of(results, probe.name),
             match observed {
                 Observed::Succeeded => "réussie".to_owned(),
                 Observed::Blocked => "bloquée".to_owned(),
