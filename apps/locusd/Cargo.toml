@@ -14,6 +14,10 @@ workspace = true
 name = "locusd"
 path = "src/lib.rs"
 
+[[bin]]
+name = "locusd"
+path = "src/main.rs"
+
 # Aucune dépendance de transport, et c'est l'objet de W20.a : le domaine de commande d'abord, le
 # runtime asynchrone et le cadre HTTP après leur ADR. `CLAUDE.md` : « construire domain/protocol/
 # event-store d'abord, avec des ports purs ».
@@ -23,6 +27,10 @@ path = "src/lib.rs"
 # n'est pas une dépendance de transport — le port est pur, et `CLAUDE.md` demande précisément qu'il
 # le soit avant tout runtime.
 locus-event-store = { path = "../../packages/event-store" }
+# W20.d : le composition root câble les projections de §9.5 et le moteur de politique de §20.2.
+# Aucune des deux n'est une dépendance de transport — elles sont le domaine que `locusd` assemble.
+locus-policy = { path = "../../packages/policy" }
+locus-projections = { path = "../../packages/projections" }
 locus-protocol = { path = "../../packages/protocol" }
 serde = { workspace = true }
 
