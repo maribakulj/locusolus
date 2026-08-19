@@ -392,6 +392,26 @@ test("le blocage d'un voisin est un blocage", async () => {
 });
 
 /**
+ * **Trois préfixes, et ils disent trois choses différentes.**
+ *
+ * `Bloqué` attend une décision ou un fait extérieur, `Reporté` attend une machine, `Partiel` attend
+ * le reste du même travail. Le troisième est né d'un item qui traverse deux dépôts : `W15.f` livre
+ * son lecteur dans `canterel` avant son opération dans `locusolus`, parce que la décision 4 d'ADR
+ * 0016 exige cet ordre. La moitié livrée mérite son entrée ; elle ne mérite pas de valoir l'item.
+ */
+test("les trois préfixes empêchent une entrée de valoir livraison", async () => {
+  for (const prefixe of ["Bloqué", "Reporté", "Partiel"]) {
+    const root = await fixture({
+      ledger: `# Ledger\n\n## 2026-08-19 — W15.f — ${prefixe} : la moitié qui manque\n`,
+      roadmap: "| # |\n|---|\n| W15.f `[M]` **fait** |\n",
+    });
+    const state = await readReconciliation(root);
+    assert.equal(state.blocked.has("W15.f"), true, prefixe);
+    assert.equal(state.delivered.has("W15.f"), false, prefixe);
+  }
+});
+
+/**
  * **Le mot dans le titre ne suffit pas : c'est sa place qui décide.**
  *
  * L'entrée de `W0.12` s'intitule « `« Bloqué »` n'est pas `« à faire »` » et livre bel et bien.

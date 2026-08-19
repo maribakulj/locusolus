@@ -8406,3 +8406,43 @@ passe locale qui l'a trouvée, et c'est la passe locale qui la trouvera.
 **Prochain item.** `W15.f` — `SET_ROLE` comme opération attributaire, tranche 1 du mineur `lep/1.1`.
 Dépendance vérifiée et satisfaite : ADR 0017 existe, ce qui est exactement ce que son entrée de
 blocage attendait.
+
+---
+
+## 2026-08-19 — W0.14 — Une moitié consignée ne vaut pas l'item
+
+**Périmètre.** `tooling/repo/roadmap.ts` (`Partiel` dans les préfixes de décision),
+`tests/repo/roadmap.test.ts` (un test), `docs/10_V1_ROADMAP.md`, `IMPLEMENTATION_LEDGER.md`.
+
+**Trouvé en livrant `W15.f`, quinze minutes après `W0.13`.** `W15.f` traverse `locusolus` et
+`canterel`, et l'ordre n'est pas libre : la décision 4 d'ADR 0016 exige que le lecteur d'une
+opération attributaire existe **avant** l'opération, et `PINNED.json` ne peut pas référencer un
+commit qui n'existe pas encore. Le lecteur est donc parti d'abord, avec son entrée au registre de
+`canterel` — et `npm run check` a immédiatement rapporté `livre-non-marque` sur `W15.f`, dont la
+ligne de roadmap n'était pas marquée. Elle ne devait pas l'être : un tiers du travail était fait.
+
+**C'est le défaut de `W0.13`, rencontré dans l'autre sens.** Là, une entrée disait « bloqué » et la
+garde la comptait comme une livraison. Ici, une entrée dit « voici la première moitié » et la garde
+la compterait pareil. Dans les deux cas le registre est juste et c'est la garde qui lit mal.
+
+**Trois préfixes, et ils ne se fondent pas.** `Bloqué` attend une décision ou un fait extérieur,
+`Reporté` attend une machine, `Partiel` attend le reste du même travail. Les réunir sous un « pas
+fini » ferait perdre à chacun ce qui dit **quoi attendre** — la même règle que les absences de
+`xiiif` §19, où `unverified`, `unrecorded` et `unchecked` sont trois ignorances distinctes.
+
+**Tests exécutés.** `node --test tests/repo/roadmap.test.ts` — 17/17. Le test de sortie de l'item,
+nommément : pour chacun des trois préfixes, une entrée ainsi titrée rejoint `blocked` et **pas**
+`delivered`, et une ligne **fait** au-dessus d'elle est rapportée. `npm run check` — onze portes
+vertes.
+
+**Décisions prises.** Aucune nouvelle : c'est la convention de `W0.13` étendue d'un cas, et le
+vocabulaire reste fermé pour la raison que `W0.12` a écrite — un mot que la garde ne connaît pas
+doit produire du travail, pas du silence.
+
+**Écart avec la spec.** Aucun.
+
+**Prochain item.** `W15.f` (2/3), en attente d'un arbitrage : la CI de `canterel` est rouge sur un
+test **amont** — `Identifier.create` empaquette environ 53 bits dans six octets, l'horodatage relu
+se replie tous les 795 jours, et le dernier repli date du 14 août 2026. Le corriger touche un
+fichier amont, payé à chaque synchronisation (ADR 0010). Détail dans l'entrée de `W15.f` du registre
+de `canterel`.
