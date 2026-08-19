@@ -10,7 +10,7 @@ use locus_protocol::error::{
     Category, EmptyRetryCondition, Retry, RetryCondition, StructuredError,
 };
 use locus_protocol::id::provisional::{Error as ErrorKind, Mission};
-use locus_protocol::id::{Command, Event, Id, ParseIdError};
+use locus_protocol::id::{Agent, Command, Event, Id, ParseIdError, Workspace};
 use locus_protocol::time::{ParseTimestampError, Timestamp};
 use locus_protocol::version::{ParseVersionError, ProtocolVersion};
 
@@ -390,4 +390,48 @@ fn un_horodatage_non_canonique_est_refuse_au_decodage() {
     let mut json: serde_json::Value = serde_json::to_value(sample(false, Retry::Never)).unwrap();
     json["occurred_at"] = serde_json::Value::String("2026-07-26T12:00:00Z".to_owned());
     assert!(serde_json::from_value::<StructuredError>(json).is_err());
+}
+
+/// **Un identifiant se relit depuis un désérialiseur qui possède ses données.**
+///
+/// `<&str>::deserialize` exige que le lecteur **prête** ses octets : `serde_json::from_str` le
+/// fait, `from_value` et `from_reader` ne le peuvent pas. Le défaut dormait depuis W0.4 parce
+/// qu'aucun document portant un identifiant n'avait été relu autrement que depuis une chaîne — le
+/// `CommandEnvelope` de W20.a l'a réveillé, avec un message qui accusait la donnée : « invalid
+/// type: string, expected a borrowed string ».
+///
+/// Les trois chemins sont exercés ici, parce que celui qui manquait était précisément celui que
+/// personne n'avait essayé.
+#[test]
+fn un_identifiant_se_relit_par_les_trois_chemins() {
+    let id = Id::<Agent>::from_parts(Timestamp::from_millis(1_700_000_000_000), [0_u8; 10])
+        .expect("l'instant tient sur 48 bits");
+    let json = serde_json::to_string(&id).expect("encodage");
+
+    let depuis_chaine: Id<Agent> = serde_json::from_str(&json).expect("emprunté");
+    let depuis_valeur: Id<Agent> =
+        serde_json::from_value(serde_json::to_value(id).expect("valeur")).expect("possédé");
+    let depuis_lecteur: Id<Agent> =
+        serde_json::from_reader(json.as_bytes()).expect("lecteur possédant");
+
+    assert_eq!(depuis_chaine, id);
+    assert_eq!(depuis_valeur, id);
+    assert_eq!(depuis_lecteur, id);
+}
+
+/// Un préfixe étranger reste refusé, quel que soit le chemin.
+///
+/// `Cow` élargit ce qui est **lisible**, pas ce qui est **accepté** : la vérification de préfixe
+/// tient toujours, et un `agent_…` lu comme `Id<Workspace>` échoue par les trois chemins.
+#[test]
+fn un_prefixe_etranger_est_refuse_par_les_trois_chemins() {
+    let id = Id::<Agent>::from_parts(Timestamp::from_millis(1_700_000_000_000), [0_u8; 10])
+        .expect("l'instant tient sur 48 bits");
+    let json = serde_json::to_string(&id).expect("encodage");
+
+    assert!(serde_json::from_str::<Id<Workspace>>(&json).is_err());
+    assert!(
+        serde_json::from_value::<Id<Workspace>>(serde_json::to_value(id).expect("valeur")).is_err()
+    );
+    assert!(serde_json::from_reader::<_, Id<Workspace>>(json.as_bytes()).is_err());
 }

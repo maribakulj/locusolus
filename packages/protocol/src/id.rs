@@ -4,6 +4,7 @@ use std::fmt;
 use std::marker::PhantomData;
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _};
+use std::borrow::Cow;
 
 use crate::time::Timestamp;
 
@@ -172,9 +173,19 @@ impl<K: IdKind> Serialize for Id<K> {
 }
 
 impl<'de, K: IdKind> Deserialize<'de> for Id<K> {
+    /// Lu par [`Cow`], pas par `&str`.
+    ///
+    /// `<&str>::deserialize` exige que le désérialiseur **prête** ses octets. `serde_json::from_str`
+    /// le fait ; `from_value`, `from_reader` et tout format qui possède ses données ne le peuvent
+    /// pas, et rendent alors « invalid type: string, expected a borrowed string » — un message qui
+    /// accuse la donnée d'un défaut du lecteur. Le défaut dormait depuis W0.4 : aucun document
+    /// portant un identifiant n'avait été relu autrement que depuis une chaîne, jusqu'au
+    /// `CommandEnvelope` de W20.a.
+    ///
+    /// `Cow` accepte les deux et n'alloue que lorsqu'il le faut.
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let text = <&str>::deserialize(deserializer)?;
-        Self::parse(text).map_err(D::Error::custom)
+        let text = Cow::<'de, str>::deserialize(deserializer)?;
+        Self::parse(&text).map_err(D::Error::custom)
     }
 }
 

@@ -8765,3 +8765,69 @@ deux se rencontrent maintenant sur le fil.
 **Prochain item.** Brancher `offlineVerdict` sur le champ, dans `canterel`, puis re-vendorer le SDK
 épinglé. Ensuite `W20.a` — le `CommandEnvelope` de §22.2 et les huit familles d'erreurs typées de
 §22.5, sans transport : le premier item d'un `apps/locusd` encore vide.
+
+## 2026-08-19 — W20.a — le `CommandEnvelope` de §22.2, et huit familles qui ne se fondent pas dans dix-sept
+
+**Périmètre.** `apps/locusd/` en entier — crate neuf : `Cargo.toml`,
+`src/{lib,command,error,outcome}.rs`, `tests/command.rs`. Enregistré dans les membres du
+`Cargo.toml` racine. Un débordement, hors de l'item et assumé : `packages/protocol/src/id.rs` — voir
+« Écart avec la spec ».
+
+**Tests exécutés.** `cargo test -p locusd` — 14 tests, verts, dont le test de sortie dans ses quatre
+clauses. `cargo test -p locusd --doc` — 1 doctest `compile_fail`, vert.
+`cargo test -p locus-protocol --test canonical_forms` — 29 verts, dont deux neufs.
+
+Mutation testing, treize mutants : **12 tués, 0 survivant**. Les deux survivants du premier tour ont
+donné deux tests, et ce sont eux qui valent d'être consignés :
+
+1. **Le message du conflit inversait les deux révisions sans que rien ne bronche.** Le test lisait
+   `rendu.contains("18") && rendu.contains("21")` — vrai dans les deux ordres. Or c'est exactement
+   le défaut que le module dit prévenir : « un message exactement faux — “attendu 21, courante 18”
+   là où c'est l'inverse ». La documentation affirmait une propriété que le test ne tenait pas. Le
+   test lit maintenant les **positions**, pas la présence.
+2. **Une neuvième famille pouvait entrer.** `Family::ALL` est une liste écrite à la main : une
+   variante de plus la laisse intacte, donc `ALL.len() == 8` restait vrai _avec neuf familles_, et
+   l'assertion de « liste close » était verte à côté de la plaque. Une fonction `rang()` à `match`
+   exhaustif, dans le crate de test, attache désormais l'énumération à `ALL`.
+
+**Décisions prises.**
+
+- **Huit familles, et pas dix-sept.** `locus_protocol::error::Category` porte les dix-sept
+  catégories de la spec Canterel §26 ; quatre noms sont communs, et les fondre serait tentant. Ce
+  serait faux dans les deux sens : une commande refusée pour `policy` n'est née dans aucune sandbox,
+  et une erreur de modèle n'arrive jamais en réponse à une commande. Deux vocabulaires, deux
+  lecteurs — `Category` dit _où_ une erreur d'exécution est née, `Family` dit _comment un client
+  d'API doit réagir_. Un test nomme six catégories Canterel et exige que le décodeur de `Family` les
+  **refuse**, pas seulement qu'elles soient absentes de `NAMES`.
+- **Deux portes pour `expected_revision`, parce qu'une seule laissait un trou.** §22.5 dit qu'une
+  commande mutante « accepte » `expected_revision` ; ce module en fait « exige ».
+  `CommandEnvelope::mutating` l'impose par sa signature — une commande mutante sans elle n'est pas
+  refusée, elle n'est pas _écrivable_, et c'est le compilateur qui répond. `Draft::seal` refuse en
+  **nommant** le champ, parce qu'un décodeur ou une CLI assemble morceau par morceau et ne peut pas
+  être tenu par une signature. La première ne couvre pas ce qui vient du dehors ; la seconde ne
+  couvre pas ce que le serveur écrit lui-même.
+- **Le `compile_fail` a été vu échouer.** La leçon de `W7.a` — « un `compile_fail` qu'on n'a pas vu
+  échouer ne vérifie rien » — appliquée : en ajoutant le sixième argument, le doctest est passé au
+  rouge avec `Test compiled successfully, but it's marked compile_fail`. Il échoue pour une seule
+  raison, celle qu'on lui demande.
+- **`command_type` reste une chaîne validée.** §22.3 énumère quarante commandes ; aucune n'est ici,
+  parce qu'aucune n'a de handler. C'est la règle de `CLAUDE.md` sur les énumérations — une sorte
+  n'entre que lorsqu'un consommateur exécutable et testé existe. Quarante noms sans handler auraient
+  l'air implémentés.
+- **Aucune dépendance de transport.** `locus-protocol` et `serde`, rien d'autre. Le choix d'un
+  runtime asynchrone et d'un cadre HTTP est le plus gros choix de dépendance depuis l'ADR 0011 ; il
+  a son ADR, qui est `W20.c`. Commencer par le domaine lui permet d'être écrit en sachant ce qu'il
+  transporte.
+
+**Écart avec la spec.** Un seul, et c'est un défaut latent de `W0.4` trouvé en écrivant les tests
+d'aller-retour : `Id::deserialize` passait par `<&str>::deserialize`, ce qui ne fonctionne que
+depuis un tampon emprunté. `serde_json::from_value` et `from_reader` échouaient donc sur des
+identifiants parfaitement valides — un défaut qu'aucun consommateur n'avait encore rencontré parce
+que tous lisaient depuis `&str`. Corrigé par `Cow<'de, str>`, et épinglé par deux tests qui exercent
+**les trois chemins** (`from_str`, `from_value`, `from_reader`), dans les deux sens : un identifiant
+valide se relit par les trois, un préfixe étranger est refusé par les trois. Hors du périmètre de
+l'item, mais `apps/locusd` ne pouvait pas faire son aller-retour sans.
+
+**Prochain item.** `W20.b` — le handler transactionnel comme port, et la règle « toute mutation
+passe par un command handler transactionnel » rendue opposable. Sa dépendance est `W20.a`,
+satisfaite par cette entrée : un handler reçoit une enveloppe, et l'enveloppe existe maintenant.
