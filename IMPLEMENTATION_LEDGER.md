@@ -8966,3 +8966,81 @@ dit pourquoi il ne le fait pas maintenant.
 `boundaries.json` « cesse d'être vide » : elle compte **9 fichiers** depuis `W20.b`, et ce qui reste
 dû est la seconde moitié — qu'un import de SDK de runtime la fasse échouer, **vérifié en rouge
 d'abord**.
+
+## 2026-08-19 — W20.d — le composition root, et une règle vérifiée sur le vrai crate
+
+**Périmètre.** `apps/locusd/src/{composition,main}.rs` (neufs), `src/lib.rs`, `Cargo.toml` (cible
+`[[bin]]`, `locus-policy` et `locus-projections`), `apps/locusd/tests/composition.rs` (neuf). Aucun
+débordement.
+
+**Tests exécutés.** `npm run check` — les douze portes, code de sortie 0. `cargo test -p locusd` —
+34 tests. `cargo run -p locusd` — le binaire démarre, câble quatre projections et rend `0`.
+
+Mutation testing, neuf mutants : **9 tués, 0 survivant** — après correction (voir plus bas).
+
+**La seconde moitié du test de sortie, vérifiée sur le vrai crate.** La règle 4 avait des fixtures
+depuis `W0.3` ; ce qu'il fallait était la voir échouer sur `apps/locusd` lui-même. Les deux chemins
+ont été exercés, chacun en rouge puis restauré :
+
+```
+apps/locusd/src/composition.rs: importe bollard/Docker
+apps/locusd/Cargo.toml: déclare la dépendance bollard
+```
+
+La règle couvre **12 fichiers** — elle en couvrait 0 avant `W20.a`. Deux portes indépendantes
+attrapent d'ailleurs le second cas : `check:boundaries` par la dépendance déclarée, `check:deps` par
+l'absence de `bollard` dans `dependencies.json`.
+
+**Décisions prises.**
+
+- **Le binaire assemble, rend compte, et s'arrête.** `W20.d` dit « sans surface HTTP » et l'ADR 0018
+  autorise `axum` sans l'introduire. Une boucle d'attente sans transport serait un serveur qui
+  n'écoute rien — plus difficile à distinguer d'un serveur en panne qu'un processus terminé qui dit
+  ce qu'il a câblé. Le code de sortie porte le verdict : `1` si une projection est en quarantaine.
+- **« Prêt » ne se dit pas avec une projection morte.** Une projection en quarantaine sert des
+  lectures périmées ; un daemon qui se dirait disponible dans cet état ferait exactement la promesse
+  qu'il ne tient pas.
+- **Le composition root ne décide rien.** Il finit toujours par recevoir « juste une petite décision
+  », parce qu'il est le seul endroit qui voit tout — donc le pire endroit où cacher une règle. Il
+  expose `simulate` (le chemin `dry` de §20.2) et **pas** `Run::live` : accorder un droit d'agir est
+  une décision. Un test lit la source pour le tenir.
+- **Les projections et le journal sortent en lecture seule.** `Transaction::store` rend `&S`, les
+  quatre accesseurs de projection rendent `&P`. C'est ce qui rend inexprimable un assemblage où une
+  projection écrirait — non parce que le composition root fait attention, mais parce que la seule
+  poignée qu'il puisse passer est immuable. `W20.e` servira les queries de §22.4 depuis ces
+  accesseurs.
+- **Le rapport nomme `axum` pour dire qu'il n'est pas branché.** Le garde « pas de transport » a
+  d'abord été écrit comme une recherche de mot dans tout le fichier, et il a échoué sur cette
+  phrase. Le garde a été **rendu précis** plutôt que la phrase supprimée : la propriété est « ce
+  fichier ne dépend d'aucun transport », qui se lit dans les `use`, et non « ce mot n'y figure pas
+  ». Interdire le mot aurait interdit de documenter l'absence. C'est l'inverse de l'arbitrage de
+  `W20.b`, où le jeton était interdit **partout** par construction et où c'est le commentaire qui a
+  été reformulé — la différence est que la règle y était juste, et qu'ici elle ne l'était pas.
+
+**Deux survivants au premier tour, et ce qu'ils ont révélé.**
+
+1. **Le test de bout en bout ne vérifiait rien.**
+   `une_ecriture_traverse_la_transaction_puis_les_projections` n'assertait que `is_ready()` — vrai
+   d'un journal vide. Un mutant qui faisait rattraper les projections depuis un journal neuf
+   survivait donc, et le test prétendait exercer « commande → journal → projection » sans regarder
+   si quoi que ce soit était arrivé. Il lit maintenant l'**état du graphe**, avant et après.
+2. **La quarantaine n'était vérifiée que sur un `Readiness` construit à la main**, donc la
+   traduction de `Health` vers le rapport n'était pas vérifiée du tout. Un test la provoque
+   désormais pour de vrai — un événement `artifact.declared` sans `artifact_id`, que
+   `execution_graph` refuse parce qu'un artefact sans identité n'est pas suivable.
+
+**Un défaut de l'outillage, qui a détruit une édition.** Le harnais de mutation gardait un
+instantané déjà présent (`if not snap.exists()`) et le réécrivait sur le fichier à la fin du tour.
+Entre deux passes, les accesseurs de projection ajoutés au composition root ont donc été
+**silencieusement ramenés en arrière** — la passe suivante a rendu « 0 tué, 9 inexploitables », ce
+qui a rendu le défaut visible. Corrigé : l'instantané se reprend à chaque passe, et **après** la
+vérification de ligne de base, parce qu'un arbre vert est un état qu'on peut restaurer alors qu'un
+arbre laissé muté par une passe interrompue ne l'est pas. La leçon est la même que celle des
+compteurs : un outil de vérification qui écrit dans l'arbre doit dire de quel état il part.
+
+**Écart avec la spec.** Aucun. §9.5 (quatre projections, quarantaine sans blocage de l'écriture),
+§20.2 (chemin `dry`) et §4.1 (l'autorité transactionnelle) sont câblés. La surface HTTP de §22.4 et
+le fil de §22.1 sont `W20.e` et `W20.f`.
+
+**Prochain item.** `W20.e` — les queries de §22.4 et les cursors de §22.6. Sa dépendance `W20.d` est
+satisfaite par cette entrée, et les accesseurs en lecture seule sont ce depuis quoi elle servira.

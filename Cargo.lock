@@ -220,6 +220,8 @@ name = "locusd"
 version = "0.0.0"
 dependencies = [
  "locus-event-store",
+ "locus-policy",
+ "locus-projections",
  "locus-protocol",
  "serde",
  "serde_json",
