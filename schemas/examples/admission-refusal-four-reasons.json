@@ -1,0 +1,26 @@
+{
+  "_fixture": {
+    "name": "un-refus-porte-toutes-ses-conditions",
+    "expect": "accepted",
+    "pairs_with": "capability-manifest.json",
+    "note": "Quatre conditions manquent en même temps. C'est la propriété que le fil ne doit pas perdre : n'en transmettre qu'une ferait corriger le niveau, relancer, découvrir l'accélérateur, corriger, relancer, découvrir le quota disque — un aller-retour par condition manquante. `level_not_attested` figure à côté de `level_unavailable` pour que la distinction se lise sur un document réel."
+  },
+  "protocol": "lep/1.1",
+  "task_id": "task-refuse",
+  "attempt_id": "attempt-refuse-1",
+  "reasons": [
+    { "code": "level_unavailable", "required": "S4", "best": "S2" },
+    { "code": "level_not_attested", "required": "S2" },
+    {
+      "code": "accelerator_outside_sandbox",
+      "kind": "cuda",
+      "required": "S3",
+      "native_level": "S1"
+    },
+    {
+      "code": "disk_quota_not_enforceable",
+      "requested": 12000000000,
+      "why": "overlayfs sur ext4 : aucun quota de projet"
+    }
+  ]
+}

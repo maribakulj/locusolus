@@ -8611,3 +8611,92 @@ portée par un refus nommé plutôt que par une convention écrite quelque part.
 **Prochain item.** `W19.a` — les motifs de refus d'admission sur le fil, comme document. Le schéma
 est écrit et validé, ses trois fixtures aussi ; ce qui reste est la conversion depuis
 `RefusalReason` et les tests des deux propriétés que l'ADR nomme.
+
+---
+
+## 2026-08-19 — W19.a `[M]` — Les motifs de refus d'admission, sur le fil
+
+**Périmètre.** `schemas/lep/1.0/admission-refusal.schema.json` (neuf), trois fixtures,
+`schemas/registry.json`, `packages/lep/src/generated.{rs,ts}` (régénérés),
+`apps/locus-execd/src/wire.rs` (neuf) et son `Cargo.toml`, `apps/locus-execd/tests/wire.rs` (neuf, 6
+tests), `tests/schemas/lep.test.ts` (4 tests), `docs/10_V1_ROADMAP.md`, ce fichier.
+
+**Sept motifs, là où ADR 0017 §5.2 en nommait six.** `DiskQuotaNotEnforceable` est né avec `W5.g` et
+`W5.j`, après l'écriture de l'ADR. Le laisser hors du fil aurait violé la première des deux
+propriétés que l'ADR demande de préserver, au premier hôte sans quota de projet : le refus serait
+parti amputé d'une de ses raisons. L'ADR aurait été respecté à la lettre **contre son propre
+objet**. C'est un détail d'implémentation tranché ici plutôt que remonté : la liste de l'ADR
+décrivait un état du code, pas une décision.
+
+**Les deux propriétés, testées sur ce qui voyage.** (1) Un refus porte **tous** ses motifs, dans
+l'ordre où l'admission les a trouvés — testé sur quatre motifs simultanés, et l'ordre est vérifié en
+plus du nombre, parce qu'un ensemble non ordonné quelque part dans la chaîne le perdrait sans rien
+casser d'autre. (2) `level_not_attested` et `level_unavailable` restent distincts, et la paire
+`accelerator_unavailable` / `accelerator_outside_sandbox` avec eux — tenus par **égalité stricte sur
+les codes de fil**, jamais par lecture de phrase : une assertion qui chercherait « attested » dans
+un message passerait encore le jour où les deux motifs partageraient un texte. Les tests portent sur
+le JSON, pas sur les types Rust : comparer deux `Reason` prouverait que la traduction est injective
+en mémoire, alors que ce qu'on veut savoir est ce qu'un pair lit.
+
+**Une conversion exhaustive, sans branche fourre-tout.** Le `match` de `wire::reason` n'a pas de
+`_ =>` : ajouter une variante à `RefusalReason` sans lui donner sa forme de fil **ne compile pas**.
+Une branche fourre-tout aurait laissé un motif nouveau voyager en silence sous le code d'un autre.
+Ce que le compilateur ne dit pas, un test l'ajoute : les sept codes sont **distincts**, un
+copier-coller qui en donnerait deux fois le même compilant très bien.
+
+**Un survivant de mutation, et ce qu'il désignait.** Le mutant « `S4` se traduit par `S3` » a
+survécu à toute la suite : les tests portaient sur les codes de motif, jamais sur les niveaux qu'ils
+transportent. Un refus qui dirait « hôte au mieux en S3 » d'un hôte en S4 enverrait chercher une
+machine qu'on a déjà. Un test couvre les six niveaux **et** l'ordre des deux positions `required` /
+`best`, qu'une inversion aurait passé.
+
+**Le document est nouveau, et un test le tient.** Interdit 3 d'ADR 0017 : un mineur ajoute des
+champs, jamais des valeurs. Le test lit **tous** les schémas du registre et refuse qu'un ancien
+nomme l'un des sept codes — plutôt que de faire confiance à une relecture de diff, qui ne dirait
+rien au prochain mineur.
+
+**`additionalProperties: false` par variante, et `oneOf` qui refuse l'hybride.** Un émetteur ne peut
+pas composer un motif qui porterait les champs de deux, et que le lecteur interpréterait à moitié.
+
+**Tests exécutés.** `cargo test -p locus-execd --test wire` — 6.
+`node --test tests/schemas/lep.test.ts` — 38, dont 4 neufs. `npm run check` — onze portes vertes.
+Mutation testing : **9 mutants, 9 tués**, dont « seul le premier motif voyage », « l'ordre des
+motifs est perdu », « `level_not_attested` est fondu dans `level_unavailable` » et « un motif peut
+porter les champs d'un autre ».
+
+**Plan de rollback `[M]`.** Le document est **nouveau** et rien ne le produit encore en amont de
+`locus-execd` : le retirer, c'est supprimer un fichier de schéma, trois fixtures, une entrée de
+registre et un module. Aucun document existant ne change, aucune énumération ne perd de membre, et
+les autres types générés sont inchangés. C'est la propriété d'un ajout par document, et c'est
+précisément ce que l'interdit 3 achète.
+
+**Décisions prises.** Les branches d'une union s'écrivent **inline** dans le schéma — la contrainte
+vient de `W0.15` et ce document en est le premier client. Le document annonce `lep/1.1` dans son
+`protocol` : c'est la tranche 2 du mineur, et un `1.0` y serait un mensonge sur ce que l'émetteur
+sait faire.
+
+**Écart avec la spec.** Un seul, assumé et expliqué ci-dessus : sept motifs au lieu des six
+qu'énumère ADR 0017 §5.2.
+
+**Une seconde correction d'outillage, et celle-là était une contradiction.** `cargo fmt --check`
+veut les variantes courtes d'un `enum` sur une ligne ; l'émetteur les écrivait sur trois ; et
+`check:generated` exige que le fichier soit exactement ce que l'émetteur produit. **Les deux portes
+se contredisaient et aucune n'avait tort** — c'est l'émetteur qui n'avait pas de forme canonique. Le
+défaut dormait parce qu'aucune structure générée n'avait jamais divergé de rustfmt ; le premier
+`enum` à variantes-structures l'a réveillé. Le Rust généré passe désormais par `rustfmt`, comme le
+TypeScript passe par prettier depuis `W0.8`, avec la toolchain que `check:rust` exige déjà — aucune
+dépendance nouvelle, et la même version que la porte qui vérifie derrière. Le faire imiter rustfmt à
+la main aurait été réimplémenter rustfmt.
+
+**Une correction de CI au passage, parce que ce sprint l'a subie.** Le pas « Install Emacs » de
+`W5.u` demandait jusqu'à `240 + 2 × (300 + 240) + 30` secondes de bornes, soit **dix-huit minutes**,
+là où GitHub coupe le pas à douze. La seconde reprise ne pouvait donc jamais s'exécuter et la
+première était coupée en plein vol : une échelle à moitié morte, qui avait l'air d'en offrir trois.
+Trouvé en regardant les **étapes** du job plutôt que son statut agrégé — la CI de `W0.15` a rougi
+sur un miroir apt lent, et l'API disait seulement « in_progress ». L'échelle tient maintenant dans
+son plafond : `180 + 240 + 180 + 10 = 610` secondes, cent dix de marge. Un miroir plus lent fait
+échouer le job, et c'est voulu — une frontière non vérifiée doit se voir, et la réponse est de
+relancer, pas d'élargir la borne jusqu'à ce qu'elle ne borne plus.
+
+**Prochain item.** `W19.b` — la permission de fonctionnement hors ligne, activable et désactivable
+(`SPEC_V1.md` §1.2, dernier invariant). Tranche 3 du mineur, et la dernière que W19 porte.

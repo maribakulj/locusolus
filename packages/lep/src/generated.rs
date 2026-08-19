@@ -120,6 +120,43 @@ pub type Refs = Vec<RefsItem>;
 
 pub type Hash = String;
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "code")]
+pub enum Reason {
+    /// L'hôte ne sait pas confiner aussi fort que la mission l'exige. **Distinct de `level_not_attested`** : « l'hôte ne sait pas faire » envoie chercher une autre machine ; « l'hôte l'annonce sans l'avoir prouvé » envoie faire tourner une campagne de self-tests. Les fondre ferait acheter du matériel pour un problème d'attestation.
+    #[serde(rename = "level_unavailable")]
+    LevelUnavailable {
+        required: SandboxLevel,
+        best: SandboxLevel,
+    },
+    /// La réservation dépasse la capacité de l'hôte. Le seul motif sans donnée : ce qui manque est du volume, et la réservation refusée est déjà dans la mission.
+    #[serde(rename = "capacity_exceeded")]
+    CapacityExceeded,
+    /// L'accélérateur demandé n'est pas sur cet hôte.
+    #[serde(rename = "accelerator_unavailable")]
+    AcceleratorUnavailable { kind: String },
+    /// L'hôte ne sait pas **borner** l'espace disque, quel qu'il en reste. Distinct de `capacity_exceeded`, et la distinction n'est pas cosmétique : « la capacité manque » envoie libérer de la place ou réduire la réservation ; « la borne n'est pas applicable ici » envoie changer de système de fichiers, ou de machine. Les fondre ferait réduire une réservation qui aurait échoué de la même façon à un octet. Né avec W5.g et W5.j, après l'écriture d'ADR 0017 §5.2 — qui en nommait six.
+    #[serde(rename = "disk_quota_not_enforceable")]
+    DiskQuotaNotEnforceable { requested: i64, why: String },
+    /// L'hôte ne sait pas appliquer ce mode réseau.
+    #[serde(rename = "network_mode_unsupported")]
+    NetworkModeUnsupported { mode: NetworkMode },
+    /// L'hôte annonce ce niveau mais ne l'a jamais prouvé — §12.2 demande une sandbox « disponible **et attestée** ». `proven` est **absent** quand aucune campagne n'a conclu, et ce n'est pas la même ignorance qu'un niveau prouvé trop bas : l'une envoie lancer les self-tests, l'autre dit que l'hôte a échoué à les passer.
+    #[serde(rename = "level_not_attested")]
+    LevelNotAttested {
+        required: SandboxLevel,
+        #[serde(skip_serializing_if = "Option::is_none", default)]
+        proven: Option<SandboxLevel>,
+    },
+    /// L'accélérateur **est** sur cet hôte, mais pas là où la mission veut être confinée. Distinct d'`accelerator_unavailable` : le dire « absent » enverrait chercher du matériel au lieu de choisir entre le conteneur et l'accélérateur.
+    #[serde(rename = "accelerator_outside_sandbox")]
+    AcceleratorOutsideSandbox {
+        kind: String,
+        required: SandboxLevel,
+        native_level: SandboxLevel,
+    },
+}
+
 /// Le GPU est une capability, pas une dépendance globale (invariant 8) : absent veut dire « aucun n'est requis », jamais « n'importe lequel fera l'affaire ».
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1007,8 +1044,19 @@ pub struct HumanReviewFinding {
     pub recorded_at: Option<String>,
 }
 
+/// Pourquoi une mission n'a pas été admise sur un hôte — SPEC_V1 §10.2, ADR 0017 §5.2, tranche 2 du mineur `lep/1.1`. Document **nouveau** : aucune énumération existante ne gagne un membre, ce que l'interdit 3 de l'ADR refuse. Il porte des données et pas seulement des codes — le niveau exigé, le meilleur niveau prouvé, le genre d'accélérateur — donc un membre de plus sur une énumération n'aurait de toute façon pas suffi.
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AdmissionRefusal {
+    pub protocol: ProtocolVersion,
+    pub task_id: String,
+    pub attempt_id: String,
+    /// **Toutes** les conditions manquantes, jamais la première seule. `admit` les accumule et rend `Refused { reasons }` au pluriel ; un fil qui n'en transmettrait qu'une ferait corriger une condition pour retomber aussitôt sur la suivante, autant de fois qu'il en manque. `minItems: 1` parce qu'un refus sans motif n'est pas un refus.
+    pub reasons: Vec<Reason>,
+}
+
 /// Les documents qu'un pair peut envoyer ou recevoir, dans l'ordre du registre.
-pub const LEP_DOCUMENTS: [&str; 13] = [
+pub const LEP_DOCUMENTS: [&str; 14] = [
     "ArtifactManifest",
     "RunManifest",
     "CapabilityManifest",
@@ -1022,6 +1070,7 @@ pub const LEP_DOCUMENTS: [&str; 13] = [
     "Deployment",
     "View",
     "HumanReviewFinding",
+    "AdmissionRefusal",
 ];
 
 /// Les features négociables au handshake, avec le mineur qui les introduit.

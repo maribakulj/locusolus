@@ -1,0 +1,151 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "urn:locus:schema:lep:1.0:admission-refusal",
+  "title": "AdmissionRefusal",
+  "description": "Pourquoi une mission n'a pas été admise sur un hôte — SPEC_V1 §10.2, ADR 0017 §5.2, tranche 2 du mineur `lep/1.1`. Document **nouveau** : aucune énumération existante ne gagne un membre, ce que l'interdit 3 de l'ADR refuse. Il porte des données et pas seulement des codes — le niveau exigé, le meilleur niveau prouvé, le genre d'accélérateur — donc un membre de plus sur une énumération n'aurait de toute façon pas suffi.",
+  "x-since": "1.1",
+  "type": "object",
+  "required": ["protocol", "task_id", "attempt_id", "reasons"],
+  "properties": {
+    "protocol": {
+      "$ref": "urn:locus:schema:lep:1.0:vocabulary#/definitions/protocol_version"
+    },
+    "task_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "attempt_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "reasons": {
+      "description": "**Toutes** les conditions manquantes, jamais la première seule. `admit` les accumule et rend `Refused { reasons }` au pluriel ; un fil qui n'en transmettrait qu'une ferait corriger une condition pour retomber aussitôt sur la suivante, autant de fois qu'il en manque. `minItems: 1` parce qu'un refus sans motif n'est pas un refus.",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/definitions/reason"
+      }
+    }
+  },
+  "definitions": {
+    "reason": {
+      "description": "Les sept motifs. Écrits **inline** parce qu'une variante n'a pas d'existence hors de son union : la nommer ailleurs produirait une structure autonome que personne n'instancie, et deux endroits à corriger le jour où la forme change.",
+      "oneOf": [
+        {
+          "description": "L'hôte ne sait pas confiner aussi fort que la mission l'exige. **Distinct de `level_not_attested`** : « l'hôte ne sait pas faire » envoie chercher une autre machine ; « l'hôte l'annonce sans l'avoir prouvé » envoie faire tourner une campagne de self-tests. Les fondre ferait acheter du matériel pour un problème d'attestation.",
+          "type": "object",
+          "required": ["code", "required", "best"],
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "const": "level_unavailable"
+            },
+            "required": {
+              "$ref": "urn:locus:schema:lep:1.0:vocabulary#/definitions/sandbox_level"
+            },
+            "best": {
+              "$ref": "urn:locus:schema:lep:1.0:vocabulary#/definitions/sandbox_level"
+            }
+          }
+        },
+        {
+          "description": "La réservation dépasse la capacité de l'hôte. Le seul motif sans donnée : ce qui manque est du volume, et la réservation refusée est déjà dans la mission.",
+          "type": "object",
+          "required": ["code"],
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "const": "capacity_exceeded"
+            }
+          }
+        },
+        {
+          "description": "L'accélérateur demandé n'est pas sur cet hôte.",
+          "type": "object",
+          "required": ["code", "kind"],
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "const": "accelerator_unavailable"
+            },
+            "kind": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        {
+          "description": "L'hôte ne sait pas **borner** l'espace disque, quel qu'il en reste. Distinct de `capacity_exceeded`, et la distinction n'est pas cosmétique : « la capacité manque » envoie libérer de la place ou réduire la réservation ; « la borne n'est pas applicable ici » envoie changer de système de fichiers, ou de machine. Les fondre ferait réduire une réservation qui aurait échoué de la même façon à un octet. Né avec W5.g et W5.j, après l'écriture d'ADR 0017 §5.2 — qui en nommait six.",
+          "type": "object",
+          "required": ["code", "requested", "why"],
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "const": "disk_quota_not_enforceable"
+            },
+            "requested": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "why": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        {
+          "description": "L'hôte ne sait pas appliquer ce mode réseau.",
+          "type": "object",
+          "required": ["code", "mode"],
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "const": "network_mode_unsupported"
+            },
+            "mode": {
+              "$ref": "urn:locus:schema:lep:1.0:vocabulary#/definitions/network_mode"
+            }
+          }
+        },
+        {
+          "description": "L'hôte annonce ce niveau mais ne l'a jamais prouvé — §12.2 demande une sandbox « disponible **et attestée** ». `proven` est **absent** quand aucune campagne n'a conclu, et ce n'est pas la même ignorance qu'un niveau prouvé trop bas : l'une envoie lancer les self-tests, l'autre dit que l'hôte a échoué à les passer.",
+          "type": "object",
+          "required": ["code", "required"],
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "const": "level_not_attested"
+            },
+            "required": {
+              "$ref": "urn:locus:schema:lep:1.0:vocabulary#/definitions/sandbox_level"
+            },
+            "proven": {
+              "$ref": "urn:locus:schema:lep:1.0:vocabulary#/definitions/sandbox_level"
+            }
+          }
+        },
+        {
+          "description": "L'accélérateur **est** sur cet hôte, mais pas là où la mission veut être confinée. Distinct d'`accelerator_unavailable` : le dire « absent » enverrait chercher du matériel au lieu de choisir entre le conteneur et l'accélérateur.",
+          "type": "object",
+          "required": ["code", "kind", "required", "native_level"],
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "const": "accelerator_outside_sandbox"
+            },
+            "kind": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": {
+              "$ref": "urn:locus:schema:lep:1.0:vocabulary#/definitions/sandbox_level"
+            },
+            "native_level": {
+              "$ref": "urn:locus:schema:lep:1.0:vocabulary#/definitions/sandbox_level"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

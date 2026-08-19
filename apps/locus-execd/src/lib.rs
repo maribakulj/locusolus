@@ -34,6 +34,7 @@ pub mod macos;
 pub mod placement;
 pub mod reroute;
 pub mod runtime;
+pub mod wire;
 
 pub use admission::{
     AcceleratorReach, Admission, DiskQuota, HostCapabilities, RefusalReason, admit,

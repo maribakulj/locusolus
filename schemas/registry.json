@@ -100,6 +100,14 @@
         "human-review-comment-only.json",
         "invalid-human-review-says-nothing.json"
       ]
+    },
+    {
+      "schema": "lep/1.0/admission-refusal.schema.json",
+      "examples": [
+        "admission-refusal-four-reasons.json",
+        "invalid-admission-refusal-no-reason.json",
+        "invalid-admission-refusal-mixed-fields.json"
+      ]
     }
   ],
   "shared": [

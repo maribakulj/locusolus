@@ -98,20 +98,31 @@ jobs:
           # `-k 30` sur chaque borne : `timeout` seul envoie `TERM`, et un `apt` bloqué sur le
           # verrou `dpkg` ne le prend pas. Trente secondes plus tard, `KILL` — que personne
           # n'ignore. Sans cela la borne est une intention, pas une borne.
+          # Les bornes tiennent dans le plafond du pas, et c'est une correction : l'échelle
+          # précédente demandait jusqu'à 240 + 2 × (300 + 240) + 30 de sommeil, soit dix-huit
+          # minutes, là où GitHub coupe à douze. La seconde reprise ne pouvait donc jamais
+          # s'exécuter, et la première était coupée en plein vol — une échelle à moitié morte, qui
+          # avait l'air d'en offrir trois. Ici : 180 + 240 + 180 + 10 = 610 secondes, et il reste
+          # cent dix secondes de marge pour l'`apt` que `TERM` n'a pas tué tout de suite.
+          #
+          # `-k 30` sur chaque borne : `timeout` seul envoie `TERM`, et un `apt` bloqué sur le
+          # verrou `dpkg` ne le prend pas. Trente secondes plus tard, `KILL` — que personne
+          # n'ignore. Sans cela la borne est une intention, pas une borne.
           attempt_install() {
-            timeout -k 30 240 sudo apt-get install -y --no-install-recommends emacs-nox
+            timeout -k 30 180 sudo apt-get install -y --no-install-recommends emacs-nox
           }
           if attempt_install; then
             exit 0
           fi
-          for attempt in 1 2; do
-            echo "installation directe sans succès, rafraîchissement de l'index (tentative $attempt)"
-            timeout -k 30 300 sudo apt-get update || true
-            if attempt_install; then
-              exit 0
-            fi
-            sleep $((attempt * 10))
-          done
+          echo "installation directe sans succès, rafraîchissement de l'index"
+          timeout -k 30 240 sudo apt-get update || true
+          sleep 10
+          if attempt_install; then
+            exit 0
+          fi
+          # Un miroir plus lent que cette échelle fait échouer le job, et c'est voulu : une
+          # frontière non vérifiée doit se voir. Le pas a déjà rougi une fois sur un miroir lent, et
+          # la réponse est de relancer, pas d'élargir la borne jusqu'à ce qu'elle ne borne plus.
           echo "emacs-nox introuvable : la frontière 5 ne peut pas être vérifiée"
           exit 1
 

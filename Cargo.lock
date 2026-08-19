@@ -91,6 +91,7 @@ version = "0.0.0"
 dependencies = [
  "locus-environments",
  "locus-execution",
+ "locus-lep",
  "serde",
  "serde_json",
 ]
