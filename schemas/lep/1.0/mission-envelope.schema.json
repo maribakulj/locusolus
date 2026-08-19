@@ -18,28 +18,45 @@
     "output_contract"
   ],
   "properties": {
-    "protocol": { "$ref": "urn:locus:schema:lep:1.0:vocabulary#/definitions/protocol_version" },
-    "task_id": { "type": "string", "minLength": 1 },
+    "protocol": {
+      "$ref": "urn:locus:schema:lep:1.0:vocabulary#/definitions/protocol_version"
+    },
+    "task_id": {
+      "type": "string",
+      "minLength": 1
+    },
     "attempt_id": {
       "description": "Une tâche durable connaît plusieurs attempts (§15.5). L'identifiant d'attempt est ce qui distingue un résultat tardif d'un doublon.",
       "type": "string",
       "minLength": 1
     },
-    "branch_id": { "type": "string", "minLength": 1 },
+    "branch_id": {
+      "type": "string",
+      "minLength": 1
+    },
     "objective": {
       "type": "object",
       "required": ["statement", "success_conditions"],
       "properties": {
-        "statement": { "type": "string", "minLength": 1 },
+        "statement": {
+          "type": "string",
+          "minLength": 1
+        },
         "success_conditions": {
           "description": "Au moins une, et énoncée avant l'exécution. Un critère de succès écrit après coup ne prouve rien.",
           "type": "array",
-          "items": { "type": "string", "minLength": 1 },
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
           "minItems": 1
         },
         "failure_conditions": {
           "type": "array",
-          "items": { "type": "string", "minLength": 1 }
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
         }
       }
     },
@@ -48,35 +65,70 @@
       "type": "object",
       "required": ["id", "hash"],
       "properties": {
-        "id": { "type": "string", "minLength": 1 },
-        "hash": { "$ref": "urn:locus:schema:lep:1.0:vocabulary#/definitions/content_hash" }
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "hash": {
+          "$ref": "urn:locus:schema:lep:1.0:vocabulary#/definitions/content_hash"
+        }
       }
     },
     "environment": {
       "type": "object",
       "required": ["environment_id"],
       "properties": {
-        "environment_id": { "type": "string", "minLength": 1 },
-        "image_digest": { "$ref": "urn:locus:schema:lep:1.0:vocabulary#/definitions/content_hash" },
-        "toolchains": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+        "environment_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "image_digest": {
+          "$ref": "urn:locus:schema:lep:1.0:vocabulary#/definitions/content_hash"
+        },
+        "toolchains": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
       }
     },
-    "sandbox": { "$ref": "urn:locus:schema:lep:1.0:sandbox-spec" },
-    "resources": { "$ref": "urn:locus:schema:lep:1.0:resource-spec" },
+    "sandbox": {
+      "$ref": "urn:locus:schema:lep:1.0:sandbox-spec"
+    },
+    "resources": {
+      "$ref": "urn:locus:schema:lep:1.0:resource-spec"
+    },
     "budget": {
       "description": "Invariant 6 appliqué au coût du modèle. Les trois bornes sont obligatoires : une seule d'entre elles laissée libre suffit à rendre le dépassement impossible à constater.",
       "type": "object",
       "required": ["max_model_calls", "max_input_tokens", "max_output_tokens"],
       "properties": {
-        "max_model_calls": { "type": "integer", "exclusiveMinimum": 0 },
-        "max_input_tokens": { "type": "integer", "exclusiveMinimum": 0 },
-        "max_output_tokens": { "type": "integer", "exclusiveMinimum": 0 },
-        "max_cost_micros": { "type": "integer", "minimum": 0 }
+        "max_model_calls": {
+          "type": "integer",
+          "exclusiveMinimum": 0
+        },
+        "max_input_tokens": {
+          "type": "integer",
+          "exclusiveMinimum": 0
+        },
+        "max_output_tokens": {
+          "type": "integer",
+          "exclusiveMinimum": 0
+        },
+        "max_cost_micros": {
+          "type": "integer",
+          "minimum": 0
+        }
       }
     },
     "required_capabilities": {
       "type": "array",
-      "items": { "type": "string", "minLength": 1 }
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
     },
     "confidentiality_ceiling": {
       "$ref": "urn:locus:schema:lep:1.0:vocabulary#/definitions/data_class"
@@ -92,11 +144,25 @@
       "minLength": 1,
       "x-since": "1.1"
     },
+    "offline_allowed": {
+      "description": "La permission de poursuivre **hors ligne** — `SPEC_V1.md` §1.2 (dernier invariant) et §24.3. Distincte de `sandbox.network_mode`, et les deux ne se dérivent jamais l'une de l'autre : `network_mode: deny` est une **contrainte** imposée au worker, qui lui retire le réseau ; cette permission est une **dispense**, qui l'autorise à ne pas échouer quand le réseau manque. Une mission peut exiger `full` et n'avoir aucune dispense — elle échoue si le réseau tombe ; une autre peut être en `deny` sans dispense — elle n'a jamais eu de réseau à perdre. Les confondre ferait d'un confinement une autorisation, ce qu'ADR 0004 sépare partout ailleurs. Absente, elle ne s'accorde pas : un document `1.0` ne demande pas cette dispense, il n'en parle pas.",
+      "type": "boolean",
+      "x-since": "1.1"
+    },
+    "offline_budget_ms": {
+      "description": "Le plafond de travail hors ligne, en millisecondes. Sans effet sans `offline_allowed` : un budget n'est pas une permission. Le lecteur retient de toute façon le plus contraignant de ce budget et du lease restant — un budget plus long que le lease donnerait le droit de travailler après la fin du droit de travailler.",
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "x-since": "1.1"
+    },
     "output_contract": {
       "description": "Ce que l'attempt doit rendre. `epistemic-commit/1` n'a aucune autorité de validation avant traitement par Locus Solus (§15.7).",
       "type": "string",
       "minLength": 1
     },
-    "deadline": { "type": "string", "format": "date-time" }
+    "deadline": {
+      "type": "string",
+      "format": "date-time"
+    }
   }
 }
