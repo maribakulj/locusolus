@@ -7485,3 +7485,56 @@ _Note de méthode._ Le premier passage de mutation avait restauré un instantan�
 l'édition, annulant silencieusement le correctif — l'instantané périmé a été supprimé et la
 vérification refaite. Un harnais de mutation qui écrit dans l'arbre de travail doit être relu comme
 tout le reste.
+
+---
+
+## 2026-08-19 — W5.n — 255, et la sonde PID qui faisait mentir les quatre suivantes
+
+**Périmètre.** `apps/locus-execd/src/linux/selftest.rs` et son test. Un code réservé de plus, une
+sonde qui rend ce qu'elle prend.
+
+**L'instrument de `W5.m` a répondu au premier passage.** La colonne `code` a montré le motif d'un
+coup : **toutes** les sondes situées après `exceed_pid_quota` rendaient **255**.
+
+| Sonde                          | Code | Ce qui en était conclu |
+| ------------------------------ | ---- | ---------------------- |
+| `exceed_pid_quota`             | 2    | tient                  |
+| `exceed_disk_quota`            | 255  | « tient »              |
+| `open_outbound_connection`     | 255  | « sur-confinement »    |
+| `reach_cloud_metadata_service` | 255  | « sur-confinement »    |
+| `reach_host_kernel_interfaces` | 255  | « sur-confinement »    |
+
+**Le mécanisme.** `exceed_pid_quota` sature délibérément le quota de PID en forkant `sleep 5 &`
+jusqu'au plafond, et sortait sans les attendre. Le cgroup restait saturé cinq secondes ;
+`podman exec` ne pouvait plus forker et abandonnait avec son code générique. Les quatre sondes
+suivantes **n'ont pas tourné du tout**.
+
+Et comme 255 n'était pas catalogué, le harnais le lisait comme un **blocage** — c'est-à-dire comme
+une preuve d'isolation. Trois « sur-confinements » n'existaient pas, et le « tient »
+d'`exceed_disk_quota` n'était pas mérité. C'est le piège du 127 de `W5.c` pour la troisième fois,
+sur un code que personne n'avait catalogué.
+
+**Ce que cela rétracte.** Les trois sur-confinements que `W5.h` avait renvoyés à `W5.i` et `W5.m`,
+et sur lesquels `W5.k` a bâti une hypothèse fausse, **n'étaient pas des observations**. La question
+« pourquoi la sonde ne trouve-t-elle pas la route que `cat` montre ? » n'avait pas lieu d'être : la
+sonde n'a jamais lu `/proc/net/route`. Elle n'a jamais démarré.
+
+**Décisions prises.**
+
+_255 rejoint 125, 126 et 127._ Le test qui épingle la table nomme désormais quatre codes et dit
+pourquoi chacun est réservé. Un second test vérifie qu'**aucune sonde de la suite ne sort
+volontairement en 255** — c'est ce qui autorise à lire ce code comme « n'a pas été lancée » plutôt
+que comme un verdict, et si une sonde venait à l'utiliser le catalogage deviendrait faux et
+masquerait son résultat.
+
+_La sonde PID tue et attend ses enfants._ Sur le chemin où elle va au bout, elle ne laisse plus rien
+derrière elle. **Ce n'est pas une garantie**, et c'est écrit comme tel : si le shell meurt lui-même
+de ne pouvoir forker, le nettoyage ne tourne pas.
+
+**Ce que le catalogage ne fait pas, et qui devient `W5.o`.** Il ne rend pas les sondes suivantes
+mesurables : il les fait passer de « fausse preuve » à « aveu d'ignorance ». C'est la seule des deux
+valeurs qu'on ait le droit d'écrire, et ce n'est pas une mesure. Tant que l'ordre de `SUITE` décide
+de ce que les sondes voient, la suite ne mesure pas ce qu'elle prétend.
+
+**Tests exécutés.** `cargo test -p locus-execd --test selftest` → 29 conformes, dont deux neufs.
+`npm run check` → les dix portes vertes.

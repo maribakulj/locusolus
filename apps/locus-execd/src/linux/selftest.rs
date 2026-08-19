@@ -96,16 +96,37 @@ pub const PROBE_COMMANDS: [(&str, &[&str]); 16] = [
 
 /// Les codes de sortie qui disent « je n'ai pas pu lancer », et ce qu'ils disent.
 ///
-/// POSIX réserve 126 et 127 au shell, Podman réserve 125 à son propre échec. Aucun des trois n'est
-/// un verdict sur le confinement, et les lire comme tel ferait d'une image incomplète une preuve
-/// d'isolation.
-pub const UNRUNNABLE_EXIT_CODES: [(i32, &str); 3] = [
+/// POSIX réserve 126 et 127 au shell, Podman réserve 125 et 255 à ses propres échecs. Aucun des
+/// quatre n'est un verdict sur le confinement, et les lire comme tel ferait d'une image incomplète
+/// une preuve d'isolation.
+///
+/// # 255 a coûté quatre faux sur-confinements
+///
+/// `W5.m` a mis le code de sortie à côté du verdict, et la table du premier passage a montré le
+/// motif d'un coup : **toutes** les sondes situées après `exceed_pid_quota` rendaient 255.
+/// Celle-ci sature délibérément le quota de PID en forkant jusqu'au plafond, et `podman exec` ne
+/// peut plus forker tant que le cgroup n'a pas rendu ses processus — il abandonne alors avec son
+/// code générique.
+///
+/// Les quatre sondes suivantes étaient donc rapportées « bloquées », c'est-à-dire **contenues**,
+/// alors qu'elles n'avaient pas tourné du tout. Trois d'entre elles produisaient un
+/// « sur-confinement » qui n'existait pas, et la quatrième — `exceed_disk_quota` — un « tient »
+/// qu'elle n'avait pas mérité. Aucune sonde de la suite ne sort volontairement en 255.
+///
+/// Le catalogage ne suffit pas à rendre ces sondes mesurables : il les fait passer de « fausse
+/// preuve » à « aveu d'ignorance », ce qui est la seule des deux valeurs qu'on ait le droit
+/// d'écrire. Rendre la suite insensible à cette contamination est le sujet de `W5.o`.
+pub const UNRUNNABLE_EXIT_CODES: [(i32, &str); 4] = [
     (
         125,
         "le runtime n'a pas su démarrer la commande dans la sandbox",
     ),
     (126, "la sonde existe mais n'est pas exécutable"),
     (127, "la sonde est absente de l'image"),
+    (
+        255,
+        "le runtime a rendu son code d'erreur générique : la commande n'a pas été lancée",
+    ),
 ];
 
 /// Le code qu'une sonde rend quand elle n'a pas pu conclure.
@@ -191,10 +212,24 @@ const MEMORY_QUOTA: &str = concat!(
     "dd if=/dev/zero of=/dev/shm/locus-probe bs=1M count=\"$block\" 2>/dev/null",
 );
 
+/// # Elle rend ce qu'elle a pris, quand elle en a l'occasion
+///
+/// La version précédente forkait des `sleep 5` et sortait sans les attendre : le cgroup restait
+/// saturé cinq secondes, et `podman exec` ne pouvait plus forker pendant ce temps — soit, sur un
+/// runner, les quatre sondes suivantes. Elles étaient rapportées **bloquées**, donc contenues,
+/// alors qu'elles n'avaient pas tourné.
+///
+/// Les enfants sont donc tués puis attendus. Ce n'est pas une garantie : si le shell lui-même
+/// meurt de ne pouvoir forker, le nettoyage ne tourne pas, et c'est pourquoi `W5.o` reste dû. Mais
+/// sur le chemin où la sonde va au bout, elle ne laisse plus rien derrière elle.
 const PID_QUOTA: &str = concat!(
     "s=/sys/fs/cgroup/pids.max; [ -r \"$s\" ] || exit 120; ",
     "limit=$(cat \"$s\"); [ \"$limit\" = max ] && exit 0; ",
-    "i=0; while [ \"$i\" -le \"$limit\" ]; do sleep 5 & i=$(( i + 1 )); done",
+    "i=0; pids=''; ",
+    "while [ \"$i\" -le \"$limit\" ]; do sleep 5 & pids=\"$pids $!\"; i=$(( i + 1 )); done; ",
+    "status=$?; ",
+    "kill $pids 2>/dev/null; wait 2>/dev/null; ",
+    "exit \"$status\"",
 );
 
 const DISK_QUOTA: &str = concat!(
