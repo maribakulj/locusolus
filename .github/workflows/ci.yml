@@ -82,19 +82,32 @@ jobs:
       # indistinguable d'un test qui échoue. Le budget du job est passé à vingt minutes pour
       # que la reprise ait la place de servir.
       - name: Install Emacs
+        # Une borne que le pas ne peut pas dépasser lui-même. Les `timeout` ci-dessous en sont une
+        # aussi, mais elles ont été franchies trois fois : `timeout` envoie `TERM`, qu'un `apt`
+        # arrêté sur le verrou `dpkg` n'honore pas, et l'échelle de reprises censée tenir en
+        # vingt-trois minutes en a consommé plus de vingt-cinq. Celle-ci est appliquée par GitHub,
+        # pas par le script, donc rien de ce que fait le script ne peut la desserrer.
+        timeout-minutes: 12
         run: |
           # L'index du runner est déjà peuplé et `emacs-nox` est dans les dépôts de base : on tente
           # donc l'installation SANS `apt-get update`, qui est l'étape lente et la seule qui ait
           # jamais échoué ici. Le rafraîchissement de l'index n'est fait qu'en repli, et avec de
           # quoi aboutir — la première version de cette reprise bornait `update` à soixante
           # secondes, ce qui ne suffit pas à un miroir lent et faisait échouer les trois tentatives.
-          if timeout 240 sudo apt-get install -y --no-install-recommends emacs-nox; then
+          #
+          # `-k 30` sur chaque borne : `timeout` seul envoie `TERM`, et un `apt` bloqué sur le
+          # verrou `dpkg` ne le prend pas. Trente secondes plus tard, `KILL` — que personne
+          # n'ignore. Sans cela la borne est une intention, pas une borne.
+          attempt_install() {
+            timeout -k 30 240 sudo apt-get install -y --no-install-recommends emacs-nox
+          }
+          if attempt_install; then
             exit 0
           fi
           for attempt in 1 2; do
             echo "installation directe sans succès, rafraîchissement de l'index (tentative $attempt)"
-            timeout 300 sudo apt-get update || true
-            if timeout 240 sudo apt-get install -y --no-install-recommends emacs-nox; then
+            timeout -k 30 300 sudo apt-get update || true
+            if attempt_install; then
               exit 0
             fi
             sleep $((attempt * 10))

@@ -12,9 +12,24 @@
 use std::collections::BTreeSet;
 
 use locus_execution::{
-    Dimension, Expectation, Observed, SELF_TESTABLE_LEVELS, SUITE, SandboxLevel, Standing, Verdict,
-    expectation, judge, newly_contained, standing,
+    Dimension, Expectation, Observed, ResourceSpec, SELF_TESTABLE_LEVELS, SUITE, SandboxLevel,
+    Standing, Verdict, expectation, judge, newly_contained, standing,
 };
+
+/// Une réservation qui **déclare** un quota disque.
+///
+/// `W5.j` : l'attente d'`exceed_disk_quota` dépend de ce que la mission a réservé, parce que le
+/// disque est la seule ressource que `ResourceSpec` laisse valoir zéro. Les tests de couverture de
+/// ce fichier raisonnent sur les niveaux ; ils passent donc une réservation qui déclare tout, pour
+/// que ce soit bien le **niveau** qu'ils éprouvent et pas une ressource absente.
+fn reserved() -> ResourceSpec {
+    ResourceSpec::new(1_000, 1 << 30, 64, 1 << 30, 300).expect("quotas non nuls")
+}
+
+/// La même, sans quota disque — le cas ordinaire d'une mission qui n'en réserve pas.
+fn unreserved() -> ResourceSpec {
+    ResourceSpec::new(1_000, 1 << 30, 64, 0, 300).expect("quotas non nuls")
+}
 
 // ---------------------------------------------------------------------------------------------
 // Première moitié : chaque niveau veut dire quelque chose
@@ -62,7 +77,7 @@ fn le_confinement_ne_se_relache_jamais_en_montant() {
     for probe in &SUITE {
         let mut seen_contained = false;
         for level in SandboxLevel::ALL {
-            match expectation(probe, level) {
+            match expectation(probe, level, &reserved()) {
                 Expectation::Contained => seen_contained = true,
                 Expectation::Allowed => assert!(
                     !seen_contained,
@@ -83,7 +98,7 @@ fn le_confinement_ne_se_relache_jamais_en_montant() {
 fn la_frontiere_de_chaque_sonde_est_exactement_la_ou_elle_le_dit() {
     for probe in &SUITE {
         assert_eq!(
-            expectation(probe, probe.contained_from),
+            expectation(probe, probe.contained_from, &reserved()),
             Expectation::Contained,
             "« {} » doit être contenue dès {}",
             probe.name,
@@ -96,7 +111,7 @@ fn la_frontiere_de_chaque_sonde_est_exactement_la_ou_elle_le_dit() {
             .find(|level| **level < probe.contained_from);
         if let Some(below) = below {
             assert_eq!(
-                expectation(probe, *below),
+                expectation(probe, *below, &reserved()),
                 Expectation::Allowed,
                 "« {} » ne doit pas être contenue dès {below}",
                 probe.name
@@ -182,17 +197,17 @@ fn les_quatre_verdicts_disent_quatre_choses_differentes() {
 
     // Contenue et bloquée : conforme.
     assert_eq!(
-        judge(network, SandboxLevel::S3, Observed::Blocked),
+        judge(network, SandboxLevel::S3, &reserved(), Observed::Blocked),
         Verdict::Holds
     );
     // Permise et réussie : conforme aussi — S2 ne promet pas de couper le réseau.
     assert_eq!(
-        judge(network, SandboxLevel::S2, Observed::Succeeded),
+        judge(network, SandboxLevel::S2, &reserved(), Observed::Succeeded),
         Verdict::Holds
     );
     // Contenue et réussie : échappement.
     assert_eq!(
-        judge(network, SandboxLevel::S3, Observed::Succeeded),
+        judge(network, SandboxLevel::S3, &reserved(), Observed::Succeeded),
         Verdict::Escaped {
             probe: "open_outbound_connection",
             level: SandboxLevel::S3,
@@ -201,7 +216,7 @@ fn les_quatre_verdicts_disent_quatre_choses_differentes() {
     // Permise et bloquée : sur-confinement. Pas un trou, mais pas rien — une mission légitime
     // échouera sans que personne cherche du côté de l'isolation, puisqu'elle « va bien ».
     assert_eq!(
-        judge(network, SandboxLevel::S2, Observed::Blocked),
+        judge(network, SandboxLevel::S2, &reserved(), Observed::Blocked),
         Verdict::OverContained {
             probe: "open_outbound_connection",
             level: SandboxLevel::S2,
@@ -215,6 +230,7 @@ fn une_sonde_non_executee_n_est_ni_reussie_ni_bloquee() {
     let verdict = judge(
         network,
         SandboxLevel::S3,
+        &reserved(),
         Observed::NotRun {
             reason: "curl absent de l'image",
         },
@@ -265,7 +281,7 @@ fn perfect_report(level: SandboxLevel) -> Vec<(&'static str, Observed)> {
     SUITE
         .iter()
         .map(|probe| {
-            let observed = match expectation(probe, level) {
+            let observed = match expectation(probe, level, &reserved()) {
                 Expectation::Contained => Observed::Blocked,
                 Expectation::Allowed => Observed::Succeeded,
             };
@@ -278,7 +294,7 @@ fn perfect_report(level: SandboxLevel) -> Vec<(&'static str, Observed)> {
 fn un_backend_qui_tient_son_niveau_est_trusted() {
     for level in SELF_TESTABLE_LEVELS {
         assert_eq!(
-            standing(level, &perfect_report(level)),
+            standing(level, &reserved(), &perfect_report(level)),
             Standing::Trusted { level },
             "{level} : toutes les sondes produisent ce que le niveau promet"
         );
@@ -293,7 +309,8 @@ fn un_seul_echappement_suffit_a_refuser_la_confiance() {
             entry.1 = Observed::Succeeded;
         }
     }
-    let Standing::NotTrusted { blocking, .. } = standing(SandboxLevel::S3, &report) else {
+    let Standing::NotTrusted { blocking, .. } = standing(SandboxLevel::S3, &reserved(), &report)
+    else {
         panic!("un échappement sur le socket de runtime ne se rattrape pas");
     };
     assert_eq!(
@@ -317,7 +334,8 @@ fn une_sonde_absente_du_rapport_refuse_la_confiance() {
         .filter(|(name, _)| *name != "exceed_pid_quota")
         .collect();
 
-    let Standing::NotTrusted { blocking, .. } = standing(SandboxLevel::S4, &report) else {
+    let Standing::NotTrusted { blocking, .. } = standing(SandboxLevel::S4, &reserved(), &report)
+    else {
         panic!("une sonde absente doit bloquer la confiance");
     };
     assert_eq!(
@@ -341,7 +359,7 @@ fn un_sur_confinement_n_empeche_pas_la_confiance_mais_se_lit() {
         }
     }
     assert_eq!(
-        standing(SandboxLevel::S2, &report),
+        standing(SandboxLevel::S2, &reserved(), &report),
         Standing::Trusted {
             level: SandboxLevel::S2
         }
@@ -350,11 +368,90 @@ fn un_sur_confinement_n_empeche_pas_la_confiance_mais_se_lit() {
         judge(
             probe("open_outbound_connection"),
             SandboxLevel::S2,
+            &reserved(),
             Observed::Blocked
         ),
         Verdict::OverContained {
             probe: "open_outbound_connection",
             level: SandboxLevel::S2,
         }
+    );
+}
+
+// ---------------------------------------------------------------------------------------------
+// W5.j — une borne que personne n'a demandée ne peut pas être franchie
+// ---------------------------------------------------------------------------------------------
+
+/// **`exceed_disk_quota` doit réussir quand la mission ne réserve aucun disque.**
+///
+/// Le disque est la seule ressource que `ResourceSpec` laisse valoir zéro : le CPU, la mémoire, les
+/// PID et l'horizon sont refusés à zéro. Une mission sans quota disque n'a donc rien promis de
+/// borner, et une sonde qui écrit alors sans entrave ne révèle aucun défaut.
+///
+/// Sans cette règle, toute mission ordinaire — et c'est le cas courant — verrait sa sonde disque
+/// ressortir `Escaped` dès `S2`, c'est-à-dire « la sandbox ne tient pas ce qu'elle annonce ».
+#[test]
+fn la_sonde_disque_est_permise_quand_la_mission_ne_reserve_rien() {
+    let disk = probe("exceed_disk_quota");
+    for level in SELF_TESTABLE_LEVELS {
+        assert_eq!(
+            expectation(disk, level, &unreserved()),
+            Expectation::Allowed,
+            "à {level:?}, sans quota déclaré, il n'y a pas de borne à franchir"
+        );
+    }
+}
+
+/// Et **contenue dès `S2` quand la mission en réserve un** : la règle ne dissout pas la sonde.
+#[test]
+fn la_sonde_disque_reste_contenue_quand_la_mission_reserve() {
+    let disk = probe("exceed_disk_quota");
+    assert_eq!(
+        expectation(disk, SandboxLevel::S2, &reserved()),
+        Expectation::Contained
+    );
+    assert_eq!(
+        expectation(disk, SandboxLevel::S1, &reserved()),
+        Expectation::Allowed,
+        "S1 ne borne pas le disque, quota déclaré ou non"
+    );
+}
+
+/// **La réservation ne change l'attente d'aucune autre sonde.**
+///
+/// C'est ce qui empêche `requires` de devenir un second `contained_from` : quinze sondes sur seize
+/// éprouvent des propriétés du **niveau**, et une réservation absente ne doit rien y changer.
+#[test]
+fn la_reservation_ne_deplace_que_la_sonde_disque() {
+    for probe in &SUITE {
+        if probe.name == "exceed_disk_quota" {
+            continue;
+        }
+        for level in SELF_TESTABLE_LEVELS {
+            assert_eq!(
+                expectation(probe, level, &reserved()),
+                expectation(probe, level, &unreserved()),
+                "« {} » à {level:?} ne regarde pas ce que la mission a réservé",
+                probe.name
+            );
+        }
+    }
+}
+
+/// Et le verdict suit : réussir sans quota déclaré **tient**, au lieu de compter comme une évasion.
+#[test]
+fn reussir_sans_quota_declare_tient_au_lieu_de_compter_comme_une_evasion() {
+    let disk = probe("exceed_disk_quota");
+    assert_eq!(
+        judge(disk, SandboxLevel::S2, &unreserved(), Observed::Succeeded),
+        Verdict::Holds
+    );
+    assert_eq!(
+        judge(disk, SandboxLevel::S2, &reserved(), Observed::Succeeded),
+        Verdict::Escaped {
+            probe: "exceed_disk_quota",
+            level: SandboxLevel::S2
+        },
+        "avec un quota déclaré, écrire au-delà reste une évasion"
     );
 }

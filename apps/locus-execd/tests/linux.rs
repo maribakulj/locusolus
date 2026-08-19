@@ -14,8 +14,8 @@ use std::path::{Path, PathBuf};
 
 use locus_execd::linux::{
     BACKEND_CEILING, CPU_PERIOD_MICROSECONDS, ConfinementPlan, HostFacts, LocalReader, Missing,
-    NO_STORAGE_DECLARED, Namespace, NetworkPosture, PlanError, REQUIRED_CONTROLLERS,
-    SeccompPosture, Support, plan,
+    NO_STORAGE_DECLARED, Namespace, NetworkPosture, PlanError, QuotaTarget, REQUIRED_CONTROLLERS,
+    RestrictedProfile, SeccompPosture, SeccompProfiles, Support, Workload, create_arguments, plan,
 };
 use locus_execd::{Admission, HostCapabilities, RefusalReason, admit};
 use locus_execution::{
@@ -277,11 +277,14 @@ fn le_quota_cpu_se_calcule_contre_la_periode() {
 
 #[test]
 fn le_disque_et_l_horizon_ne_sont_pas_des_limites_cgroup() {
+    // Un espace de travail inscriptible, parce que `W5.j` refuse un quota disque à `S2` sans lui :
+    // la racine y est en lecture seule, et une borne qui n'a rien à borner est une garantie absente
+    // dont tout le chemin a l'air de fonctionner.
     let spec = SandboxSpec::new(
         SandboxLevel::S2,
         SandboxProfile::UntrustedRepository,
         NetworkMode::Full,
-        Vec::new(),
+        vec![Mount::new("/srv/work", "/work", MountMode::ReadWrite).expect("montage licite")],
         ResourceSpec::new(1_000, 1 << 30, 64, 4 << 30, 900).expect("quotas non nuls"),
     )
     .expect("spécification valide");
@@ -776,5 +779,162 @@ fn ext4_avec_quota_de_projet_est_refuse_pour_le_systeme_de_fichiers() {
         !why.contains("prjquota"),
         "le quota de projet EST activé ici : le dire manquant enverrait remonter le volume avec \
          une option qu'il porte déjà — {why}"
+    );
+}
+
+// ---------------------------------------------------------------------------------------------
+// W5.j — le quota s'applique là où la sandbox peut écrire
+// ---------------------------------------------------------------------------------------------
+
+/// **La racine inscriptible porte le quota — tant qu'elle est inscriptible.**
+#[test]
+fn en_deca_de_s2_le_quota_porte_sur_la_couche_inscriptible() {
+    let spec = SandboxSpec::new(
+        SandboxLevel::S1,
+        SandboxProfile::UntrustedRepository,
+        NetworkMode::Full,
+        Vec::new(),
+        ResourceSpec::new(1_000, 1 << 30, 64, 2 << 30, 300).expect("quotas non nuls"),
+    )
+    .expect("spécification valide");
+    let applied = plan(&spec).expect("plan réalisable");
+
+    assert!(
+        !applied.read_only_rootfs(),
+        "S1 n'y monte pas de racine en lecture seule"
+    );
+    assert_eq!(applied.quota_target(), &QuotaTarget::WritableRoot);
+}
+
+/// **À partir de `S2`, il porte sur l'espace de travail.**
+///
+/// La racine y est en lecture seule : `--storage-opt size=` y dimensionnerait une couche que
+/// personne n'écrit. Le seul endroit inscriptible est le montage de la mission.
+#[test]
+fn a_partir_de_s2_le_quota_porte_sur_l_espace_de_travail() {
+    let spec = SandboxSpec::new(
+        SandboxLevel::S2,
+        SandboxProfile::UntrustedRepository,
+        NetworkMode::Full,
+        vec![
+            Mount::new("/srv/lecture", "/ro", MountMode::ReadOnly).expect("montage licite"),
+            Mount::new("/srv/work", "/work", MountMode::ReadWrite).expect("montage licite"),
+        ],
+        ResourceSpec::new(1_000, 1 << 30, 64, 2 << 30, 300).expect("quotas non nuls"),
+    )
+    .expect("spécification valide");
+    let applied = plan(&spec).expect("plan réalisable");
+
+    assert!(applied.read_only_rootfs());
+    assert_eq!(
+        applied.quota_target(),
+        &QuotaTarget::Workspace {
+            target: "/work".to_owned()
+        },
+        "un montage en lecture seule ne peut pas porter un quota d'écriture"
+    );
+}
+
+/// **Sans quota réservé, il n'y a pas de cible** — et pas de `--storage-opt` non plus.
+#[test]
+fn sans_quota_reserve_il_n_y_a_rien_a_appliquer() {
+    let spec = SandboxSpec::new(
+        SandboxLevel::S2,
+        SandboxProfile::UntrustedRepository,
+        NetworkMode::Full,
+        Vec::new(),
+        ResourceSpec::new(1_000, 1 << 30, 64, 0, 300).expect("quotas non nuls"),
+    )
+    .expect("spécification valide");
+    let applied = plan(&spec).expect("plan réalisable");
+
+    assert_eq!(applied.quota_target(), &QuotaTarget::None);
+    assert_eq!(applied.disk_bytes(), 0);
+}
+
+/// **Un quota là où rien n'est inscriptible est refusé**, et le refus nomme le niveau.
+///
+/// C'est la forme la plus tranquille d'une garantie absente : le quota serait déclaré, accepté,
+/// transmis au runtime, et n'aurait rien à borner. Tout le chemin aurait l'air de fonctionner.
+#[test]
+fn un_quota_sans_espace_inscriptible_est_refuse_au_plan() {
+    let spec = SandboxSpec::new(
+        SandboxLevel::S2,
+        SandboxProfile::UntrustedRepository,
+        NetworkMode::Full,
+        vec![Mount::new("/srv/corpus", "/corpus", MountMode::ReadOnly).expect("montage licite")],
+        ResourceSpec::new(1_000, 1 << 30, 64, 2 << 30, 300).expect("quotas non nuls"),
+    )
+    .expect("spécification valide");
+
+    assert_eq!(
+        plan(&spec),
+        Err(PlanError::QuotaWithoutWritableSpace {
+            level: SandboxLevel::S2
+        }),
+        "un montage en lecture seule ne rend rien inscriptible"
+    );
+}
+
+/// Et l'invocation applique le quota **là où la cible le dit**, jamais ailleurs.
+#[test]
+fn l_invocation_place_le_quota_sur_la_cible_du_plan() {
+    let workload = Workload::new("ghcr.io/locus/base@sha256:00", vec!["/bin/sh".to_owned()])
+        .expect("workload");
+    let profiles = SeccompProfiles {
+        restricted: Some(
+            RestrictedProfile::parse(
+                "/etc/locus/seccomp/restricted.json",
+                r#"{ "defaultAction": "SCMP_ACT_ERRNO", "syscalls": [] }"#,
+            )
+            .expect("profil par défaut-refus"),
+        ),
+    };
+
+    let workspace = SandboxSpec::new(
+        SandboxLevel::S2,
+        SandboxProfile::UntrustedRepository,
+        NetworkMode::Full,
+        vec![Mount::new("/srv/work", "/work", MountMode::ReadWrite).expect("montage licite")],
+        ResourceSpec::new(1_000, 1 << 30, 64, 2 << 30, 300).expect("quotas non nuls"),
+    )
+    .expect("spécification valide");
+    let arguments = create_arguments(
+        &plan(&workspace).expect("plan"),
+        &workload,
+        &profiles,
+        "locus-0001",
+    )
+    .expect("invocation");
+    assert!(
+        arguments.contains(&format!(
+            "type=volume,destination=/work,volume-opt=size={}",
+            2u64 << 30
+        )),
+        "le quota doit border l'espace de travail : {arguments:?}"
+    );
+    assert!(
+        !arguments.iter().any(|argument| argument == "--storage-opt"),
+        "à S2 la couche inscriptible n'est écrite par personne : {arguments:?}"
+    );
+
+    let root = SandboxSpec::new(
+        SandboxLevel::S1,
+        SandboxProfile::UntrustedRepository,
+        NetworkMode::Full,
+        Vec::new(),
+        ResourceSpec::new(1_000, 1 << 30, 64, 2 << 30, 300).expect("quotas non nuls"),
+    )
+    .expect("spécification valide");
+    let arguments = create_arguments(
+        &plan(&root).expect("plan"),
+        &workload,
+        &profiles,
+        "locus-0002",
+    )
+    .expect("invocation");
+    assert!(
+        arguments.contains(&format!("size={}", 2u64 << 30)),
+        "à S1 la racine est inscriptible, et c'est elle que le quota borne : {arguments:?}"
     );
 }

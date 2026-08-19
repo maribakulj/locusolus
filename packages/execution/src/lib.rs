@@ -42,8 +42,8 @@ pub use attestation::{AttestationError, Conformance, SandboxAttestation, conform
 pub use level::{SandboxLevel, SandboxProfile};
 pub use resources::{Accelerator, ResourceError, ResourceSpec};
 pub use selftest::{
-    Dimension, Expectation, Observed, Probe, SELF_TESTABLE_LEVELS, SUITE, Standing, Verdict,
-    expectation, judge, newly_contained, standing,
+    Dimension, Expectation, Observed, Probe, Requirement, SELF_TESTABLE_LEVELS, SUITE, Standing,
+    Verdict, expectation, judge, newly_contained, standing,
 };
 pub use spec::{
     FORBIDDEN_MOUNT_MARKERS, Mount, MountMode, NetworkMode, SandboxSpec, SpecError,

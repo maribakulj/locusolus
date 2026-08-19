@@ -239,6 +239,26 @@ pub const INCONCLUSIVE_EXIT_CODE: i32 = 120;
 /// 121 reste hors des plages réservées, comme 120.
 pub const UNREACHABLE_TARGET_EXIT_CODE: i32 = 121;
 
+/// Le code qu'une sonde rend quand **l'endroit où elle devait écrire** n'accepte pas d'écriture.
+///
+/// # La troisième ignorance de sonde, et elle n'est ni la lecture ni le réseau
+///
+/// [`INCONCLUSIVE_EXIT_CODE`] dit « ce que je devais **lire** n'était pas là ».
+/// [`UNREACHABLE_TARGET_EXIT_CODE`] dit « ce que je devais **atteindre** n'a pas répondu ». Celui-ci
+/// dit « ce sur quoi je devais **écrire** ne s'écrit pas » — et il se répare encore ailleurs : pas
+/// en complétant l'image, pas en changeant d'hôte, mais **dans le plan**, qui a désigné une cible
+/// que la sandbox ne peut pas écrire.
+///
+/// # Pourquoi il fallait un code de plus
+///
+/// `exceed_disk_quota` écrivait à la racine, montée en lecture seule dès `S2`. Son échec ressortait
+/// comme un blocage, donc comme une preuve que le quota mordait — alors qu'aucun quota n'était même
+/// déclaré. Sans code réservé, déplacer la sonde vers l'espace de travail ne ferait que déplacer le
+/// piège : un espace de travail non inscriptible produirait la même fausse preuve.
+///
+/// 122 reste hors des plages que POSIX (126, 127), les signaux (128+) et Podman (125) réservent.
+pub const UNWRITABLE_TARGET_EXIT_CODE: i32 = 122;
+
 /// La raison qu'un code de sortie porte, quand il dit que rien n'a été lancé.
 #[must_use]
 pub fn unrunnable(code: i32) -> Option<&'static str> {
@@ -247,6 +267,11 @@ pub fn unrunnable(code: i32) -> Option<&'static str> {
     }
     if code == UNREACHABLE_TARGET_EXIT_CODE {
         return Some("la sonde n'a pas pu conclure : ce qu'elle devait atteindre n'a pas répondu");
+    }
+    if code == UNWRITABLE_TARGET_EXIT_CODE {
+        return Some(
+            "la sonde n'a pas pu conclure : ce sur quoi elle devait écrire ne s'écrit pas",
+        );
     }
     UNRUNNABLE_EXIT_CODES
         .into_iter()
@@ -309,9 +334,41 @@ const PID_QUOTA: &str = concat!(
     "exit \"$status\"",
 );
 
+/// **Écrire là où le quota mord**, et nulle part ailleurs.
+///
+/// # Ce que la version précédente mesurait
+///
+/// Elle écrivait `/locus-probe-disk`, à la racine — que `S2` monte en lecture seule. Elle était donc
+/// bloquée **avec ou sans quota déclaré**, et ressortait « bloquée → tient » sous une mission qui
+/// n'en réservait aucun. Une sonde qui passe sans que ce qu'elle teste existe est le pire des trois
+/// états, parce qu'elle ne se plaint jamais.
+///
+/// # Les trois sorties, et pourquoi la troisième ne se confond avec aucune
+///
+/// - **Aucune cible** — la variable est vide : la mission n'a réservé aucun disque, donc rien n'a
+///   promis de borner l'écriture. La sonde **réussit** (`exit 0`), et c'est ce que
+///   `Requirement::DeclaredDiskQuota` attend d'elle.
+/// - **Cible non inscriptible** : ce n'est ni une réussite ni un blocage, c'est une sonde qui n'a
+///   pas pu mesurer. Elle rend [`UNWRITABLE_TARGET_EXIT_CODE`]. Sans ce code, l'échec du `dd`
+///   ressortirait comme un blocage, c'est-à-dire comme une preuve que le quota mord — la faute
+///   exacte qu'on répare, reproduite un cran plus loin.
+/// - **Cible inscriptible** : elle écrit au-delà de ce que la borne permet, et le résultat de
+///   l'écriture est le verdict.
+///
+/// Elle nettoie sur le chemin où elle a écrit : un fichier laissé derrière elle réduirait l'espace
+/// pour la suite, ce que `W5.r` a rendu impossible entre sandboxes mais pas à l'intérieur de
+/// l'espace de travail, qui reste celui de la mission.
 const DISK_QUOTA: &str = concat!(
-    "dd if=/dev/zero of=/locus-probe-disk bs=1M count=64 2>/dev/null || exit 1; ",
-    "rm -f /locus-probe-disk",
+    "target=\"${LOCUS_QUOTA_TARGET:-}\"; [ -n \"$target\" ] || exit 0; ",
+    "bytes=\"${LOCUS_QUOTA_BYTES:-0}\"; [ \"$bytes\" -gt 0 ] || exit 0; ",
+    // Juste au-delà de la borne, et pas un nombre rond : ce que l'épreuve coûte au disque de
+    // l'hôte est alors proportionné à ce que la mission a réservé.
+    "megabytes=$(( bytes / 1048576 + 64 )); ",
+    "probe=\"$target/locus-probe-disk\"; ",
+    "( : > \"$probe\" ) 2>/dev/null || exit 122; ",
+    "dd if=/dev/zero of=\"$probe\" bs=1M count=\"$megabytes\" 2>/dev/null; status=$?; ",
+    "rm -f \"$probe\"; ",
+    "exit \"$status\"",
 );
 
 /// Lire l'environnement d'un processus que **la sandbox n'a pas créé**.
@@ -399,10 +456,58 @@ pub fn probe_command(name: &str) -> Option<&'static [&'static str]> {
         .map(|(_, command)| command)
 }
 
+/// La variable qui porte à la sonde **l'endroit où le quota disque mord**.
+///
+/// # Pourquoi une variable et pas un chemin en dur
+///
+/// Les sondes voyagent avec le harnais, sous forme de shell (`W5.d`) : aucune ne nomme un chemin de
+/// l'image. `exceed_disk_quota` a pourtant besoin d'écrire **là où le quota s'applique**, et cet
+/// endroit dépend du plan — la couche inscriptible à `S0`/`S1`, l'espace de travail à partir de
+/// `S2`, dont le point de montage vient de la mission.
+///
+/// Un chemin en dur redonnerait la faute que `W5.j` répare : la sonde écrivait à la racine, que
+/// `S2` monte en lecture seule, donc elle était bloquée avec ou sans quota — et passait un test
+/// qu'elle ne faisait pas tourner.
+///
+/// Absente quand rien n'est réservé : la sonde le lit comme « personne n'a demandé de borne ».
+pub const QUOTA_TARGET_VARIABLE: &str = "LOCUS_QUOTA_TARGET";
+
+/// La variable qui porte à la sonde **la taille de la borne à franchir**.
+///
+/// # Pourquoi elle voyage avec la cible, et pas séparément
+///
+/// La première rédaction ne passait que le chemin, et la sonde écrivait quatre gigaoctets en dur.
+/// C'était sans conséquence tant que `--storage-opt size=` faisait refuser la création sur un hôte
+/// non-XFS : rien n'était jamais écrit. `W5.j` a remplacé cet argument par un volume dimensionné,
+/// donc la création réussit désormais là où elle échouait — et la sonde s'est mise à écrire quatre
+/// gigaoctets pour de bon, sur le disque d'un runner de CI.
+///
+/// Une sonde qui éprouve une borne doit écrire **juste au-delà** de cette borne, pas un nombre rond
+/// choisi d'avance. Ce que ça coûte est alors proportionné à ce que la mission a réservé, et une
+/// mission qui réserve peu ne fait pas payer beaucoup.
+pub const QUOTA_BYTES_VARIABLE: &str = "LOCUS_QUOTA_BYTES";
+
+/// De combien la sonde dépasse la borne, en mébioctets.
+///
+/// Assez pour que le dépassement soit franc — un système de fichiers arrondit, réserve, compresse —
+/// et assez peu pour que le prix de l'épreuve reste celui d'un fichier temporaire.
+pub const QUOTA_OVERSHOOT_MIB: u64 = 64;
+
 /// Les arguments de `podman exec` qui tentent cette sonde.
+///
+/// `quota` porte **ensemble** le chemin où la borne mord et sa taille, parce qu'aucun des deux n'a
+/// de sens sans l'autre : un chemin sans taille ferait écrire un nombre arbitraire, une taille sans
+/// chemin ne dirait pas où. `None` quand la mission n'a rien réservé.
 #[must_use]
-pub fn exec_arguments(id: &SandboxId, command: &[&str]) -> Vec<String> {
-    let mut arguments = vec!["exec".to_owned(), id.as_str().to_owned()];
+pub fn exec_arguments(id: &SandboxId, command: &[&str], quota: Option<(&str, u64)>) -> Vec<String> {
+    let mut arguments = vec!["exec".to_owned()];
+    if let Some((path, bytes)) = quota {
+        arguments.push("--env".to_owned());
+        arguments.push(format!("{QUOTA_TARGET_VARIABLE}={path}"));
+        arguments.push("--env".to_owned());
+        arguments.push(format!("{QUOTA_BYTES_VARIABLE}={bytes}"));
+    }
+    arguments.push(id.as_str().to_owned());
     arguments.extend(command.iter().map(|part| (*part).to_owned()));
     arguments
 }
@@ -575,7 +680,21 @@ fn run_alone<R: Runner>(
         teardown(backend, &id);
         return Trial::refused(name, &error);
     }
-    let trial = attempt(backend, &id, name);
+    // La cible du quota vient du **plan**, pas de la mission : c'est le plan qui sait qu'à partir
+    // de `S2` la racine est en lecture seule, donc que le quota ne mord pas là où la mission l'a
+    // écrit.
+    let planned = super::plan::plan(spec).ok();
+    let quota = planned
+        .as_ref()
+        .and_then(|confinement| match confinement.quota_target() {
+            super::plan::QuotaTarget::None => None,
+            // La racine inscriptible n'a pas de chemin à nommer : la sonde y écrit depuis `/`.
+            super::plan::QuotaTarget::WritableRoot => Some(("/", confinement.disk_bytes())),
+            super::plan::QuotaTarget::Workspace { target } => {
+                Some((target.as_str(), confinement.disk_bytes()))
+            }
+        });
+    let trial = attempt(backend, &id, name, quota);
     teardown(backend, &id);
     trial
 }
@@ -593,11 +712,16 @@ pub fn verdicts(trials: &[Trial]) -> Vec<(&'static str, Observed)> {
         .collect()
 }
 
-fn attempt<R: Runner>(backend: &PodmanBackend<R>, id: &SandboxId, name: &'static str) -> Trial {
+fn attempt<R: Runner>(
+    backend: &PodmanBackend<R>,
+    id: &SandboxId,
+    name: &'static str,
+    quota: Option<(&str, u64)>,
+) -> Trial {
     let Some(command) = probe_command(name) else {
         return Trial::not_run(name, "aucune commande n'est associée à cette sonde");
     };
-    let arguments = exec_arguments(id, command);
+    let arguments = exec_arguments(id, command, quota);
     let mut pause = backend.launch_pause();
     for remaining in (0..LAUNCH_ATTEMPTS).rev() {
         match backend.runner().run(&arguments) {
@@ -664,7 +788,11 @@ pub fn certify<R: Runner>(
     spec: &locus_execution::SandboxSpec,
     level: SandboxLevel,
 ) -> Standing {
-    standing(level, &verdicts(&run_suite(backend, spec)))
+    standing(
+        level,
+        spec.resources(),
+        &verdicts(&run_suite(backend, spec)),
+    )
 }
 
 /// Arrêter puis retirer, en ignorant l'échec de l'un comme de l'autre.
