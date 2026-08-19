@@ -88,6 +88,13 @@ frontières inter-repos.
 - tests unitaires + contract + integration selon couche ;
 - aucune dépendance implicite à une machine de développeur.
 
+## Rythme de session
+
+Quand une session travaille la roadmap en boucle, elle ne s'arrête **ni sur une CI verte, ni après
+un bilan**. Merger puis reprendre l'item suivant dans le même tour ; le bilan s'écrit en passant.
+Les trois seuls arrêts — arbitrage hors cadre, CI rouge non réparée en une tentative, demande
+explicite — sont énumérés dans « Règle de session » de `docs/10_V1_ROADMAP.md`.
+
 ## Git
 
 Un commit = objectif cohérent et testable. Ne mélange pas rename massif, refactor, nouvelle fonctionnalité et bugfix sans nécessité. Les migrations importantes ont un ADR et un plan de rollback.

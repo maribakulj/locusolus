@@ -60,6 +60,31 @@ impl Runner for ProbingRunner {
     }
 }
 
+/// Un runtime qui crée volontiers et refuse de démarrer.
+///
+/// Le cas le plus silencieux d'une fuite de nom : rien ne tourne, donc rien ne la signale, et
+/// pourtant le conteneur existe et son nom est pris.
+#[derive(Default)]
+struct FailingStart {
+    calls: Mutex<Vec<Vec<String>>>,
+}
+
+impl Runner for FailingStart {
+    fn run(&self, arguments: &[String]) -> Result<Execution, RuntimeError> {
+        self.calls.lock().expect("verrou").push(arguments.to_vec());
+        let code = i32::from(arguments.first().is_some_and(|verb| verb == "start"));
+        Ok(Execution {
+            code,
+            stdout: String::new(),
+            stderr: if code == 0 {
+                String::new()
+            } else {
+                "le démarrage a échoué".to_owned()
+            },
+        })
+    }
+}
+
 /// Un runtime qui n'exécute rien : le cas d'un hôte sans Podman.
 struct AbsentRuntime;
 
@@ -331,8 +356,20 @@ fn au_niveau_ou_rien_n_est_promis_tout_contenir_n_est_pas_un_echec_de_confiance(
 // Le cycle complet
 // ---------------------------------------------------------------------------------------------
 
+/// **Le cycle se termine par un retrait, pas par un arrêt.**
+///
+/// La version précédente de ce test s'arrêtait à `stop`, avec la bonne raison — « une campagne qui
+/// laisserait le conteneur tourner finirait par saturer l'hôte » — et une conclusion insuffisante.
+/// `podman stop` arrête les processus et laisse le **nom** et la **couche inscriptible** ; c'est le
+/// nom qui manque au suivant. Trois passages de CI ont échoué sur « the container name
+/// `locus-0001` is already in use » avant qu'on le remarque, et le harnais lisait cette erreur là
+/// où il attendait un verdict de confinement.
+///
+/// Les deux appels sont donc épinglés **dans l'ordre**, et pas seulement le dernier : un retrait
+/// sans arrêt préalable marcherait ici — `rm --force` y pourvoit — mais ferait disparaître la
+/// distinction que le port porte délibérément entre « ne tourne plus » et « n'existe plus ».
 #[test]
-fn certify_cree_demarre_eprouve_et_arrete() {
+fn certify_cree_demarre_eprouve_arrete_puis_retire() {
     let mut execd = backend(ProbingRunner::airtight());
     let verdict = certify(&mut execd, &mission(SandboxLevel::S2), SandboxLevel::S2)
         .expect("campagne menée à son terme");
@@ -346,12 +383,35 @@ fn certify_cree_demarre_eprouve_et_arrete() {
     let calls = execd.runner().calls.lock().expect("verrou");
     assert_eq!(calls[0][0], "create");
     assert_eq!(calls[1][0], "start");
+    let tail: Vec<&str> = calls
+        .iter()
+        .rev()
+        .take(2)
+        .map(|call| call[0].as_str())
+        .collect();
     assert_eq!(
-        calls.last().expect("au moins un appel")[0],
-        "stop",
-        "une campagne qui laisserait le conteneur tourner finirait par saturer l'hôte"
+        tail,
+        vec!["rm", "stop"],
+        "arrêter n'est pas retirer : sans le second, le nom reste pris et le prochain conteneur          échoue là où on attend un verdict"
     );
-    assert_eq!(calls.len(), SUITE.len() + 3);
+    assert_eq!(calls.len(), SUITE.len() + 4);
+}
+
+/// **Un démarrage qui échoue retire quand même**, et c'est le cas le plus silencieux.
+///
+/// Rien ne tourne, donc rien ne signale la fuite — mais le nom reste pris. La version précédente de
+/// `certify` rendait l'erreur par `?` et abandonnait un conteneur créé et jamais démarré.
+#[test]
+fn un_demarrage_qui_echoue_ne_laisse_pas_le_nom_pris() {
+    let mut execd = backend(FailingStart::default());
+    certify(&mut execd, &mission(SandboxLevel::S2), SandboxLevel::S2)
+        .expect_err("un démarrage qui échoue n'a rien à éprouver");
+
+    let calls = execd.runner().calls.lock().expect("verrou");
+    assert!(
+        calls.iter().any(|call| call[0] == "rm"),
+        "le conteneur a été créé : il doit être retiré, même si rien n'a jamais tourné dedans —          {calls:?}"
+    );
 }
 
 #[test]

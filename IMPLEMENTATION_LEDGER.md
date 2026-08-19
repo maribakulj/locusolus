@@ -7379,3 +7379,55 @@ passage.
 
 Ce n'est pas écrit comme un défaut de plus, mais comme une question posée correctement : la
 précédente ne l'était pas, et elle a coûté une hypothèse fausse.
+
+---
+
+## 2026-08-18 — W5.l — Arrêter n'est pas retirer
+
+**Périmètre.** `apps/locus-execd/src/runtime.rs` (le port), `src/linux/driver.rs`
+(l'implémentation), `src/linux/selftest.rs` (`certify`), et les deux fichiers de tests.
+
+**Le port promettait ce qu'il ne tenait pas.** La documentation de `RuntimePort::stop` disait «
+arrêter la sandbox **et rendre ce qu'elle tenait** ». `podman stop` arrête les processus et laisse
+le **nom** et la **couche inscriptible**. La promesse était donc fausse dans son texte même, et
+personne ne l'avait relue depuis le double qui la satisfaisait sans rien tenir.
+
+**Deux méthodes, et elles restent séparées.** `stop` arrête, `remove` rend. L'entre-deux est un état
+légitime : une sandbox arrêtée se réinspecte, et `attestation` se lit après l'arrêt. Les fondre
+supprimerait cette lecture ; ne pas les distinguer était le défaut.
+
+_`remove` force._ Un retrait doit aboutir même sur une sandbox en marche : son rôle est de rendre le
+nom, et exiger un arrêt préalable laisserait le nom pris exactement dans le cas où l'on a le plus
+besoin de le libérer — celui où la suite s'est mal passée.
+
+_Le registre se met à jour **après** le succès du runtime._ L'inverse rendrait la sandbox inconnue
+du backend alors qu'elle existe encore sur l'hôte, et plus personne n'aurait de quoi la retirer.
+
+**`certify` démonte sur tous les chemins, y compris celui du démarrage raté.** La version précédente
+rendait l'erreur par `?` et abandonnait un conteneur créé mais jamais démarré : le cas le plus
+silencieux, puisque rien ne tourne et que rien ne signale la fuite — mais le nom reste pris. Un test
+le tient, avec un double qui crée volontiers et refuse de démarrer.
+
+_Les erreurs du démontage sont écartées, et c'est délibéré._ Un démontage est du nettoyage ; le
+verdict qu'on est en train de rendre porte sur le confinement, pas sur la capacité du runtime à
+ranger. Les masquer serait grave si rien d'autre ne les voyait — mais un nom resté pris se signale
+au suivant, très bruyamment, et c'est exactement comme cela que le défaut a été trouvé.
+
+**Le test de sortie constate le nom, pas le registre.** « Le conteneur n'existe plus » ne se vérifie
+pas en interrogeant le backend qui vient de l'oublier : il répondrait ce qu'il a noté, pas ce que
+l'hôte tient. Ce qui se vérifie est ce qui manquait au suivant — **le nom**. Deux backends
+successifs, chacun avec son compteur repartant de zéro, redemandent donc `locus-0001`, et le second
+doit l'obtenir. C'est le scénario exact qui a rendu trois passages de CI illisibles.
+
+**Le test qui pinçait l'ancien comportement a été réécrit, pas supprimé.** Il s'arrêtait à `stop`,
+avec la bonne raison — « une campagne qui laisserait le conteneur tourner finirait par saturer
+l'hôte » — et une conclusion insuffisante. Il épingle maintenant les deux appels **dans l'ordre** :
+un retrait sans arrêt marcherait, `rm --force` y pourvoit, mais ferait disparaître la distinction
+que le port porte délibérément.
+
+**Ce que cela débloque.** Les tables de sondes redeviennent lisibles, et `persist_after_teardown`
+devient mesurable — elle demande qu'un fichier écrit ne survive pas au démontage, et il n'y avait
+pas de démontage. Ce qu'elle rendra une fois mesurée n'est pas supposé ici.
+
+**Tests exécutés.** `cargo test -p locus-execd` → 25 conformes dans `selftest`, dont deux neufs, et
+31 dans `linux`. `npm run check` → les dix portes vertes.
