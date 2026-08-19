@@ -85,6 +85,15 @@ impl<S: EventStore> Runtime<S> {
         &self.policy
     }
 
+    /// Le journal, en lecture — pour les queries de §22.4.
+    ///
+    /// `pub(crate)` et non `pub` : `W20.b` a fait de la transaction le seul chemin d'écriture, et
+    /// exposer le journal au-dehors, même en lecture, inviterait à contourner les queries qui le
+    /// présentent. Ce qui sort de ce crate est une page, pas un journal.
+    pub(crate) const fn transaction_store(&self) -> &S {
+        self.transaction.store()
+    }
+
     /// Le graphe d'exécution, en lecture — §9.5.
     ///
     /// Les projections sortent **en lecture seule**, comme le journal. `W20.e` servira les queries

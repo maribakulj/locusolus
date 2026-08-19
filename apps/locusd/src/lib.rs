@@ -36,14 +36,18 @@
 
 pub mod command;
 pub mod composition;
+pub mod cursor;
 pub mod error;
 pub mod handler;
 pub mod outcome;
+pub mod query;
 pub mod transaction;
 
 pub use command::{CommandEnvelope, Draft};
 pub use composition::{Readiness, Runtime, Wired};
+pub use cursor::{Collection, Cursor, CursorError};
 pub use error::{CommandError, Conflict, EmptyResourceRef, Family, ResourceRef, Revision};
 pub use handler::{Batch, Decide, IdempotencyScope, Submission};
 pub use outcome::{Accepted, Outcome};
+pub use query::{Page, TimelineEntry};
 pub use transaction::Transaction;
