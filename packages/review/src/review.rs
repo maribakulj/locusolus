@@ -1,5 +1,34 @@
 //! La `Review`, le `Finding`, et l'attestation d'indépendance — `docs/SPEC_V1.md` §17.1, §17.4,
 //! §17.5, §14.4.
+//!
+//! # « Une revue sans attestation n'est pas une revue indépendante »
+//!
+//! La clause est tenue plus fort que son énoncé : une revue **sans** attestation n'existe pas.
+//! [`Review::render`] calcule la sienne en confrontant le relecteur au générateur, exigence par
+//! exigence, et aucun appelant ne peut en fournir une — les champs sont privés et il n'y a pas de
+//! constructeur littéral. Un relecteur ne peut donc pas se déclarer indépendant, seulement l'être.
+//!
+//! Sans le bloc ci-dessous, la garantie ne tiendrait qu'à la discipline de qui ajoute un champ
+//! `pub` ou un `with_attestation` un jour. `cargo test --doc` l'exécute, et il doit **ne pas**
+//! compiler :
+//!
+//! ```compile_fail
+//! use locus_protocol::{Id, id::Agent};
+//! use locus_review::{IndependenceAttestation, Review};
+//! fn se_declarer(reviewer: Id<Agent>, attestation: IndependenceAttestation) -> Review {
+//!     Review {
+//!         dossier_id: "dossier-0001".to_owned(),
+//!         reviewer,
+//!         attestation,
+//!         findings: Vec::new(),
+//!         coverage: "relecture".to_owned(),
+//!         limitations: Vec::new(),
+//!     }
+//! }
+//! ```
+//!
+//! Il énumère **tous** les champs : un bloc auquel il en manquerait un échouerait à compiler pour
+//! cette raison-là, et pinerait la faute de frappe au lieu de la garantie.
 
 use std::collections::BTreeSet;
 use std::fmt;

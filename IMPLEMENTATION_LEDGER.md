@@ -8185,3 +8185,54 @@ l'attestation d'indépendance de §14.4. Dépendances satisfaites : `W13.c` et `
 le reste de W7 aussi — c'est précisément l'anomalie. Le sprint commence donc par exercer le test de
 sortie contre ce qui existe déjà, avant d'écrire quoi que ce soit : l'item est peut-être à moitié
 livré sans que rien ne l'atteste.
+
+---
+
+## 2026-08-19 — W7.a — La revue, livrée sans que rien ne l'atteste
+
+**Périmètre.** `packages/review/src/review.rs` (un bloc `compile_fail` en tête de module),
+`docs/10_V1_ROADMAP.md` (la ligne `W7.a` marquée), `CLAUDE.md` (la règle 1 de « Rythme de session »
+corrigée par ce qu'elle a subi au tour précédent), `IMPLEMENTATION_LEDGER.md` (cette entrée).
+
+**Comment cet item a été trouvé.** Par l'angle mort que `W0.11` venait de nommer. La garde
+réconciliait registres et roadmap et sortait `ok` ; `W7.a` était la première ligne non marquée du
+tableau, et `W7.b` à `W7.g` étaient marqués. Or `packages/review/src/dossier.rs` existe, et
+`rebuttal.rs` s'ouvre sur « `W7.a` a livré la revue ». L'item avait été livré par le sprint qui
+avait besoin de lui, sans entrée au registre ni marque au tableau — le cas exact que deux documents
+confrontés ne peuvent pas distinguer d'un item jamais commencé.
+
+**Ce que le sprint a donc fait d'abord : exercer, pas croire.** Les trois clauses du test de sortie,
+une par une contre le code existant. (1) « un dossier modifié après attribution change de version ou
+porte un addendum visible » — `un_dossier_fige_ne_se_modifie_que_par_addendum_ou_nouvelle_version`.
+(2) « deux relecteurs du même groupe d'indépendance ne comptent pas comme indépendants » —
+`deux_agents_du_meme_groupe_ne_sont_pas_independants`, et
+`deux_groupes_inconnus_ne_sont_pas_distincts` pour le cas où l'ignorance ferait passer pour de la
+distinction. (3) « une revue sans attestation n'est pas une revue indépendante » — tenue **plus fort
+que son énoncé** : `Review::render` calcule l'attestation, les champs sont privés, une revue sans
+attestation n'existe pas.
+
+**Le seul trou, et il était dans la troisième.** La garantie tenait à la structure, et rien ne
+tenait la structure. Aucun test n'aurait rougi si un `with_attestation` ou un champ `pub`
+apparaissait un jour — un relecteur aurait alors pu **se déclarer** indépendant, ce que le module
+dit explicitement vouloir interdire. Un bloc `compile_fail` le pine désormais, sur le modèle de
+`locus_environments::build` (W5.b).
+
+**Ce qu'un `compile_fail` doit prouver et ne prouve pas tout seul.** La première version omettait le
+champ `reviewer` : elle échouait à compiler pour cause de champ manquant, donc elle pinait une faute
+de frappe et aurait continué à passer même avec tous les champs publics. Le bloc énumère maintenant
+les six champs, et l'épreuve a été faite dans les deux sens — champs rendus `pub`, le doctest échoue
+avec « Test compiled successfully, but it's marked `compile_fail` » ; champs restaurés, il repasse.
+Un `compile_fail` qu'on n'a pas vu échouer ne vérifie rien.
+
+**Tests exécutés.** `cargo test -p locus-review` — 20 tests d'intégration, verts, et le doctest
+`compile_fail` en plus. Le test de sortie de l'item, nommément : les trois clauses ci-dessus, la
+troisième étant désormais vérifiée par le compilateur et non par la bonne tenue de qui édite.
+
+**Décisions prises.** Aucune qui contraigne la suite. L'entrée elle-même est le livrable principal :
+un item livré sans trace redevient indiscernable d'un item à faire au sprint suivant.
+
+**Écart avec la spec.** Aucun.
+
+**Prochain item.** `W16.d` — visibilité institutionnelle facultative des sous-agents internes du
+harnais, tranche 4 du mineur. À vérifier avant de commencer, maintenant que le cas est connu : que
+`packages/coordination` ne la porte pas déjà.
