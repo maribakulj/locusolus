@@ -248,6 +248,55 @@ fn une_quarantaine_empeche_de_se_dire_pret() {
     assert!(malade.to_string().contains("EN QUARANTAINE"));
 }
 
+/// **Un assemblage qui n'a jamais rattrapé n'est pas prêt.**
+///
+/// `all()` sur un itérateur vide rend `true` : sans la garde, un `Runtime` construit et jamais
+/// rattrapé se serait déclaré disponible **avec zéro projection câblée**. C'est le même mensonge que
+/// la quarantaine, obtenu par un chemin plus discret — et il compte double depuis `W20.g`, où
+/// `is_ready()` décide si le port s'ouvre et ce que `GET /projections/status` annonce.
+///
+/// Le défaut a été corrigé dans le code avant que ce test n'existe ; un mutant l'a signalé, et
+/// c'est lui qui a rappelé qu'une correction sans test est une correction qu'on peut défaire sans
+/// s'en apercevoir.
+#[test]
+fn un_assemblage_qui_n_a_jamais_rattrape_n_est_pas_pret() {
+    let vide = Readiness {
+        projections: Vec::new(),
+    };
+    assert!(
+        !vide.is_ready(),
+        "zéro projection câblée n'est pas une disponibilité"
+    );
+    assert!(vide.quarantined().is_empty());
+
+    // Et le runtime neuf, avant tout rattrapage, dit la même chose.
+    let neuf = Runtime::in_memory();
+    assert!(
+        !neuf.readiness().is_ready(),
+        "un assemblage qui n'a rien lu ne peut pas se dire prêt"
+    );
+}
+
+/// **Un assemblage qui n'a jamais rattrapé n'est pas prêt.**
+///
+/// `all()` sur un itérateur vide rend `true` : sans la garde, un rapport à zéro projection se serait
+/// déclaré disponible. C'est le même mensonge que la quarantaine, obtenu par un chemin plus discret
+/// — et un mutant a montré que rien ne le tenait.
+#[test]
+fn un_rapport_sans_projection_n_est_pas_pret() {
+    let vide = Readiness {
+        projections: Vec::new(),
+    };
+    assert!(
+        !vide.is_ready(),
+        "zéro projection câblée n'est pas une disponibilité"
+    );
+    assert!(
+        vide.quarantined().is_empty(),
+        "et rien n'est en quarantaine non plus : les deux faits sont distincts"
+    );
+}
+
 // ---------------------------------------------------------------------------------------------
 // 4. Ce que le composition root ne contient pas
 // ---------------------------------------------------------------------------------------------
@@ -298,18 +347,36 @@ fn le_composition_root_ne_decide_rien_et_n_ecoute_rien() {
     );
 }
 
-/// Le binaire n'écoute rien non plus, et son code de sortie porte le verdict.
+/// **Le binaire rend compte avant de servir, et ne sert pas s'il n'est pas prêt.**
+///
+/// Ce test a changé avec `W20.g`, et le changement est délibéré : jusqu'à `W20.f` il vérifiait que
+/// `main.rs` ne contenait ni boucle ni `await`, parce que `W20.d` livrait un composition root
+/// **sans surface HTTP** et qu'un serveur qui n'écoute rien se distingue mal d'un serveur en panne.
+/// `W20.g` donne la surface ; la propriété d'alors n'a plus lieu d'être, et la remplacer en silence
+/// aurait laissé croire qu'elle tient encore.
+///
+/// Ce qui reste vrai, et que ce test tient désormais : le compte rendu **précède** l'écoute, et une
+/// quarantaine empêche d'ouvrir le port. Un daemon qui servirait des lectures périmées à des clients
+/// qui n'ont aucun moyen de le savoir est pire qu'un daemon qui refuse.
 #[test]
-fn le_binaire_rend_compte_et_s_arrete() {
+fn le_binaire_rend_compte_avant_de_servir_et_refuse_si_non_pret() {
     let source = include_str!("../src/main.rs");
+
+    let compte_rendu = source
+        .find("println!(\"{readiness}\")")
+        .expect("il rend compte");
+    let refus = source
+        .find("!readiness.is_ready()")
+        .expect("il vérifie sa disponibilité");
+    let ecoute = source.find("TcpListener::bind").expect("il écoute");
+
+    assert!(compte_rendu < refus, "le compte rendu précède la décision");
+    assert!(
+        refus < ecoute,
+        "le port ne s'ouvre qu'après avoir vérifié la disponibilité"
+    );
     assert!(
         source.contains("ExitCode::FAILURE"),
         "la quarantaine se voit du dehors"
     );
-    for boucle in ["loop {", "while ", "await"] {
-        assert!(
-            !source.contains(boucle),
-            "« {boucle} » : un serveur qui n'écoute rien se distingue mal d'un serveur en panne"
-        );
-    }
 }

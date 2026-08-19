@@ -12,6 +12,18 @@
       "adr": "0011",
       "why": "Le format sur le fil de LEP, et celui des JSON Schemas de W0.5.",
       "scope": "*"
+    },
+    {
+      "crate": "axum",
+      "adr": "0018",
+      "why": "Le cadre HTTP de §22. Sa forme — des extracteurs, une réponse — est celle de Decide::decide, ce qui réduit la couche de transport à une traduction. Sans features par défaut : ni `ws` (vingt paquets, écartée en W20.f au profit de SSE), ni `json` (serde_json suffit).",
+      "scope": "apps/locusd"
+    },
+    {
+      "crate": "tokio",
+      "adr": "0018",
+      "why": "Le runtime asynchrone sur lequel hyper, donc axum, s'appuie. Features énumérées : `full` apporte process et signal, que la règle 4 interdit à locusd.",
+      "scope": "apps/locusd"
     }
   ],
   "forbiddenFeatures": [

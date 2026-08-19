@@ -39,6 +39,7 @@ pub mod composition;
 pub mod cursor;
 pub mod error;
 pub mod handler;
+pub mod http;
 pub mod outcome;
 pub mod query;
 pub mod stream;
