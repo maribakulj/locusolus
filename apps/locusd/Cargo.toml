@@ -22,6 +22,12 @@ path = "src/main.rs"
 # runtime asynchrone et le cadre HTTP après leur ADR. `CLAUDE.md` : « construire domain/protocol/
 # event-store d'abord, avec des ports purs ».
 [dependencies]
+# W20.g : les premières dépendances de transport, autorisées par l'ADR 0018 et portées par
+# `dependencies.json`. Les features de `tokio` sont énumérées une par une — `full` apporte `process`
+# et `signal`, exactement ce que la règle 4 de `boundaries.json` interdit à `locusd`, et
+# `check:deps` la refuse.
+axum = { version = "0.8", default-features = false, features = ["http1", "tokio", "query"] }
+tokio = { version = "1", features = ["rt-multi-thread", "net", "macros"] }
 # `locus-event-store` entre avec W20.b : la transaction *possède* le journal, ce qui est ce qui rend
 # la règle « toute mutation passe par un command handler » opposable plutôt que recommandée. Ce
 # n'est pas une dépendance de transport — le port est pur, et `CLAUDE.md` demande précisément qu'il
@@ -35,6 +41,9 @@ locus-protocol = { path = "../../packages/protocol" }
 serde = { workspace = true }
 
 [dev-dependencies]
+# Le test de sortie de W20.g ouvre un vrai socket et écrit une requête HTTP à la main : la feature
+# `rt` et les macros suffisent, et aucun client HTTP n'entre. `tokio` est déjà une dépendance.
+tokio = { version = "1", features = ["rt-multi-thread", "net", "macros", "io-util"] }
 # `locus-protocol` est déjà une dépendance ; le doctest `compile_fail` de `command.rs` le nomme
 # explicitement, et un doctest ne voit que ce que le crate déclare.
 serde_json = { workspace = true }

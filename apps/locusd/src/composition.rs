@@ -18,12 +18,14 @@
 //! aucun assemblage possible où une projection écrirait : non parce que le composition root fait
 //! attention, mais parce que la seule poignée qu'il puisse leur passer est immuable.
 //!
-//! # Pas de surface HTTP
+//! # Le composition root ne connaît pas le transport
 //!
-//! `W20.d` dit « sans surface HTTP », et l'ADR 0018 vient d'autoriser `axum` sans l'introduire. Le
-//! binaire assemble, rend compte de son assemblage, et s'arrête. Une boucle d'attente sans transport
-//! serait un serveur qui n'écoute rien — plus difficile à distinguer d'un serveur en panne qu'un
-//! processus qui s'est terminé en disant ce qu'il avait câblé.
+//! `W20.d` l'a livré sans surface HTTP ; `W20.g` a donné cette surface au binaire, dans
+//! `crate::http`. Ce module n'en sait rien et n'a pas à en savoir : il assemble le domaine, et
+//! `main` décide s'il l'expose. C'est pour cela que [`Readiness`] ne dit plus un mot du transport —
+//! elle l'a fait tant que la réponse était « aucun », et cette phrase est devenue fausse le jour où
+//! le port s'est ouvert. Un rapport qui affirme ce que son émetteur ne peut pas savoir finit
+//! toujours par mentir ; celui-ci ne parle que des projections, qu'il tient.
 
 use std::fmt;
 
@@ -48,6 +50,7 @@ pub struct Runtime<S> {
     conflicts: ProjectionRunner<ConflictRegistry>,
     validation: ProjectionRunner<ValidationState>,
     policy: Policy,
+    readiness: Readiness,
 }
 
 impl Runtime<MemoryEventStore> {
@@ -72,6 +75,9 @@ impl<S: EventStore> Runtime<S> {
             conflicts: ProjectionRunner::new(ConflictRegistry::new()),
             validation: ProjectionRunner::new(ValidationState::new()),
             policy,
+            readiness: Readiness {
+                projections: Vec::new(),
+            },
         }
     }
 
@@ -135,7 +141,7 @@ impl<S: EventStore> Runtime<S> {
     /// trahir, en propageant l'erreur.
     pub fn catch_up(&mut self) -> Readiness {
         let store = self.transaction.store();
-        Readiness {
+        let readiness = Readiness {
             projections: vec![
                 wired(&self.execution.catch_up(store).health, ExecutionGraph::NAME),
                 wired(
@@ -151,7 +157,20 @@ impl<S: EventStore> Runtime<S> {
                     ValidationState::NAME,
                 ),
             ],
-        }
+        };
+        self.readiness = readiness.clone();
+        readiness
+    }
+
+    /// Le dernier rapport de disponibilité, **sans rattraper**.
+    ///
+    /// La liaison HTTP ne tient qu'un `&Runtime` : elle ne peut pas rattraper, et c'est voulu — une
+    /// query qui ferait avancer les projections rendrait le résultat dépendant de qui a lu en
+    /// dernier. Elle lit donc le dernier rapport connu, et un assemblage qui n'a jamais rattrapé
+    /// rend une liste **vide** plutôt qu'un « prêt » supposé.
+    #[must_use]
+    pub fn readiness(&self) -> Readiness {
+        self.readiness.clone()
     }
 }
 
@@ -168,9 +187,14 @@ impl Readiness {
     /// « Prêt » ne veut pas dire « sans quarantaine » par commodité de nommage : une projection en
     /// quarantaine sert des lectures périmées, et un daemon qui se dirait prêt dans cet état ferait
     /// exactement la promesse qu'il ne tient pas.
+    ///
+    /// **Une liste vide n'est pas prête**, et la précision n'est pas théorique : `all()` sur un
+    /// itérateur vide rend `true`, si bien qu'un assemblage qui n'a **jamais rattrapé** se serait
+    /// déclaré disponible avec zéro projection câblée. C'est le même mensonge que la quarantaine,
+    /// obtenu par un chemin plus discret.
     #[must_use]
     pub fn is_ready(&self) -> bool {
-        self.projections.iter().all(|wired| wired.healthy)
+        !self.projections.is_empty() && self.projections.iter().all(|wired| wired.healthy)
     }
 
     /// Les projections en quarantaine, nommément.
@@ -217,7 +241,8 @@ impl fmt::Display for Readiness {
         }
         write!(
             formatter,
-            "  transport : aucun (ADR 0018 — axum autorisé, pas encore introduit)"
+            "  prêt : {}",
+            if self.is_ready() { "oui" } else { "non" }
         )
     }
 }

@@ -9178,3 +9178,88 @@ consigné. Ce n'est pas un écart mais un choix que la spec offre.
 
 **Prochain item.** `W20.g` — la liaison HTTP du fil et des queries, avec les premières dépendances
 de transport et le diff qui cite l'ADR 0018.
+
+## 2026-08-19 — W20.g — la liaison HTTP, et les premières dépendances de transport
+
+**Périmètre.** `apps/locusd/src/http.rs` (neuf), `src/main.rs` (il sert), `src/composition.rs`
+(`readiness()` mémorisée, `is_ready()` corrigé), `src/lib.rs`, `Cargo.toml`, `dependencies.json`,
+`apps/locusd/tests/http.rs` (neuf), `tests/composition.rs`. Aucun débordement.
+
+**Tests exécutés.** `npm run check` — les douze portes, code de sortie 0. `cargo test -p locusd` —
+65 tests. Mutation testing, dix mutants : **10 tués, 0 survivant** (après correction, voir plus
+bas).
+
+Les deux clauses de refus ont été **vues rouges sur le vrai arbre** avant d'être vues vertes :
+
+```
+[feature-interdite]         apps/locusd/Cargo.toml: « tokio/full » est refusée par l'ADR 0018 …
+[dependance-hors-perimetre] packages/domain/Cargo.toml: « axum » n'est autorisée que sous apps/locusd …
+```
+
+**Le daemon écoute pour de bon**, et la réponse a été lue sur un socket :
+
+```
+$ LOCUSD_BIND=127.0.0.1:8899 locusd
+  écoute : http://127.0.0.1:8899 — timeline, workers, conflicts, events, projections/status
+HTTP/1.1 200 OK
+content-type: application/json
+{"ready":true,"projections":[{"name":"execution_graph","healthy":true}, …]}
+```
+
+**Décisions prises.**
+
+- **La surface est en lecture seule, et les types le disent.** §22.4 et §22.1 sont servis, aucune
+  commande de §22.3. `Transaction::submit` prend `&mut self` ; la couche HTTP ne tient qu'un
+  `&Runtime`. Servir une commande demanderait de décider comment sérialiser les écritures — verrou,
+  file, acteur — et ce choix mérite son item.
+- **Un refus de cursor est `400`, jamais `500`.** Un `500` **invite au retry** — c'est ce qu'il veut
+  dire — et le client retenterait indéfiniment avec le même cursor. Le refus porte la famille
+  `validation` de §22.5 : c'est **sa** requête qu'il doit changer.
+- **`Last-Event-ID` gagne sur `?cursor=`.** C'est le navigateur qui met l'en-tête à jour après une
+  reconnexion, pas l'URL ; une URL périmée rejouerait un retard déjà consommé.
+- **L'écoute par défaut est `127.0.0.1`.** Le profil `personal-local` n'a aucune raison d'être
+  joignable depuis le réseau, et §22 demande une authentification qui n'existe pas encore. Un défaut
+  qui expose est un défaut qu'on découvre trop tard.
+- **Le binaire ne sert pas s'il n'est pas prêt.** Assembler, rattraper, rendre compte, et écouter
+  seulement alors. Un daemon qui ouvrirait son port avec une projection en quarantaine servirait des
+  lectures périmées à des clients qui n'ont aucun moyen de le savoir.
+- **Aucun client HTTP en dépendance de test.** Les tests ouvrent un vrai socket et écrivent la
+  requête à la main. Un appel de service en mémoire aurait court-circuité le serveur, le parsing et
+  l'écriture de la réponse : il vérifie un handler, pas une liaison — et le test de sortie demande «
+  une réponse réelle ».
+
+**Trois documents qui affirmaient plus que le code ne tenait.** Ils sont de la même famille, et la
+famille mérite d'être nommée puisqu'elle revient :
+
+1. **`is_ready()` mentait sur une liste vide.** `all()` sur un itérateur vide rend `true` : un
+   assemblage n'ayant **jamais rattrapé** se serait déclaré disponible avec zéro projection câblée.
+   Même mensonge que la quarantaine, par un chemin plus discret. Corrigé — puis, le mutant l'ayant
+   montré non testé, **épinglé**.
+2. **Le rapport annonçait « transport : aucun »** alors que le port venait de s'ouvrir. La ligne est
+   retirée plutôt que corrigée : le composition root ne sait pas si `main` l'expose, et un rapport
+   qui affirme ce que son émetteur ne peut pas savoir finit toujours par mentir.
+3. **Le module doc de `composition.rs` gardait une section « Pas de surface HTTP »**, vraie à
+   `W20.d` et fausse depuis. Réécrite.
+
+**Un test d'un item précédent, remplacé délibérément.** `le_binaire_rend_compte_et_s_arrete`
+vérifiait que `main.rs` ne contenait ni boucle ni `await` — propriété juste tant que `W20.d` livrait
+un composition root sans surface. `W20.g` la rend caduque. Le test est **remplacé et non supprimé**,
+et il porte l'explication : ce qui reste vrai est que le compte rendu **précède** l'écoute et qu'une
+quarantaine empêche d'ouvrir le port. Remplacer en silence aurait laissé croire que l'ancienne
+propriété tient encore.
+
+**Les quatre survivants du premier tour.** Trois portaient sur des comportements HTTP qu'aucun test
+n'exerçait — `?limit=` ignoré, `next` toujours nul, priorité de l'en-tête inversée — parce que les
+tests lisaient la **première page** et s'arrêtaient, ce qu'un client ne fait jamais. Le quatrième
+est le plus instructif : j'avais **corrigé** le défaut d'`is_ready()` sans l'épingler, si bien que
+la correction aurait pu être défaite sans que rien ne bronche.
+
+**Écart avec la spec.** Un, déclaré : le fil SSE rend ce que le journal a **au moment de la
+requête** puis ferme. La reprise fonctionne de bout en bout — SSE prescrit la reconnexion
+automatique avec `Last-Event-ID` — mais la connexion n'est pas maintenue et rien n'est poussé à
+l'écriture. C'est une amélioration de **latence**, pas une correction de sémantique, et elle
+demandera un canal de notification. Elle n'est pas inscrite comme un item : elle relève de W21+ et
+de ce que l'usage montrera.
+
+**Prochain item.** W20 est **entièrement livré** — `a` à `g`. La frontière se recalcule sur le reste
+de la roadmap au prochain tour.
