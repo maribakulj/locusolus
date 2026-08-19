@@ -91,9 +91,28 @@ frontières inter-repos.
 ## Rythme de session
 
 Quand une session travaille la roadmap en boucle, elle ne s'arrête **ni sur une CI verte, ni après
-un bilan**. Merger puis reprendre l'item suivant dans le même tour ; le bilan s'écrit en passant.
-Les trois seuls arrêts — arbitrage hors cadre, CI rouge non réparée en une tentative, demande
-explicite — sont énumérés dans « Règle de session » de `docs/10_V1_ROADMAP.md`.
+un bilan**. Merger puis reprendre l'item suivant ; le bilan s'écrit en passant. Les trois seuls
+arrêts — arbitrage hors cadre, CI rouge non réparée en une tentative, demande explicite — sont
+énumérés dans « Règle de session » de `docs/10_V1_ROADMAP.md`.
+
+**Cette consigne, énoncée seule, n'a pas tenu.** Elle dit de ne pas s'arrêter sans donner de quoi
+continuer : pendant qu'une CI tourne, aucun appel n'avance, il ne reste que le sondage, et un tour
+qui n'a plus d'appel à faire produit du texte — ce qui **est** l'arrêt. Trois règles mécaniques la
+remplacent, parce qu'elles se vérifient et qu'une exhortation ne se vérifie pas :
+
+1. **Une PR ouverte sans réveil armé est un arrêt.** Avant de finir un tour alors qu'une PR attend
+   sa CI, une commande d'attente doit tourner en arrière-plan : elle réveille la session quand elle
+   se termine. Le tour a le droit de finir ; la boucle n'a pas le droit de dépendre de mon envie de
+   resonder. `tools/attendre-ci.sh` le fait là où un jeton GitHub est lisible ; là où il n'y en a
+   pas, une simple temporisation de fond suffit — ce qui compte est qu'**un réveil existe**, pas
+   lequel. Un réveil grossier qui rend la main vaut mieux qu'un réveil fin qui n'est pas armé.
+2. **Un bilan ne finit pas un tour.** Il va dans le corps de la PR et dans le ledger, écrits en
+   passant. Un bilan en dernière position est le signe qu'il n'y avait plus de réveil.
+3. **Un compteur qui n'a rien lu ne vaut pas zéro.** Le premier réveil de cette session lisait
+   `check_runs` dans une réponse `401` : la clé manquait, la somme valait 0, et « personne ne
+   tourne » a été lu comme « tout est fini ». Toute attente bâtie sur une requête distingue **« la
+   réponse est zéro »** de **« il n'y a pas eu de réponse »**, et échoue bruyamment sur la seconde.
+   C'est la règle du dépôt — pas vérifié n'est jamais réussi — appliquée à l'outillage de session.
 
 ## Git
 
