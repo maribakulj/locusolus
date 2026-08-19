@@ -8332,3 +8332,77 @@ C'est délibéré : un mot que la garde ne connaît pas doit produire du travail
 **Prochain item.** `W19.a` — les six motifs de refus d'admission sur le fil, comme document
 (`LevelUnavailable`, `CapacityExhausted`, …). Dépendances satisfaites : ADR 0017 est écrit, et
 `packages/protocol` porte déjà l'enveloppe d'erreur structurée depuis `W0.4`.
+
+---
+
+## 2026-08-19 — W0.13 — Une entrée qui consigne un blocage n'est pas une livraison
+
+**Périmètre.** `tooling/repo/roadmap.ts` (le tri des entrées, la règle `marque-mais-bloque`),
+`tests/repo/roadmap.test.ts` (quatre tests de plus), `docs/10_V1_ROADMAP.md` (la ligne `W0.13`, et
+`W15.f` **démarqué**), `IMPLEMENTATION_LEDGER.md`.
+
+**Le défaut, trouvé en instruisant l'item suivant.** `W19.a` était en tête de frontière. Sa prose
+dit : « W15.f (tranche 1) avant les deux : elle porte les deux tests qui **définissent** ce que
+mineur veut dire ici. » `W15.f` portait **fait**. Or son unique entrée au registre s'intitule «
+Bloqué : le rôle n'a pas de chemin jusqu'à son lecteur » et commence par « **Aucun code écrit.**
+L'item est consigné bloqué plutôt que livré incomplet ». Aucun `x-since` n'existe nulle part, aucune
+ligne `1.1` dans les schémas : le prérequis de `W19.a` n'était pas satisfait, et le tableau disait
+qu'il l'était.
+
+Consigner un blocage est la **bonne** pratique — le sprint a instruit la question, trouvé pourquoi
+elle ne se répond pas encore, et l'a écrit plutôt que de livrer à moitié. Le défaut est dans la
+garde : elle comptait les entrées au lieu de les trier.
+
+**L'ancrage est un préfixe de titre, pas la présence du mot.** L'entrée de `W0.12` s'intitule «
+`« Bloqué »` n'est pas `« à faire »` » et livre bel et bien. Une règle qui aurait cherché le mot
+dans le titre l'aurait effacée du registre, puis aurait exigé qu'on démarque une ligne juste — la
+faute inverse, aussi coûteuse. Après le tiret cadratin, le premier mot décide.
+
+**Et son constat a son nom propre.** `marque-non-livre` aurait dit « sans entrée au ledger » et
+envoyé écrire une entrée qui existe déjà. Le défaut n'est pas une absence, c'est un désaccord : la
+ligne dit fait, l'entrée dit bloqué, et c'est la ligne qui cède.
+
+**Le premier jet était inerte, et c'est le plus instructif.** Écrite `/—\s*(Bloqué|Reporté)\b/`, la
+règle ne matchait jamais : en regex JavaScript `\w` reste `[A-Za-z0-9_]`, donc `é` n'est pas un
+caractère de mot, donc il n'y a **pas** de frontière entre `é` et l'espace qui suit. La garde
+répondait `ok` sur une règle qui ne s'exécutait pas. Elle n'a été prise que parce qu'un écart connu
+— `W15.f` — n'a **pas** été rapporté alors qu'il aurait dû l'être. Le motif se termine désormais par
+une anti-lettre Unicode, `(?!\p{L})` sous le drapeau `u`. La règle générale : **une règle neuve se
+regarde échouer avant d'être crue**, comme le `compile_fail` de `W7.a`.
+
+**Le harnais de mutation avait le même trou.** Ses six mutants sont tous revenus « ne typecheck pas
+» — non pas à cause d'eux, mais parce que la **ligne de base** était rouge : un appel de test
+n'avait pas reçu le champ nouveau. Chaque mutant héritait de l'erreur, était classé inexploitable,
+et le score valait zéro sans que rien ne le dise. Le harnais vérifie maintenant son typecheck
+**avant** de muter et refuse de compter s'il est rouge.
+
+**Un survivant, et il désignait la duplication.** Le chemin des registres voisins refait le tri que
+fait le chemin local, et rien ne le tenait : un mutant qui versait les blocages des voisins dans les
+livraisons survivait à toute la suite. Un test le couvre, et il tient les **deux** moitiés — avec
+deux registres manquants la règle est suspendue, avec les quatre lus elle rapporte. Comme sa sœur
+`marque-non-livre`, et pour la même raison : un registre non lu pourrait livrer ce qu'un autre
+bloque.
+
+**Ce que ce sprint a aussi trouvé, et qui vaut pour le suivant.** Le blocage de `W15.f` disait : «
+ouvrir `lep/1.1` au détour d'un item de coordination le ferait entrer sans son ADR ». **ADR 0017 est
+écrit.** Le blocage est donc levé par un fait acquis, et `W15.f` redevient ce que la roadmap dit
+qu'il est — la tranche 1 du mineur, celle qui porte les deux tests définissant « mineur ». Sa ligne
+est démarquée et il ouvre la frontière, avant `W19.a` qui en dépend.
+
+**Tests exécutés.** `node --test tests/repo/roadmap.test.ts` — 16/16. Le test de sortie de l'item,
+nommément : une entrée titrée `— Bloqué :` ne compte pas comme livraison et rejoint `blocked` ; une
+ligne **fait** au-dessus d'elle est rapportée sous `marque-mais-bloque` ; un titre qui cite le mot
+livre quand même ; le blocage d'un voisin en est un, et la suspension vaut aussi pour cette règle.
+`npm run check` — onze portes vertes. Mutation : **6 mutants, 6 tués**, dont « la règle redevient
+inerte : `\b` après un accent » et « le blocage d'un voisin est compté comme une livraison ».
+
+**Décisions prises.** `marque-mais-bloque` est **suspendue** comme `marque-non-livre` quand un
+registre n'a pas pu être lu : un registre absent pourrait livrer ce qu'un autre bloque. Conséquence
+assumée et écrite : en CI, où trois registres sur quatre manquent, cette règle ne tire pas. C'est la
+passe locale qui l'a trouvée, et c'est la passe locale qui la trouvera.
+
+**Écart avec la spec.** Aucun.
+
+**Prochain item.** `W15.f` — `SET_ROLE` comme opération attributaire, tranche 1 du mineur `lep/1.1`.
+Dépendance vérifiée et satisfaite : ADR 0017 existe, ce qui est exactement ce que son entrée de
+blocage attendait.
