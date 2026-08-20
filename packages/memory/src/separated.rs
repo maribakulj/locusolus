@@ -45,6 +45,7 @@ use locus_domain::{Confidentiality, RevisionId};
 use locus_protocol::{Id, id::Agent};
 
 use crate::genre::Genre;
+use crate::plan::Plan;
 use crate::retrieval::{Candidate, Ranking, retrieve};
 
 /// Ce qu'on cherche du côté **épistémique**.
@@ -138,7 +139,10 @@ pub fn epistemic(
         .collect::<Result<Vec<_>, _>>()
         .expect("un genre déduit d'`is_negative` n'est jamais `Formal`");
 
-    retrieve(&candidates, clearance, budget)
+    // Le plan compatible : ces deux retrievals gardent le comportement d'avant `W17.l`, ce qui est
+    // le point de `Plan::compatible` — un item additif ne change pas ce que ses appelants font.
+    let plan = Plan::compatible(budget.max(1)).expect("un budget minoré à 1 est licite");
+    retrieve(&plan, &candidates, clearance)
         .included()
         .iter()
         .filter_map(|found| {
@@ -190,7 +194,10 @@ pub fn organisational(
         .collect::<Result<Vec<_>, _>>()
         .expect("ni `Coordination` ni `Negative` ne sont `Formal`");
 
-    retrieve(&candidates, clearance, budget)
+    // Le plan compatible : ces deux retrievals gardent le comportement d'avant `W17.l`, ce qui est
+    // le point de `Plan::compatible` — un item additif ne change pas ce que ses appelants font.
+    let plan = Plan::compatible(budget.max(1)).expect("un budget minoré à 1 est licite");
+    retrieve(&plan, &candidates, clearance)
         .included()
         .iter()
         .filter_map(|found| {

@@ -10174,3 +10174,48 @@ voulait savoir.
 **Écart avec la spec.** Aucun. §16.1 garde ses sept niveaux et §16.3 ses dix signaux, inchangés.
 
 **Prochain item.** `W17.l` — `Intent`, `Plan`, `Escalation`, et `retrieve` qui prend un plan.
+
+## 2026-08-20 — W17.l — le retrieval est un plan
+
+**Périmètre.** `packages/memory/src/plan.rs`, neuf — `Intent`, `Channel`, `Stop`, `RankingIdentity`,
+`Escalation`, `Provenance`, `Plan`, `PlanError` ; `retrieval.rs` — `retrieve` prend un plan,
+`Candidate` gagne sa provenance et `obtained_after` ; `separated.rs` ; le `lib.rs` ; les tests
+`plan.rs` et `retrieval.rs`.
+
+**Tests exécutés.** `npm run check` — les douze gardes. Douze tests dans `tests/plan.rs`.
+
+**Deux axes, deux types.** `Channel` produit, `Signal` classe. Les dix signaux de §16.3 mélangent
+des routes, des filtres et des objectifs ; c'est fidèle à la spec et il ne faut pas y toucher, mais
+ajouter les canaux à cette énumération aurait perpétué la confusion **et** modifié une liste
+normative. Un test tient les dix par leur nombre et leurs noms.
+
+**`Plan::compatible` plutôt que `Plan::default`.** La ligne de roadmap disait `default()`, et le
+`Default` de Rust ne prend pas de paramètre : le budget devait y entrer. Un `Default` qui aurait
+inventé un budget aurait été une politique non écrite. Le constructeur est donc nommé, prend le
+budget, et la ligne de roadmap est corrigée — la roadmap suit le code quand le code a raison.
+
+**La réserve de négatifs est nulle par défaut, et c'est ce qui rend l'item additif.** `retrieve`
+d'avant ne lisait **jamais** `is_negative` dans le chemin du budget. Les deux moitiés sont testées :
+sans réserve, un négatif mal classé est exclu comme les autres ; avec réserve, il tient sa place et
+l'exclusion tombe ailleurs.
+
+**`caller-supplied` déclare une absence au lieu de la taire.** `Ranking::of` reçoit des flottants
+calculés par l'appelant : ce crate ne produit aucun score. Une identité de classement qui manquerait
+laisserait un reçu promettre un rejeu qu'il ne peut pas garantir, et le test passerait quand même —
+une fixture étant déterministe par construction, il ne testerait rien. `is_replayable()` rend la
+distinction lisible, comme `None` contre `Some(0.0)` pour une couverture.
+
+**Clippy a trouvé une vraie faute de conception.** `Intent::Explanatory` et `Intent::Global`
+partaient du même ordre de canaux, et l'avertissement « ces bras ont des corps identiques » disait
+quelque chose de juste : une intention globale **ne part pas d'un nœud**. « Que dit l'ensemble du
+dossier » n'a pas de point de départ dans le graphe, donc elle balaie d'abord largement, quand
+l'explicative part d'une contradiction précise. Le lint a corrigé le routage, pas la mise en forme.
+
+**Une propriété non demandée mais gratuite.** `Intent::Formal` n'emprunte pas le canal vectoriel :
+le refus existait déjà à la construction du candidat, et le porter aussi dans l'ordre des canaux
+évite de payer une route dont on refusera le résultat.
+
+**Écart avec la spec.** Aucun. §16.3 n'est pas amendé.
+
+**Prochain item.** `W17.m` — les quatre canaux nouveaux, dont `Structural`, qui attend un port
+`RevisionId → ObjectType` que `packages/graph` ne détient pas.

@@ -39,6 +39,7 @@ use std::fmt;
 use locus_domain::Confidentiality;
 
 use crate::genre::Genre;
+use crate::plan::{Escalation, Plan, Provenance};
 
 /// Les dix signaux que §16.3 combine, dans l'ordre du texte.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -166,6 +167,7 @@ pub struct Candidate {
     classification: Confidentiality,
     genre: Genre,
     ranking: Ranking,
+    provenance: Provenance,
 }
 
 impl Candidate {
@@ -204,7 +206,26 @@ impl Candidate {
             classification,
             genre,
             ranking,
+            provenance: Provenance::Direct,
         })
+    }
+
+    /// Le même candidat, obtenu **après une escalade**.
+    ///
+    /// Le distinguer par le type et non par une convention : un préfixe de clé ou un drapeau se
+    /// perdrait à la première sérialisation, et l'escalade change la nature de la preuve — un
+    /// résultat trouvé après élargissement du périmètre de branche n'a pas été obtenu sous les
+    /// mêmes contraintes d'isolation, dont §12.4 dépend.
+    #[must_use]
+    pub fn obtained_after(mut self, escalation: Escalation) -> Self {
+        self.provenance = Provenance::AfterEscalation(escalation);
+        self
+    }
+
+    /// D'où il vient.
+    #[must_use]
+    pub const fn provenance(&self) -> &Provenance {
+        &self.provenance
     }
 
     /// Sa clé.
@@ -314,7 +335,8 @@ const fn rank(classification: Confidentiality) -> u8 {
 /// Le tri est déterministe — total décroissant, puis clé — parce qu'un résultat qui changerait
 /// d'ordre à contenu égal ferait douter de la mémoire plutôt que du tri.
 #[must_use]
-pub fn retrieve(candidates: &[Candidate], clearance: Confidentiality, budget: usize) -> Results {
+pub fn retrieve(plan: &Plan, candidates: &[Candidate], clearance: Confidentiality) -> Results {
+    let budget = plan.budget();
     let mut excluded = Vec::new();
     let mut allowed: Vec<Candidate> = Vec::new();
 
@@ -339,14 +361,35 @@ pub fn retrieve(candidates: &[Candidate], clearance: Confidentiality, budget: us
             .then_with(|| left.key.cmp(&right.key))
     });
 
+    // La réserve de négatifs — ADR 0022 décision 2, et elle appartient au **plan**.
+    //
+    // Nulle par défaut, parce que `retrieve` d'avant `W17.l` ne lisait jamais `is_negative` dans ce
+    // chemin : la mettre dans le genre aurait changé silencieusement du code livré. Quand elle
+    // existe, les négatifs les mieux classés prennent leurs places d'abord, et l'exclusion tombe
+    // **ailleurs** — c'est ce que « un budget saturé exclut d'abord ailleurs » veut dire.
+    let reserve = plan.negative_reserve().min(budget);
+    let mut reserved: Vec<usize> = Vec::new();
+    if reserve > 0 {
+        for (position, candidate) in allowed.iter().enumerate() {
+            if candidate.is_negative() && reserved.len() < reserve {
+                reserved.push(position);
+            }
+        }
+    }
+
     let mut included = Vec::new();
+    let mut ordinary = 0_usize;
     for (position, candidate) in allowed.into_iter().enumerate() {
-        if position >= budget {
-            excluded.push(Excluded::BeyondBudget {
-                key: candidate.key().to_owned(),
-                rank: position + 1,
-            });
-            continue;
+        let is_reserved = reserved.contains(&position);
+        if !is_reserved {
+            if ordinary + reserved.len() >= budget {
+                excluded.push(Excluded::BeyondBudget {
+                    key: candidate.key().to_owned(),
+                    rank: position + 1,
+                });
+                continue;
+            }
+            ordinary += 1;
         }
         included.push(candidate);
     }
