@@ -33,7 +33,10 @@ pub use dedup::{
 };
 pub use genre::{Genre, GenreOracle, Unknowing};
 pub use level::{Entry, Level, MemoryError, Shelf, Substance};
-pub use plan::{Channel, Escalation, Intent, Plan, PlanError, Provenance, RankingIdentity, Stop};
+pub use plan::{
+    Channel, Escalation, Intent, Plan, PlanError, PremiseShapes, Provenance, RankingIdentity,
+    RegionRef, Stop, StructuralChannel,
+};
 pub use retrieval::{Candidate, Excluded, Ranking, Results, RetrievalError, Signal, retrieve};
 pub use separated::{
     EpistemicEntry, EpistemicHit, OrganisationalEntry, OrganisationalHit, epistemic, organisational,

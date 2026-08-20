@@ -10219,3 +10219,49 @@ le refus existait déjà à la construction du candidat, et le porter aussi dans
 
 **Prochain item.** `W17.m` — les quatre canaux nouveaux, dont `Structural`, qui attend un port
 `RevisionId → ObjectType` que `packages/graph` ne détient pas.
+
+## 2026-08-20 — W17.m — les quatre canaux nouveaux
+
+**Périmètre.** `packages/memory/src/plan.rs` — `Channel` passe de quatre à huit, `PremiseShapes`,
+`StructuralChannel`, `RegionRef`, et les ordres de canaux des cinq intentions concernées ; le
+`lib.rs` ; `packages/memory/tests/plan.rs`.
+
+**Tests exécutés.** `npm run check` — les douze gardes. Dix-sept tests dans `tests/plan.rs`.
+
+**Le port de formes de prémisses est nommé, pas supposé.** La forme d'une inférence est le
+multiensemble des **types** de ses prémisses ; `Graph` ne contient que `relations` et `inferences`,
+et `minimal_premise_sets` rend des `RevisionId`. La résolution `RevisionId → ObjectType` n'existe
+nulle part, et `packages/memory` ne connaît ni `graph` ni `domain` — le port est donc la seule forme
+honnête. C'est l'ADR 0022 décision 5 qui l'avait déjà relevé ; l'item le livre.
+
+**La fixture est ce qui rend le test décidable.** Trois inférences : deux qui partagent la
+**structure** sans le contenu, une qui partage le **contenu** sans la structure. Sans les trois, le
+test ne distinguerait rien — n'importe quel appariement passerait, y compris un appariement par
+identité de prémisse, qui est exactement ce que ce canal n'est pas.
+
+**Une inférence sans prémisse n'est pas une inférence inconnue.** `Some(vec![])` contre `None`. Les
+fondre aurait apparié l'inconnue avec toutes les vides — une réponse plausible prise au mauvais
+endroit, que rien dans la réponse ne signale. Même famille que `unverified` contre `broken`, et que
+`None` contre `Some(0.0)` pour une couverture.
+
+**`Regional` tient par l'absence de type.** `RegionRef` n'a que deux champs textuels, et un test
+refuse `Vec<u8>`, `ObjectStore`, `bytes`, `fn fetch` dans tout le module. Le graphe tient l'identité
+et la boîte, l'artefact tient les octets.
+
+**`Community` n'est jamais un défaut**, et le test l'exerce sur les six intentions plutôt que sur la
+seule `Global` : vérifier qu'une intention l'emprunte ne dit rien tant qu'on n'a pas vérifié que les
+cinq autres ne l'empruntent pas.
+
+**Une assertion de `W17.l` a été mise à jour.** Elle tenait le premier canal de l'intention globale
+— `Lexical` —, et `Community` le précède désormais. Le commentaire dit pourquoi, plutôt que de
+laisser croire à un ajustement de confort.
+
+**Un test de séparation en prime.** Aucun canal ne porte le nom d'un signal qui n'est pas une route
+: les quatre routes de §16.3 se retrouvent des deux côtés, les six autres signaux d'aucun. La
+frontière entre « produire » et « classer » est ainsi tenue par une correspondance, pas par une
+intention.
+
+**Écart avec la spec.** Aucun. §16.3 garde ses dix signaux ; les canaux sont un axe distinct.
+
+**Prochain item.** `W17.n` — le reçu de retrieval, et la jonction `Results → ContextView` qui
+n'existe pas : `packages/review` gagnera une dépendance sur `packages/memory`.

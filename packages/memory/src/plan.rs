@@ -94,16 +94,29 @@ impl Intent {
                 Channel::Lexical,
                 Channel::GraphTraversal,
             ],
-            Self::Formal => vec![Channel::ExactIdentifiers, Channel::GraphTraversal],
-            Self::Bibliographic => {
-                vec![Channel::ExactIdentifiers, Channel::Lexical, Channel::Vector]
-            }
-            Self::Structural => vec![Channel::GraphTraversal, Channel::ExactIdentifiers],
+            Self::Formal => vec![
+                Channel::Formal,
+                Channel::ExactIdentifiers,
+                Channel::GraphTraversal,
+            ],
+            Self::Bibliographic => vec![
+                Channel::ExactIdentifiers,
+                Channel::Regional,
+                Channel::Lexical,
+                Channel::Vector,
+            ],
+            Self::Structural => vec![
+                Channel::Structural,
+                Channel::GraphTraversal,
+                Channel::ExactIdentifiers,
+            ],
             // Une intention globale ne part **pas** d'un nœud : « que dit l'ensemble du dossier »
             // n'a pas de point de départ dans le graphe, donc elle balaie d'abord largement. C'est
-            // ce qui la distingue de l'explicative, qui part d'une contradiction précise. `W17.m`
-            // lui ajoutera `Community`, qu'aucune autre intention ne sélectionne.
+            // ce qui la distingue de l'explicative, qui part d'une contradiction précise. Elle est
+            // aussi la seule à emprunter `Community`, et ce n'est pas un défaut : le résumé global
+            // n'est pas universellement meilleur qu'une baseline simple.
             Self::Global => vec![
+                Channel::Community,
                 Channel::Lexical,
                 Channel::Vector,
                 Channel::GraphTraversal,
@@ -121,10 +134,8 @@ impl fmt::Display for Intent {
 
 /// Une **route qui produit** des candidats.
 ///
-/// Quatre pour l'instant — celles que §16.3 nomme et que le dépôt sait déjà emprunter. `W17.m` en
-/// ajoute quatre : `Formal`, `Structural`, `Regional` et `Community`. Elles n'entrent pas ici,
-/// faute de ce qui les rendrait exécutables : un oracle de types de prémisses pour `Structural`,
-/// des identités de région pour `Regional`.
+/// Huit : les quatre que §16.3 nomme déjà comme signaux — et qui sont des routes déguisées en
+/// facteurs —, plus les quatre de l'ADR 0022 décision 5. Les dix signaux, eux, ne bougent pas.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Channel {
     /// Parcours du graphe épistémique.
@@ -135,15 +146,33 @@ pub enum Channel {
     Vector,
     /// Résolution par identifiant exact.
     ExactIdentifiers,
+    /// Lemmes, par similarité d'état de preuve.
+    Formal,
+    /// Inférences de **même forme de prémisses** — voir [`StructuralChannel`].
+    ///
+    /// Propre à ce projet, et il faut des hyperarêtes pour le poser : « quelles autres conclusions
+    /// reposent sur exactement ce type d'argument » est une question qu'aucun index vectoriel ni
+    /// aucun magasin de triplets ne sait formuler.
+    Structural,
+    /// Régions IIIF, zones ALTO, régions de figure — **des identités, jamais des octets**.
+    Regional,
+    /// Résumés de communautés. **Jamais un défaut** : le survey `arXiv:2506.05690` montre que
+    /// l'approche par résumé global n'est pas universellement meilleure que des baselines simples.
+    /// Sélectionné par l'intention `Global`, et par elle seule.
+    Community,
 }
 
 impl Channel {
-    /// Les quatre, dans l'ordre de §16.3.
-    pub const ALL: [Self; 4] = [
+    /// Les huit — les quatre de §16.3, puis les quatre de l'ADR 0022.
+    pub const ALL: [Self; 8] = [
         Self::GraphTraversal,
         Self::Lexical,
         Self::Vector,
         Self::ExactIdentifiers,
+        Self::Formal,
+        Self::Structural,
+        Self::Regional,
+        Self::Community,
     ];
 
     /// Son nom.
@@ -154,6 +183,10 @@ impl Channel {
             Self::Lexical => "lexical",
             Self::Vector => "vector",
             Self::ExactIdentifiers => "exact-identifiers",
+            Self::Formal => "formal",
+            Self::Structural => "structural",
+            Self::Regional => "regional",
+            Self::Community => "community",
         }
     }
 }
@@ -441,3 +474,85 @@ impl fmt::Display for PlanError {
 }
 
 impl std::error::Error for PlanError {}
+
+/// Ce qui sait dire de quelle **forme** est une inférence — un port, fourni par l'appelant.
+///
+/// # Pourquoi un port, et pourquoi il n'est pas dans `packages/graph`
+///
+/// La forme d'une inférence est le **multiensemble des types de ses prémisses**, pas leurs
+/// identités. Or `Graph` ne contient que `relations` et `inferences`, et `minimal_premise_sets` rend
+/// des `RevisionId` : il ne détient aucun type d'objet. La résolution `RevisionId → ObjectType` vit
+/// donc ailleurs, et ce crate ne peut pas la faire — `packages/memory` ne connaît ni `graph` ni
+/// `domain`.
+///
+/// Le port est la seule forme honnête : nommer ce qui manque plutôt que de le supposer présent.
+pub trait PremiseShapes {
+    /// Les inférences que l'oracle connaît, par identité.
+    fn known(&self) -> Vec<String>;
+
+    /// Les **types** des prémisses de cette inférence, dans un ordre quelconque.
+    ///
+    /// `None` quand l'inférence est inconnue — distinct d'une inférence **sans** prémisse, qui rend
+    /// un vecteur vide. Une inférence sans prémisse et une inférence qu'on ne sait pas lire ne sont
+    /// pas la même chose, et les confondre ferait apparier la seconde avec toutes les premières.
+    fn premise_types(&self, inference: &str) -> Option<Vec<String>>;
+}
+
+/// Le canal `Structural` — les inférences de même forme de prémisses.
+///
+/// # Ce que « même forme » veut dire, et ce que ça ne veut pas dire
+///
+/// Le multiensemble des **types**, trié. Deux inférences dont les prémisses sont deux `Claim` et une
+/// `Assumption` ont la même forme, quels que soient les claims. Deux inférences qui partagent leurs
+/// prémisses **exactes** mais pas leur composition de types n'ont pas la même forme — c'est le cas
+/// qui distingue ce canal d'une recherche par contenu, et le test l'exerce.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct StructuralChannel;
+
+impl StructuralChannel {
+    /// La forme d'une inférence — le multiensemble de ses types de prémisses, **trié**.
+    ///
+    /// Trié parce qu'un multiensemble n'a pas d'ordre : deux appelants qui rempliraient leurs
+    /// prémisses dans un ordre différent doivent obtenir la même forme, sinon l'appariement dépend
+    /// de l'ordre d'insertion.
+    #[must_use]
+    pub fn shape(oracle: &impl PremiseShapes, inference: &str) -> Option<Vec<String>> {
+        let mut types = oracle.premise_types(inference)?;
+        types.sort_unstable();
+        Some(types)
+    }
+
+    /// Les inférences qui partagent la forme de `target`, **sans elle-même**.
+    ///
+    /// S'exclure est le comportement utile : « quelles **autres** conclusions reposent sur ce type
+    /// d'argument » est la question, et se rendre soi-même en réponse est un bruit que chaque
+    /// appelant devrait filtrer.
+    #[must_use]
+    pub fn matching(oracle: &impl PremiseShapes, target: &str) -> Vec<String> {
+        let Some(forme) = Self::shape(oracle, target) else {
+            return Vec::new();
+        };
+        oracle
+            .known()
+            .into_iter()
+            .filter(|candidate| candidate != target)
+            .filter(|candidate| Self::shape(oracle, candidate).as_ref() == Some(&forme))
+            .collect()
+    }
+}
+
+/// Une région atteignable — **une identité, jamais des octets**.
+///
+/// # La frontière tient par l'absence de type
+///
+/// Ce canal ne connaît aucun magasin d'objets et n'a aucun champ qui puisse porter un contenu. Le
+/// graphe tient l'identité et la boîte, l'artefact tient les octets, et le canal rend de quoi aller
+/// les chercher — pas les octets eux-mêmes. §23 le demande dans l'autre sens aussi : l'image rendue
+/// n'est jamais le seul moyen d'atteindre une région.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RegionRef {
+    /// L'identité de la ressource qui porte la région.
+    pub resource: String,
+    /// La région dans cette ressource, sous sa forme d'URI.
+    pub region: String,
+}

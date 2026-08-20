@@ -13,8 +13,8 @@
 
 use locus_domain::Confidentiality;
 use locus_memory::{
-    Candidate, Channel, Escalation, Excluded, Genre, Intent, Plan, PlanError, Provenance, Ranking,
-    RankingIdentity, Signal, Stop, retrieve,
+    Candidate, Channel, Escalation, Excluded, Genre, Intent, Plan, PlanError, PremiseShapes,
+    Provenance, Ranking, RankingIdentity, RegionRef, Signal, Stop, StructuralChannel, retrieve,
 };
 
 fn score(total: f64) -> Ranking {
@@ -64,10 +64,11 @@ fn trois_intentions_produisent_trois_ordres_de_canaux_differents() {
     assert_ne!(explicative, globale);
 
     // Et les premiers pas disent pourquoi : une explication part du graphe, une bibliographie de
-    // l'identité exacte, une question globale d'un balayage large.
+    // l'identité exacte, une question globale des résumés de communauté — le seul endroit où
+    // `Community` est emprunté, `W17.m` l'ayant ajouté devant le balayage lexical.
     assert_eq!(explicative.first(), Some(&Channel::GraphTraversal));
     assert_eq!(bibliographique.first(), Some(&Channel::ExactIdentifiers));
-    assert_eq!(globale.first(), Some(&Channel::Lexical));
+    assert_eq!(globale.first(), Some(&Channel::Community));
 
     // Aucune intention n'a d'ordre vide : un plan qui n'interroge rien n'est pas un plan.
     for intent in Intent::ALL {
@@ -313,5 +314,150 @@ fn les_dix_signaux_de_la_spec_sont_inchanges() {
     assert_eq!(Signal::ALL.len(), 10);
     for (signal, nom) in Signal::ALL.into_iter().zip(noms) {
         assert_eq!(signal.slug(), nom, "§16.3 ne se réécrit pas");
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// 7 — les quatre canaux nouveaux (W17.m)
+// ---------------------------------------------------------------------------------------------
+
+/// Un oracle de formes : trois inférences, choisies pour distinguer forme et contenu.
+struct Formes;
+
+impl PremiseShapes for Formes {
+    fn known(&self) -> Vec<String> {
+        vec![
+            "inf-a".to_owned(),
+            "inf-b".to_owned(),
+            "inf-c".to_owned(),
+            "inf-vide".to_owned(),
+        ]
+    }
+
+    fn premise_types(&self, inference: &str) -> Option<Vec<String>> {
+        match inference {
+            // `a` et `b` partagent la **structure** — deux Claim, une Assumption — et rien du
+            // contenu : leurs prémisses sont des révisions différentes, que l'oracle ne rend pas.
+            "inf-a" | "inf-b" => Some(vec![
+                "Claim".to_owned(),
+                "Assumption".to_owned(),
+                "Claim".to_owned(),
+            ]),
+            // `c` partage le **contenu** avec `a` — les mêmes prémisses — mais pas la structure :
+            // l'une d'elles y entre sous un autre type.
+            "inf-c" => Some(vec![
+                "Claim".to_owned(),
+                "Claim".to_owned(),
+                "Claim".to_owned(),
+            ]),
+            // Une inférence sans prémisse : un vecteur vide, pas une absence.
+            "inf-vide" => Some(Vec::new()),
+            _ => None,
+        }
+    }
+}
+
+/// **Le canal `Structural` apparie par forme, pas par contenu.**
+///
+/// La fixture le rend décidable : deux inférences qui partagent la structure sans le contenu, une
+/// troisième qui partage le contenu sans la structure. Sans ces trois-là, le test ne distinguerait
+/// rien — n'importe quel appariement passerait.
+#[test]
+fn le_canal_structural_apparie_par_forme_de_premisses() {
+    let apparies = StructuralChannel::matching(&Formes, "inf-a");
+    assert_eq!(
+        apparies,
+        vec!["inf-b".to_owned()],
+        "`b` partage la structure ; `c` partage le contenu et doit être écarté"
+    );
+
+    // La forme est un multiensemble **trié** : deux ordres d'insertion rendent la même forme.
+    let forme = StructuralChannel::shape(&Formes, "inf-a").expect("connue");
+    assert_eq!(forme, vec!["Assumption", "Claim", "Claim"]);
+
+    // Une inférence ne s'apparie pas à elle-même : la question est « quelles **autres** ».
+    assert!(!apparies.contains(&"inf-a".to_owned()));
+}
+
+/// **Une inférence sans prémisse et une inférence inconnue ne se confondent pas.**
+///
+/// Les fondre ferait apparier la seconde avec toutes les premières — une réponse plausible, prise
+/// au mauvais endroit, que rien dans la réponse ne signalerait.
+#[test]
+fn une_inference_sans_premisse_n_est_pas_une_inference_inconnue() {
+    assert_eq!(StructuralChannel::shape(&Formes, "inf-vide"), Some(vec![]));
+    assert_eq!(StructuralChannel::shape(&Formes, "inf-absente"), None);
+
+    // Et l'inconnue n'apparie rien, plutôt que d'apparier la vide.
+    assert!(StructuralChannel::matching(&Formes, "inf-absente").is_empty());
+}
+
+/// **`Community` n'est jamais sélectionné hors intention `Global`** — exercé sur les cinq autres.
+#[test]
+fn community_n_est_jamais_selectionne_hors_intention_globale() {
+    for intent in Intent::ALL {
+        let emprunte = intent.channels().contains(&Channel::Community);
+        assert_eq!(
+            emprunte,
+            intent == Intent::Global,
+            "{intent} et le canal `Community`"
+        );
+    }
+}
+
+/// **Le canal `Regional` rend des identités et jamais d'octets**, tenu par l'absence de type.
+///
+/// `RegionRef` n'a que deux champs, tous deux textuels : la ressource et la région. Aucun champ ne
+/// peut porter un contenu, et le module ne connaît aucun magasin d'objets.
+#[test]
+fn le_canal_regional_ne_rend_aucun_octet() {
+    let region = RegionRef {
+        resource: "https://exemple.org/iiif/manuscrit-1".to_owned(),
+        region: "xywh=100,200,300,400".to_owned(),
+    };
+    assert!(region.region.contains("xywh"));
+
+    let source = include_str!("../src/plan.rs");
+    for interdit in [
+        "Vec<u8>",
+        "ObjectStore",
+        "bytes",
+        "&[u8]",
+        "fn fetch",
+        "fn download",
+    ] {
+        assert!(
+            !source.contains(interdit),
+            "« {interdit} » dans plan.rs : le graphe tient l'identité, l'artefact tient les octets"
+        );
+    }
+}
+
+/// Les huit canaux se lisent sous leur nom, et l'ajout des quatre n'a touché aucun signal.
+#[test]
+fn les_huit_canaux_se_lisent_sous_leur_nom() {
+    let noms = [
+        "graph-traversal",
+        "lexical",
+        "vector",
+        "exact-identifiers",
+        "formal",
+        "structural",
+        "regional",
+        "community",
+    ];
+    assert_eq!(Channel::ALL.len(), 8);
+    for (channel, nom) in Channel::ALL.into_iter().zip(noms) {
+        assert_eq!(channel.slug(), nom);
+    }
+    // Les dix signaux restent dix — la garde est déjà plus haut, on tient ici la **séparation** :
+    // aucun canal ne porte le nom d'un signal qui n'est pas une route.
+    for signal in Signal::ALL {
+        let est_une_route = Channel::ALL.iter().any(|c| c.slug() == signal.slug());
+        let devrait = matches!(
+            signal,
+            Signal::GraphTraversal | Signal::Lexical | Signal::Vector | Signal::ExactIdentifiers
+        );
+        assert_eq!(est_une_route, devrait, "{signal}");
     }
 }
