@@ -9383,3 +9383,68 @@ sont.
 **Prochain item.** La frontière est de nouveau vide, et cette fois les quatre lignes restantes
 portent toutes `attend:externe` — un consommateur, une messagerie, un hôte capable. `W0.16` le
 vérifie désormais : aucune ne peut se périmer sans que le garde le dise.
+
+## 2026-08-20 — ADR 0019 — la messagerie inter-agents comme usage du journal
+
+**Périmètre.** `docs/adr/0019-messagerie-inter-agents.md` (neuf) ; `docs/10_V1_ROADMAP.md` — la
+ligne `W16.e`, la prose de W16, la section « Ce qui est reporté », et l'exemple cité dans le test de
+sortie de `W0.16` ; `docs/13` — la clause de gel, amendée sur un point ; `tooling/repo/roadmap.ts`
+et `tests/repo/roadmap.test.ts` — deux commentaires qui donnaient `W16.e` en exemple d'un blocage
+sans date. L'implémentation de `W16.e` est le sprint suivant : la faire ici aurait mélangé une
+décision et sa mise en œuvre dans un diff que personne ne relit deux fois.
+
+**Débordement, et il est assumé :** `tooling/repo/naming.ts` et `tests/repo/naming.test.ts`. Le
+garde de nommage lisait **9 Go** de `target/` ligne à ligne — il est resté cinq minutes à 71 % de
+CPU avant qu'un `ps` ne dise ce qu'il faisait, et c'est ce qui rendait `npm run check` plus long que
+le délai d'un outil. `boundaries.json` excluait `target/**` depuis le début ; ce garde-ci l'avait
+oublié. Deux raisons de le corriger ici plutôt que d'ouvrir une ligne : la première est qu'il bloque
+la boucle à chaque sprint ; la seconde est l'argument de fond, qui n'est pas la vitesse — `target/`
+contient les sources des crates tiers, une occurrence du nom retiré s'y trouvera tôt ou tard, et
+elle n'est réparable par personne. Le coût a rendu l'oubli **visible**, il ne le rend pas moins
+faux.
+
+Ce qui l'avait caché mérite d'être noté : en CI le répertoire est vide au moment où le garde passe,
+donc il y a toujours été instantané. Le garde ne mentait qu'aux machines qui avaient compilé — la «
+dépendance implicite à une machine de développeur » de `CLAUDE.md`, dans le sens où on l'attend le
+moins, puisque c'est la CI qui voyait la version optimiste.
+
+**Tests exécutés.** `npm run check` — douze gardes, dont `check:roadmap`, qui voit désormais `W16.e`
+dans la frontière au lieu de la compter parmi les lignes décidées. Le garde de nommage est vérifié
+**rouge puis vert** sur l'arbre réel : sans le correctif, le nouveau test rapporte
+`target/debug/build/quelque-crate/src/lib.rs:1` ; avec, les cinq tests du fichier passent en 0,6 s
+là où le fichier entier dépassait deux minutes.
+
+**Décisions prises.** ADR 0019, quatre décisions et quatre conditions ; le détail y est, pas ici. Ce
+qui contraint la suite tient en trois points :
+
+- **Un message est un événement, pas un transport.** Le namespace `message` entrera dans
+  `EVENT_NAMESPACES` **avec** son consommateur, au sprint suivant, et non ici : une famille inscrite
+  sans lecteur est exactement ce que `CLAUDE.md` interdit pour les relations de coordination, et la
+  raison vaut à l'identique pour une famille d'événements.
+- **Un epoch est une `Version` de configuration**, pas un compteur neuf. Le vocabulaire parallèle
+  est interdit, et « epoch » face à « version de configuration » aurait dérivé au premier oubli.
+- **Un message tardif est rapporté, jamais appliqué ni jeté en silence.** Les deux fautes sont
+  symétriques et la seconde est la plus discrète : un système qui « marche » et qui a perdu une
+  information.
+
+**Ce que ce sprint apprend sur les reports.** Le gel de `W16.e` était **architectural**, pas
+administratif : `docs/13` ne disait pas « on n'a pas eu le temps », il disait que l'unité de
+concurrence est l'attempt, déjà versionné, leasé, idempotent et acquitté par séquence. Cette lecture
+a été faite **avant** d'écrire l'ADR, et elle a changé ce que l'ADR devait démontrer — non pas
+qu'une messagerie est utile, mais quelle forme elle prend sans créer une seconde vérité. Le report
+était donc juste, et sa prémisse a changé : le besoin a été énoncé. Un report qui nomme sa condition
+se lève quand la condition tombe ; un report qui n'en nomme pas reste par inertie.
+
+**Ce qu'`attend:externe` ne voulait pas dire.** Le garde de `W0.16` n'a pas manqué ce déblocage :
+son marqueur dit « aucun item de ce plan ne le débloquera », ce qui reste vrai d'un item débloqué
+par un arbitrage — un arbitrage n'est pas une ligne du tableau. Élargir la règle demanderait au
+garde de savoir qu'une décision est mûre, ce qu'aucun fichier ne porte. Les deux commentaires
+touchés le disent maintenant, parce que la prochaine session lira `externe` comme « jamais » sinon.
+
+**Écart avec la spec.** Un ajout assumé : §10.3 n'énumère pas `message`. L'ADR le signale comme
+ajout local au même titre que `projection` et `migration`, plutôt que de le fondre dans une liste
+normative — fondre un ajout le ferait passer pour une lecture de la spec.
+
+**Prochain item.** `W16.e`, dont la ligne porte désormais un test de sortie. Ses dépendances de
+phase — W15, W4.e, W4.g — étaient déjà satisfaites ; ce qui manquait était la décision, et elle est
+prise.

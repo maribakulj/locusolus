@@ -33,6 +33,29 @@ export const historicalMentions: Allowlist = new Map([
 
 const binary = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".pdf", ".woff2"]);
 
+/**
+ * Ce que la garde ne lit pas, parce que ce n'est pas dans le dépôt.
+ *
+ * `target/` est la sortie de build de Cargo — gitignorée, et pleine de sources de crates tiers.
+ * Une occurrence du nom retiré dans un crate vendu serait un constat que personne ne peut réparer,
+ * et l'unique réparation possible serait d'inscrire une dérogation pour un fichier qui n'existe pas
+ * chez le voisin.
+ *
+ * Le coût a rendu l'oubli visible avant l'argument : `target/` pèse plusieurs gigaoctets sur une
+ * machine qui a compilé, et la garde les lisait ligne à ligne. En CI le répertoire est vide au
+ * moment où elle passe, ce qui est exactement pourquoi personne ne l'avait vu — la vitesse d'un
+ * garde dépendait de l'état de build local, ce que `CLAUDE.md` refuse sous le nom de « dépendance
+ * implicite à une machine de développeur ».
+ *
+ * `boundaries.json` excluait déjà les deux ; cette liste ne fait que rattraper le même oubli.
+ */
+const notInTheRepository = [
+  "node_modules/**",
+  "**/node_modules/**",
+  "target/**",
+  "**/target/**",
+] as const;
+
 export async function inspectNaming(
   root: string,
   allowed: Allowlist = historicalMentions,
@@ -40,7 +63,7 @@ export async function inspectNaming(
   const findings: Finding[] = [];
   const seen = new Set<string>();
 
-  for (const path of await walkFiles(root, ["node_modules/**", "**/node_modules/**"])) {
+  for (const path of await walkFiles(root, notInTheRepository)) {
     if (binary.has(extname(path).toLowerCase())) continue;
     const lines = await occurrences(join(root, path));
     if (lines.length === 0) continue;
