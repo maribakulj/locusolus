@@ -9936,3 +9936,79 @@ plus contredire la version dont ils viennent.
 
 **Prochain item.** `W17.i` — le commit d'une version de coordination écrit un fait, débloqué par
 l'ADR 0021 et par `W13.i` qui lui donne la `Version` à écrire.
+
+## 2026-08-20 — ADR 0022 et 0023 — la mémoire à deux dimensions, et l'ontologie en coprocesseur
+
+**Périmètre.** `docs/adr/0022-la-memoire-a-deux-dimensions.md` et
+`docs/adr/0023-coprocesseur-d-ontologie.md`, neufs ; sept lignes dans `docs/10_V1_ROADMAP.md` —
+`W17.k` à `W17.n`, `W18.g`, `W18.h`, `W14.e`, `W9.e`, `W6.g`, `W8.j` ; un alinéa dans `CLAUDE.md`.
+**Aucun code de domaine.**
+
+**Tests exécutés.** `npm run check` — les douze gardes. `check:roadmap` accepte les sept lignes et
+rend la frontière élargie.
+
+**Origine.** Une spécification externe proposant deux ADR, sept items et des notes d'implémentation.
+Elle a été **instruite dans le code avant d'être retenue**, et non transcrite. Ce qu'elle affirmait
+est exact sur l'essentiel — `Published`, les dix `Signal`, `minimal_premise_sets`, `Support`, les
+onze `Trigger`, `Choice`, les ancres de roadmap. Six points ne passaient pas la vérification, et
+deux sont structurels. Ils sont corrigés **dans** les décisions, à leur place.
+
+**Ce qui a été trouvé, par ordre de coût si on l'avait ignoré.**
+
+1. **La jonction n'existe pas.** La décision « chaque construction de `ContextView` produit un reçu
+   » suppose un chemin entre retrieval et vue de contexte. Il n'y en a aucun : `ContextView` vit
+   dans `packages/review`, `retrieve` dans `packages/memory`, **les deux `Cargo.toml` montrent que
+   les crates ne se connaissent pas**, et `ContextView::build` prend des `ContextItem` clés par
+   `RevisionId` quand `retrieve` rend des `Candidate` clés par `String`. `W17.n` n'est donc pas un
+   type à ajouter mais la jonction elle-même, avec une dépendance de crate à décider — décidée :
+   `review` → `memory`, parce qu'une vue se construit depuis un retrieval et jamais l'inverse.
+2. **Le genre aurait été la quatrième représentation du résultat négatif.** Existent déjà
+   `CoreObjectType::NegativeResult` (§7.3), l'agrégat `NegativeResult` (§18.7, avec `Power` et
+   `Exclusion`), et `Candidate.is_negative`. C'est exactement ce que l'ADR 0021 vient de retirer
+   pour `proposal::Change`. Trois autres genres recoupent des types existants — `Formal` /
+   `FormalizationStatus`, `Computational` / `reproducibility`, `Coordination` / le crate entier.
+   D'où la décision 1 bis : le genre reste **déclaré**, mais un désaccord avec un type résolu est un
+   **refus** et jamais un silence, par un port fourni par l'appelant.
+3. **`Plan::default()` et la réserve de négatifs ne pouvaient pas être vrais ensemble.** `retrieve`
+   coupe au rang — `position >= budget` — et **ne lit jamais `is_negative`** dans ce chemin. Mettre
+   la réserve dans le genre changeait silencieusement du code livré. Elle est donc dans le `Plan`,
+   sa valeur vient de la `negative_result_policy` de §16.2, et le reçu l'écrit **même à zéro**.
+4. **Le reçu promettait un rejeu sur une entrée qu'il n'enregistrait pas.** `Ranking::of` reçoit des
+   flottants calculés par l'appelant. Sans l'identité de la fonction de classement, « rejouer rend
+   la même `ContextView` » est une propriété que personne ne tient — et le test passerait, une
+   fixture étant déterministe par construction, c'est-à-dire qu'il ne testerait rien.
+5. **`memory::Kind` est déjà pris** par `compaction::Kind`. Le type s'appelle `Genre`. Ce crate
+   avait déjà résolu la même collision dans le même sens avec `DuplicateCandidate`.
+6. **Le refus `(Formal, Vector)` coûte une rupture d'API.** `Ranking::of` peut rester inchangé, ce
+   qui était l'analyse d'origine ; mais `Candidate` n'a **pas de constructeur** — quatre champs
+   `pub`, construction par littéral. Le refus « à la construction » exige de privatiser et d'ajouter
+   un constructeur faillible. Le choix reste le bon ; il est désormais chiffré.
+
+Deux points mineurs : le canal `Structural` a besoin d'un oracle `RevisionId → ObjectType` que rien
+ne fournit — `Graph` ne détient que `relations` et `inferences` — et `W8.j` énonçait comme une seule
+propriété deux choses incompatibles, d'où deux tests.
+
+**Ce que la décision 0 amende, et pourquoi elle est ici.** « On ne livre jamais une promesse ; on
+livre toujours une capacité. » L'ADR 0016 décision 4 tient mot pour mot pour ce qu'elle vise — une
+sorte de relation sans consommateur reste interdite. Ce qui est amendé est sa **généralisation** à
+des sous-systèmes entiers, faite par des sessions ultérieures et jamais décidée. `CLAUDE.md` porte
+l'alinéa, parce qu'il cite la règle : le laisser diverger aurait donné deux règles au dépôt, ce qui
+est le défaut que ce commit existe pour éviter.
+
+Deux endroits redeviennent recevables **sans devenir obligatoires** : les verbes `message.*` de
+l'ADR 0019, et les trois opérations attributaires de `version.rs`. Chacune garde son propre examen.
+
+**Ce qui n'a pas été créé, délibérément.** Pas de troisième ADR pour les corrections — un ADR qui
+renverrait ailleurs pour savoir ce qu'il décide est le début de la dispersion. Pas de fichier pour
+les notes d'implémentation : les tests de sortie de `docs/10` portent déjà ce rôle. Pas de fichier
+pour les prompts de session : c'est de la conduite de session, et sa place est ici.
+
+**Écart avec la spec.** Aucun. §16 n'est pas amendé : les sept niveaux et les dix signaux sont
+repris tels quels, et `W17.m` tient leur nombre et leurs noms par un test.
+
+**Non instruit, et signalé comme tel.** §18.3 à §18.6 — la fusion de branches interagit avec la
+mémoire de branche de §16.1 et avec les propositions d'alignement. À lire avant `W14.e`, et le test
+de sortie de l'item le dit.
+
+**Prochain item.** `W17.i`, la frontière courante, puis `W17.j` ; les items neufs viennent après,
+dans l'ordre `W17.k → l → m → n`, `W18.g`, `W18.h`, `W14.e`, les trois indépendants ensuite.
