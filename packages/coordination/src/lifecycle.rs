@@ -12,9 +12,17 @@
 //!   ici produirait un second chemin qui divergerait du premier le jour où l'un des deux est
 //!   corrigé — et personne ne saurait lequel décrit ce qui sera commité. Le scheduler les
 //!   **compose**, il ne les redéfinit pas.
-//! - `rerouter l'état`, `rejouer`, `migrer le contexte` et `livrer les messages` supposent une
-//!   messagerie inter-agents. Il n'y en a pas : `docs/10` note qu'ils « n'ont un problème réel à
-//!   résoudre qu'une fois une messagerie inter-agents existante ».
+//! - `rerouter l'état`, `rejouer`, `migrer le contexte` et `livrer les messages` supposaient une
+//!   messagerie inter-agents. Elle existe depuis l'ADR 0019 — [`crate::messaging`] — et cela ne les
+//!   fait pas entrer ici pour autant : **livrer un message n'est pas une commande de scheduler**.
+//!   Le scheduler pilote des instances ; la messagerie écrit et lit des faits. Les deux se croisent
+//!   en un point, `drain`, et ce point a un nom : [`crate::messaging::Handover`], qui ne se
+//!   construit que depuis un [`Outcome::Draining`].
+//!
+//!   Les trois autres restent dehors, et pour la raison que l'ADR 0019 a nommée en condition 3 :
+//!   « nouvel attempt, nouvelle vue, nouveau hash » reste la règle V1, donc migrer le contexte d'une
+//!   mission en cours n'a pas de sens à écrire. La condition se rouvrira le jour où des agents
+//!   **persistants** apparaîtront.
 //!
 //! Restent quatre commandes qui n'ont aucun équivalent ailleurs, parce qu'elles portent sur
 //! l'**instance qui tourne** et non sur la structure : `spawn`, `suspend`, `drain`, `kill`.

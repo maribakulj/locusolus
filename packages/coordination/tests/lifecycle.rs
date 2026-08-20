@@ -303,8 +303,13 @@ fn the_ordered_path_is_drain_then_remove() {
 ///
 /// `replace`, `split`, `merge`, `connect` et `disconnect` de `docs/13` **sont déjà** les opérations
 /// de `crate::version`. Les réécrire ici produirait un second chemin qui divergerait du premier, et
-/// personne ne saurait lequel décrit ce qui sera commité. Les quatre autres — rerouter l'état,
-/// rejouer, migrer le contexte, livrer les messages — attendent une messagerie inter-agents.
+/// personne ne saurait lequel décrit ce qui sera commité.
+///
+/// Les quatre autres — rerouter l'état, rejouer, migrer le contexte, livrer les messages —
+/// attendaient une messagerie inter-agents. Elle existe depuis l'ADR 0019, et **le test ne change
+/// pas** : livrer un message reste hors du scheduler, parce que le scheduler pilote des instances
+/// tandis que la messagerie écrit et lit des faits. Le seul point de contact est `drain`, et il
+/// passe par `messaging::Handover` plutôt que par une cinquième commande.
 #[test]
 fn the_scheduler_does_not_redefine_what_the_version_already_does() {
     let slugs: Vec<&str> = Command::ALL.iter().map(|command| command.slug()).collect();

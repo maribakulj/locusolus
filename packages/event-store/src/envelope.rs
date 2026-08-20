@@ -172,7 +172,7 @@ impl Draft {
 }
 
 /// Les préfixes de la taxonomie de §10.3, dans l'ordre du texte.
-pub const EVENT_NAMESPACES: [&str; 30] = [
+pub const EVENT_NAMESPACES: [&str; 31] = [
     "workspace",
     "project",
     "program",
@@ -201,10 +201,19 @@ pub const EVENT_NAMESPACES: [&str; 30] = [
     "workflow",
     "federation",
     "security",
-    // Deux ajouts locaux : `docs/10` place ces familles dans W1 et W3, et §10.3 les cite ailleurs
+    // Trois ajouts locaux : `docs/10` place ces familles dans W1 et W3, et §10.3 les cite ailleurs
     // dans le texte sans les lister ici. Signalés plutôt que fondus dans la liste normative.
     "projection",
     "migration",
+    // `message` est le troisième, et il n'est pas du même genre : §10.3 ne le cite **nulle part**.
+    // Il entre par l'ADR 0019, qui décide qu'un message inter-agents est un événement plutôt qu'un
+    // transport parallèle — donc qu'il a une famille, comme tout fait du journal. Le fondre dans la
+    // liste sans le dire ferait passer un ajout pour une lecture de la spec.
+    //
+    // Il entre **avec son consommateur** — `locusd::messaging` — et pas avant : une famille inscrite
+    // sans lecteur est ce que `CLAUDE.md` refuse pour les relations de coordination, et la raison
+    // vaut à l'identique ici.
+    "message",
 ];
 
 /// Un type d'événement — `namespace.verbe`, dans la taxonomie de §10.3.
