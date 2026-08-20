@@ -13,4 +13,5 @@ workspace = true
 [dependencies]
 locus-domain = { path = "../domain" }
 locus-lep = { path = "../lep" }
+locus-memory = { path = "../memory" }
 locus-protocol = { path = "../protocol" }

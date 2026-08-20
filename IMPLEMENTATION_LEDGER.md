@@ -10265,3 +10265,60 @@ intention.
 
 **Prochain item.** `W17.n` — le reçu de retrieval, et la jonction `Results → ContextView` qui
 n'existe pas : `packages/review` gagnera une dépendance sur `packages/memory`.
+
+## 2026-08-20 — W17.n — le reçu de retrieval, et la jonction qui n'existait pas
+
+**Périmètre.** `packages/memory/src/receipt.rs`, neuf — `RetrievalReceipt`, `Exclusion`, `Coverage`,
+`ReceiptError` ; `packages/review/Cargo.toml` gagne `locus-memory` ;
+`packages/review/src/from_retrieval.rs`, neuf — `view_from_retrieval`, `replay_receipt`,
+`JunctionError` ; les deux `lib.rs` ; `packages/review/tests/from_retrieval.rs`.
+
+**Tests exécutés.** `npm run check` — les douze gardes. Neuf tests dans
+`review/tests/from_retrieval.rs`.
+
+**Ce n'était pas un type à ajouter.** L'audit de l'ADR 0022 l'avait établi et le code l'a confirmé :
+`ContextView` vit dans `packages/review`, `retrieve` dans `packages/memory`, les deux crates ne se
+connaissaient pas, et `ContextView::build` prend des `ContextItem` clés par `RevisionId` quand
+`retrieve` rend des `Candidate` clés par `String`. Aucun chemin ne menait de l'un à l'autre. Le reçu
+est ce qui **relie**, et le premier test de sortie est la preuve que le chemin existe : il n'aurait
+pas compilé avant cet item.
+
+**La direction de la dépendance se justifie.** `review` → `memory`, parce qu'une vue de contexte se
+construit **depuis** un retrieval et jamais l'inverse. Un troisième crate pour un seul type avait
+été écarté par l'ADR : c'est la dispersion appliquée au code.
+
+**Le condensat est calculé, plus fourni.** `ContextView::build` reçoit son `ContentHash` en
+paramètre. Tant que personne ne le calculait, « deux constructions rendent la même vue » était une
+affirmation sur l'appelant, pas une propriété. La jonction le calcule depuis une forme canonique des
+révisions retenues — **dans l'ordre**, l'ordre des inclusions étant le classement —, et le rejeu se
+compare par égalité stricte.
+
+**Le reçu ne promet pas ce qu'il ne peut pas tenir.** `promises_replay()` lit l'identité de
+classement : sous un plan compatible elle vaut `caller-supplied`, donc le reçu dit lui-même que le
+rejeu du **classement** n'est pas garanti. Ce que le rejeu prouve est plus étroit et vérifiable : le
+reçu suffit à reconstituer la même vue, donc il n'a rien caché de ce qui a été retenu.
+
+**Un rejeu sur un corpus amputé refuse.** Rendre une vue plus courte aurait rendu une vue plausible
+et fausse, sans que rien dans la réponse ne dise qu'il manque quelque chose — le mode d'échec des
+cursors de `W20.e`, une troisième fois.
+
+**Deux distinctions écrites, jamais tues.** La couverture : `None` « non mesurée », `Some(0.0)` «
+mesurée et nulle » — et les deux formes canoniques diffèrent, donc les deux condensats aussi, ce qui
+est le seul endroit où la distinction compte. La réserve de négatifs : écrite même à zéro.
+
+**Le durcissement de `W17.h` s'étend à la cinquième forme canonique.** Un motif d'exclusion qui
+forgerait une ligne insérerait une exclusion que personne n'a écrite — dans le document même qui
+existe pour rendre les exclusions lisibles.
+
+**Une garde d'absence trop large, corrigée.** Elle interdisait le mot « document » dans
+`receipt.rs`, où la documentation l'emploie pour dire exactement ce que la garde veut obtenir. Les
+motifs visent désormais des **déclarations de champ** — `body:`, `payload:`, `content:`,
+`document:`. Une garde qui se déclenche sur sa propre justification est une garde qu'on finit par
+assouplir.
+
+**Écart avec la spec.** Aucun. §16.2 garde une `ContextView` immuable et adressée par hash ; la
+contestation vise le reçu, et un test tient par l'absence qu'aucun chemin ne rend une vue
+modifiable.
+
+**Prochain item.** `W18.g` — le producteur d'observations, que `W17.n` vient de débloquer : la
+lacune de domaine se lit désormais dans un reçu au lieu d'être affirmée par un agent.
