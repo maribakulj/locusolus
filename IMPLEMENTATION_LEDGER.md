@@ -9787,8 +9787,12 @@ le démon ; `Change` a sept sites d'usage dont cinq dans son propre test, et `co
 à rien. Une proposition qui déclarait `AddMember` puis commitait laissait le système exactement dans
 l'état où elle l'avait trouvé.
 
-`Team` n'était pas mieux loti : `members`, `mode`, `coordinator` et `revision` en champs privés, et
-`new()` plus `title()` pour toute API. Un constructeur qui valide puis se tait.
+`Team` n'était pas mieux loti — mais pas pour la raison d'abord écrite. **Rectification :** cette
+entrée affirmait que `Team` n'exposait que `new()` et `title()`. C'est faux, il expose neuf
+accesseurs ; le `grep` qui l'avait conclu portait sur `pub fn` et ne voyait pas les `pub const fn`.
+Ce qui reste vrai est l'argument : `Team` n'a **aucune méthode de mutation** — sa `revision` vaut
+`1` à jamais — son unique consommateur est son propre fichier de test, et `Team.members` double
+`Version.members` dans le même crate.
 
 La question n'était donc pas « laquelle garder » mais « qu'est-ce qui manque pour qu'il n'y en ait
 qu'une ».
@@ -9888,3 +9892,47 @@ n'est pas livré, `Team` garde `members`, `mode` et `coordinator` en propre, et 
 Dette datée, déjà consignée par `W13.h`.
 
 **Prochain item.** `W13.j`.
+
+## 2026-08-20 — W13.j — `Team` projette la version au lieu de la stocker
+
+**Périmètre.** `packages/coordination/src/team.rs` — trois champs retirés, `version: VersionId`
+ajouté, quatre accesseurs qui prennent la version en argument, `TeamError::WrongVersion` ;
+`packages/coordination/tests/aggregates.rs`. Dernier item de l'ADR 0021.
+
+**Tests exécutés.** `npm run check` — les douze gardes.
+`cargo clippy --workspace --all-targets --all-features -- -D warnings` et `cargo test --workspace` :
+verts. Vingt tests dans `tests/aggregates.rs`.
+
+**La dette datée par `W13.h` est payée.** `Team.members`, `Team.mode` et `Team.coordinator`
+stockaient ce que la version portait déjà : deux stockages du même fait dans le même crate, donc
+deux vérités. §7.1 garde ses trois champs — `member_ids`, `coordination_mode`, `coordinator_id` sont
+toujours servis, sous leur nom — mais **depuis la version courante**. C'est la taxonomie de
+`docs/13` §3 appliquée : la version est le canonique, l'équipe est le « graphe réalisé comme
+projection ».
+
+**La version voyage avec l'appel, pas dans le champ.** `Team` retient la `VersionId`, pas la
+`Version` : la retenir en entier reconstituerait le doublon sous un autre nom. Les accesseurs
+prennent donc la version en argument, et **refusent celle qui n'est pas la sienne**. C'est la moitié
+qui compte : sans ce refus, présenter la version d'une autre équipe — ou un autre instant de la
+sienne — rendrait des membres **plausibles**, et rien dans la réponse ne le dirait. Même mode
+d'échec que le cursor présenté à la mauvaise collection (`W20.e`), au même endroit du raisonnement.
+
+Un test vérifie que **les quatre** accesseurs refusent, et pas seulement celui auquel on a pensé.
+
+**Trois validations déménagées, pas perdues.** `NoMembers`, `CoordinatorNotAMember` et
+`CoordinatorRequired` ont quitté `TeamError` : elles vivent dans `VersionError` depuis `W13.h`, où
+elles sont vérifiées sur toute version. Les garder aux deux endroits aurait été une seconde
+définition de la même règle, et deux définitions divergent. Le test qui les tenait ici est
+**remplacé**, avec la phrase qui dit où elles sont parties.
+
+**Rectification consignée.** L'entrée de `W13.h` affirmait que `Team` n'exposait que `new()` et
+`title()`. C'était faux — neuf accesseurs. Le `grep` qui l'avait conclu portait sur `pub fn` et ne
+voyait pas les `pub const fn`. L'ADR 0021 porte la même correction, à l'endroit où l'argument est
+écrit. Ce qui restait vrai, et qui était l'argument : aucune méthode de mutation, aucun consommateur
+hors de son propre test, et le doublon de structure.
+
+**Écart avec la spec.** Aucun. §7.1 est servi entièrement, et mieux qu'avant : ses champs ne peuvent
+plus contredire la version dont ils viennent.
+
+**Prochain item.** `W17.i` — le commit d'une version de coordination écrit un fait, débloqué par
+l'ADR 0021 et par `W13.i` qui lui donne la `Version` à écrire.

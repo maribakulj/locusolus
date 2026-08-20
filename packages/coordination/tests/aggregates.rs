@@ -6,16 +6,15 @@
 //! énumérations reprennent donc mot pour mot les listes de la spec, et ce test les épingle une par
 //! une plutôt qu'en les comparant à elles-mêmes.
 
-use std::collections::BTreeSet;
-
 use locus_coordination::{
-    AgentError, AgentInstance, AgentTemplate, ApprovalRequest, ApprovalState, CoordinationMode,
-    Decision, DecisionError, DecisionState, InstanceState, Team, TeamError, TemplateStatus,
+    AgentError, AgentInstance, AgentTemplate, ApprovalRequest, ApprovalState, ContentDigest,
+    CoordinationMode, Decision, DecisionError, DecisionState, InstanceState, Team, TeamError,
+    TemplateStatus, Version,
 };
 use locus_protocol::{
     Id, Timestamp,
     id::{
-        Agent, Branch,
+        Branch,
         provisional::{Approval, Decision as DecisionKind, Task, Team as TeamKind},
     },
 };
@@ -240,75 +239,138 @@ fn un_seul_mode_retient_le_partage_avant_remise() {
     assert_eq!(withholding, vec!["independent_pool"]);
 }
 
+/// **Les trois règles de §14.3 ont déménagé dans la `Version`** — ADR 0021, décision 3.
+///
+/// Ce test vérifiait qu'elles refusaient depuis `Team::new`. Elles refusent toujours, ailleurs :
+/// `coordination/tests/version.rs` les tient sur `Version::root` et après chaque application. Ce
+/// qui a changé est l'endroit, pas la règle — la structure ayant déménagé, la validation l'a suivie.
+///
+/// Remplacé plutôt que supprimé : un test qui disparaît pendant un refactor ne laisse aucune trace
+/// de ce qu'il tenait. Ce qu'il vérifie désormais est ce que `Team` doit encore garantir — que ses
+/// champs de §7.1 **valent** ceux de sa version.
 #[test]
-fn le_mode_coordinator_exige_un_coordinateur_membre() {
-    let members: BTreeSet<Id<Agent>> = BTreeSet::from([id(1), id(2)]);
-
-    assert_eq!(
-        Team::new(
-            id(9),
-            id::<Branch>(1),
-            "Revue",
-            CoordinationMode::Coordinator,
-            members.clone(),
-            None
-        ),
-        Err(TeamError::CoordinatorRequired)
-    );
-
-    assert_eq!(
-        Team::new(
-            id(9),
-            id::<Branch>(1),
-            "Revue",
-            CoordinationMode::Coordinator,
-            members.clone(),
-            Some(id(42))
-        ),
-        Err(TeamError::CoordinatorNotAMember)
-    );
-
-    let team = Team::new(
-        id(9),
-        id::<Branch>(1),
-        "Revue",
+fn une_equipe_sert_les_champs_de_7_1_depuis_sa_version() {
+    let structure = Version::root(
+        &[id(1), id(2)],
+        &[],
         CoordinationMode::Coordinator,
-        members,
         Some(id(1)),
+        &ContentDigest,
     )
-    .expect("équipe valide");
-    assert_eq!(team.mode(), CoordinationMode::Coordinator);
-    assert_eq!(team.members().len(), 2);
-    assert!(team.shares_before_delivery());
+    .expect("un coordinateur membre, sous le mode qui l'exige");
+
+    let team = Team::new(id(9), id::<Branch>(1), "Revue", &structure).expect("équipe valide");
+
+    // §7.1 `member_ids`, `coordination_mode`, `coordinator_id` : servis, et **égaux** à ceux de la
+    // version. C'est la propriété que le doublon rendait invérifiable — deux stockages peuvent
+    // diverger, une projection non.
+    assert_eq!(
+        team.members(&structure).expect("sa version"),
+        structure.members()
+    );
+    assert_eq!(
+        team.mode(&structure).expect("sa version"),
+        CoordinationMode::Coordinator
+    );
+    assert_eq!(
+        team.coordinator(&structure).expect("sa version"),
+        Some(&id(1))
+    );
+    assert!(team.shares_before_delivery(&structure).expect("sa version"));
+    assert_eq!(team.version(), structure.id());
 }
 
+/// **Une autre version est refusée**, au lieu de rendre des membres plausibles.
+///
+/// Sans ce refus, un appelant qui présente la version d'une autre équipe — ou un autre instant de
+/// la sienne — recevrait une réponse d'apparence normale. C'est le mode d'échec que `W20.e` vise
+/// pour les cursors : une page prise au mauvais endroit, que rien dans la réponse ne signale.
 #[test]
-fn une_equipe_sans_membre_ne_coordonne_rien() {
+fn une_equipe_refuse_une_version_qui_n_est_pas_la_sienne() {
+    let sienne = Version::root(
+        &[id(1), id(2)],
+        &[],
+        CoordinationMode::Blackboard,
+        None,
+        &ContentDigest,
+    )
+    .expect("cohérente");
+    let autre = Version::root(
+        &[id(3), id(4)],
+        &[],
+        CoordinationMode::Blackboard,
+        None,
+        &ContentDigest,
+    )
+    .expect("cohérente");
+
+    let team = Team::new(id(9), id::<Branch>(1), "Revue", &sienne).expect("équipe valide");
+
     assert_eq!(
-        Team::new(
-            id(9),
-            id::<Branch>(1),
-            "Vide",
-            CoordinationMode::Debate,
-            BTreeSet::new(),
-            None
-        ),
-        Err(TeamError::NoMembers)
+        team.members(&autre).expect_err("pas sa version"),
+        TeamError::WrongVersion {
+            expected: sienne.id().to_string(),
+            given: autre.id().to_string(),
+        }
     );
+    // Les quatre accesseurs refusent, pas seulement celui qu'on a pensé à tester.
+    assert!(team.mode(&autre).is_err());
+    assert!(team.coordinator(&autre).is_err());
+    assert!(team.shares_before_delivery(&autre).is_err());
+}
+
+/// **Aucun champ de structure ne subsiste en propre** — la condition 1 de l'ADR 0021.
+///
+/// Tenu par l'absence, comme `W20.b` tient les écritures : le test lit la déclaration de la
+/// structure et refuse les trois champs qui doublaient la version. Un doublon retiré qui revient
+/// par une autre porte est un doublon.
+#[test]
+fn une_equipe_ne_stocke_plus_la_structure() {
+    let source = include_str!("../src/team.rs");
+    let declaration = source
+        .split("pub struct Team {")
+        .nth(1)
+        .expect("la structure est déclarée")
+        .split('}')
+        .next()
+        .expect("elle se ferme");
+    for forbidden in ["members", "mode", "coordinator"] {
+        assert!(
+            !declaration.contains(forbidden),
+            "« {forbidden} » stocké dans Team double ce que la version porte (ADR 0021, condition 1)"
+        );
+    }
 }
 
 #[test]
 fn un_pool_independant_ne_partage_pas_avant_remise() {
-    let team = Team::new(
-        id(9),
-        id::<Branch>(1),
-        "Relecture croisée",
+    let structure = Version::root(
+        &[id(1), id(2), id(3)],
+        &[],
         CoordinationMode::IndependentPool,
-        BTreeSet::from([id(1), id(2), id(3)]),
         None,
+        &ContentDigest,
     )
-    .expect("équipe valide");
-    assert!(!team.shares_before_delivery());
+    .expect("cohérente");
+    let team =
+        Team::new(id(9), id::<Branch>(1), "Relecture croisée", &structure).expect("équipe valide");
+    assert!(!team.shares_before_delivery(&structure).expect("sa version"));
+}
+
+#[test]
+fn une_equipe_sans_titre_ne_se_designe_pas() {
+    let structure = Version::root(
+        &[id(1)],
+        &[],
+        CoordinationMode::Blackboard,
+        None,
+        &ContentDigest,
+    )
+    .expect("cohérente");
+    assert_eq!(
+        Team::new(id(9), id::<Branch>(1), "  ", &structure).expect_err("titre vide"),
+        TeamError::EmptyTitle
+    );
 }
 
 // ---------------------------------------------------------------------------------------------

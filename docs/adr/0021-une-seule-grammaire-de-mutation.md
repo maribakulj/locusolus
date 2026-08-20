@@ -48,12 +48,22 @@ versionner, différencier, approuver et afficher, et que **rien n'honore** — u
 qu'un graphe absent parce qu'un humain croira l'avoir modifié ». La décision 4 l'écrivait des sortes
 de relation ; elle vaut à l'identique d'une grammaire de changement.
 
-### `Team` non plus n'est lu
+### `Team` se lit mais ne s'écrit pas, et personne ne le lit
 
-`Team` porte `members`, `mode`, `coordinator` et `revision` en champs **privés**, et expose
-`new()` et `title()`. Rien ne peut lire ses membres, personne ne peut les changer, et son unique
-consommateur est son propre fichier de test. Ce n'est pas un agrégat : c'est un constructeur qui
-valide puis se tait.
+**Rectification, consignée plutôt que corrigée en silence :** une première rédaction de cet ADR
+affirmait que `Team` n'exposait que `new()` et `title()`. C'est faux — il expose neuf accesseurs,
+dont `members()`, `mode()`, `coordinator()` et `revision()`. L'erreur venait d'un `grep` sur
+`pub fn`, qui ne voit pas les `pub const fn`. Une garde qu'on croit avoir lue n'a pas été lue.
+
+Ce qui reste vrai, et qui est l'argument :
+
+- `Team` n'a **aucune méthode de mutation**. Rien ne change une équipe après sa construction — ni
+  membre ajouté, ni mode changé, ni révision incrémentée. Le champ `revision` vaut `1` à jamais.
+- Son **unique consommateur** est son propre fichier de test. Aucun autre crate, aucun module, ne
+  construit ni ne lit une `Team`.
+- `Team.members` et `Version.members` sont **deux stockages du même fait**, dans le même crate.
+
+Un agrégat qui se lit, ne s'écrit pas, et que personne n'ouvre est un agrégat que rien n'honore.
 
 ### Ce que le tableau cachait
 
