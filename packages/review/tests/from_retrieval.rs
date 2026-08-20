@@ -316,3 +316,51 @@ fn la_reserve_de_negatifs_est_ecrite_meme_a_zero() {
         recu.canonical()
     );
 }
+
+/// **Deux vues aux mêmes révisions dans un ordre différent ne sont pas la même vue.**
+///
+/// La documentation de la jonction dit que le condensat porte l'ordre — « l'ordre des inclusions est
+/// le classement », et deux vues qui retiennent les mêmes révisions dans un autre ordre ne servent
+/// pas la même chose au lecteur. **Rien ne le tenait** : un mutant qui triait les révisions avant de
+/// calculer le condensat a survécu à toute la suite. C'est la quatrième fois de cette série qu'une
+/// phrase du module décrit une propriété que personne ne vérifie.
+#[test]
+fn le_condensat_d_une_vue_porte_l_ordre_des_inclusions() {
+    let plan = Plan::compatible(10).expect("budget licite");
+
+    // Deux reçus, mêmes révisions, ordres opposés.
+    let dans_l_ordre = RetrievalReceipt::write(
+        &plan,
+        100,
+        2,
+        vec![revision(1).to_string(), revision(2).to_string()],
+        Vec::new(),
+        Vec::new(),
+    )
+    .expect("reçu");
+    let a_l_envers = RetrievalReceipt::write(
+        &plan,
+        100,
+        2,
+        vec![revision(2).to_string(), revision(1).to_string()],
+        Vec::new(),
+        Vec::new(),
+    )
+    .expect("reçu");
+
+    let une = replay_receipt(&dans_l_ordre, &corpus(), &destinataire()).expect("rejeu");
+    let autre = replay_receipt(&a_l_envers, &corpus(), &destinataire()).expect("rejeu");
+
+    assert_ne!(
+        une.content_hash(),
+        autre.content_hash(),
+        "un condensat qui trierait ferait passer deux classements différents pour le même"
+    );
+    // Et les deux vues retiennent bien le même ensemble : c'est l'ordre, et rien d'autre, qui les
+    // sépare — sans ce second assert, le test passerait aussi si l'une des deux perdait un élément.
+    let mut gauche = une.included().to_vec();
+    let mut droite = autre.included().to_vec();
+    gauche.sort_unstable();
+    droite.sort_unstable();
+    assert_eq!(gauche, droite);
+}

@@ -10370,3 +10370,43 @@ alimente un déclencheur existant par la politique — pas de douzième.
 **Prochain item.** `W18.h` — le raisonneur d'ontologie comme première capacité réellement admise, ou
 `W9.e` / `W6.g` / `W8.j`, qui sont indépendants. `W14.e` attend la lecture de §18.3 à §18.6, que son
 test de sortie exige.
+
+## 2026-08-20 — Mutation testing rétroactif sur W17.k → W18.g
+
+**Périmètre.** `packages/review/tests/from_retrieval.rs` — un test de plus. Aucun code de domaine.
+
+**Tests exécutés.** `npm run check`. Vingt-six mutants sur `genre.rs`, `level.rs`, `retrieval.rs`,
+`plan.rs`, `receipt.rs`, `from_retrieval.rs` et `observation.rs` : **26 tués, 0 survivant**.
+
+**Pourquoi rétroactivement.** La pratique du dépôt veut un passage de mutation après chaque item.
+Sept items ont été livrés d'affilée sans, parce que la CI ne rendait aucun verdict et que
+j'accumulais des livraisons plutôt que de vérifier celles déjà faites. Ajouter un huitième item à
+une PR invérifiable valait moins que d'éprouver les sept premiers.
+
+**Un survivant réel, et c'est le motif récurrent de la session.** Le mutant « le condensat d'une vue
+ignore l'ordre des inclusions » a survécu à toute la suite. La documentation de la jonction dit
+pourtant que l'ordre compte — « l'ordre des inclusions est le classement, et deux vues qui
+retiennent les mêmes révisions dans un autre ordre ne servent pas la même chose au lecteur ». Rien
+ne le tenait. C'est la cinquième fois de cette session qu'une phrase qui explique **pourquoi** une
+propriété compte se révèle être une propriété que personne ne vérifie.
+
+Le test ajouté tient les deux moitiés : deux condensats différents, **et** le même ensemble de
+révisions des deux côtés — sans ce second assert, il passerait aussi si l'une des deux vues perdait
+un élément, ce qui serait un autre défaut sous le même verdict.
+
+**Trois faux survivants, et le harnais était en cause.** Deux mutants de `receipt.rs` tournaient
+sous `-p locus-memory` seul, alors que les tests qui les tuent vivent dans `locus-review` : le
+harnais lisait « les tests passent » d'une suite qui n'avait pas été exécutée. C'est exactement la
+règle du dépôt — « un compteur qui n'a rien lu ne vaut pas zéro » — appliquée à l'outillage, et elle
+s'est vérifiée ici sur mon propre outil.
+
+Le troisième n'était pas un survivant mais un **mutant inerte** : il remplaçait une source muette
+par une observation de valeur nulle citant un vecteur vide, or `Observation::measured` refuse un
+`cites` vide et le `.ok()` rendait `None` — le comportement était inchangé. La faute que je voulais
+éprouver était donc **inexprimable**, ce qui est une bonne nouvelle mal étiquetée. Le mutant corrigé
+cite une révision feinte, et il est tué.
+
+**Écart avec la spec.** Aucun.
+
+**Prochain item.** `W18.h`, `W9.e`, `W6.g` ou `W8.j` — les quatre sont indépendants. `W14.e` attend
+la lecture de §18.3 à §18.6.
