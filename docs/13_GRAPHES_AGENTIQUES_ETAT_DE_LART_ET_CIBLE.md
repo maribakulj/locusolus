@@ -274,9 +274,12 @@ un accès bash ». Si c'est équivalent à bash, le problème est déjà résolu
 l'habiller en réflexion de runtime ajoute une surface sans acheter d'isolation. La forme retenue est
 l'admission de capacité par `EnvironmentBlueprint`.
 
-**Tout le reste est gaté, avec une dépendance technique nommée :** epochs et transfert d'état (aucune
-messagerie inter-agents n'existe ; l'unité de concurrence est l'attempt, déjà versionné, leasé,
-idempotent et acquitté par séquence) ; migration d'état en cours de mission (le `content_hash` de
+**Tout le reste est gaté, avec une dépendance technique nommée :** ~~epochs et transfert d'état~~
+**dégaté par l'ADR 0019** — la messagerie inter-agents est un **usage du journal**, pas un transport
+parallèle, et un epoch est la `Version` de configuration qui existe déjà. Le reste de la clause reste
+vrai et n'est pas amendé : l'unité de concurrence demeure l'attempt, déjà versionné, leasé, idempotent
+et acquitté par séquence, et un message ne remplace ni un lease ni un attempt — il les accompagne ;
+migration d'état en cours de mission (le `content_hash` de
 `ContextView` est obligatoire et l'enveloppe est immuable — la règle V1 est : nouvel attempt, nouvelle
 vue, nouveau hash ; un protocole ultérieur avec agents persistants pourra rouvrir la question) ;
 exécution en ombre (exige un driver de sandbox, W4.d–e) ; cockpit (exige `locusd`, la persistance et
