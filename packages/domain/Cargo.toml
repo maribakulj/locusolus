@@ -14,3 +14,9 @@ workspace = true
 locus-protocol = { path = "../protocol" }
 serde = { workspace = true }
 serde_json = { workspace = true }
+# ADR 0020 : le calcul d'un ContentHash. Rien dans le workspace n'en calculait un — `Digest` était
+# un trait sans implémentation de production, et les deux écrivains d'événements recevaient leur
+# `payload_hash` de l'appelant. Sans features par défaut : `std` n'apporte rien dont `of` ait besoin.
+# La portée est ce crate et lui seul (`dependencies.json`) — deux implémentations donneraient deux
+# réponses à « quel est le condensat de ceci ».
+sha2 = { version = "0.11", default-features = false }

@@ -1,6 +1,7 @@
 //! Le hash de contenu — `docs/SPEC_V1.md` §7.7.
 
 use std::fmt;
+use std::fmt::Write as _;
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _};
 
@@ -16,9 +17,20 @@ const ALGORITHMS: [(&str, usize); 3] = [("sha256", 64), ("sha512", 128), ("blake
 
 /// Un hash de contenu, préfixé par son algorithme.
 ///
-/// §7.7 : « les hashes portent sur une canonicalisation stable ». Ce type ne calcule rien — le
-/// domaine ne choisit pas d'implémentation de hash, ce serait une décision d'infrastructure — il
-/// **vérifie la forme** de ce qu'on lui donne.
+/// §7.7 : « les hashes portent sur une canonicalisation stable ». Ce type **vérifie la forme** de ce
+/// qu'on lui donne, et depuis l'ADR 0020 il sait aussi en **calculer** un.
+///
+/// # Ce que l'ADR 0020 a changé, et pourquoi la phrase d'avant était fausse
+///
+/// Ce commentaire disait « ce type ne calcule rien — le domaine ne choisit pas d'implémentation de
+/// hash, ce serait une décision d'infrastructure ». La prudence était juste, la conclusion non : le
+/// résultat était que **rien** ne calculait de condensat, nulle part. `Digest` était un trait déclaré
+/// deux fois sans implémentation de production, et les deux seuls écrivains d'événements du dépôt
+/// recevaient leur `payload_hash` de l'appelant. §10.1 exige ce champ ; le système ne savait pas le
+/// produire, et une chaîne de la bonne forme passait sans que rien ne s'en aperçoive.
+///
+/// Choisir un algorithme **est** une décision, et c'est pourquoi elle a un ADR. Ne pas la prendre
+/// n'était pas la neutralité, c'était l'absence.
 ///
 /// Le préfixe est obligatoire pour la raison que le vocabulaire des schémas énonce déjà : un hash
 /// nu ne dit pas comment le recalculer, et une vérification d'intégrité qui devine son algorithme
@@ -60,6 +72,48 @@ impl ContentHash {
             algorithm: algorithm.to_owned(),
             digest: digest.to_owned(),
         })
+    }
+
+    /// Le condensat SHA-256 de ces octets — ADR 0020.
+    ///
+    /// Elle prend des **octets** et ne canonicalise rien. La forme canonique appartient à l'appelant,
+    /// et `coordination::version` en a déjà une, écrite et gelée par un test de fixture ; la refaire
+    /// ici ferait dépendre l'identité d'une version d'un détail de cette fonction.
+    ///
+    /// SHA-256 et pas un autre : c'est ce qu'un registre OCI rend, donc ce qu'il faut savoir
+    /// recalculer pour vérifier un digest d'image. [`ContentHash::parse`] en accepte trois — lire
+    /// plus large qu'on n'écrit est la bonne dissymétrie, elle laisse entrer les condensats des
+    /// autres.
+    #[must_use]
+    pub fn of(bytes: &[u8]) -> Self {
+        use sha2::{Digest as _, Sha256};
+
+        let mut digest = String::with_capacity(64);
+        for byte in Sha256::digest(bytes) {
+            let _ = write!(digest, "{byte:02x}");
+        }
+        Self {
+            algorithm: "sha256".to_owned(),
+            digest,
+        }
+    }
+
+    /// Ces octets ont-ils **ce** condensat ?
+    ///
+    /// Trois réponses, jamais deux — la discipline que ce dépôt applique déjà aux verdicts :
+    ///
+    /// - `Some(true)` — ils correspondent ;
+    /// - `Some(false)` — ils ne correspondent pas, et c'est une intégrité cassée ;
+    /// - `None` — **on ne sait pas vérifier** cet algorithme. Ce n'est pas un échec de
+    ///   vérification, c'est une absence de vérification, et les confondre transformerait un
+    ///   condensat `sha512` parfaitement valide en alerte d'intégrité.
+    ///
+    /// Sans cette fonction, un appelant écrirait `*self == ContentHash::of(bytes)`, qui rend
+    /// silencieusement `false` pour tout condensat qui n'est pas en sha256 — la faute exacte que la
+    /// troisième réponse existe pour empêcher.
+    #[must_use]
+    pub fn matches(&self, bytes: &[u8]) -> Option<bool> {
+        (self.algorithm == "sha256").then(|| self.digest == Self::of(bytes).digest)
     }
 
     /// L'algorithme, sans le séparateur.
