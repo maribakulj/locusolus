@@ -55,8 +55,8 @@ pub use messaging::{EpochError, Epochs, Handover, HandoverError};
 pub use metrics::Metrics;
 pub use objection::{Contestable, ObjectedTo, Objection, ObjectionError, Remedy};
 pub use proposal::{
-    Approved, Author, Change, Committed, EpistemicIndex, Justification, Mode, Proposal,
-    ProposalError, Relation, RelationKind, approve, commit,
+    Approved, Author, Committed, EpistemicIndex, Justification, Mode, Proposal, ProposalError,
+    Relation, RelationKind, approve, commit,
 };
 pub use region::{
     Acceptance, ApprovalMode, Invariant, Refusal, Region, RegionError, Verdict, threatens,

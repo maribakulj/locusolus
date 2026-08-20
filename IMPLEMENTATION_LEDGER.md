@@ -9836,3 +9836,55 @@ porte, et le double subsiste. C'est une dette **datée**, pas un oubli.
 
 **Prochain item.** `W13.i` — `Proposal` porte un `Diff`, `Change` est retirée, `commit()` rend une
 `Version`.
+
+## 2026-08-20 — W13.i — la proposition porte un diff, et le commit produit une version
+
+**Périmètre.** `packages/coordination/src/proposal.rs` — `Change` retirée, `Proposal.diff`,
+`commit()` à quatre arguments, `Committed.version`, `ProposalError::Inapplicable` ; `diff.rs` —
+`Diff::inverse` et `DiffError::NotInvertible` ; `lib.rs` ; `packages/coordination/tests/proposal.rs`
+— quinze tests ; `packages/adaptation/tests/loops.rs` et `src/slow.rs`.
+
+**Tests exécutés.** `npm run check` — les douze gardes.
+`cargo clippy --workspace --all-targets --all-features -- -D warnings` et `cargo test --workspace` :
+verts.
+
+**Ce que le commit faisait, et ne fait plus.** `commit()` recevait une `Change`, ne l'appliquait à
+rien, et rendait `revision + 1`. Il rejoue désormais le diff sur la version courante et rend la
+version produite. Le chemin de mutation de `docs/13` — « PROPOSE → VALIDATE → SHADOW → COMMIT →
+OBSERVE » — a enfin un COMMIT qui commite.
+
+**Deux vérifications, et aucune ne couvre l'autre.** La révision dit que personne n'a écrit
+entre-temps ; le rejeu dit que ce qu'on applique est bien ce qui a été approuvé. Un test construit
+le cas où elles divergent : la révision **correspond** et le diff ne s'applique pourtant pas, parce
+qu'il a été écrit sur une autre lignée — un contenu revenu à l'identique après un aller-retour, donc
+même `content_hash` et autre `VersionId`. Un système qui n'aurait que le CAS aurait commité en
+croyant avoir vérifié. D'où `ProposalError::Inapplicable`, distincte de `Stale` : une base périmée
+se rebase, une opération inapplicable se réécrit, et fondre les deux perdrait la consigne.
+
+**`Diff::inverse` inverse _et_ renverse.** Défaire `[a, b, c]` est faire `[c⁻¹, b⁻¹, a⁻¹]`, et
+l'ordre n'est pas un détail : retirer une arête puis son nœud se défait en remettant le nœud
+**puis** l'arête. L'ordre naïf produirait une arête pendante, que `Version::apply` refuse. Un test
+le vérifie sur une suite où les deux ordres ne sont pas interchangeables.
+
+**Ce qui ne s'inverse pas le déclare.** `Change::inverse` était **total** — les cinq changements
+s'inversaient — et c'était faux par omission : la fusion perd la partition, et aucune scission ne
+saurait dire laquelle était laquelle. `DiffError::NotInvertible` nomme l'opération, et l'appelant
+écrit lui-même ce qu'il compense. C'est l'ADR 0016 décision 5 rendue exécutable : « une modification
+non inversible ne peut être que compensée, et elle le déclare à la proposition ». Le test vérifie
+aussi que le refus **ne demande pas de rebaser** — ce n'est pas un conflit de base, et une consigne
+inapplicable est pire que pas de consigne.
+
+**Un test d'absence conservé exprès.** `the_fast_loop_names_no_structural_type` liste toujours
+`"Change"` parmi les noms interdits dans `adaptation/src/fast.rs`, alors que le type n'existe plus.
+Gardé : un doublon retiré qui revient par une autre porte est un doublon, et la garde coûte une
+ligne.
+
+**Écart avec la spec.** Aucun. §22.3 nomme la commande `team.modify` sans donner son payload ; l'ADR
+0016 décision 3 énumère ce que la proposition en garde — `trigger`, `rationale`, `evidence_refs`,
+`proposer.kind` — et aucun de ces quatre ne bouge.
+
+**Ce qui reste dû.** `W13.j` — `Team` projette la version courante au lieu de la stocker. Tant qu'il
+n'est pas livré, `Team` garde `members`, `mode` et `coordinator` en propre, et le double subsiste.
+Dette datée, déjà consignée par `W13.h`.
+
+**Prochain item.** `W13.j`.
