@@ -10322,3 +10322,51 @@ modifiable.
 
 **Prochain item.** `W18.g` — le producteur d'observations, que `W17.n` vient de débloquer : la
 lacune de domaine se lit désormais dans un reçu au lieu d'être affirmée par un agent.
+
+## 2026-08-20 — W18.g — le producteur d'observations
+
+**Périmètre.** `packages/adaptation/src/observation.rs`, neuf — `Observation`, `ObservationKind`,
+`Sensor`, `observe_all`, `ObservationError` ; le `lib.rs` ; `Cargo.toml` gagne `locus-memory` ;
+`packages/adaptation/tests/observation.rs`.
+
+**Tests exécutés.** `npm run check` — les douze gardes. Sept tests dans `tests/observation.rs`.
+
+**Ce qui manquait, exactement.** Les onze `Trigger` de §14.5 existaient, et **rien ne disait quand
+ils se déclenchent**. Un agent affirmait « il y a une lacune de domaine » et le système le croyait.
+Une observation remplace l'affirmation par une mesure : une valeur recalculable depuis le journal,
+qui **cite** ce dont elle est tirée.
+
+**Le test central est un test d'absence.** Aucun chemin de type ne mène d'une `Observation` à un
+`Trigger` : pas de `From`, pas de méthode, pas de fonction. La correspondance « telle mesure
+déclenche tel trigger » est une **décision**, elle vit dans une politique versionnée avec ses
+seuils. La figer dans le code aurait obligé à recompiler pour la changer.
+
+**Un seuil n'a nulle part où s'écrire**, et c'est le corollaire : « à partir de combien de conflits
+ouverts faut-il agir » n'a pas de réponse dans les données. Un capteur qui porterait ce seuil
+trancherait la question en silence.
+
+**Une source muette rend `None`, jamais `Some(0.0)`.** « Aucun conflit ouvert » et « la source n'a
+pas répondu » sont deux états qu'une politique traite différemment, et les fondre ferait lire un
+silence comme une bonne nouvelle. `observe_all` rend donc un compte rendu **plus court** quand une
+source se tait : une politique qui reçoit cinq observations sur six sait qu'il lui en manque une.
+
+**Le nom, pour la seconde fois de la série.** `Observation` et non `Signal`, que `memory::retrieval`
+occupe pour un facteur de classement — même collision que `Genre` contre `Kind`, résolue de la même
+façon, et un test importe les deux sans renommage.
+
+**Le watermark n'est pas décoratif**, et le test s'en assure : deux mesures au même préfixe sont
+égales, et une mesure à un préfixe plus long diffère. Sans ce second assert, un capteur qui
+ignorerait le préfixe passerait le premier.
+
+**Quatrième garde trop large de la série, corrigée.** Elle interdisait le mot `Trigger` dans un
+module dont la documentation l'emploie pour dire précisément ce que la garde veut obtenir. Elle vise
+désormais des **imports et des signatures** — `use crate::Trigger`, `-> Trigger`, `: Trigger`. Le
+motif se répète assez pour mériter d'être noté : un test d'absence vise une **forme de code**,
+jamais un mot.
+
+**Écart avec la spec.** Aucun. §14.5 garde ses onze déclencheurs, et une observation nouvelle
+alimente un déclencheur existant par la politique — pas de douzième.
+
+**Prochain item.** `W18.h` — le raisonneur d'ontologie comme première capacité réellement admise, ou
+`W9.e` / `W6.g` / `W8.j`, qui sont indépendants. `W14.e` attend la lecture de §18.3 à §18.6, que son
+test de sortie exige.

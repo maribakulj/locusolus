@@ -258,6 +258,7 @@ dependencies = [
  "locus-domain",
  "locus-environments",
  "locus-execution",
+ "locus-memory",
  "locus-policy",
  "locus-protocol",
 ]
