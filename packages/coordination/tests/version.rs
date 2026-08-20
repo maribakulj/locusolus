@@ -914,3 +914,112 @@ fn set_role(node: Id<Agent>, from: Option<&str>, to: Option<&str>) -> Operation 
         to: to.map(ToOwned::to_owned),
     }
 }
+
+// ---------------------------------------------------------------------------------------------
+// 5. Un rôle ne forge pas une ligne de la forme canonique
+// ---------------------------------------------------------------------------------------------
+
+/// **Deux contenus différents ne partagent pas un condensat**, et ce test est né d'une collision
+/// réelle, pas d'une inquiétude.
+///
+/// La forme canonique d'un contenu est un texte à lignes — `n\t…`, `e\t…`, `r\t…` — trié. Un rôle
+/// est le **seul champ de texte libre** qui y entre. Avant ce refus, un rôle contenant une fin de
+/// ligne et une tabulation y insérait une ligne que personne n'avait écrite :
+///
+/// ```text
+/// gauche : membres {a, b}, rôles {a: "x\nr\t<b>\ty"}
+/// droite : membres {a, b}, rôles {a: "x", b: "y"}
+/// ```
+///
+/// Les deux produisaient les mêmes octets, donc le même `content_hash`, pour des contenus que
+/// `Version::role` distingue pourtant. Le premier essai de collision — injecter une ligne de
+/// **membre** — avait échoué, et l'échec était instructif : le tri place la ligne forgée après la
+/// ligne `r` qui la porte, là où une vraie ligne `n` se serait rangée avant. Injecter une ligne de
+/// **rôle** contourne le tri, puisqu'elle se range là où elle est déjà.
+///
+/// Le refus, plutôt que l'échappement : échapper changerait la forme canonique de toutes les
+/// versions, donc tous les condensats déjà calculés, que §10.2 rend immuables.
+#[test]
+fn un_role_ne_forge_pas_une_ligne_de_la_forme_canonique() {
+    let base = Version::root(&[agent(1), agent(2)], &[], &Fnv).expect("racine");
+
+    for forge in [
+        format!("x\nr\t{}\ty", agent(2)),
+        "x\ty".to_owned(),
+        "x\nn\tautre".to_owned(),
+        "x\rretour".to_owned(),
+    ] {
+        let refus = base
+            .apply(
+                &Operation::SetRole {
+                    node: agent(1),
+                    from: None,
+                    to: Some(forge.clone()),
+                },
+                &Fnv,
+            )
+            .expect_err("un rôle qui porte un caractère de contrôle est refusé");
+        assert_eq!(
+            refus,
+            VersionError::RoleForgesALine {
+                node: agent(1).to_string(),
+            },
+            "« {forge} »"
+        );
+    }
+
+    // Et le rôle ordinaire passe toujours : le refus vise les caractères de contrôle, pas la
+    // ponctuation ni les accents.
+    assert!(
+        base.apply(
+            &Operation::SetRole {
+                node: agent(1),
+                from: None,
+                to: Some("relecteur-en-chef (intérim)".to_owned()),
+            },
+            &Fnv,
+        )
+        .is_ok()
+    );
+}
+
+/// **Poser un rôle et le retirer ne s'écrivent pas pareil.**
+///
+/// `SET_ROLE\t<nœud>\t-\t-` est ce qu'écrit « retirer le rôle ». Un rôle nommé `-` produisait la
+/// même ligne pour une opération qui en **pose** un — et cette ligne entre dans la forme canonique
+/// d'un diff, celle sur laquelle porte une approbation. Un approbateur aurait signé l'une en
+/// croyant signer l'autre.
+#[test]
+fn un_role_ne_se_fait_pas_passer_pour_une_absence() {
+    let base = Version::root(&[agent(1)], &[], &Fnv).expect("racine");
+
+    let refus = base
+        .apply(
+            &Operation::SetRole {
+                node: agent(1),
+                from: None,
+                to: Some("-".to_owned()),
+            },
+            &Fnv,
+        )
+        .expect_err("la marque d'absence n'est pas un rôle");
+    assert_eq!(
+        refus,
+        VersionError::RoleLooksLikeAbsence {
+            node: agent(1).to_string(),
+        }
+    );
+
+    // Un rôle qui **contient** le tiret sans y être réduit reste licite.
+    assert!(
+        base.apply(
+            &Operation::SetRole {
+                node: agent(1),
+                from: None,
+                to: Some("-lead".to_owned()),
+            },
+            &Fnv,
+        )
+        .is_ok()
+    );
+}

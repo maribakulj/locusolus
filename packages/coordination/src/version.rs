@@ -75,6 +75,13 @@ use crate::proposal::Relation;
 /// La ligne d'en-tête de la forme canonique d'un contenu.
 const CONTENT_MAGIC: &str = "coordination-content/1";
 
+/// Ce qu'une forme canonique écrit à la place d'un rôle absent.
+///
+/// Nommée plutôt que répétée, parce qu'un rôle **égal à cette chaîne** est refusé : sans quoi
+/// « retirer le rôle » et « poser le rôle `-` » auraient la même forme canonique, donc la même
+/// signature d'approbation, pour deux opérations qui ne font pas la même chose.
+const ABSENT: &str = "-";
+
 /// La ligne d'en-tête de la forme canonique d'une identité de version.
 const VERSION_MAGIC: &str = "coordination-version/1";
 
@@ -767,6 +774,19 @@ fn set_role(
             node: node.to_string(),
         });
     }
+    // Un rôle est le **seul champ de texte libre** qui entre dans une forme canonique. Les deux
+    // refus qui suivent ferment les deux façons dont il peut en forger une — voir `RoleForgesALine`
+    // et `RoleLooksLikeAbsence`, où le raisonnement est écrit.
+    if to.is_some_and(|role| role.chars().any(char::is_control)) {
+        return Err(VersionError::RoleForgesALine {
+            node: node.to_string(),
+        });
+    }
+    if to == Some(ABSENT) {
+        return Err(VersionError::RoleLooksLikeAbsence {
+            node: node.to_string(),
+        });
+    }
     let held = roles.get(&node).map(String::as_str);
     if held != from {
         return Err(VersionError::RoleMismatch {
@@ -810,7 +830,7 @@ fn check_roleless(
 ///
 /// Un rôle vide est refusé par [`set_role`], donc `-` ne peut pas se confondre avec un rôle réel.
 fn slot(value: Option<&String>) -> &str {
-    value.map_or("-", String::as_str)
+    value.map_or(ABSENT, String::as_str)
 }
 
 fn render(relation: &Relation) -> String {
@@ -923,6 +943,31 @@ pub enum VersionError {
         /// Lequel.
         node: String,
     },
+    /// Un rôle qui contient un caractère de contrôle — il **forge une ligne** de la forme canonique.
+    ///
+    /// La forme canonique d'un contenu est un texte à lignes, `n\t…`, `e\t…`, `r\t…`, trié. Un rôle
+    /// est le seul champ de texte libre qui y entre, et une tabulation ou une fin de ligne dedans y
+    /// insère une ligne que personne n'a écrite. Vérifié plutôt que supposé : deux contenus
+    /// réellement différents — un agent portant un rôle forgé, et deux agents portant deux rôles —
+    /// produisaient les **mêmes octets**, donc le même `content_hash`. Le même défaut valait pour la
+    /// forme canonique d'un diff, sur laquelle porte une approbation.
+    ///
+    /// Refusé plutôt qu'échappé, et le motif décide : échapper changerait la forme canonique de
+    /// **toutes** les versions, donc tous les condensats déjà calculés, que §10.2 rend immuables.
+    /// Refuser n'invalide rien de ce qui a été légitimement écrit.
+    RoleForgesALine {
+        /// Lequel.
+        node: String,
+    },
+    /// Un rôle qui est exactement la marque d'absence.
+    ///
+    /// `SET_ROLE\t<nœud>\t-\t-` est ce qu'écrit « retirer le rôle ». Un rôle nommé `-` produirait la
+    /// même ligne pour une opération qui **pose** un rôle, et une approbation ne saurait plus
+    /// laquelle des deux elle couvre.
+    RoleLooksLikeAbsence {
+        /// Lequel.
+        node: String,
+    },
     /// Cette arête est déjà là.
     EdgeAlreadyPresent {
         /// Laquelle.
@@ -994,6 +1039,16 @@ impl fmt::Display for VersionError {
             Self::EmptyRole { node } => write!(
                 formatter,
                 "le rôle donné à {node} est vide : aucun lecteur ne le distinguerait d'une absence"
+            ),
+            Self::RoleForgesALine { node } => write!(
+                formatter,
+                "le rôle donné à {node} contient un caractère de contrôle : il forgerait une ligne \
+                 de la forme canonique, et deux contenus différents auraient le même condensat"
+            ),
+            Self::RoleLooksLikeAbsence { node } => write!(
+                formatter,
+                "le rôle donné à {node} est « {ABSENT} », la marque d'un rôle absent : poser ce \
+                 rôle et le retirer s'écriraient pareil"
             ),
             Self::EdgeAlreadyPresent { edge } => write!(formatter, "« {edge} » existe déjà"),
             Self::NoSuchEdge { edge } => write!(formatter, "« {edge} » n'existe pas"),
