@@ -9448,3 +9448,66 @@ normative — fondre un ajout le ferait passer pour une lecture de la spec.
 **Prochain item.** `W16.e`, dont la ligne porte désormais un test de sortie. Ses dépendances de
 phase — W15, W4.e, W4.g — étaient déjà satisfaites ; ce qui manquait était la décision, et elle est
 prise.
+
+## 2026-08-20 — W16.e — epochs, messages tardifs, transfert d'état
+
+**Périmètre.** `packages/coordination/src/messaging.rs` et son test (neufs) — epochs, trois
+verdicts, passage de témoin ; `apps/locusd/src/messaging.rs` et son test (neufs) — l'écriture du
+fait, par un `Decide` ; `packages/event-store/src/envelope.rs` — le namespace `message`, trente-et-
+unième ; les deux `lib.rs` ; `packages/coordination/src/lifecycle.rs` et son test — deux
+commentaires qui disaient qu'aucune messagerie n'existait.
+
+**Tests exécutés.** `npm run check` — les douze gardes. Les quatorze tests de sortie de l'item
+passent : dix dans `locus-coordination`, quatre dans `locusd`. Mutation testing, `mutate_w16e.py`,
+vingt-deux mutants sur les deux modules : **22 tués, 0 survivant, 0 inexploitable** — le premier
+balayage propre de cette session, et il ne l'est que parce que les mutants visent ce que la
+documentation promet, pas seulement ce que le code fait.
+
+**Décisions prises.**
+
+- **Un epoch ne se compare pas, il se remonte.** C'est la conséquence non évidente de l'ADR 0019
+  décision 2 : un `VersionId` est un hash, donc `<` n'a pas de sens entre deux epochs. Ce qui les
+  ordonne est la **filiation**, et `Epochs::advanced_to` refuse un maillon qui n'est pas l'enfant du
+  courant. Sans ce refus, « antérieur » serait arbitraire — un epoch présent dans la suite ne
+  prouverait plus qu'on l'a traversé, et `Late` deviendrait un mot sans référent.
+- **Un epoch pas encore atteint est `Unknown`, pas `Late`.** La lignée sépare trois cas, pas deux :
+  traversé, jamais vu, et pas encore atteint — les deux derniers se confondent volontairement, parce
+  qu'un destinataire ne peut pas distinguer « d'une autre lignée » de « d'une reconfiguration plus
+  récente que la mienne ». Les nommer différemment aurait produit un quatrième verdict que rien ne
+  sait décider.
+- **Le stream d'un message est celui du destinataire.** §10.2 donne l'ordre total par stream ;
+  ranger sous le destinataire donne donc gratuitement l'ordre d'une boîte de réception. Sous
+  l'émetteur, la boîte d'un agent aurait été éparpillée sur autant de streams qu'il a de
+  correspondants, et « ce qu'on m'a dit » serait devenu une jointure.
+- **Un seul verbe, `message.sent`.** `read`, `acknowledged` et `expired` entreront quand un lecteur
+  exécutable existera. La règle des énumérations de `CLAUDE.md` vaut pour les verbes d'événement
+  comme pour les sortes de relation.
+- **La messagerie n'ajoute aucune commande au scheduler.** Le scheduler pilote des instances ; la
+  messagerie écrit et lit des faits. Le seul point de contact est `drain`, et il passe par
+  `Handover` — qui ne se construit que depuis un `Outcome::Draining`. Le test de `lifecycle.rs` qui
+  refusait « livrer les messages » comme commande **n'a pas changé** : ce qui a changé est la
+  raison, et elle est écrite.
+
+**Deux refus que les tests ont produits plutôt que subis.**
+
+Le second message adressé au même agent a été **refusé** par un
+`Conflict { expected: 0, current: 1 }` tant que le test réutilisait la révision initiale. C'est le
+contrôle de concurrence optimiste de §22.2 qui fonctionne, et le test le documente désormais au lieu
+de le contourner : deux émetteurs qui écrivent dans la même boîte sans se voir écraseraient l'ordre
+que §10.2 garantit.
+
+Et la garde d'absence a tiré sur sa propre prose — deux fois, une par module. Arbitrage identique à
+`W20.b` plutôt qu'à `W20.g` : la garde reste stricte et c'est le commentaire qui prend une
+périphrase. Le motif est que `version.rs` a déjà tranché ainsi, avec l'argument qui décide — une
+garde qui doit juger, à chaque relecture, si une occurrence est un usage ou une explication est une
+garde qu'on finit par assouplir.
+
+**Écart avec la spec.** Un ajout assumé et signalé : §10.3 ne cite `message` nulle part. Le
+commentaire de `EVENT_NAMESPACES` le dit, et le distingue des deux autres ajouts locaux —
+`projection` et `migration` sont cités ailleurs dans le texte de §10.3, celui-ci ne l'est pas du
+tout.
+
+**Prochain item.** La liaison HTTP des quatre lectures de branche de `W17.f` — le diff, la preview,
+l'ombre et la navigation dans le temps. `W20.g` a posé la surface en lecture seule ; ce qui manquait
+est la façon dont un client nomme une `Version`, et `/branches/:id/history` lui donne désormais les
+identifiants à passer.

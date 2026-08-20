@@ -27,6 +27,7 @@ pub mod capability;
 pub mod decision;
 pub mod diff;
 pub mod lifecycle;
+pub mod messaging;
 pub mod metrics;
 pub mod objection;
 pub mod proposal;
@@ -45,6 +46,12 @@ pub use diff::{Diff, DiffError};
 pub use lifecycle::{
     Command, Lifecycle, LifecycleError, Outcome, Quiescence, may_leave_the_version,
 };
+// `messaging::Message` et `messaging::Reception` ne sont **pas** remontés ici, pour la raison qui
+// vaut déjà pour `simulation` : « message » et « réception » sont des mots que d'autres couches
+// emploient — `locus_event_store` a ses enveloppes, `lep` a ses trames — et un nom court remonté à
+// la racine ferait croire à un type unique là où il y en a plusieurs, chacun juste dans sa couche.
+// Le chemin de module porte la distinction sans coûter un nom.
+pub use messaging::{EpochError, Epochs, Handover, HandoverError};
 pub use metrics::Metrics;
 pub use objection::{Contestable, ObjectedTo, Objection, ObjectionError, Remedy};
 pub use proposal::{
