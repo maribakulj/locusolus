@@ -113,6 +113,43 @@ fn un_cursor_ne_laisse_lire_ni_position_ni_collection() {
     assert_eq!(cursor.read(Collection::Timeline), Ok(47));
 }
 
+/// **Chaque collection fait l'aller-retour**, et `ALL` ne peut pas dériver de l'énumération.
+///
+/// Le défaut que ce test aurait attrapé : `History` a été ajoutée à l'énumération sans entrer dans
+/// `ALL`. `Cursor::read` cherche la collection **dans `ALL`** — tout cursor d'histoire était donc
+/// illisible, et rendait `Malformed` comme s'il avait été forgé. Rien ne l'a vu, parce qu'aucun test
+/// n'exerçait l'aller-retour de cette collection-là.
+///
+/// La fonction `rang` ci-dessous attache les variantes à `ALL` par un `match` exhaustif : une
+/// collection nouvelle rend le crate de test non compilable tant qu'elle n'est pas rangée. C'est le
+/// même geste que `Family::rang` en `W20.a`, pour la même raison — une liste écrite à la main ne se
+/// contraint pas toute seule.
+#[test]
+fn chaque_collection_fait_l_aller_retour_et_aucune_ne_manque_a_la_liste() {
+    fn rang(collection: Collection) -> usize {
+        match collection {
+            Collection::Timeline => 0,
+            Collection::Workers => 1,
+            Collection::Conflicts => 2,
+            Collection::Events => 3,
+            Collection::History => 4,
+        }
+    }
+
+    for (position, collection) in Collection::ALL.iter().enumerate() {
+        assert_eq!(
+            rang(*collection),
+            position,
+            "{collection} n'est pas à son rang"
+        );
+        assert_eq!(
+            Cursor::issue(*collection, 7).read(*collection),
+            Ok(7),
+            "« {collection} » n'est pas relisable : elle manque probablement à ALL"
+        );
+    }
+}
+
 /// Un cursor abîmé est refusé, plutôt que lu de travers.
 #[test]
 fn un_cursor_abime_est_refuse() {
