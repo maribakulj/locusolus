@@ -13,8 +13,8 @@ use std::collections::BTreeSet;
 use std::fmt::Write as _;
 
 use locus_coordination::{
-    ContentDigest, CoordinationMode, Digest, Operation, Relation, RelationKind, Undo, Version,
-    VersionError,
+    ContentDigest, CoordinationMode, Digest, Operation, ParseOperationError, Relation,
+    RelationKind, Undo, Version, VersionError,
 };
 use locus_domain::ContentHash;
 use locus_protocol::{Id, IdKind, Timestamp, id::Agent};
@@ -1460,4 +1460,143 @@ fn les_dix_noms_couvrent_l_enumeration() {
     for absent in ["SET_VISIBILITY", "SET_VALIDATOR", "SET_EXECUTION_ORDER"] {
         assert!(!Operation::NAMES.contains(&absent), "{absent}");
     }
+}
+
+// ---------------------------------------------------------------------------------------------
+// 7. La forme canonique se relit — W17.i
+// ---------------------------------------------------------------------------------------------
+
+/// **Les dix opérations font l'aller-retour**, et c'est ce qui rend le journal relisible.
+///
+/// `W17.i` écrit une opération dans le journal, qui est la vérité institutionnelle : ce qu'on y met
+/// se relit dans dix ans. La forme canonique est retenue comme forme de transport parce que les
+/// octets écrits sont **exactement** ceux sur lesquels le condensat a été calculé — un lecteur relit
+/// ce qui a été signé, et non une seconde représentation dont il faudrait prouver qu'elle dit la
+/// même chose.
+///
+/// Le test couvre les dix, et pas un échantillon : une opération non couverte est précisément celle
+/// dont on découvrira dans un an qu'elle ne se relit pas.
+#[test]
+fn les_dix_operations_font_l_aller_retour_par_leur_forme_canonique() {
+    let toutes = [
+        Operation::AddNode(agent(1)),
+        Operation::RemoveNode(agent(2)),
+        Operation::ReplaceNode {
+            from: agent(1),
+            to: agent(3),
+        },
+        Operation::AddEdge(reviews(agent(1), agent(2))),
+        Operation::RemoveEdge(reviews(agent(2), agent(1))),
+        Operation::SplitNode {
+            node: agent(1),
+            into: (agent(4), agent(5)),
+            follows_first: [reviews(agent(1), agent(2))].into_iter().collect(),
+        },
+        Operation::MergeNodes {
+            first: agent(4),
+            second: agent(5),
+            into: agent(6),
+        },
+        Operation::SetRole {
+            node: agent(1),
+            from: None,
+            to: Some("relecteur-en-chef".to_owned()),
+        },
+        Operation::SetMode {
+            from: CoordinationMode::Blackboard,
+            to: CoordinationMode::Debate,
+        },
+        Operation::SetCoordinator {
+            from: None,
+            to: Some(agent(7)),
+        },
+    ];
+
+    for operation in &toutes {
+        let canonical = operation.canonical();
+        let relue = Operation::parse(&canonical)
+            .unwrap_or_else(|because| panic!("« {canonical} » : {because}"));
+        assert_eq!(&relue, operation, "aller-retour de {}", operation.name());
+        // Et la relecture produit les mêmes octets : sans quoi le condensat d'un diff rejoué
+        // cesserait d'être celui du diff écrit.
+        assert_eq!(relue.canonical(), canonical);
+    }
+
+    // Les dix couvertes, pas neuf : le compte est tenu contre l'énumération plutôt que de confiance.
+    assert_eq!(toutes.len(), 10);
+}
+
+/// **Une scission sans arête partagée se relit aussi**, et c'est le cas que le champ vide piège.
+///
+/// `follows_first` est rendu comme une liste séparée par des espaces ; vide, elle produit un champ
+/// vide, que `split(' ')` rend comme un unique élément vide. Sans filtre, la relecture inventerait
+/// une arête illisible et refuserait une opération parfaitement valide.
+#[test]
+fn une_scission_sans_arete_partagee_se_relit() {
+    let operation = Operation::SplitNode {
+        node: agent(1),
+        into: (agent(2), agent(3)),
+        follows_first: std::collections::BTreeSet::new(),
+    };
+    assert_eq!(
+        Operation::parse(&operation.canonical()).expect("relecture"),
+        operation
+    );
+}
+
+/// **Un refus nomme la moitié fautive**, parce qu'un événement illisible ne se répare pas autrement.
+#[test]
+fn une_forme_illisible_dit_ce_qui_ne_va_pas() {
+    assert_eq!(
+        Operation::parse("PEINDRE_LE_MUR\tx"),
+        Err(ParseOperationError::UnknownOperation {
+            operation: "PEINDRE_LE_MUR".to_owned(),
+        })
+    );
+    assert_eq!(
+        Operation::parse("ADD_NODE"),
+        Err(ParseOperationError::Arity {
+            operation: "ADD_NODE".to_owned(),
+            expected: 1,
+            found: 0,
+        })
+    );
+    assert_eq!(
+        Operation::parse("ADD_NODE\tpas_un_identifiant"),
+        Err(ParseOperationError::Field {
+            field: "nœud".to_owned(),
+            value: "pas_un_identifiant".to_owned(),
+        })
+    );
+    assert!(matches!(
+        Operation::parse("SET_MODE\tblackboard\tinventé"),
+        Err(ParseOperationError::Field { ref field, .. }) if field == "mode"
+    ));
+}
+
+/// **La sentinelle se relit comme une absence, et rien d'autre ne s'y confond.**
+///
+/// C'est ce que la correction d'injection a acheté : un rôle nommé `-` et un coordinateur nommé `-`
+/// sont refusés à l'écriture, donc `-` en lecture ne peut être qu'une absence. Avant cela, la forme
+/// canonique n'était pas analysable sans ambiguïté — cette fonction n'aurait pas pu exister.
+#[test]
+fn la_sentinelle_se_relit_comme_une_absence() {
+    let retrait = Operation::SetCoordinator {
+        from: Some(agent(1)),
+        to: None,
+    };
+    assert_eq!(
+        Operation::parse(&retrait.canonical()).expect("relecture"),
+        retrait
+    );
+
+    let sans_role = Operation::SetRole {
+        node: agent(1),
+        from: Some("lead".to_owned()),
+        to: None,
+    };
+    assert_eq!(
+        Operation::parse(&sans_role.canonical()).expect("relecture"),
+        sans_role
+    );
 }

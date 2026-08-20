@@ -68,5 +68,7 @@ pub use region::{
 pub use simulation::{Answer, Fidelity, Recorded};
 pub use task::{Assignment, Task, TaskError};
 pub use team::{CoordinationMode, Team, TeamError};
-pub use version::{ContentDigest, Digest, Operation, Undo, Version, VersionError, VersionId};
+pub use version::{
+    ContentDigest, Digest, Operation, ParseOperationError, Undo, Version, VersionError, VersionId,
+};
 pub use visibility::Visibility;

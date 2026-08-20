@@ -22,9 +22,13 @@
 //! Une cascade est un script — elle fait au commit des choses que le diff ne montrait pas, et
 //! l'approbation aurait porté sur autre chose que ce qui s'applique.
 //!
-//! # Huit opérations, et trois qui attendent leur lecteur
+//! # Dix opérations : huit des onze de `docs/13`, et deux de §14.3
 //!
-//! `docs/13` nomme onze opérations cibles. La règle « aucune sémantique inerte » (ADR 0016,
+//! `docs/13` nomme onze opérations cibles, dont **huit** sont ici. Les deux dernières —
+//! [`Operation::SetMode`] et [`Operation::SetCoordinator`] — ne viennent pas de cette liste mais de
+//! §14.3, par l'ADR 0021, et elles sont entrées **ensemble** : §14.3 fait du coordinateur la
+//! définition du mode `coordinator`, et les séparer aurait permis d'atteindre entre les deux un état
+//! que §14.3 déclare impossible. La règle « aucune sémantique inerte » (ADR 0016,
 //! décision 4) vaut pour une opération comme pour une sorte de relation, et elle trace ici une
 //! frontière nette : une opération **structurelle** — nœuds et arêtes — a son effet entièrement
 //! défini par l'état que ce crate détient, donc un consommateur exécutable et testé, qui est
@@ -55,7 +59,7 @@
 //!
 //! # Fusionner se compense, se défait pas
 //!
-//! Sept des huit opérations ont un inverse exact. La fusion n'en a pas, et pour une raison qui se
+//! Neuf des dix opérations ont un inverse exact. La fusion n'en a pas, et pour une raison qui se
 //! lit dans sa définition : elle perd la partition. Deux arêtes `X → premier` et `X → second`
 //! deviennent une seule `X → fusionné`, et rien dans le résultat ne dit qu'elles étaient deux. La
 //! scission, elle, énonce sa partition, donc sa fusion inverse la restitue.
@@ -70,7 +74,7 @@ use std::fmt;
 use locus_domain::ContentHash;
 use locus_protocol::{Id, id::Agent};
 
-use crate::proposal::Relation;
+use crate::proposal::{Relation, RelationKind};
 use crate::team::CoordinationMode;
 
 /// La ligne d'en-tête de la forme canonique d'un contenu.
@@ -139,8 +143,8 @@ impl fmt::Display for VersionId {
     }
 }
 
-/// Les huit opérations de `docs/13` qui ont un consommateur exécutable — sept structurelles, et
-/// `SET_ROLE`, la première attributaire à avoir trouvé son lecteur.
+/// Les dix opérations qui ont un consommateur exécutable : sept structurelles, et trois
+/// attributaires — `SET_ROLE`, entrée par W15.f, puis `SET_MODE` et `SET_COORDINATOR` par l'ADR 0021.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Operation {
     /// `ADD_NODE` — une instance d'agent entre.
@@ -319,6 +323,115 @@ impl Operation {
                 node_slot(from.as_ref()),
                 node_slot(to.as_ref())
             ),
+        }
+    }
+
+    /// Relire une opération depuis sa forme canonique.
+    ///
+    /// # Pourquoi la forme canonique est aussi la forme de transport
+    ///
+    /// `W17.i` doit écrire une opération dans le journal, et le journal est la vérité
+    /// institutionnelle : ce qu'on y met se relit dans dix ans. Deux formes étaient possibles — une
+    /// sérialisation dérivée, ou celle-ci. Celle-ci gagne pour une raison qui n'est pas
+    /// l'économie : les octets écrits sont **exactement** ceux sur lesquels le condensat a été
+    /// calculé. Un lecteur qui relit un événement relit ce qui a été signé, et non une seconde
+    /// représentation dont il faudrait prouver qu'elle dit la même chose.
+    ///
+    /// Ce n'était pas vrai avant le durcissement contre l'injection. Un rôle portant une tabulation
+    /// forgeait un champ, et un rôle nommé `-` était indistinguable d'une absence : la forme
+    /// canonique n'était pas analysable sans ambiguïté. Elle l'est devenue en refusant ces deux
+    /// entrées, et cette fonction en est le bénéficiaire direct.
+    ///
+    /// # Errors
+    ///
+    /// [`ParseOperationError`] — le nom, l'arité ou un champ. Le refus dit **lequel**, parce qu'un
+    /// événement illisible dont on ne sait pas quelle moitié est fautive ne se répare pas.
+    pub fn parse(canonical: &str) -> Result<Self, ParseOperationError> {
+        let mut fields = canonical.split('\t');
+        let name = fields.next().ok_or(ParseOperationError::Empty)?;
+        let rest: Vec<&str> = fields.collect();
+        let arity = |expected: usize| {
+            if rest.len() == expected {
+                Ok(())
+            } else {
+                Err(ParseOperationError::Arity {
+                    operation: name.to_owned(),
+                    expected,
+                    found: rest.len(),
+                })
+            }
+        };
+        match name {
+            "ADD_NODE" | "REMOVE_NODE" => {
+                arity(1)?;
+                let node = node(rest[0])?;
+                Ok(if name == "ADD_NODE" {
+                    Self::AddNode(node)
+                } else {
+                    Self::RemoveNode(node)
+                })
+            }
+            "REPLACE_NODE" => {
+                arity(2)?;
+                Ok(Self::ReplaceNode {
+                    from: node(rest[0])?,
+                    to: node(rest[1])?,
+                })
+            }
+            "ADD_EDGE" | "REMOVE_EDGE" => {
+                arity(1)?;
+                let relation = relation(rest[0])?;
+                Ok(if name == "ADD_EDGE" {
+                    Self::AddEdge(relation)
+                } else {
+                    Self::RemoveEdge(relation)
+                })
+            }
+            "SPLIT_NODE" => {
+                arity(4)?;
+                let mut follows_first = BTreeSet::new();
+                for edge in rest[3].split(' ').filter(|edge| !edge.is_empty()) {
+                    follows_first.insert(relation(edge)?);
+                }
+                Ok(Self::SplitNode {
+                    node: node(rest[0])?,
+                    into: (node(rest[1])?, node(rest[2])?),
+                    follows_first,
+                })
+            }
+            "MERGE_NODES" => {
+                arity(3)?;
+                Ok(Self::MergeNodes {
+                    first: node(rest[0])?,
+                    second: node(rest[1])?,
+                    into: node(rest[2])?,
+                })
+            }
+            "SET_ROLE" => {
+                arity(3)?;
+                Ok(Self::SetRole {
+                    node: node(rest[0])?,
+                    from: role_slot(rest[1]),
+                    to: role_slot(rest[2]),
+                })
+            }
+            "SET_MODE" => {
+                arity(2)?;
+                Ok(Self::SetMode {
+                    from: mode(rest[0])?,
+                    to: mode(rest[1])?,
+                })
+            }
+            "SET_COORDINATOR" => {
+                arity(2)?;
+                Ok(Self::SetCoordinator {
+                    from: node_option(rest[0])?,
+                    to: node_option(rest[1])?,
+                })
+            }
+            other => Err(ParseOperationError::UnknownOperation {
+                operation: other.to_owned(),
+            }),
         }
     }
 
@@ -1065,6 +1178,110 @@ fn slot(value: Option<&String>) -> &str {
 /// Un `Id` n'a pas la faille que `slot` doit surveiller pour un rôle : sa forme textuelle est
 /// contrainte, ne vaut jamais `-` et ne porte aucun caractère de contrôle. Il n'y a donc rien à
 /// refuser ici, et la dissymétrie tient au texte libre, pas à la fonction.
+fn node(text: &str) -> Result<Id<Agent>, ParseOperationError> {
+    Id::parse(text).map_err(|_| ParseOperationError::Field {
+        field: "nœud".to_owned(),
+        value: text.to_owned(),
+    })
+}
+
+/// `-` est l'absence, et **jamais** un identifiant : `set_role` et `set_coordinator` refusent une
+/// valeur égale à la sentinelle, ce qui rend cette lecture non ambiguë plutôt que probable.
+fn node_option(text: &str) -> Result<Option<Id<Agent>>, ParseOperationError> {
+    if text == ABSENT {
+        return Ok(None);
+    }
+    node(text).map(Some)
+}
+
+fn role_slot(text: &str) -> Option<String> {
+    if text == ABSENT {
+        return None;
+    }
+    Some(text.to_owned())
+}
+
+fn mode(text: &str) -> Result<CoordinationMode, ParseOperationError> {
+    CoordinationMode::parse(text).ok_or_else(|| ParseOperationError::Field {
+        field: "mode".to_owned(),
+        value: text.to_owned(),
+    })
+}
+
+/// Une arête s'écrit `<from>><kind>><to>` — sans tabulation, pour tenir dans un champ.
+fn relation(text: &str) -> Result<Relation, ParseOperationError> {
+    let parts: Vec<&str> = text.split('>').collect();
+    let [from, kind, to] = parts.as_slice() else {
+        return Err(ParseOperationError::Field {
+            field: "arête".to_owned(),
+            value: text.to_owned(),
+        });
+    };
+    Ok(Relation {
+        from: node(from)?,
+        to: node(to)?,
+        kind: RelationKind::parse(kind).ok_or_else(|| ParseOperationError::Field {
+            field: "sorte de relation".to_owned(),
+            value: (*kind).to_owned(),
+        })?,
+    })
+}
+
+/// Pourquoi une opération ne se relit pas.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ParseOperationError {
+    /// Une chaîne vide.
+    Empty,
+    /// Un nom d'opération que ce jeu ne contient pas.
+    UnknownOperation {
+        /// Ce qui a été lu.
+        operation: String,
+    },
+    /// Le bon nom, le mauvais nombre de champs.
+    Arity {
+        /// L'opération.
+        operation: String,
+        /// Ce qu'elle attend.
+        expected: usize,
+        /// Ce qui a été trouvé.
+        found: usize,
+    },
+    /// Un champ illisible, nommé.
+    Field {
+        /// Lequel.
+        field: String,
+        /// Sa valeur.
+        value: String,
+    },
+}
+
+impl fmt::Display for ParseOperationError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Empty => formatter.write_str("opération vide"),
+            Self::UnknownOperation { operation } => {
+                write!(
+                    formatter,
+                    "« {operation} » n'est pas une opération de ce jeu"
+                )
+            }
+            Self::Arity {
+                operation,
+                expected,
+                found,
+            } => write!(
+                formatter,
+                "« {operation} » attend {expected} champ(s) et en a {found}"
+            ),
+            Self::Field { field, value } => {
+                write!(formatter, "{field} illisible : « {value} »")
+            }
+        }
+    }
+}
+
+impl std::error::Error for ParseOperationError {}
+
 fn node_slot(value: Option<&Id<Agent>>) -> String {
     value.map_or_else(|| ABSENT.to_owned(), ToString::to_string)
 }

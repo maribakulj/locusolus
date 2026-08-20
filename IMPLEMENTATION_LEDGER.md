@@ -10012,3 +10012,62 @@ de sortie de l'item le dit.
 
 **Prochain item.** `W17.i`, la frontière courante, puis `W17.j` ; les items neufs viennent après,
 dans l'ordre `W17.k → l → m → n`, `W18.g`, `W18.h`, `W14.e`, les trois indépendants ensuite.
+
+## 2026-08-20 — W17.i — le commit d'une version de coordination écrit un fait
+
+**Périmètre.** `packages/coordination/src/version.rs` — `Operation::parse` et `ParseOperationError`,
+plus l'en-tête du module remis à jour ; `apps/locusd/src/organisation.rs`, neuf — `Commit`,
+`OrganisationContext`, `replay`, `ReplayError`, `stream_of` ; les deux `lib.rs` ;
+`packages/coordination/tests/version.rs` et `apps/locusd/tests/organisation.rs`.
+
+**Tests exécutés.** `npm run check` — les douze gardes. Quarante-sept tests dans
+`coordination/tests/version.rs`, six dans `locusd/tests/organisation.rs`.
+
+**Ce que l'item ferme.** `packages/coordination` savait produire une `Version` et rien n'écrivait le
+résultat : un commit rendait une valeur que l'appelant gardait pour lui. Le journal n'en portait
+aucune trace, donc aucun résolveur ne pouvait relire une `VersionId`, et `/branches/{id}/diff`
+n'avait pas de quoi répondre. `W17.j` en dépendait directement.
+
+**La forme canonique est devenue la forme de transport, et ce n'est pas une économie.** Les octets
+écrits dans le journal sont **exactement** ceux sur lesquels le condensat a été calculé : un lecteur
+relit ce qui a été signé, et non une seconde représentation dont il faudrait prouver qu'elle dit la
+même chose. Une sérialisation dérivée aurait fait de la forme d'un `derive` un contrat de journal
+sans que personne ne le décide.
+
+**Ce choix n'était pas disponible il y a trois heures.** La forme canonique n'était pas analysable
+sans ambiguïté : un rôle portant une tabulation forgeait un champ, et un rôle nommé `-` était
+indistinguable d'une absence. Le durcissement contre l'injection — corrigé pour une tout autre
+raison — l'a rendue non ambiguë, et `Operation::parse` en est le bénéficiaire direct. Une correction
+de défaut a ouvert une voie qu'elle ne cherchait pas ; c'est assez rare pour être noté.
+
+**Les dix opérations font l'aller-retour, pas un échantillon.** Une opération non couverte est
+précisément celle dont on découvrirait dans un an qu'elle ne se relit pas. Le test tient aussi le
+compte contre l'énumération, et le cas que le champ vide piège : une scission sans arête partagée
+rend un champ vide, que `split(' ')` rend comme un unique élément vide — sans filtre, la relecture
+aurait inventé une arête illisible et refusé une opération valide.
+
+**Aucun magasin, et la révision vient du journal.** ADR 0016 décision 5 : « aucun compteur, aucun
+magasin, aucun bus n'est créé ». La révision d'une version **est** la révision de stream, et un
+commit sur une base périmée est refusé par le mécanisme de toute autre commande — pas par une
+vérification que ce module aurait ajoutée. C'est le point : il n'y avait rien à ajouter.
+
+**La racine est fournie, et la lacune est nommée.** Rejouer part d'une racine que l'appelant donne,
+parce que la racine d'une organisation est ce que produit `team.create` — une commande de §22.3 qui
+n'est pas cet item. L'inventer aurait demandé de choisir un mode de coordination par défaut, et
+§14.3 n'en donne aucun : les cinq sont obligatoires et aucun n'est le repli des autres. Un défaut
+choisi en passant se serait lu comme une décision de §14.3 et aurait faussé la comparaison entre
+campagnes que cette section annonce. Même discipline que `BranchContext` pour les identifiants.
+
+**Le stream est `organisation/{branch_id}`**, et l'argument est la route qui a motivé la chaîne :
+§22.4 sert `/branches/{id}/diff`, donc le graphe comparé est celui d'une branche. Le ranger ailleurs
+obligerait cette route à une jointure pour retrouver ce qu'elle a déjà dans son chemin.
+
+**Corrigé en passant.** L'en-tête de `version.rs` disait encore « huit opérations » et « sept des
+huit ont un inverse exact » depuis que `W13.h` en a ajouté deux. Dix et neuf.
+
+**Écart avec la spec.** Aucun. §10.3 donne `team` comme famille et §22.3 `team.modify` comme
+commande ; l'événement est ce que la commande produit, au passé, comme `branch.validated` l'est de
+`branch.merge.apply`.
+
+**Prochain item.** `W17.j` — le résolveur de versions et la liaison HTTP du diff et de la preview,
+que cet item vient de rendre possible.
