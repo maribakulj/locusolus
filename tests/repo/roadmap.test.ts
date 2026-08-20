@@ -504,11 +504,17 @@ test("un blocage dont la dépendance est incomplète n'est pas rapporté", () =>
 });
 
 /**
- * **`externe` ne se périme jamais**, et c'est ce qui distingue les quatre lignes bloquées.
+ * **`externe` ne se périme jamais**, et c'est ce qui distingue les lignes bloquées entre elles.
  *
- * `W16.e` attend une messagerie qui n'existe pas, `W18.f` un hôte capable. Ces blocages n'ont pas de
- * date, et un garde qui prétendrait en connaître une enverrait une session construire une
- * fonctionnalité pour justifier un test.
+ * `W18.f` attend un hôte capable : ce blocage n'a pas de date, et un garde qui prétendrait en
+ * connaître une enverrait une session construire une fonctionnalité pour justifier un test.
+ *
+ * `W16.e` portait le même marqueur pour une messagerie inter-agents, et l'ADR 0019 l'a levé — non
+ * pas parce que le garde s'est trompé, mais parce que `externe` désigne ce qu'aucun item du plan ne
+ * débloquera, et **pas** ce qu'aucune décision ne débloquera. Les deux se ressemblent dans un
+ * tableau et diffèrent entièrement : le premier attend une machine, le second attendait un
+ * arbitrage. Le garde ne sait pas faire la différence, et c'est pour cela qu'il ne se prononce sur
+ * aucun des deux.
  */
 test("un blocage externe ne se périme pas", () => {
   const findings = reconcile({

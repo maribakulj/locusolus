@@ -76,7 +76,7 @@ en `lep/1.0`, et soit consommable par deux implémentations indépendantes.
 | W0.13 `[R]` **fait** | **une entrée qui consigne un blocage n'est pas une livraison** — la garde trie les entrées du registre au lieu de les compter | locusolus | une entrée titrée `— Bloqué :` ne vaut pas livraison, et une ligne **fait** au-dessus d'elle est rapportée sous son nom propre ; un titre qui **cite** le mot livre quand même ; le blocage d'un dépôt voisin en est un aussi |
 | W0.14 `[R]` **fait** | **un item qui traverse deux dépôts se livre en plusieurs fois**, et une moitié consignée ne vaut pas l'item | locusolus | une entrée titrée `— Partiel :` ne compte pas comme livraison, au même titre que `Bloqué` et `Reporté` ; les trois préfixes restent distincts, parce qu'ils disent quoi attendre |
 | W0.15 `[R]` **fait** | **le générateur de SDK apprend les unions discriminées** — un `oneOf` dont chaque branche épingle la même propriété | locusolus | Rust rend un `enum` étiqueté en interne **sans** l'étiquette dans ses variantes, TypeScript une union discriminée **avec** l'étiquette en type littéral, et les trois formes qu'on ne sait pas générer — `oneOf` non étiqueté, branches homonymes, branche par `$ref` — sont refusées chacune sous son nom |
-| W0.16 `[R]` **fait** | **un blocage qui nomme ce qu'il attend se périme tout seul** — `attend:<id>` dans la raison d'une ligne bloquée, et `check:roadmap` refuse quand ce qu'elle attend est livré | une ligne bloquée dont la dépendance déclarée est **entièrement livrée** fait échouer le garde, vu en rouge sur `W17.f` avant d'être vu en vert ; `attend:externe` ne se périme **jamais**, parce qu'un hôte ou une messagerie qui n'existent pas n'ont pas de date ; une ligne **sans marqueur** n'est pas vérifiée du tout — deviner l'identifiant dans la prose aurait crié au blocage périmé sur `W18.f`, dont la raison **cite** `W5.f` sans l'attendre |
+| W0.16 `[R]` **fait** | **un blocage qui nomme ce qu'il attend se périme tout seul** — `attend:<id>` dans la raison d'une ligne bloquée, et `check:roadmap` refuse quand ce qu'elle attend est livré | une ligne bloquée dont la dépendance déclarée est **entièrement livrée** fait échouer le garde, vu en rouge sur `W17.f` avant d'être vu en vert ; `attend:externe` ne se périme **jamais**, parce qu'un hôte ou un consommateur qui n'existent pas n'ont pas de date ; une ligne **sans marqueur** n'est pas vérifiée du tout — deviner l'identifiant dans la prose aurait crié au blocage périmé sur `W18.f`, dont la raison **cite** `W5.f` sans l'attendre |
 
 Fin de W0 : `lep/1.0` est gelé. Toute évolution suit `docs/06` — majeur = rupture, mineur = champs
 optionnels compatibles.
@@ -635,8 +635,9 @@ ou dans l'autre.
 Le scheduler doit savoir spawn, suspend, drain, kill, replace, split, merge, connect, disconnect,
 rerouter l'état, rejouer, migrer le contexte, et livrer les messages **en connaissance de la version**.
 Barrières par invariant menacé plutôt que par lieu ; quiescence locale d'un nœud plutôt que drain
-global. Epochs, messages tardifs et transfert d'état : ils n'ont un problème réel à résoudre qu'une
-fois une messagerie inter-agents existante. Visibilité institutionnelle facultative des sous-agents
+global. Epochs, messages tardifs et transfert d'état : **débloqués par l'ADR 0019**, qui tranche que
+la messagerie inter-agents est un usage du journal et non un transport parallèle — un message est un
+événement, un epoch est une `Version` de configuration. Visibilité institutionnelle facultative des sous-agents
 internes du harnais — le cas de W16 justifiant un mineur LEP, désormais tranché par l'ADR 0017.
 
 Plan de simulation : rejeu déterministe, substitut d'environnement enregistré, ombre en sandbox réelle,
@@ -645,11 +646,18 @@ canari facultatif. Un objet simulé n'existe pas comme type dans le domaine épi
 Attend W15, W4.e et W4.g. **Les trois sont satisfaits** : W4.e et W4.g sont livrés, et W15 est clos
 à W15.e — W15.f attend un mineur LEP qui a son propre ADR.
 
-Décomposée ici. Deux items de la prose n'entrent pas, et pour la même raison que les opérations
-attributaires de W15.a : **epochs et messages tardifs** n'ont « un problème réel à résoudre qu'une
-fois une messagerie inter-agents existante », et il n'y en a pas ; la **visibilité institutionnelle
-des sous-agents internes du harnais** est « le cas de W16 justifiant un mineur LEP, avec son ADR »,
-donc elle attend cet ADR comme W15.f.
+Décomposée ici. Un item de la prose n'entre pas, et pour la même raison que les opérations
+attributaires de W15.a : la **visibilité institutionnelle des sous-agents internes du harnais** est
+« le cas de W16 justifiant un mineur LEP, avec son ADR », et l'ADR 0017 l'a écrit — mais le blocage
+a changé de nature, et ce qui manque désormais est un consommateur.
+
+**Epochs et messages tardifs entraient dans la même phrase et n'y sont plus.** Ils n'avaient « un
+problème réel à résoudre qu'une fois une messagerie inter-agents existante », et le propriétaire du
+produit a énoncé que le besoin l'est. L'ADR 0019 tranche la seule question que le gel laissait
+ouverte — **quelle forme** cette messagerie prend — et refuse celle qui coûtait le gel : un courtier
+dédié serait un second stockage durable du même fait, donc une seconde vérité, la conclusion même de
+`W20.f`. Un message est un événement du journal ; l'item a donc un test de sortie qui ne demande
+aucune fonctionnalité inventée pour le justifier.
 
 | # | Commit | Test de sortie |
 |---|---|---|
@@ -657,7 +665,7 @@ donc elle attend cet ADR comme W15.f.
 | W16.b `[R]` **fait** | les **barrières par invariant menacé** plutôt que par lieu | une reconfiguration ne barre que les nœuds dont elle menace un invariant, et le refus nomme l'invariant, pas le lieu ; deux reconfigurations qui ne menacent pas le même invariant ne se bloquent pas l'une l'autre ; une barrière posée sans invariant menacé est refusée |
 | W16.c `[R]` **fait** | le plan de simulation : rejeu déterministe, substitut d'environnement enregistré, ombre en sandbox réelle, canari facultatif | deux rejeux de la même trace rendent le même résultat ; un substitut d'environnement qui n'a pas la réponse le **dit** au lieu d'en inventer une ; un objet simulé n'existe **pas** comme type dans le domaine épistémique, et un test le tient par l'absence |
 | W16.d `[M]` **bloqué** | visibilité institutionnelle facultative des sous-agents internes du harnais — **tranche 4 du mineur `lep/1.1`** (ADR 0017 §5.4) | `attend:externe` — l'ADR est écrit ; **le blocage a changé de nature** et n'est plus une décision mais un consommateur, qui n'existe pas. Ce que l'institution voit d'un sous-agent reste à trancher, et ce trait traverse l'invariant 11 : voir qu'un sous-agent existe et voir son contexte sont deux choses, et un reviewer interne au harnais ne doit pas devenir le chemin par lequel le raisonnement privé du générateur remonte |
-| W16.e `[R]` **reporté** | epochs, messages tardifs et transfert d'état | `attend:externe` — une messagerie inter-agents, qui n'existe pas ; la construire pour débloquer l'item serait construire une fonctionnalité afin de justifier un test. Voir « Ce qui est reporté » |
+| W16.e `[R]` | epochs, messages tardifs et transfert d'état — la messagerie comme **usage du journal** (ADR 0019) | émettre un message rend un événement du namespace `message` et **rien d'autre** : aucun second stockage durable, tenu par l'absence comme `W20.b` tient les écritures ; un message reçu sous un epoch antérieur à celui du destinataire est rapporté `Late` **en nommant les deux epochs**, jamais appliqué ni jeté en silence, et un epoch inconnu rend `Unknown` et non `Late` — deviner et ignorer sont deux fautes distinctes, pas deux nuances de la même ; le passage de témoin d'un `drain` transmet ce que le nœud sortant tenait et **refuse** un contexte de mission, la règle « nouvel attempt, nouvelle vue, nouveau hash » de `docs/13` étant tenue par un test d'absence |
 
 W16.a avant W16.b : une barrière borne des transitions, donc les transitions d'abord. W16.c ne
 dépend d'aucun des deux.
@@ -809,15 +817,17 @@ qu'une façade.
 
 ## Ce qui est reporté, et pourquoi c'est écrit ici plutôt que deviné
 
-Deux items de cette roadmap ne se feront pas en V1, et les laisser marqués « bloqué » sans dire
-combien de temps ferait croire à une attente courte.
+Un item de cette roadmap ne se fera pas en V1, et le laisser marqué « bloqué » sans dire combien de
+temps ferait croire à une attente courte.
 
-**`W16.e` — epochs, messages tardifs, transfert d'état — est reporté sans regret.** Il attend une
-messagerie inter-agents, et il n'y en a pas : aujourd'hui les agents parlent à l'institution, pas
-entre eux. Epochs et messages tardifs n'ont un problème réel à résoudre qu'une fois que A envoie à B
-et que B a changé d'état entre-temps. Construire la messagerie **pour** débloquer l'item reviendrait à
-construire une fonctionnalité afin de justifier un test. C'est le seul item de la roadmap qui soit
-bloqué correctement **et** définitivement pour cette version.
+**`W16.e` était le second, et il ne l'est plus.** Ce paragraphe garde sa trace parce qu'un report
+levé s'explique aussi mal qu'un report posé : la section disait qu'il attendait « une messagerie
+inter-agents, et il n'y en a pas », et que la construire **pour** débloquer l'item reviendrait à
+construire une fonctionnalité afin de justifier un test. Ce raisonnement était juste tant que le
+besoin n'était pas énoncé — ce qui a changé n'est pas l'argument, c'est sa prémisse. Le propriétaire
+du produit a énoncé le besoin ; l'ADR 0019 a tranché la forme, et a écarté celle qui coûtait le gel.
+La leçon à ne pas perdre : un report qui nomme sa condition se lève quand la condition tombe, et un
+report qui n'en nommait pas serait resté par inertie.
 
 **`W18.f` — l'admission exercée de bout en bout contre une sandbox `S3`/`S4` réellement attestée — est
 reporté faute d'hôte**, et `W5.f` a rendu la condition précise. Il ne s'agit plus de « un hôte

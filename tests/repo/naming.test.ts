@@ -43,6 +43,25 @@ test("une dérogation qui ne correspond plus à rien est signalée", async () =>
   );
 });
 
+/**
+ * **La sortie de build n'est pas le dépôt**, et la garde ne la lit pas.
+ *
+ * `target/` contient les sources des crates tiers que Cargo a téléchargés. Une occurrence du nom
+ * retiré s'y trouve tôt ou tard, et elle n'est réparable par personne : le seul geste possible
+ * serait d'inscrire une dérogation pour un chemin qui n'existe pas chez le voisin.
+ *
+ * Le test regarde aussi que **rien n'y est vu du tout**, dérogation périmée comprise. Une garde qui
+ * élaguerait le répertoire sans l'oublier tout à fait signalerait la dérogation absente.
+ */
+test("la sortie de build de Cargo n'est pas lue", async () => {
+  const root = await tree({
+    "docs/notes.md": "# rien à signaler\n",
+    [`target/debug/build/quelque-crate/src/lib.rs`]: `// ${retiredName}\n`,
+    [`packages/graph/target/tmp.rs`]: `// ${retiredName}\n`,
+  });
+  assert.deepEqual(await inspectNaming(root, new Map()), []);
+});
+
 async function tree(files: Record<string, string>): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), "locus-naming-"));
   scratch.push(root);

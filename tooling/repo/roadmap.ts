@@ -241,8 +241,14 @@ export async function readReconciliation(root: string): Promise<Reconciliation> 
  *
  * Une phase — `W20` — est satisfaite quand toutes ses lignes sont marquées ou décidées : c'est ce
  * que « attend `locusd`, décomposé en W20 » voulait dire. Un item — `W15.f` — l'est quand il porte
- * son marqueur. `externe` ne l'est jamais, et c'est le point : une ligne qui attend un hôte, une
- * messagerie ou un consommateur n'a pas de date, et le garde ne doit pas prétendre en connaître une.
+ * son marqueur. `externe` ne l'est jamais, et c'est le point : une ligne qui attend un hôte ou un
+ * consommateur n'a pas de date, et le garde ne doit pas prétendre en connaître une.
+ *
+ * Ce qu'`externe` ne dit **pas** : « rien ne le débloquera jamais ». `W16.e` portait ce marqueur
+ * pour une messagerie inter-agents, et l'ADR 0019 l'a levé en une décision. Le marqueur dit « aucun
+ * item de ce plan », ce qui reste vrai d'un item débloqué par un arbitrage — un arbitrage n'est pas
+ * une ligne du tableau. Élargir la règle pour attraper ce cas demanderait au garde de savoir qu'une
+ * décision est mûre, ce qu'aucun fichier ne porte.
  */
 function satisfied(what: string, state: Reconciliation): boolean {
   if (what === "externe") {

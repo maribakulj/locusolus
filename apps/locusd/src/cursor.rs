@@ -68,7 +68,13 @@ impl Collection {
     }
 
     /// Toutes, dans l'ordre de déclaration.
-    pub const ALL: [Self; 4] = [Self::Timeline, Self::Workers, Self::Conflicts, Self::Events];
+    pub const ALL: [Self; 5] = [
+        Self::Timeline,
+        Self::Workers,
+        Self::Conflicts,
+        Self::Events,
+        Self::History,
+    ];
 }
 
 impl fmt::Display for Collection {
