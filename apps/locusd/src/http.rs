@@ -35,12 +35,15 @@ use axum::extract::{Path, Query, State};
 use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
+use locus_coordination::version::VersionId;
 use locus_event_store::EventStore;
+use locus_protocol::Id;
 use serde::Deserialize;
 
 use crate::composition::Runtime;
 use crate::cursor::{Collection, Cursor, CursorError};
 use crate::error::{CommandError, Family};
+use crate::organisation::ReplayError;
 use crate::query::Page;
 use crate::stream::Frame;
 
@@ -76,6 +79,7 @@ where
         .route("/conflicts", get(conflicts::<S>))
         .route("/events", get(events::<S>))
         .route("/branches/{id}/history", get(branch_history::<S>))
+        .route("/branches/{id}/diff", get(branch_diff::<S>))
         .route("/projections/status", get(projections_status::<S>))
         .with_state(runtime)
 }
@@ -198,6 +202,78 @@ async fn branch_history<S: EventStore + Send + Sync + 'static>(
     }
 }
 
+/// Les deux bornes d'un diff — §22.4, `GET /branches/{id}/diff?from=&to=`.
+///
+/// **Les deux sont obligatoires**, et c'est la propriété que `W17.f` a posée : une comparaison sans
+/// borne n'est pas une comparaison. Un défaut « depuis le début » aurait rendu un diff plausible à
+/// qui a oublié un paramètre.
+#[derive(Debug, Deserialize)]
+struct Bornes {
+    from: Option<String>,
+    to: Option<String>,
+}
+
+async fn branch_diff<S: EventStore + Send + Sync + 'static>(
+    State(runtime): State<Arc<Runtime<S>>>,
+    Path(id): Path<String>,
+    Query(bornes): Query<Bornes>,
+) -> Response {
+    let (Some(from), Some(to)) = (bornes.from.as_deref(), bornes.to.as_deref()) else {
+        return probleme(
+            StatusCode::BAD_REQUEST,
+            "validation",
+            "« from » et « to » sont requis : une comparaison sans borne n'est pas une comparaison",
+        );
+    };
+    let (Ok(branche), Some(depart), Some(arrivee)) =
+        (Id::parse(&id), VersionId::parse(from), VersionId::parse(to))
+    else {
+        return probleme(
+            StatusCode::BAD_REQUEST,
+            "validation",
+            "identifiant de branche ou de version illisible",
+        );
+    };
+
+    match runtime.organisation_diff(branche, &depart, &arrivee) {
+        Ok(view) => {
+            let operations: Vec<String> = view
+                .operations
+                .iter()
+                .map(|operation| format!("\"{}\"", operation.replace('\t', "\\t")))
+                .collect();
+            json(
+                StatusCode::OK,
+                format!(
+                    "{{\"from\":\"{}\",\"to\":\"{}\",\"operations\":[{}]}}",
+                    view.from,
+                    view.to,
+                    operations.join(",")
+                ),
+            )
+        }
+        // Une version inconnue est un `404` : la ressource demandée n'existe pas. Un `400` dirait
+        // que la requête est mal écrite, et enverrait le client relire une syntaxe correcte.
+        Err(ReplayError::UnknownVersion { version }) => probleme(
+            StatusCode::NOT_FOUND,
+            "not_found",
+            &format!("aucune version « {version} » dans cette branche"),
+        ),
+        Err(ReplayError::Empty) => probleme(
+            StatusCode::NOT_FOUND,
+            "not_found",
+            "aucune organisation n'a été fondée sur cette branche",
+        ),
+        // Un stream illisible est une faute du serveur, pas du client : le dire autrement enverrait
+        // le client corriger ce qu'il n'a pas écrit.
+        Err(autre) => probleme(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "internal",
+            &autre.to_string(),
+        ),
+    }
+}
+
 async fn projections_status<S: EventStore + Send + Sync + 'static>(
     State(runtime): State<Arc<Runtime<S>>>,
 ) -> Response {
@@ -252,6 +328,21 @@ fn refusal(error: CursorError) -> Response {
             "{{\"family\":\"{}\",\"field\":\"cursor\",\"detail\":\"{}\"}}",
             refus.family(),
             error.to_string().replace('"', "'")
+        ),
+    )
+}
+
+/// Un refus qui n'est pas celui d'un cursor — même forme, autre famille et autre statut.
+///
+/// Écrit à côté de [`refusal`] plutôt qu'en le généralisant : `refusal` porte un raisonnement qui
+/// lui est propre — pourquoi `400` et jamais `500` pour un cursor — et le fondre dans une fonction
+/// à trois paramètres aurait effacé ce raisonnement au profit d'un appelant qui choisit.
+fn probleme(status: StatusCode, family: &str, detail: &str) -> Response {
+    json(
+        status,
+        format!(
+            "{{\"family\":\"{family}\",\"detail\":\"{}\"}}",
+            detail.replace('"', "'")
         ),
     )
 }

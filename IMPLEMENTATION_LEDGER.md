@@ -10071,3 +10071,56 @@ commande ; l'événement est ce que la commande produit, au passé, comme `branc
 
 **Prochain item.** `W17.j` — le résolveur de versions et la liaison HTTP du diff et de la preview,
 que cet item vient de rendre possible.
+
+## 2026-08-20 — W17.j — le résolveur de versions et la liaison HTTP du diff
+
+**Périmètre.** `packages/coordination/src/version.rs` — `VersionId::parse` ;
+`apps/locusd/src/organisation.rs` — `Create`, `created_event`, `root_from`, `resolve`, `resolve_at`,
+`apply_from`, `ReplayError::{Empty, UnknownVersion}` ; `apps/locusd/src/branch.rs` —
+`Runtime::organisation_diff` ; `apps/locusd/src/http.rs` — la route `GET /branches/{id}/diff` et
+`probleme` ; `apps/locusd/tests/http.rs`.
+
+**Tests exécutés.** `npm run check` — les douze gardes. Vingt tests dans `locusd/tests/http.rs`,
+dont trois neufs servis sur un socket réel.
+
+**La lacune de `W17.i` se comble ici, et par le seul moyen qui n'invente rien.** `W17.i` recevait sa
+racine de l'appelant, en refusant de choisir un mode de coordination par défaut que §14.3 ne donne
+pas. Une route HTTP n'a qu'un identifiant de branche dans son chemin : elle n'aurait eu nulle part
+où prendre cette racine. `team.created` la met dans le journal — **quelqu'un déclare** la
+composition initiale, et cette déclaration est un fait. Le mode vient de qui fonde l'organisation,
+pas d'un défaut de module.
+
+**Deux formes de charge, et l'asymétrie est délibérée.** Une opération voyage sous sa forme
+canonique ; une racine voyage en clair — membres, relations, mode, coordinateur. La forme canonique
+d'un **contenu** est un texte à lignes trié, dont la relecture demanderait un second analyseur pour
+un seul usage, quand les opérations se relisent par milliers. Le condensat accompagne la composition
+et **est vérifié** : une racine reconstruite qui n'est pas celle que le fait annonce est refusée,
+parce que reconstruire un contenu qu'on ne peut pas reconnaître ne prouve rien.
+
+**`resolve_at` s'arrête sur la version demandée** plutôt que d'aller au bout du stream : une
+`VersionId` désigne un point de l'histoire, et rendre l'état final pour une version intermédiaire
+serait répondre à une autre question.
+
+**Trois refus qui ne se confondent pas.** `Empty` — aucune organisation fondée, et une organisation
+**absente** n'est pas une organisation **vide** : rendre une racine sans membre ferait afficher une
+équipe vide là où il n'y a pas d'équipe. `UnknownVersion` — `404`, jamais une racine plausible, ce
+que `W17.j` interdit nommément et qui est le mode d'échec des cursors de `W20.e`. `Unreadable` —
+`500`, parce qu'un journal illisible est une faute du serveur et que le dire autrement enverrait le
+client corriger ce qu'il n'a pas écrit. Un test vérifie qu'une version inconnue ne rend **aucune**
+opération : un diff vide aurait été la réponse plausible.
+
+**Un test de `W17.g` a été remplacé, et le remplacement dit pourquoi.** Il refusait les trois routes
+restantes en notant « il tombera le jour où le résolveur existera, et c'est exactement ce qu'on lui
+demande ». Ce jour est arrivé. Il en tient maintenant deux — preview et ombre —, avec les raisons
+inchangées : la preview demande les `Barriers` en vigueur, que rien ne matérialise depuis le journal
+; l'ombre demande un plan et un environnement, qu'un `GET` ne porte pas. Et il nomme désormais les
+routes **présentes**, faute de quoi il passerait aussi sur un routeur vide.
+
+**Une lecture d'opération, écrite une fois.** `apply_from` est appelée par `replay`, `resolve` et
+`resolve_at` ; trois lectures séparées auraient fini par diverger, et la troisième aurait été celle
+qu'on ne relit jamais.
+
+**Écart avec la spec.** Aucun. §22.4 sert `/branches/:id/diff` et la route rend les opérations **et
+leur nature** — la propriété que deux mutants de `W17.f` avaient traversée.
+
+**Prochain item.** `W17.k` — `memory::Genre`, le premier des items ouverts par l'ADR 0022.

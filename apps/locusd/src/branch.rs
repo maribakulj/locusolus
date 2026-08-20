@@ -40,11 +40,11 @@
 use locus_coordination::barrier::{Barriers, Passage};
 use locus_coordination::diff::Diff;
 use locus_coordination::simulation::{Fidelity, Outcome as ShadowOutcome, Recorded, run};
-use locus_coordination::version::Version;
+use locus_coordination::version::{ContentDigest, Operation, Version, VersionId};
 use locus_domain::branch::{Branch, BranchState, TransitionError, ValidationWitness};
 use locus_event_store::{Actor, ActorKind, Draft as EventDraft, EventStore, EventType};
 use locus_protocol::id::provisional::Decision as DecisionKind;
-use locus_protocol::id::{Event, Project};
+use locus_protocol::id::{Branch as BranchId, Event, Project};
 use locus_protocol::{Id, Timestamp};
 
 use crate::command::CommandEnvelope;
@@ -52,6 +52,7 @@ use crate::composition::Runtime;
 use crate::cursor::{Collection, Cursor, CursorError};
 use crate::error::CommandError;
 use crate::handler::Decide;
+use crate::organisation::{ReplayError, resolve_at, stream_of};
 use crate::query::Page;
 
 /// Ce qu'un diff rend à un lecteur — §22.4, `GET /branches/:id/diff`.
@@ -127,6 +128,40 @@ impl<S: EventStore> Runtime<S> {
         environment: &Recorded,
     ) -> ShadowOutcome {
         run(proposal, Fidelity::Shadow, plan, environment)
+    }
+
+    /// Le diff entre deux versions **nommées** de l'organisation d'une branche — §22.4.
+    ///
+    /// # Ce que cette méthode ne détient pas
+    ///
+    /// Rien. Les deux versions sont résolues par rejeu du stream d'organisation, et le diff est
+    /// calculé entre elles. ADR 0016 décision 5 — « aucun compteur, aucun magasin, aucun bus » —
+    /// tient donc jusqu'à la route HTTP incluse, et pas seulement dans le domaine.
+    ///
+    /// # Errors
+    ///
+    /// [`ReplayError`] : le stream vide, une version inconnue, une charge illisible. Aucune ne se
+    /// résout en une valeur plausible.
+    pub fn organisation_diff(
+        &self,
+        branch: Id<BranchId>,
+        from: &VersionId,
+        to: &VersionId,
+    ) -> Result<DiffView, ReplayError> {
+        let charges: Vec<serde_json::Value> = self
+            .transaction_store()
+            .read_stream(&stream_of(branch), 0)
+            .iter()
+            .map(|envelope| envelope.payload.clone())
+            .collect();
+        let depart = resolve_at(&charges, from, &ContentDigest)?;
+        let arrivee = resolve_at(&charges, to, &ContentDigest)?;
+        let diff = Diff::between(&depart, &arrivee);
+        Ok(DiffView {
+            from: from.to_string(),
+            to: to.to_string(),
+            operations: diff.operations().iter().map(Operation::canonical).collect(),
+        })
     }
 
     /// La **navigation dans le temps** : l'état d'un stream tel qu'il était à une révision.

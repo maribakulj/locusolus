@@ -130,6 +130,16 @@ impl Digest for ContentDigest {
 pub struct VersionId(ContentHash);
 
 impl VersionId {
+    /// Relire une identité de version reçue d'ailleurs — un chemin d'URL, un cursor, un événement.
+    ///
+    /// `None` plutôt qu'un défaut : une identité illisible rabattue sur une racine plausible est
+    /// exactement le mode d'échec que `W17.j` interdit, et celui que `W20.e` a nommé pour les
+    /// cursors — une réponse prise au mauvais endroit, que rien dans la réponse ne signale.
+    #[must_use]
+    pub fn parse(text: &str) -> Option<Self> {
+        ContentHash::parse(text).ok().map(Self)
+    }
+
     /// Le hash sous-jacent.
     #[must_use]
     pub const fn hash(&self) -> &ContentHash {
