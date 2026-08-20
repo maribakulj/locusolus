@@ -8,7 +8,9 @@
 use std::collections::BTreeSet;
 use std::fmt::Write as _;
 
-use locus_coordination::{Diff, DiffError, Digest, Operation, Relation, RelationKind, Version};
+use locus_coordination::{
+    CoordinationMode, Diff, DiffError, Digest, Operation, Relation, RelationKind, Version,
+};
 use locus_domain::ContentHash;
 use locus_protocol::{Id, IdKind, Timestamp, id::Agent};
 
@@ -60,6 +62,8 @@ fn three() -> Version {
     Version::root(
         &[agent(1), agent(2), agent(3)],
         &[reviews(agent(1), agent(2)), reviews(agent(3), agent(2))],
+        CoordinationMode::Blackboard,
+        None,
         &Fnv,
     )
     .expect("la fixture est cohérente")
@@ -117,7 +121,14 @@ fn two_replays_of_one_diff_agree_down_to_the_version_id() {
 #[test]
 fn a_diff_removes_before_it_adds() {
     let from = three();
-    let to = Version::root(&[agent(1), agent(3), agent(4)], &[], &Fnv).expect("cible cohérente");
+    let to = Version::root(
+        &[agent(1), agent(3), agent(4)],
+        &[],
+        CoordinationMode::Blackboard,
+        None,
+        &Fnv,
+    )
+    .expect("cible cohérente");
 
     let diff = Diff::between(&from, &to);
     let replayed = diff

@@ -6,6 +6,7 @@
 //! `decide` rend — compter ce qu'une fonction rend ne dit rien de ce qu'elle a écrit ailleurs en
 //! chemin, et c'est précisément la faute qu'un courtier introduirait.
 
+use locus_coordination::CoordinationMode;
 use locus_coordination::messaging::Message;
 use locus_coordination::version::{Digest, Version};
 use locus_domain::ContentHash;
@@ -69,7 +70,14 @@ fn contexte() -> MessageContext {
 }
 
 fn epoque() -> Version {
-    Version::root(&[id::<Agent>(1), id::<Agent>(2)], &[], &Fnv).expect("version racine")
+    Version::root(
+        &[id::<Agent>(1), id::<Agent>(2)],
+        &[],
+        CoordinationMode::Blackboard,
+        None,
+        &Fnv,
+    )
+    .expect("version racine")
 }
 
 // ---------------------------------------------------------------------------------------------

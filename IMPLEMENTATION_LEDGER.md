@@ -9767,3 +9767,72 @@ duplication ou réécrit un schéma sans que personne ne l'ait demandé.
 d'être promis.
 
 **Prochain item.** `W17.i`, dès que l'arbitrage ci-dessus est rendu.
+
+## 2026-08-20 — W13.h — ADR 0021 : une seule grammaire, et la structure là où elle est lue
+
+**Périmètre.** `docs/adr/0021-une-seule-grammaire-de-mutation.md` ; `docs/10_V1_ROADMAP.md` — trois
+lignes neuves, `W13.h` à `W13.j` ; `packages/coordination/src/version.rs` — le mode, le
+coordinateur, `SET_MODE`, `SET_COORDINATOR`, huit variantes d'erreur, `check_composition` ;
+`region.rs` — les deux matchs exhaustifs ; onze fichiers de tests, quarante-six appels de
+`Version::root` réécrits.
+
+**Tests exécutés.** `npm run check` — les douze gardes. `cargo clippy --workspace --all-targets` et
+`cargo test --workspace` : verts. Quarante-trois tests dans `coordination/tests/version.rs`.
+
+**L'arbitrage, et pourquoi le tableau était trompeur.** Deux énumérations décrivaient le même acte
+sur le chemin qui se dit unique — `proposal::Change` et `version::Operation`. Le tableau de l'ADR
+les fait paraître symétriques. Les **consommateurs** disent autre chose : `Operation` est honorée
+par `Version::apply`, `Diff`, `region::threatens`, `Barriers::admits`, `metrics` et `DiffView` dans
+le démon ; `Change` a sept sites d'usage dont cinq dans son propre test, et `commit()` ne l'applique
+à rien. Une proposition qui déclarait `AddMember` puis commitait laissait le système exactement dans
+l'état où elle l'avait trouvé.
+
+`Team` n'était pas mieux loti : `members`, `mode`, `coordinator` et `revision` en champs privés, et
+`new()` plus `title()` pour toute API. Un constructeur qui valide puis se tait.
+
+La question n'était donc pas « laquelle garder » mais « qu'est-ce qui manque pour qu'il n'y en ait
+qu'une ».
+
+**Ce que W13.h livre.** La `Version` porte désormais le mode et le coordinateur, et les trois règles
+de §14.3 refusent depuis elle — équipe sans membre, coordinateur non membre, mode `coordinator` sans
+coordinateur. Elles n'ont pas changé : elles ont déménagé avec la structure, ce qui est le point.
+
+Trois décisions prises en chemin, et écrites parce qu'elles se défendent :
+
+- **`check_composition` s'exécute après _chaque_ application**, pas seulement dans les deux
+  opérations attributaires. `REMOVE_NODE` et `SPLIT_NODE` changent l'appartenance sans rien savoir
+  du coordinateur ; une règle vérifiée seulement là où l'on pense qu'elle peut casser est une règle
+  qu'on croit tenir.
+- **Retirer le nœud coordinateur est refusé**, pour la raison exacte qui refuse de retirer un nœud
+  qui porte un rôle : la charge est une information que le nœud emporte, et `ADD_NODE` ne saurait
+  pas la rendre. **Le remplacer**, en revanche, l'emporte avec l'identité — un remplacement est un
+  isomorphisme, rien ne s'y perd.
+- **Les deux opérations entrent ensemble.** Si `SET_MODE` avait pu entrer seule, on aurait pu poser
+  le mode `coordinator` sans coordinateur puis réparer au coup suivant — un état que §14.3 déclare
+  impossible, atteint transitoirement. Un test tient l'ordre qui marche : désigner d'abord.
+
+**Un test remplacé, et il est dit pourquoi.** `an_empty_organisation_measures_as_zero` vérifiait
+qu'une version vide se mesure sans cas particulier. La propriété était vraie et n'a plus d'objet.
+Remplacée par le refus, plus la même vérification sur le plus petit graphe qui existe désormais — un
+test supprimé pendant un refactor ne laisse aucune trace de ce qu'il tenait, et le lecteur suivant
+ne peut pas distinguer « la règle a changé » de « la vérification a été perdue ».
+
+**Les gardes ont fait leur travail.** Les deux matchs exhaustifs de `region.rs` ont refusé de
+compiler dès l'ajout des variantes, et ont obligé à répondre pour chacune : ni `SET_MODE` ni
+`SET_COORDINATOR` ne menace l'acyclicité de revue — le mode `coordinator` concentre la charge, ce
+qui est une question de dépendance, pas de cycle. Nommer là l'invariant de revue aurait fait
+relâcher une barrière pour une menace qui n'est pas celle-là. Et `touched` rend les **deux**
+identifiants d'un changement de coordinateur : une région qui ne contiendrait pas le sortant
+pourrait le démettre depuis l'extérieur.
+
+**Deux ajouts locaux, signalés.** `Operation::NAMES` passe de huit à dix, et le commentaire dit que
+`docs/13` ne nomme ni `SET_MODE` ni `SET_COORDINATOR` — les fondre ferait passer un ajout pour une
+lecture de la spec. Même discipline que le namespace `message` de l'ADR 0019.
+
+**Écart avec la spec.** Aucun pour l'instant : §7.1 garde `member_ids` et `coordination_mode` sur
+`Team`, et c'est `W13.j` qui les servira depuis la version courante — « graphe réalisé comme
+projection », `docs/13` §3. Tant que `W13.j` n'est pas livré, `Team` stocke encore ce que la version
+porte, et le double subsiste. C'est une dette **datée**, pas un oubli.
+
+**Prochain item.** `W13.i` — `Proposal` porte un `Diff`, `Change` est retirée, `commit()` rend une
+`Version`.

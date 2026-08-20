@@ -8,8 +8,8 @@
 use std::fmt::Write as _;
 
 use locus_coordination::{
-    Barrier, BarrierError, Barriers, Diff, Digest, Invariant, Operation, Passage, Relation,
-    RelationKind, Version, threatened_by,
+    Barrier, BarrierError, Barriers, CoordinationMode, Diff, Digest, Invariant, Operation, Passage,
+    Relation, RelationKind, Version, threatened_by,
 };
 use locus_domain::ContentHash;
 use locus_protocol::{Id, IdKind, Timestamp, id::Agent};
@@ -54,6 +54,8 @@ fn base() -> Version {
     Version::root(
         &[agent(1), agent(2), agent(3), agent(4), agent(5), agent(6)],
         &[],
+        CoordinationMode::Blackboard,
+        None,
         &Fnv,
     )
     .expect("organisation cohérente")

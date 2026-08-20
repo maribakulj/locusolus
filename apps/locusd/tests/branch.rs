@@ -1,5 +1,6 @@
 //! Le test de sortie de `W17.f` — les six capacités de branche.
 
+use locus_coordination::CoordinationMode;
 use locus_coordination::barrier::{Barriers, Passage};
 use locus_coordination::simulation::{Fidelity, Recorded};
 use locus_coordination::version::{Digest, Operation, Version};
@@ -91,7 +92,14 @@ fn temoin(satisfaite: bool) -> ValidationWitness {
 #[test]
 fn un_diff_se_lit_entre_deux_revisions_nommees() {
     let runtime = Runtime::in_memory();
-    let depart = Version::root(&[id::<Agent>(1)], &[], &Fnv).expect("version racine");
+    let depart = Version::root(
+        &[id::<Agent>(1)],
+        &[],
+        CoordinationMode::Blackboard,
+        None,
+        &Fnv,
+    )
+    .expect("version racine");
     let arrivee = depart
         .apply(&Operation::AddNode(id::<Agent>(2)), &Fnv)
         .expect("un membre de plus");
@@ -148,7 +156,14 @@ fn la_preview_et_l_ombre_n_ecrivent_rien() {
     let mut runtime = Runtime::in_memory();
     let avant = runtime.transaction().store().feed(0).len();
 
-    let depart = Version::root(&[id::<Agent>(1)], &[], &Fnv).expect("version racine");
+    let depart = Version::root(
+        &[id::<Agent>(1)],
+        &[],
+        CoordinationMode::Blackboard,
+        None,
+        &Fnv,
+    )
+    .expect("version racine");
     let arrivee = depart
         .apply(&Operation::AddNode(id::<Agent>(2)), &Fnv)
         .expect("un membre de plus");

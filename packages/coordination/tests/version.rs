@@ -13,7 +13,8 @@ use std::collections::BTreeSet;
 use std::fmt::Write as _;
 
 use locus_coordination::{
-    ContentDigest, Digest, Operation, Relation, RelationKind, Undo, Version, VersionError,
+    ContentDigest, CoordinationMode, Digest, Operation, Relation, RelationKind, Undo, Version,
+    VersionError,
 };
 use locus_domain::ContentHash;
 use locus_protocol::{Id, IdKind, Timestamp, id::Agent};
@@ -74,6 +75,8 @@ fn three() -> Version {
     Version::root(
         &[agent(1), agent(2), agent(3)],
         &[reviews(agent(1), agent(2)), reviews(agent(3), agent(2))],
+        CoordinationMode::Blackboard,
+        None,
         &Fnv,
     )
     .expect("la fixture est cohérente")
@@ -85,12 +88,19 @@ fn three() -> Version {
 
 #[test]
 fn canonical_form_is_frozen() {
-    let version = Version::root(&[agent(1), agent(2)], &[reviews(agent(1), agent(2))], &Fnv)
-        .expect("fixture cohérente");
+    let version = Version::root(
+        &[agent(1), agent(2)],
+        &[reviews(agent(1), agent(2))],
+        CoordinationMode::Blackboard,
+        None,
+        &Fnv,
+    )
+    .expect("fixture cohérente");
     let first = agent(1);
     let second = agent(2);
-    let expected =
-        format!("coordination-content/1\ne\t{first}\treview\t{second}\nn\t{first}\nn\t{second}\n");
+    let expected = format!(
+        "coordination-content/1\nc\t-\ne\t{first}\treview\t{second}\nm\tblackboard\nn\t{first}\nn\t{second}\n"
+    );
     assert_eq!(
         version.canonical(),
         expected,
@@ -103,12 +113,16 @@ fn content_hash_ignores_the_order_a_producer_used() {
     let ordered = Version::root(
         &[agent(1), agent(2), agent(3)],
         &[reviews(agent(1), agent(2)), reviews(agent(3), agent(2))],
+        CoordinationMode::Blackboard,
+        None,
         &Fnv,
     )
     .expect("fixture cohérente");
     let shuffled = Version::root(
         &[agent(3), agent(1), agent(2)],
         &[reviews(agent(3), agent(2)), reviews(agent(1), agent(2))],
+        CoordinationMode::Blackboard,
+        None,
         &Fnv,
     )
     .expect("fixture cohérente");
@@ -383,6 +397,13 @@ fn a_split_leaves_the_rest_of_the_organisation_alone() {
 /// tranche 1 du mineur `lep/1.1`. La décision 4 n'interdit pas les opérations attributaires, elle
 /// interdit celles que rien n'honore — la retirer de la liste sans ce lecteur aurait été
 /// exactement ce qu'elle refuse.
+///
+/// `SET_MODE` et `SET_COORDINATOR` sont entrées par l'ADR 0021, sous la même règle et avec le même
+/// examen : §14.3 est leur lecteur — il enregistre le mode, le compare dans les benchmarks, et fait
+/// du coordinateur la définition du mode `coordinator`. Elles ne sortent donc pas de la liste des
+/// absentes : elles n'y ont jamais été, `docs/13` ne les nommant pas. Le compte passe de huit à dix,
+/// et c'est le seul endroit où ce compte est écrit — un test qui suivrait l'énumération sans la
+/// contraindre ne verrait jamais une variante entrer sans lecteur.
 #[test]
 fn the_three_remaining_attribute_operations_await_their_reader() {
     for absent in ["SET_VISIBILITY", "SET_VALIDATOR", "SET_EXECUTION_ORDER"] {
@@ -395,10 +416,16 @@ fn the_three_remaining_attribute_operations_await_their_reader() {
         Operation::NAMES.contains(&"SET_ROLE"),
         "SET_ROLE est entrée avec son lecteur, et la liste doit le dire"
     );
+    for entered in ["SET_MODE", "SET_COORDINATOR"] {
+        assert!(
+            Operation::NAMES.contains(&entered),
+            "{entered} est entrée avec son lecteur — §14.3 — et la liste doit le dire"
+        );
+    }
     assert_eq!(
         Operation::NAMES.len(),
-        8,
-        "sept structurelles et une attributaire, pas une de plus sans consommateur exécutable"
+        10,
+        "sept structurelles et trois attributaires, pas une de plus sans consommateur exécutable"
     );
 }
 
@@ -611,8 +638,14 @@ fn a_split_only_shares_its_own_edges() {
 
 #[test]
 fn a_root_refuses_a_dangling_edge() {
-    let error = Version::root(&[agent(1)], &[reviews(agent(1), agent(2))], &Fnv)
-        .expect_err("agent(2) n'est pas membre");
+    let error = Version::root(
+        &[agent(1)],
+        &[reviews(agent(1), agent(2))],
+        CoordinationMode::Blackboard,
+        None,
+        &Fnv,
+    )
+    .expect_err("agent(2) n'est pas membre");
     assert!(matches!(error, VersionError::DanglingEdge { .. }));
 }
 
@@ -623,7 +656,8 @@ fn a_root_refuses_a_dangling_edge() {
 /// Poser un rôle, et le lire.
 #[test]
 fn un_role_se_pose_et_se_lit() {
-    let base = Version::root(&[agent(1)], &[], &Fnv).expect("fixture cohérente");
+    let base = Version::root(&[agent(1)], &[], CoordinationMode::Blackboard, None, &Fnv)
+        .expect("fixture cohérente");
     let posee = base
         .apply(&set_role(agent(1), None, Some("logical-reviewer")), &Fnv)
         .expect("le rôle se pose");
@@ -646,14 +680,22 @@ fn un_role_se_pose_et_se_lit() {
 /// pouvaient pas exister avant elle.
 #[test]
 fn une_version_sans_role_garde_sa_forme_canonique() {
-    let version = Version::root(&[agent(1), agent(2)], &[reviews(agent(1), agent(2))], &Fnv)
-        .expect("fixture cohérente");
+    let version = Version::root(
+        &[agent(1), agent(2)],
+        &[reviews(agent(1), agent(2))],
+        CoordinationMode::Blackboard,
+        None,
+        &Fnv,
+    )
+    .expect("fixture cohérente");
     let first = agent(1);
     let second = agent(2);
 
     assert_eq!(
         version.canonical(),
-        format!("coordination-content/1\ne\t{first}\treview\t{second}\nn\t{first}\nn\t{second}\n"),
+        format!(
+            "coordination-content/1\nc\t-\ne\t{first}\treview\t{second}\nm\tblackboard\nn\t{first}\nn\t{second}\n"
+        ),
         "aucune ligne `r` là où aucun rôle n'est posé"
     );
     assert!(version.roles().is_empty());
@@ -662,7 +704,7 @@ fn une_version_sans_role_garde_sa_forme_canonique() {
 /// La ligne de rôle entre dans la forme canonique, triée avec les autres.
 #[test]
 fn un_role_pose_entre_dans_la_forme_canonique() {
-    let version = Version::root(&[agent(1)], &[], &Fnv)
+    let version = Version::root(&[agent(1)], &[], CoordinationMode::Blackboard, None, &Fnv)
         .expect("fixture cohérente")
         .apply(&set_role(agent(1), None, Some("provenance-reviewer")), &Fnv)
         .expect("le rôle se pose");
@@ -670,7 +712,9 @@ fn un_role_pose_entre_dans_la_forme_canonique() {
 
     assert_eq!(
         version.canonical(),
-        format!("coordination-content/1\nn\t{node}\nr\t{node}\tprovenance-reviewer\n")
+        format!(
+            "coordination-content/1\nc\t-\nm\tblackboard\nn\t{node}\nr\t{node}\tprovenance-reviewer\n"
+        )
     );
 }
 
@@ -681,7 +725,7 @@ fn un_role_pose_entre_dans_la_forme_canonique() {
 /// annulation n'est pas un retour en arrière, c'est un commit qui rend le contenu d'avant.
 #[test]
 fn defaire_un_changement_de_role_rend_le_contenu_d_avant() {
-    let base = Version::root(&[agent(1)], &[], &Fnv)
+    let base = Version::root(&[agent(1)], &[], CoordinationMode::Blackboard, None, &Fnv)
         .expect("fixture cohérente")
         .apply(&set_role(agent(1), None, Some("logical-reviewer")), &Fnv)
         .expect("rôle initial");
@@ -703,7 +747,7 @@ fn defaire_un_changement_de_role_rend_le_contenu_d_avant() {
 /// Retirer un rôle, et le rendre : les deux sens de l'absence.
 #[test]
 fn retirer_un_role_se_defait_aussi() {
-    let porteur = Version::root(&[agent(1)], &[], &Fnv)
+    let porteur = Version::root(&[agent(1)], &[], CoordinationMode::Blackboard, None, &Fnv)
         .expect("fixture cohérente")
         .apply(&set_role(agent(1), None, Some("logical-reviewer")), &Fnv)
         .expect("rôle posé");
@@ -726,7 +770,7 @@ fn retirer_un_role_se_defait_aussi() {
 /// inverse rendrait un contenu qui n'a jamais existé.
 #[test]
 fn un_role_d_avant_qui_ne_correspond_pas_est_refuse() {
-    let version = Version::root(&[agent(1)], &[], &Fnv)
+    let version = Version::root(&[agent(1)], &[], CoordinationMode::Blackboard, None, &Fnv)
         .expect("fixture cohérente")
         .apply(&set_role(agent(1), None, Some("logical-reviewer")), &Fnv)
         .expect("rôle posé");
@@ -746,7 +790,7 @@ fn un_role_d_avant_qui_ne_correspond_pas_est_refuse() {
         }
     );
 
-    let sur_un_nu = Version::root(&[agent(1)], &[], &Fnv)
+    let sur_un_nu = Version::root(&[agent(1)], &[], CoordinationMode::Blackboard, None, &Fnv)
         .expect("fixture cohérente")
         .apply(
             &set_role(agent(1), Some("logical-reviewer"), Some("write")),
@@ -766,7 +810,8 @@ fn un_role_d_avant_qui_ne_correspond_pas_est_refuse() {
 /// Une ligne de diff sans effet se lit comme un changement approuvé.
 #[test]
 fn une_operation_qui_ne_change_rien_est_refusee() {
-    let version = Version::root(&[agent(1)], &[], &Fnv).expect("fixture cohérente");
+    let version = Version::root(&[agent(1)], &[], CoordinationMode::Blackboard, None, &Fnv)
+        .expect("fixture cohérente");
     assert_eq!(
         version
             .apply(&set_role(agent(1), None, None), &Fnv)
@@ -780,7 +825,8 @@ fn une_operation_qui_ne_change_rien_est_refusee() {
 /// Un rôle blanc ne se distingue pas d'une absence, pour aucun lecteur.
 #[test]
 fn un_role_vide_est_refuse() {
-    let version = Version::root(&[agent(1)], &[], &Fnv).expect("fixture cohérente");
+    let version = Version::root(&[agent(1)], &[], CoordinationMode::Blackboard, None, &Fnv)
+        .expect("fixture cohérente");
     for blanc in ["", "   ", "\t"] {
         assert_eq!(
             version
@@ -797,7 +843,8 @@ fn un_role_vide_est_refuse() {
 /// Un rôle ne se pose pas sur un nœud qui n'est pas là.
 #[test]
 fn un_role_sur_un_nœud_absent_est_refuse() {
-    let version = Version::root(&[agent(1)], &[], &Fnv).expect("fixture cohérente");
+    let version = Version::root(&[agent(1)], &[], CoordinationMode::Blackboard, None, &Fnv)
+        .expect("fixture cohérente");
     assert_eq!(
         version
             .apply(&set_role(agent(2), None, Some("write")), &Fnv)
@@ -816,10 +863,16 @@ fn un_role_sur_un_nœud_absent_est_refuse() {
 /// retire d'abord, dans le diff, où l'approbateur le voit.
 #[test]
 fn retrait_scission_et_fusion_refusent_un_nœud_qui_porte_un_role() {
-    let porteur = Version::root(&[agent(1), agent(2)], &[], &Fnv)
-        .expect("fixture cohérente")
-        .apply(&set_role(agent(1), None, Some("logical-reviewer")), &Fnv)
-        .expect("rôle posé");
+    let porteur = Version::root(
+        &[agent(1), agent(2)],
+        &[],
+        CoordinationMode::Blackboard,
+        None,
+        &Fnv,
+    )
+    .expect("fixture cohérente")
+    .apply(&set_role(agent(1), None, Some("logical-reviewer")), &Fnv)
+    .expect("rôle posé");
     let attendu = VersionError::NodeStillHasRole {
         node: agent(1).to_string(),
         role: "logical-reviewer".to_owned(),
@@ -866,7 +919,7 @@ fn retrait_scission_et_fusion_refusent_un_nœud_qui_porte_un_role() {
 /// reposer un rôle inchangé, c'est-à-dire à écrire dans le diff un changement qui n'a pas lieu.
 #[test]
 fn le_remplacement_emporte_le_role_et_son_inverse_le_rend() {
-    let porteur = Version::root(&[agent(1)], &[], &Fnv)
+    let porteur = Version::root(&[agent(1)], &[], CoordinationMode::Blackboard, None, &Fnv)
         .expect("fixture cohérente")
         .apply(&set_role(agent(1), None, Some("logical-reviewer")), &Fnv)
         .expect("rôle posé");
@@ -943,7 +996,14 @@ fn set_role(node: Id<Agent>, from: Option<&str>, to: Option<&str>) -> Operation 
 /// versions, donc tous les condensats déjà calculés, que §10.2 rend immuables.
 #[test]
 fn un_role_ne_forge_pas_une_ligne_de_la_forme_canonique() {
-    let base = Version::root(&[agent(1), agent(2)], &[], &Fnv).expect("racine");
+    let base = Version::root(
+        &[agent(1), agent(2)],
+        &[],
+        CoordinationMode::Blackboard,
+        None,
+        &Fnv,
+    )
+    .expect("racine");
 
     for forge in [
         format!("x\nr\t{}\ty", agent(2)),
@@ -993,7 +1053,8 @@ fn un_role_ne_forge_pas_une_ligne_de_la_forme_canonique() {
 /// croyant signer l'autre.
 #[test]
 fn un_role_ne_se_fait_pas_passer_pour_une_absence() {
-    let base = Version::root(&[agent(1)], &[], &Fnv).expect("racine");
+    let base =
+        Version::root(&[agent(1)], &[], CoordinationMode::Blackboard, None, &Fnv).expect("racine");
 
     let refus = base
         .apply(
@@ -1045,6 +1106,8 @@ fn le_port_de_condensat_a_une_implementation_de_production() {
     let reel = Version::root(
         &[agent(1), agent(2)],
         &[reviews(agent(1), agent(2))],
+        CoordinationMode::Blackboard,
+        None,
         &ContentDigest,
     )
     .expect("fixture cohérente");
@@ -1061,14 +1124,340 @@ fn le_port_de_condensat_a_une_implementation_de_production() {
     let encore = Version::root(
         &[agent(1), agent(2)],
         &[reviews(agent(1), agent(2))],
+        CoordinationMode::Blackboard,
+        None,
         &ContentDigest,
     )
     .expect("fixture cohérente");
     assert_eq!(reel.id(), encore.id());
 
     // Et le port n'a pas disparu : un condensat jouet rend une autre identité pour le même contenu.
-    let jouet = Version::root(&[agent(1), agent(2)], &[reviews(agent(1), agent(2))], &Fnv)
-        .expect("fixture cohérente");
+    let jouet = Version::root(
+        &[agent(1), agent(2)],
+        &[reviews(agent(1), agent(2))],
+        CoordinationMode::Blackboard,
+        None,
+        &Fnv,
+    )
+    .expect("fixture cohérente");
     assert_eq!(jouet.canonical(), reel.canonical());
     assert_ne!(jouet.id(), reel.id());
+}
+
+// ---------------------------------------------------------------------------------------------
+// 7. W13.h — le mode et le coordinateur vivent dans la version (ADR 0021)
+// ---------------------------------------------------------------------------------------------
+
+/// **Les trois règles de §14.3 refusent depuis la `Version`**, et non plus depuis `Team::new`.
+///
+/// Elles n'ont pas changé ; elles ont déménagé, parce que la structure a déménagé. L'ADR 0021 pose
+/// que `Team` cessait de stocker ce que la version porte déjà — et une règle qui reste attachée au
+/// stockage qu'on retire est une règle qu'on perd.
+#[test]
+fn les_trois_regles_de_14_3_refusent_depuis_la_version() {
+    // Une équipe sans membre ne coordonne rien.
+    assert_eq!(
+        Version::root(&[], &[], CoordinationMode::Blackboard, None, &Fnv)
+            .expect_err("aucun membre"),
+        VersionError::NoMembers
+    );
+
+    // Un coordinateur qui n'est pas membre coordonnerait une équipe dont il ne fait pas partie.
+    assert_eq!(
+        Version::root(
+            &[agent(1)],
+            &[],
+            CoordinationMode::Coordinator,
+            Some(agent(9)),
+            &Fnv,
+        )
+        .expect_err("le coordinateur n'est pas membre"),
+        VersionError::CoordinatorNotAMember {
+            coordinator: agent(9).to_string(),
+        }
+    );
+
+    // Le mode `coordinator` sans coordinateur : §14.3 en fait la définition du mode.
+    assert_eq!(
+        Version::root(&[agent(1)], &[], CoordinationMode::Coordinator, None, &Fnv)
+            .expect_err("personne ne coordonne"),
+        VersionError::CoordinatorRequired
+    );
+
+    // Et la combinaison licite passe.
+    let team = Version::root(
+        &[agent(1), agent(2)],
+        &[],
+        CoordinationMode::Coordinator,
+        Some(agent(1)),
+        &Fnv,
+    )
+    .expect("un coordinateur membre, sous le mode qui l'exige");
+    assert_eq!(team.mode(), CoordinationMode::Coordinator);
+    assert_eq!(team.coordinator(), Some(&agent(1)));
+}
+
+/// **Les trois règles valent sur toute version, pas seulement la racine.**
+///
+/// C'est le point que `check_composition` existe pour tenir : `REMOVE_NODE` et `SPLIT_NODE` changent
+/// l'appartenance sans rien savoir du coordinateur ni du mode. Une règle vérifiée seulement là où on
+/// pense qu'elle peut casser est une règle qu'on croit tenir.
+#[test]
+fn les_trois_regles_valent_apres_chaque_operation() {
+    // Retirer le dernier membre viderait l'équipe.
+    let seul = Version::root(&[agent(1)], &[], CoordinationMode::Blackboard, None, &Fnv)
+        .expect("un membre suffit");
+    assert_eq!(
+        seul.apply(&Operation::RemoveNode(agent(1)), &Fnv)
+            .expect_err("l'équipe serait vide"),
+        VersionError::NoMembers
+    );
+
+    // Retirer le coordinateur est refusé **avant** cela, et pour une autre raison : la charge est
+    // une information que le nœud emporte, et `ADD_NODE` ne saurait pas la rendre.
+    let coordonnee = Version::root(
+        &[agent(1), agent(2)],
+        &[],
+        CoordinationMode::Coordinator,
+        Some(agent(1)),
+        &Fnv,
+    )
+    .expect("cohérente");
+    assert_eq!(
+        coordonnee
+            .apply(&Operation::RemoveNode(agent(1)), &Fnv)
+            .expect_err("il coordonne"),
+        VersionError::NodeIsCoordinator {
+            node: agent(1).to_string(),
+        }
+    );
+
+    // Un remplacement, lui, emporte la charge avec l'identité : c'est un isomorphisme.
+    let remplacee = coordonnee
+        .apply(
+            &Operation::ReplaceNode {
+                from: agent(1),
+                to: agent(3),
+            },
+            &Fnv,
+        )
+        .expect("remplacer le coordinateur est licite");
+    assert_eq!(remplacee.coordinator(), Some(&agent(3)));
+    assert_eq!(remplacee.mode(), CoordinationMode::Coordinator);
+}
+
+/// **Les deux opérations n'entrent qu'ensemble**, parce que §14.3 les lie.
+///
+/// Le mode `coordinator` n'est bien formé que si quelqu'un coordonne. Si `SET_MODE` avait pu entrer
+/// seule, on aurait pu poser le mode sans coordinateur — un état que §14.3 déclare impossible — puis
+/// le réparer au coup suivant. Le refus interdit d'y passer, même transitoirement.
+#[test]
+fn passer_en_mode_coordinator_sans_coordinateur_est_refuse() {
+    let libre = Version::root(
+        &[agent(1), agent(2)],
+        &[],
+        CoordinationMode::Blackboard,
+        None,
+        &Fnv,
+    )
+    .expect("cohérente");
+
+    assert_eq!(
+        libre
+            .apply(
+                &Operation::SetMode {
+                    from: CoordinationMode::Blackboard,
+                    to: CoordinationMode::Coordinator,
+                },
+                &Fnv,
+            )
+            .expect_err("personne ne coordonnerait"),
+        VersionError::CoordinatorRequired
+    );
+
+    // L'ordre qui marche : désigner d'abord, changer de mode ensuite. Deux lignes de diff, toutes
+    // deux lisibles par un approbateur — ce que l'ADR 0016 décision 5 demande d'un IR déclaratif.
+    let ordonnee = libre
+        .apply(
+            &Operation::SetCoordinator {
+                from: None,
+                to: Some(agent(1)),
+            },
+            &Fnv,
+        )
+        .expect("désigner un membre")
+        .apply(
+            &Operation::SetMode {
+                from: CoordinationMode::Blackboard,
+                to: CoordinationMode::Coordinator,
+            },
+            &Fnv,
+        )
+        .expect("le mode trouve son coordinateur");
+    assert_eq!(ordonnee.mode(), CoordinationMode::Coordinator);
+    assert_eq!(ordonnee.coordinator(), Some(&agent(1)));
+}
+
+/// Les deux opérations énoncent ce qu'elles remplacent, et refusent le sans-effet — comme `SET_ROLE`.
+#[test]
+fn le_mode_et_le_coordinateur_enoncent_ce_qu_ils_remplacent() {
+    let base = Version::root(
+        &[agent(1), agent(2)],
+        &[],
+        CoordinationMode::Blackboard,
+        None,
+        &Fnv,
+    )
+    .expect("cohérente");
+
+    // Un `from` qui ne correspond pas : le diff a été écrit sur un état périmé.
+    assert_eq!(
+        base.apply(
+            &Operation::SetMode {
+                from: CoordinationMode::Debate,
+                to: CoordinationMode::Pipeline,
+            },
+            &Fnv,
+        )
+        .expect_err("le mode n'est pas celui déclaré"),
+        VersionError::ModeMismatch {
+            held: "blackboard".to_owned(),
+            declared: "debate".to_owned(),
+        }
+    );
+
+    // Une ligne sans effet se lirait comme un changement approuvé.
+    assert_eq!(
+        base.apply(
+            &Operation::SetMode {
+                from: CoordinationMode::Blackboard,
+                to: CoordinationMode::Blackboard,
+            },
+            &Fnv,
+        )
+        .expect_err("rien ne changerait"),
+        VersionError::ModeUnchanged {
+            mode: "blackboard".to_owned(),
+        }
+    );
+    assert_eq!(
+        base.apply(
+            &Operation::SetCoordinator {
+                from: None,
+                to: None,
+            },
+            &Fnv,
+        )
+        .expect_err("rien ne changerait"),
+        VersionError::CoordinatorUnchanged {
+            coordinator: "-".to_owned(),
+        }
+    );
+
+    // Désigner quelqu'un qui n'est pas membre est refusé au moment de le désigner, et pas seulement
+    // à la vérification d'ensemble : le refus nomme alors l'opération fautive.
+    assert_eq!(
+        base.apply(
+            &Operation::SetCoordinator {
+                from: None,
+                to: Some(agent(9)),
+            },
+            &Fnv,
+        )
+        .expect_err("pas membre"),
+        VersionError::CoordinatorNotAMember {
+            coordinator: agent(9).to_string(),
+        }
+    );
+}
+
+/// Les deux ont un inverse exact, et il refait le contenu d'avant.
+#[test]
+fn le_mode_et_le_coordinateur_se_defont_exactement() {
+    let base = Version::root(
+        &[agent(1), agent(2)],
+        &[],
+        CoordinationMode::Blackboard,
+        None,
+        &Fnv,
+    )
+    .expect("cohérente");
+
+    for operation in [
+        Operation::SetMode {
+            from: CoordinationMode::Blackboard,
+            to: CoordinationMode::Debate,
+        },
+        Operation::SetCoordinator {
+            from: None,
+            to: Some(agent(2)),
+        },
+    ] {
+        let after = base.apply(&operation, &Fnv).expect("licite");
+        let Undo::Exact(inverse) = operation.undo() else {
+            panic!("les deux ont un inverse exact");
+        };
+        let back = after.apply(&inverse, &Fnv).expect("l'inverse s'applique");
+
+        // Le contenu revient, l'histoire non — la propriété que `version.rs` tient depuis W15.a.
+        assert_eq!(back.content_hash(), base.content_hash());
+        assert_ne!(back.id(), base.id());
+        assert_eq!(back.parent(), Some(after.id()));
+    }
+}
+
+/// **Le mode et le coordinateur entrent dans la forme canonique**, donc dans l'identité.
+///
+/// Sans cela, deux équipes qui ne se coordonnent pas de la même façon auraient le même
+/// `content_hash` — et le condensat cesserait de dire ce qu'il prétend dire, comme pour un rôle qui
+/// forgeait une ligne.
+#[test]
+fn le_mode_et_le_coordinateur_comptent_dans_le_condensat() {
+    let membres = [agent(1), agent(2)];
+    let debat = Version::root(&membres, &[], CoordinationMode::Debate, None, &Fnv).expect("ok");
+    let tableau =
+        Version::root(&membres, &[], CoordinationMode::Blackboard, None, &Fnv).expect("ok");
+    assert_ne!(debat.content_hash(), tableau.content_hash());
+
+    let sans = Version::root(&membres, &[], CoordinationMode::Pipeline, None, &Fnv).expect("ok");
+    let avec = Version::root(
+        &membres,
+        &[],
+        CoordinationMode::Pipeline,
+        Some(agent(1)),
+        &Fnv,
+    )
+    .expect("ok");
+    assert_ne!(sans.content_hash(), avec.content_hash());
+
+    // Et deux coordinateurs différents ne se confondent pas non plus.
+    let autre = Version::root(
+        &membres,
+        &[],
+        CoordinationMode::Pipeline,
+        Some(agent(2)),
+        &Fnv,
+    )
+    .expect("ok");
+    assert_ne!(avec.content_hash(), autre.content_hash());
+}
+
+/// La liste `NAMES` reste liée à l'énumération, et les deux ajouts sont signalés comme locaux.
+#[test]
+fn les_dix_noms_couvrent_l_enumeration() {
+    assert_eq!(Operation::NAMES.len(), 10);
+    for name in Operation::NAMES {
+        assert!(!name.is_empty());
+    }
+    // Les deux ajouts de l'ADR 0021 y sont, et le commentaire qui les signale aussi : un ajout
+    // fondu dans la liste passerait pour une lecture de `docs/13`, qui ne les contient pas.
+    assert!(Operation::NAMES.contains(&"SET_MODE"));
+    assert!(Operation::NAMES.contains(&"SET_COORDINATOR"));
+    let source = include_str!("../src/version.rs");
+    assert!(source.contains("Deux ajouts locaux"));
+
+    // Les trois absentes le restent : leur lecteur n'existe toujours pas.
+    for absent in ["SET_VISIBILITY", "SET_VALIDATOR", "SET_EXECUTION_ORDER"] {
+        assert!(!Operation::NAMES.contains(&absent), "{absent}");
+    }
 }

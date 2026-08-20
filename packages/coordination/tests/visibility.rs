@@ -16,8 +16,8 @@
 use std::fmt::Write as _;
 
 use locus_coordination::{
-    ApprovalMode, Diff, Digest, Operation, Region, Relation, RelationKind, Verdict, Version,
-    Visibility, threatens,
+    ApprovalMode, CoordinationMode, Diff, Digest, Operation, Region, Relation, RelationKind,
+    Verdict, Version, Visibility, threatens,
 };
 use locus_domain::{Confidentiality, ContentHash, RevisionId, ids::RevisionKind};
 use locus_protocol::{Id, IdKind, Timestamp, id::Agent};
@@ -118,8 +118,14 @@ fn organisation(seen: &[Id<Agent>]) -> Version {
         .iter()
         .map(|producer| relation(agent(1), *producer, RelationKind::Visibility))
         .collect();
-    Version::root(&[agent(1), agent(2), agent(3), agent(4)], &relations, &Fnv)
-        .expect("organisation cohérente")
+    Version::root(
+        &[agent(1), agent(2), agent(3), agent(4)],
+        &relations,
+        CoordinationMode::Blackboard,
+        None,
+        &Fnv,
+    )
+    .expect("organisation cohérente")
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -187,6 +193,8 @@ fn an_agent_sees_its_own_work_without_an_edge() {
     let refused = Version::root(
         &[agent(1)],
         &[relation(agent(1), agent(1), RelationKind::Visibility)],
+        CoordinationMode::Blackboard,
+        None,
         &Fnv,
     );
     assert!(
@@ -267,6 +275,8 @@ fn a_review_relation_grants_no_visibility() {
     let version = Version::root(
         &[agent(1), agent(2)],
         &[relation(agent(1), agent(2), RelationKind::Review)],
+        CoordinationMode::Blackboard,
+        None,
         &Fnv,
     )
     .expect("organisation cohérente");
@@ -313,6 +323,8 @@ fn a_cycle_of_visibility_is_not_vetoed_but_a_cycle_of_review_is() {
         let base = Version::root(
             &[agent(1), agent(2)],
             &[relation(agent(1), agent(2), kind)],
+            CoordinationMode::Blackboard,
+            None,
             &Fnv,
         )
         .expect("organisation cohérente");
@@ -343,6 +355,8 @@ fn mutual_visibility_is_read_in_both_directions() {
             relation(agent(1), agent(2), RelationKind::Visibility),
             relation(agent(2), agent(1), RelationKind::Visibility),
         ],
+        CoordinationMode::Blackboard,
+        None,
         &Fnv,
     )
     .expect("organisation cohérente");
@@ -364,6 +378,8 @@ fn seen_by_lists_the_observed_never_the_observers() {
             relation(agent(1), agent(2), RelationKind::Visibility),
             relation(agent(3), agent(1), RelationKind::Visibility),
         ],
+        CoordinationMode::Blackboard,
+        None,
         &Fnv,
     )
     .expect("organisation cohérente");

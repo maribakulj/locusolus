@@ -10,8 +10,8 @@ use std::collections::BTreeSet;
 use std::fmt::Write as _;
 
 use locus_coordination::{
-    ApprovalMode, Diff, Digest, Invariant, Operation, Refusal, Region, RegionError, Relation,
-    RelationKind, Verdict, Version, threatens,
+    ApprovalMode, CoordinationMode, Diff, Digest, Invariant, Operation, Refusal, Region,
+    RegionError, Relation, RelationKind, Verdict, Version, threatens,
 };
 use locus_domain::ContentHash;
 use locus_protocol::{Id, IdKind, Timestamp, id::Agent};
@@ -67,6 +67,8 @@ fn base() -> Version {
     Version::root(
         &[agent(1), agent(2), agent(3), agent(4)],
         &[reviews(agent(2), agent(4)), reviews(agent(4), agent(1))],
+        CoordinationMode::Blackboard,
+        None,
         &Fnv,
     )
     .expect("la fixture est acyclique")
@@ -198,7 +200,14 @@ fn an_operation_over_the_risk_ceiling_is_refused() {
 /// refuse, et c'est bien le rayon d'explosion que GRAFT veut borner.
 #[test]
 fn a_net_balance_would_not_have_bounded_anything() {
-    let isolated = Version::root(&[agent(1), agent(2), agent(3)], &[], &Fnv).expect("sans arête");
+    let isolated = Version::root(
+        &[agent(1), agent(2), agent(3)],
+        &[],
+        CoordinationMode::Blackboard,
+        None,
+        &Fnv,
+    )
+    .expect("sans arête");
     let narrow = Region::declare(
         "étroite",
         &[agent(1), agent(2), agent(3), agent(8), agent(9)],
@@ -243,6 +252,8 @@ fn an_edge_churn_with_a_null_balance_is_still_four_changes() {
     let base = Version::root(
         &[agent(1), agent(2), agent(3), agent(4)],
         &[reviews(agent(1), agent(2)), reviews(agent(3), agent(4))],
+        CoordinationMode::Blackboard,
+        None,
         &Fnv,
     )
     .expect("acyclique");
@@ -522,6 +533,8 @@ fn merging_two_ends_of_a_path_closes_a_cycle() {
     let base = Version::root(
         &[agent(1), agent(2), agent(4)],
         &[reviews(agent(1), agent(2)), reviews(agent(2), agent(4))],
+        CoordinationMode::Blackboard,
+        None,
         &Fnv,
     )
     .expect("chaîne acyclique");
