@@ -9572,3 +9572,80 @@ Un choix de forme est un arbitrage qu'on prend ; le marquer « bloqué » l'aura
 `W18.f`, qui attend une machine que personne ne peut fournir, et les deux ne se ressemblent que dans
 un tableau. La règle que `W0.16` a fini par formuler s'applique ici dans l'autre sens : `externe`
 dit « aucun item de ce plan », pas « aucune décision ».
+
+## 2026-08-20 — W17.h — ADR 0020, le condensat de contenu
+
+**Périmètre.** `docs/adr/0020-le-condensat-de-contenu.md` (neuf) ; `dependencies.json` — `sha2`,
+portée `packages/domain` ; `packages/domain/Cargo.toml` ; `packages/domain/src/hash.rs` —
+`ContentHash::of` et `ContentHash::matches` ; `packages/domain/tests/content_hash.rs` (neuf) ;
+`docs/10_V1_ROADMAP.md` — `W17.h` corrigée, `W17.i` et `W17.j` inscrites.
+
+**Tests exécutés.** `npm run check` — les douze gardes, `check:deps` comprise, qui refuserait `sha2`
+sans son entrée. Quatre tests dans `content_hash.rs`.
+
+**Ce sprint a commencé en corrigeant le précédent.** `W17.h` disait « un résolveur de versions ».
+C'était faux, et remonter la chaîne des « pourquoi pas » l'a montré :
+
+```text
+GET /branches/{id}/diff
+  ← une `Version` depuis une `VersionId`
+  ← ADR 0016 décision 5 interdit un magasin, donc c'est un rejeu du journal
+  ← il faut que les opérations soient dans le journal — rien ne les y écrit
+  ← écrire un commit demande `Version::apply`, qui demande un `Digest`
+  ← aucun `Digest` n'existe.
+```
+
+Un résolveur n'aurait rien eu à résoudre : il manque d'abord un **producteur**, et avant lui un
+condensat. La roadmap porte désormais les trois marches — `W17.h` le condensat, `W17.i` le
+producteur, `W17.j` le résolveur et la liaison — au lieu d'une seule, devinée.
+
+**Le fait vérifié, et il dépasse `W17`.** `ContentHash` **parsait** et ne calculait jamais. `Digest`
+était un trait déclaré deux fois — `coordination::version` et `visualization` — **sans une seule
+implémentation de production** ; les seules existantes sont des `Fnv` jouets, dans des tests, qui
+disent eux-mêmes ne pas vérifier « la qualité du hachage ». Et les deux seuls écrivains d'événements
+du dépôt reçoivent leur `payload_hash` de l'appelant, tous les deux, chacun le documentant comme une
+lacune **locale**. C'était la même, et elle avait une cause commune. §10.1 exige ce champ ; le
+système ne savait pas le produire.
+
+**Décisions prises.** ADR 0020, trois décisions et quatre conditions. Ce qui contraint la suite :
+
+- **SHA-256 par interopérabilité, pas par goût.** Le dépôt écrit `sha256:` partout où un condensat
+  vient d'ailleurs — au premier chef le digest d'image d'`EnvironmentBlueprint`, qui refuse un tag
+  et vient d'un registre OCI. Vérifier un digest fourni exige de calculer le même algorithme.
+- **Portée `packages/domain`, et elle est opposable.** `check:deps` refuse une seconde entrée
+  ailleurs. Les autres crates n'obtiennent pas `sha2`, ils obtiennent `ContentHash::of` — deux
+  implémentations donneraient deux réponses à « quel est le condensat de ceci ».
+- **`matches` rend trois réponses.** `Some(true)`, `Some(false)`, et `None` pour un algorithme qu'on
+  ne calcule pas. Sans elle, un appelant écrit `*self == ContentHash::of(bytes)`, qui rend
+  silencieusement `false` pour un `sha512` irréprochable — « `unverified` n'est pas un `broken`
+  atténué », la règle de xiiif §19, appliquée ici.
+
+**La surface est mesurée, pas estimée** — précédent de l'ADR 0018. `cargo tree` sur ce workspace :
+`locus-domain` passe de **13 à 21** paquets, `locusd` de **52 à 60**. Les huit : `sha2`, `digest`,
+`block-buffer`, `crypto-common`, `hybrid-array`, `typenum`, `cpufeatures`, `cfg-if` — Rust pur,
+RustCrypto, aucun code C.
+
+`blake3` a été mesuré aussi : huit paquets également, mais parmi eux `cc`, `shlex` et
+`find-msvc-tools`, parce qu'il compile du C et de l'assembleur. Un compilateur C sur toute machine
+qui construit le projet est exactement la « dépendance implicite à une machine de développeur » que
+`CLAUDE.md` refuse. Le compte ne départageait pas ; la nature des paquets, si.
+
+**Écrire SHA-256 à la main a été considéré**, puisque `cursor.rs` a écrit son encodage hexadécimal
+plutôt que de prendre un crate. La comparaison tranche dans l'autre sens : douze lignes
+d'hexadécimal se relisent à l'œil, une compression SHA-256 fait soixante-quatre tours et des
+constantes tabulées, et **une faute d'un bit y produit un condensat qui a exactement l'air
+correct**. Une primitive cryptographique fausse ne se voit pas — c'est ce qui la distingue d'un
+encodage.
+
+**Le test est un vecteur connu, et il fallait qu'il le soit.** Aucune propriété ne distingue SHA-256
+d'une fonction qui lui ressemble : le `Fnv` jouet des fixtures satisfait « déterministe », «
+injectif en pratique » et « soixante-quatre hexadécimaux ». Seule une entrée dont le condensat est
+publié ailleurs le fait — `sha256("")` et le vecteur `abc` de FIPS 180-2 — et c'est aussi ce qui
+rendra visible une régression de crate.
+
+**Écart avec la spec.** Aucun. §7.7 demande des hashes sur une canonicalisation stable ;
+`ContentHash::of` prend des octets et ne canonicalise rien, précisément pour que la forme canonique
+reste chez l'appelant qui l'a gelée.
+
+**Prochain item.** `W17.i` — le commit d'une version de coordination écrit un fait. Sa dépendance,
+`W17.h`, est satisfaite : le condensat existe.

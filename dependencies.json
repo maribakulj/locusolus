@@ -24,6 +24,12 @@
       "adr": "0018",
       "why": "Le runtime asynchrone sur lequel hyper, donc axum, s'appuie. Features énumérées : `full` apporte process et signal, que la règle 4 interdit à locusd.",
       "scope": "apps/locusd"
+    },
+    {
+      "crate": "sha2",
+      "adr": "0020",
+      "why": "Le calcul d'un ContentHash. Rien dans le workspace n'en calculait un : ContentHash parsait sans jamais produire, et Digest n'avait aucune implémentation de production. SHA-256 parce que c'est ce qu'un registre OCI rend et ce que le dépôt écrit partout ; blake3 coûterait un compilateur C. Portée étroite : une seule implémentation, et les autres crates passent par ContentHash::of.",
+      "scope": "packages/domain"
     }
   ],
   "forbiddenFeatures": [
