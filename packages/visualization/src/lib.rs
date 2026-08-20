@@ -180,6 +180,14 @@ impl View {
             if node.id.trim().is_empty() {
                 return Err(ViewError::EmptyField { field: "node.id" });
             }
+            forgeable(&node.id, "node.id")?;
+            forgeable(&node.kind, "node.kind")?;
+            forgeable(&node.label, "node.label")?;
+        }
+        for edge in &edges {
+            forgeable(&edge.from, "edge.from")?;
+            forgeable(&edge.to, "edge.to")?;
+            forgeable(&edge.kind, "edge.kind")?;
         }
         nodes.sort();
         let identities: BTreeSet<&str> = nodes.iter().map(|node| node.id.as_str()).collect();
@@ -304,6 +312,26 @@ impl View {
     }
 }
 
+/// Refuse un champ qui **forgerait une ligne** de la forme canonique.
+///
+/// La forme canonique est un texte à lignes — `n\t…`, `e\t…` — et six champs de cette vue sont du
+/// texte libre qui y entre. Une fin de ligne ou une tabulation dedans y insère un nœud ou une arête
+/// que personne n'a rendus : deux vues différentes obtiennent alors le **même condensat**, et le
+/// condensat est ce qui dit à un client qu'il regarde bien la vue qu'il croit.
+///
+/// Trouvé par balayage après le même défaut dans `coordination::version`, où une collision a été
+/// construite. Ici les étiquettes viennent d'une projection, donc du journal, donc de texte qu'un
+/// agent a pu écrire — la portée est la même.
+///
+/// Refusé plutôt qu'échappé, pour le motif de l'autre correction : échapper changerait la forme
+/// canonique de toutes les vues, donc tous les condensats déjà rendus.
+fn forgeable(value: &str, field: &'static str) -> Result<(), ViewError> {
+    if value.chars().any(char::is_control) {
+        return Err(ViewError::ForgedLine { field });
+    }
+    Ok(())
+}
+
 fn canonicalise(
     kind: ViewKind,
     watermark: Watermark,
@@ -356,6 +384,11 @@ pub enum ViewError {
         /// L'extrémité introuvable.
         endpoint: String,
     },
+    /// Un champ contient un caractère de contrôle : il forgerait une ligne de la forme canonique.
+    ForgedLine {
+        /// Lequel.
+        field: &'static str,
+    },
 }
 
 impl fmt::Display for ViewError {
@@ -369,6 +402,11 @@ impl fmt::Display for ViewError {
                 formatter,
                 "l'arête mène à « {endpoint} », qui n'est pas dans la vue — le lecteur en \
                  déduirait un nœud que le graphe n'a pas"
+            ),
+            Self::ForgedLine { field } => write!(
+                formatter,
+                "« {field} » contient un caractère de contrôle : il forgerait une ligne de la \
+                 forme canonique, et deux vues différentes auraient le même condensat"
             ),
         }
     }

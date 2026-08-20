@@ -268,3 +268,106 @@ fn les_huit_projections_de_23_3_existent_et_se_distinguent() {
     uniques.dedup();
     assert_eq!(uniques.len(), 8);
 }
+
+// ---------------------------------------------------------------------------------------------
+// Un champ de texte libre ne forge pas une ligne de la forme canonique
+// ---------------------------------------------------------------------------------------------
+
+/// **Deux vues différentes ne partagent pas un condensat**, et ce refus vient d'un balayage.
+///
+/// Le même défaut a d'abord été trouvé — et une collision construite — dans
+/// `coordination::version`, où un rôle contenant une fin de ligne insérait une ligne de rôle dans
+/// la forme canonique. Six champs de cette vue-ci sont du texte libre qui entre dans une forme à
+/// lignes : `n\t…`, `e\t…`. Une vue d'un nœud dont l'étiquette porte une fin de ligne rendait la
+/// même forme canonique qu'une vue de deux nœuds.
+///
+/// Les étiquettes viennent d'une projection, donc du journal, donc de texte qu'un agent a pu
+/// écrire : la portée n'est pas hypothétique. Et le condensat est ce qui dit à un client qu'il
+/// regarde la vue qu'il croit — §23 tient la sélection synchronisée dessus.
+#[test]
+fn un_champ_ne_forge_pas_une_ligne_de_la_forme_canonique() {
+    let forge = ViewNode {
+        id: "c1".to_owned(),
+        kind: "claim".to_owned(),
+        label: "Claim c1\nn\tc2\tclaim\tClaim c2".to_owned(),
+    };
+    assert_eq!(
+        View::render(
+            ViewKind::ArgumentMap,
+            42,
+            vec![forge],
+            Vec::new(),
+            &digest()
+        )
+        .expect_err("une étiquette qui forge une ligne est refusée"),
+        ViewError::ForgedLine {
+            field: "node.label"
+        }
+    );
+
+    // Les six champs sont couverts, pas seulement l'étiquette : chacun entre dans la forme.
+    for (mauvais, attendu) in [
+        (
+            ViewNode {
+                id: "c1\tc2".to_owned(),
+                kind: "claim".to_owned(),
+                label: "x".to_owned(),
+            },
+            "node.id",
+        ),
+        (
+            ViewNode {
+                id: "c1".to_owned(),
+                kind: "claim\nautre".to_owned(),
+                label: "x".to_owned(),
+            },
+            "node.kind",
+        ),
+    ] {
+        assert_eq!(
+            View::render(
+                ViewKind::ArgumentMap,
+                42,
+                vec![mauvais],
+                Vec::new(),
+                &digest()
+            )
+            .expect_err("un champ qui forge une ligne est refusé"),
+            ViewError::ForgedLine { field: attendu }
+        );
+    }
+
+    let arete = ViewEdge {
+        from: "c1".to_owned(),
+        to: "c2".to_owned(),
+        kind: "supports\ne\tc1\tc2\trefutes".to_owned(),
+    };
+    assert_eq!(
+        View::render(
+            ViewKind::ArgumentMap,
+            42,
+            vec![node("c1"), node("c2")],
+            vec![arete],
+            &digest()
+        )
+        .expect_err("une arête qui forge une ligne est refusée"),
+        ViewError::ForgedLine { field: "edge.kind" }
+    );
+
+    // Et une étiquette ordinaire — ponctuation, accents, espaces — reste licite.
+    let ordinaire = ViewNode {
+        id: "c1".to_owned(),
+        kind: "claim".to_owned(),
+        label: "Résultat négatif (réplication n° 3) — « à revoir »".to_owned(),
+    };
+    assert!(
+        View::render(
+            ViewKind::ArgumentMap,
+            42,
+            vec![ordinaire],
+            Vec::new(),
+            &digest()
+        )
+        .is_ok()
+    );
+}

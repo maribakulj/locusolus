@@ -9649,3 +9649,73 @@ reste chez l'appelant qui l'a gelée.
 
 **Prochain item.** `W17.i` — le commit d'une version de coordination écrit un fait. Sa dépendance,
 `W17.h`, est satisfaite : le condensat existe.
+
+## 2026-08-20 — Défaut — un rôle forgeait une ligne de la forme canonique
+
+**Périmètre.** `packages/coordination/src/version.rs` — deux refus dans `set_role`, la sentinelle
+`ABSENT` nommée, deux variantes de `VersionError` ; `packages/coordination/tests/version.rs` — deux
+tests. Puis, par balayage, `packages/visualization/src/lib.rs` et `tests/view.rs` — le même défaut,
+sur six champs. Trouvé en préparant `W17.i`, qui doit écrire des opérations — donc des rôles — dans
+le journal.
+
+**Tests exécutés.** `npm run check` — les douze gardes. Trente-cinq tests dans `tests/version.rs`.
+Vérifié **rouge puis vert** sur l'arbre réel : les deux refus neutralisés, les deux tests tombent ;
+rétablis, les trente-cinq passent.
+
+**Le défaut, et il n'était pas théorique.** La forme canonique d'un contenu est un texte à lignes —
+`n\t…`, `e\t…`, `r\t…` — trié, et c'est sur elle que porte le `content_hash`. Un rôle est le **seul
+champ de texte libre** qui y entre, et rien ne le validait au-delà de « non vide ». Deux contenus
+réellement différents produisaient donc les mêmes octets :
+
+```text
+gauche : membres {a, b}, rôles {a: "x\nr\t<b>\ty"}
+droite : membres {a, b}, rôles {a: "x", b: "y"}
+```
+
+`Version::role` les distingue ; le condensat non. C'est exactement ce que la documentation du module
+disait ne pas devoir arriver — « sinon le hash cesse de dire ce qu'il prétend dire » — et dans le
+sens le plus grave, deux contenus pour un condensat plutôt que l'inverse.
+
+**Le premier essai a échoué, et l'échec a été instructif.** Injecter une ligne de **membre** ne
+collisionne pas : le tri range la ligne forgée après la ligne `r` qui la porte, là où une vraie
+ligne `n` se serait rangée avant. Injecter une ligne de **rôle** contourne le tri, puisqu'elle se
+range là où elle est déjà. Une sonde qui s'arrête au premier échec conclut « pas de collision » ;
+celle-ci a conclu « pas _cette_ collision ».
+
+**Le même défaut valait pour un diff.** `Diff::canonical` compose les `Operation::canonical`, et
+c'est la forme sur laquelle porte une approbation. Un rôle forgeant une ligne `op\t` y insérait une
+opération que l'approbateur n'a pas lue.
+
+**Un second refus, de la même famille.** `SET_ROLE\t<nœud>\t-\t-` est ce qu'écrit « retirer le rôle
+». Un rôle nommé `-` produisait la même ligne pour une opération qui en **pose** un : deux
+opérations d'effets opposés sous une signature d'approbation identique. La sentinelle est désormais
+nommée une fois, et un rôle qui lui est égal est refusé.
+
+**Refusé plutôt qu'échappé, et le motif décide.** Échapper changerait la forme canonique de
+**toutes** les versions, donc tous les condensats déjà calculés, que §10.2 rend immuables. Refuser
+n'invalide rien de ce qui a été légitimement écrit — et un rôle est une étiquette courte, où une
+tabulation n'a aucun sens. Le refus porte sur tout caractère de contrôle plutôt que sur les deux
+séparateurs connus : deny-by-default, et il n'oblige pas à réénumérer les séparateurs le jour où la
+forme canonique en gagne un.
+
+**Écart avec la spec.** Aucun. §7.7 demande « une canonicalisation stable » ; une canonicalisation
+qui se laisse forger n'est pas stable, elle est ambiguë.
+
+**Le balayage qui a suivi, et ce qu'il a trouvé.** Un défaut de cette classe se répète : la question
+n'est pas « ce rôle est-il validé » mais « quels champs de texte libre entrent dans une forme
+canonique ». Les formes canoniques du dépôt sont quatre — contenu de version, identité de version,
+diff, et **vue** de `packages/visualization`. Les trois premières n'ont que des identifiants, des
+condensats et des énumérations, sauf par les rôles, corrigés ci-dessus.
+
+La quatrième en a **six** : `node.id`, `node.kind`, `node.label`, `edge.from`, `edge.to`,
+`edge.kind`, tous interpolés dans un texte à lignes `n\t…` / `e\t…`. Une vue d'un nœud dont
+l'étiquette porte une fin de ligne rendait la même forme canonique qu'une vue de deux nœuds. Les
+étiquettes viennent d'une projection, donc du journal, donc de texte qu'un agent a pu écrire : la
+portée n'est pas hypothétique. Et §23 tient la sélection synchronisée du cockpit sur ce condensat —
+c'est lui qui dit à un client qu'il regarde la vue qu'il croit.
+
+Corrigé de la même façon, et vérifié rouge puis vert de la même façon. La leçon tient en une ligne :
+**une correction d'injection se termine par un balayage, pas par un test.** Le premier site avait
+été trouvé en préparant autre chose ; le second ne l'aurait été par personne.
+
+**Prochain item.** `W17.i`, dont la préparation a levé les deux.
