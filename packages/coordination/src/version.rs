@@ -96,6 +96,27 @@ pub trait Digest {
     fn digest(&self, canonical: &str) -> ContentHash;
 }
 
+/// L'implémentation de production du port — ADR 0020.
+///
+/// Le port existait depuis `W15.a`, et **rien ne l'implémentait** hors des fixtures de test. La
+/// prudence qui l'avait laissé vide se lit encore au-dessus : « ce crate ne choisit aucun
+/// algorithme, ce serait une décision d'infrastructure ». Elle était juste sur le principe et
+/// fausse dans son effet — le résultat n'était pas la neutralité, c'était qu'aucun condensat n'était
+/// calculable nulle part.
+///
+/// Le port reste un port : il n'a pas disparu, et un appelant qui veut un condensat jouet en fournit
+/// toujours un. Ce qui change est qu'il existe désormais une **réponse par défaut**, et qu'elle
+/// délègue à `locus_domain::ContentHash::of` — un seul endroit choisit l'algorithme, et
+/// `dependencies.json` l'y tient.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ContentDigest;
+
+impl Digest for ContentDigest {
+    fn digest(&self, canonical: &str) -> ContentHash {
+        ContentHash::of(canonical.as_bytes())
+    }
+}
+
 /// L'identité d'une version : son contenu **et** d'où elle vient.
 ///
 /// Deux versions de même contenu et de parents différents sont deux versions. C'est ce qui empêche

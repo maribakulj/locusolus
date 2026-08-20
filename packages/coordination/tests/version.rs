@@ -12,7 +12,9 @@
 use std::collections::BTreeSet;
 use std::fmt::Write as _;
 
-use locus_coordination::{Digest, Operation, Relation, RelationKind, Undo, Version, VersionError};
+use locus_coordination::{
+    ContentDigest, Digest, Operation, Relation, RelationKind, Undo, Version, VersionError,
+};
 use locus_domain::ContentHash;
 use locus_protocol::{Id, IdKind, Timestamp, id::Agent};
 
@@ -1022,4 +1024,51 @@ fn un_role_ne_se_fait_pas_passer_pour_une_absence() {
         )
         .is_ok()
     );
+}
+
+// ---------------------------------------------------------------------------------------------
+// 6. Le port a une implémentation de production
+// ---------------------------------------------------------------------------------------------
+
+/// **Un port sans implémentation n'est pas de la neutralité, c'est une absence.**
+///
+/// `Digest` existait depuis `W15.a` et rien ne l'implémentait hors des fixtures : aucun condensat
+/// n'était calculable dans tout le dépôt. L'ADR 0020 a tranché l'algorithme, et
+/// [`ContentDigest`] est la réponse par défaut — qui délègue, plutôt que de choisir une seconde
+/// fois, à `locus_domain::ContentHash::of`.
+///
+/// Le port **reste** un port : ce test fournit encore `Fnv` ailleurs, et c'est le sujet — deux
+/// condensats différents donnent deux identités différentes pour un même contenu, ce qui est
+/// exactement ce qu'un port doit permettre.
+#[test]
+fn le_port_de_condensat_a_une_implementation_de_production() {
+    let reel = Version::root(
+        &[agent(1), agent(2)],
+        &[reviews(agent(1), agent(2))],
+        &ContentDigest,
+    )
+    .expect("fixture cohérente");
+
+    // Ce que produit l'implémentation de production est un condensat que le domaine relit, et qui
+    // est bien celui de la forme canonique — pas d'une autre chaîne.
+    assert_eq!(reel.content_hash().algorithm(), "sha256");
+    assert_eq!(
+        reel.content_hash(),
+        &locus_domain::ContentHash::of(reel.canonical().as_bytes())
+    );
+
+    // Deux rendus du même contenu sont la même version.
+    let encore = Version::root(
+        &[agent(1), agent(2)],
+        &[reviews(agent(1), agent(2))],
+        &ContentDigest,
+    )
+    .expect("fixture cohérente");
+    assert_eq!(reel.id(), encore.id());
+
+    // Et le port n'a pas disparu : un condensat jouet rend une autre identité pour le même contenu.
+    let jouet = Version::root(&[agent(1), agent(2)], &[reviews(agent(1), agent(2))], &Fnv)
+        .expect("fixture cohérente");
+    assert_eq!(jouet.canonical(), reel.canonical());
+    assert_ne!(jouet.id(), reel.id());
 }

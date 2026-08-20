@@ -9719,3 +9719,51 @@ Corrigé de la même façon, et vérifié rouge puis vert de la même façon. La
 été trouvé en préparant autre chose ; le second ne l'aurait été par personne.
 
 **Prochain item.** `W17.i`, dont la préparation a levé les deux.
+
+## 2026-08-20 — Le port de condensat reçoit son implémentation de production
+
+**Périmètre.** `packages/coordination/src/version.rs` et `packages/visualization/src/lib.rs` —
+`ContentDigest`, la même dans les deux crates, qui délègue à `locus_domain::ContentHash::of` ; les
+deux `lib.rs` et les deux tests. Fait à part de `W17.i`, dont l'instruction a été suspendue pour un
+arbitrage (ci-dessous).
+
+**Tests exécutés.** `npm run check`. Trente-six tests dans `coordination/tests/version.rs`, seize
+dans `visualization/tests/view.rs`.
+
+**Un port sans implémentation n'est pas de la neutralité, c'est une absence.** Les deux traits
+`Digest` existaient depuis `W15.a` et `W17.e`, chacun documentant qu'il ne choisissait « aucun
+algorithme, ce serait une décision d'infrastructure ». La prudence était juste sur le principe et
+fausse dans son effet : le résultat n'était pas la neutralité, c'était qu'aucun condensat n'était
+calculable dans tout le dépôt.
+
+Le port **reste** un port — les fixtures jouets sont toujours fournies par les tests, et un test le
+vérifie explicitement : le même contenu sous deux condensats rend deux identités. Ce qui change est
+qu'il existe une réponse par défaut, et qu'elle **délègue** au lieu de choisir une seconde fois. Un
+seul endroit choisit l'algorithme, et `dependencies.json` l'y tient.
+
+**`W17.i` est suspendu sur un arbitrage, et il dévie du cadre.** L'item demande que le commit d'une
+version de coordination écrive un fait. En instruisant où ce fait s'écrit, deux vocabulaires
+apparaissent pour le même acte :
+
+| L'acte                                       | `proposal::Change` (W13.e, **fait**) | `version::Operation` (W15.a, **fait**) |
+| -------------------------------------------- | ------------------------------------ | -------------------------------------- |
+| un agent entre                               | `AddMember(Id<Agent>)`               | `AddNode(Id<Agent>)`                   |
+| une relation entre                           | `AddRelation(Relation)`              | `AddEdge(Relation)`                    |
+| le mode change                               | `SetMode { from, to }`               | —                                      |
+| scinder, fusionner, remplacer, poser un rôle | —                                    | quatre opérations                      |
+
+`proposal.rs` dit porter « le chemin **unique** par lequel une proposition devient un fait », et
+`docs/13` dit que les quatre origines de proposition convergent « vers un **objet unique** ». Deux
+énumérations qui décrivent le même acte sur le chemin qui se dit unique sont exactement le «
+vocabulaire parallèle » que `CLAUDE.md` interdit.
+
+Trois lectures sont possibles — les unifier, les scoper explicitement (`Change` pour l'agrégat
+`Team` de §7.1, `Operation` pour le graphe versionné de `docs/13` §3), ou faire porter à la
+proposition un `Diff` d'`Operation`. La première change le payload de `team.modify`, qui est une
+surface de §22.3 ; les trois touchent deux items déjà livrés. Choisir en passant aurait cimenté la
+duplication ou réécrit un schéma sans que personne ne l'ait demandé.
+
+**Écart avec la spec.** Aucun. §7.7 est mieux tenu qu'avant : un condensat est calculé au lieu
+d'être promis.
+
+**Prochain item.** `W17.i`, dès que l'arbitrage ci-dessus est rendu.
