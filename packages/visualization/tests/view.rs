@@ -12,7 +12,9 @@
 //! donc pas être présentée comme la projection dont elle vient.
 
 use locus_domain::ContentHash;
-use locus_visualization::{Digest, Freshness, View, ViewEdge, ViewError, ViewKind, ViewNode};
+use locus_visualization::{
+    ContentDigest, Digest, Freshness, View, ViewEdge, ViewError, ViewKind, ViewNode,
+};
 
 /// Un condensat de fixture : il ne hache rien, il compte. Ce qui est éprouvé ici est la forme
 /// canonique, et un vrai algorithme n'ajouterait qu'une couche opaque entre le test et ce qu'il
@@ -370,4 +372,39 @@ fn un_champ_ne_forge_pas_une_ligne_de_la_forme_canonique() {
         )
         .is_ok()
     );
+}
+
+/// **Le port a une implémentation de production** — ADR 0020.
+///
+/// `Digest` existait depuis `W17.e` et rien ne l'implémentait hors des fixtures : le condensat
+/// d'une vue n'était calculable nulle part. Le port reste un port — `Counting` sert encore
+/// ci-dessus — mais il a désormais une réponse par défaut, qui délègue à `ContentHash::of` plutôt
+/// que de choisir un algorithme une seconde fois.
+#[test]
+fn le_port_de_condensat_a_une_implementation_de_production() {
+    let rendue = View::render(
+        ViewKind::ArgumentMap,
+        42,
+        vec![node("c1"), node("c2")],
+        vec![edge("c1", "c2")],
+        &ContentDigest,
+    )
+    .expect("vue valide");
+
+    assert_eq!(rendue.digest().algorithm(), "sha256");
+    assert_eq!(
+        rendue.digest(),
+        &ContentHash::of(rendue.canonical().as_bytes())
+    );
+
+    // Deux rendus du même contenu sont la même vue, et c'est ce que le condensat doit dire.
+    let encore = View::render(
+        ViewKind::ArgumentMap,
+        42,
+        vec![node("c2"), node("c1")],
+        vec![edge("c1", "c2")],
+        &ContentDigest,
+    )
+    .expect("vue valide");
+    assert_eq!(rendue.digest(), encore.digest());
 }
