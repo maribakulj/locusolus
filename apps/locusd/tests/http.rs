@@ -396,6 +396,16 @@ fn la_liaison_http_ne_peut_rien_muter() {
 }
 
 /// La liste des collections servies est celle du routeur, pas une seconde liste.
+///
+/// **Ce test est passé au vert alors que la liste avait dérivé**, et c'est ce qu'il faut retenir de
+/// lui : `history` a reçu sa route sans entrer dans `served()`, et la boucle ne vérifiait qu'un
+/// sens — « toute collection annoncée a une route », jamais « toute route est annoncée ». Une
+/// vérification à sens unique sur deux listes ne les tient pas ensemble, elle en tient une.
+///
+/// La correction n'est pas ici mais dans `served()`, qui **déstructure** désormais `Collection::ALL`
+/// au lieu de la recopier : la liste ne peut plus s'écarter de l'énumération sans que le compilateur
+/// le dise, et cette boucle-ci redevient ce qu'elle prétendait être — la vérification que chaque
+/// collection de l'énumération a bien sa route.
 #[test]
 fn les_collections_servies_sont_celles_du_routeur() {
     let source = include_str!("../src/http.rs");
@@ -414,4 +424,198 @@ fn l_ecoute_par_defaut_ne_sort_pas_de_la_machine() {
         DEFAULT_BIND.starts_with("127.0.0.1:"),
         "« {DEFAULT_BIND} » : un défaut qui expose est un défaut qu'on découvre trop tard, et §22 demande une authentification qui n'existe pas encore"
     );
+}
+
+// ---------------------------------------------------------------------------------------------
+// 8. L'histoire d'une branche se sert par HTTP — et elle est la seule des quatre lectures
+// ---------------------------------------------------------------------------------------------
+
+/// Le même écrivain, mais dans le stream d'une branche.
+struct EcritDansLaBranche(&'static [&'static str]);
+
+impl Decide for EcritDansLaBranche {
+    type State = ();
+
+    fn decide(
+        &self,
+        command: &CommandEnvelope,
+        (): &Self::State,
+    ) -> Result<Vec<EventDraft>, CommandError> {
+        Ok(self
+            .0
+            .iter()
+            .enumerate()
+            .map(|(index, kind)| EventDraft {
+                event_id: id::<Event>(u8::try_from(index).unwrap_or(0)),
+                event_type: EventType::parse(kind).expect("type valide"),
+                schema_version: 1,
+                stream_id: "branch/br_01".to_owned(),
+                workspace_id: id::<Workspace>(2),
+                project_id: id::<Project>(4),
+                program_id: None,
+                branch_id: None,
+                actor: Actor {
+                    principal_id: id::<Agent>(3),
+                    kind: ActorKind::Agent,
+                    delegation_id: None,
+                },
+                occurred_at: NOW,
+                causation_id: *command.command_id(),
+                correlation_id: None,
+                trace_id: None,
+                payload: serde_json::json!({}),
+                payload_hash: format!("sha256:{}", "ab".repeat(32)),
+            })
+            .collect())
+    }
+}
+
+async fn serveur_de_branche(types: &'static [&'static str]) -> String {
+    let mut runtime = Runtime::in_memory();
+    runtime
+        .transaction()
+        .submit(&EcritDansLaBranche(types), &commande(), &(), NOW)
+        .accepted()
+        .expect("l'écriture passe");
+    runtime.catch_up();
+
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("la boucle locale accepte un port libre");
+    let adresse = listener
+        .local_addr()
+        .expect("l'adresse est connue")
+        .to_string();
+    let app = router(Arc::new(runtime));
+    tokio::spawn(async move {
+        let _ = axum::serve(listener, app).await;
+    });
+    adresse
+}
+
+/// **Vérifié sur une réponse réelle**, et sur la **révision de stream**, pas la position globale.
+///
+/// C'est ce qui distingue cette route de `/timeline` : deux streams ont tous deux une révision 1, et
+/// une histoire indexée par la position globale désignerait un tout autre événement. Le test lit donc
+/// `"revision":1` — un nombre qu'une timeline ne rendrait pas ici.
+#[tokio::test]
+async fn l_histoire_d_une_branche_se_sert_par_http() {
+    let adresse = serveur_de_branche(&["branch.opened", "branch.validated"]).await;
+    let reponse = demander(&adresse, "/branches/br_01/history", &[]).await;
+
+    assert!(reponse.starts_with("HTTP/1.1 200 OK"), "{reponse}");
+    assert!(reponse.contains("application/json"), "{reponse}");
+    assert!(reponse.contains("\"revision\":1"), "{reponse}");
+    assert!(reponse.contains("\"revision\":2"), "{reponse}");
+    assert!(reponse.contains("branch.opened"), "{reponse}");
+    assert!(reponse.contains("branch.validated"), "{reponse}");
+}
+
+/// La pagination est celle de `W20.e`, et le cursor rendu est **un cursor d'histoire**.
+///
+/// Le représenter à `/timeline` doit être refusé : une position `1` a un sens dans les deux
+/// collections, et la lire dans la mauvaise rendrait une page plausible prise au mauvais endroit.
+#[tokio::test]
+async fn le_cursor_d_histoire_est_refuse_ailleurs() {
+    let adresse = serveur_de_branche(&["branch.opened", "branch.validated"]).await;
+    let premiere = demander(&adresse, "/branches/br_01/history?limit=1", &[]).await;
+    assert!(premiere.contains("\"revision\":1"), "{premiere}");
+    assert!(!premiere.contains("\"revision\":2"), "{premiere}");
+
+    let cursor = premiere
+        .rsplit_once("\"next\":\"")
+        .and_then(|(_, reste)| reste.split_once('"'))
+        .map(|(cursor, _)| cursor.to_owned())
+        .expect("une page tronquée rend un cursor de suite");
+
+    let suite = demander(
+        &adresse,
+        &format!("/branches/br_01/history?cursor={cursor}"),
+        &[],
+    )
+    .await;
+    assert!(suite.contains("\"revision\":2"), "{suite}");
+    // **Et surtout : la suite ne recommence pas.** Un mutant qui ignorait le cursor rendait les deux
+    // révisions et passait l'assertion précédente — « contient 2 » est vrai d'une page qui contient
+    // aussi 1. Reprendre ne veut rien dire si le test ne regarde pas ce qui a été laissé derrière.
+    assert!(!suite.contains("\"revision\":1"), "{suite}");
+
+    // Le même cursor, présenté à la timeline : refusé, et par un 400 typé — pas un 500.
+    let ailleurs = demander(&adresse, &format!("/timeline?cursor={cursor}"), &[]).await;
+    assert!(ailleurs.starts_with("HTTP/1.1 400"), "{ailleurs}");
+    assert!(ailleurs.contains("\"family\":\"validation\""), "{ailleurs}");
+}
+
+/// **L'histoire est celle de la branche demandée**, pas d'une branche codée en dur.
+///
+/// Un mutant qui remplaçait le stream calculé par `branch/br_01` a survécu à la première version de
+/// ces tests : ils ne demandaient que `br_01`. Une route paramétrée dont aucun test ne change le
+/// paramètre n'est pas une route paramétrée, c'est une constante avec une jolie signature.
+#[tokio::test]
+async fn l_histoire_ne_sert_que_la_branche_demandee() {
+    let adresse = serveur_de_branche(&["branch.opened", "branch.validated"]).await;
+
+    let sienne = demander(&adresse, "/branches/br_01/history", &[]).await;
+    assert!(sienne.contains("branch.opened"), "{sienne}");
+
+    // Une autre branche n'a pas d'histoire ici, et la réponse est une page **vide**, pas celle du
+    // voisin. Rendre l'histoire d'une autre branche serait le mode d'échec silencieux de §22.6,
+    // transposé du cursor au chemin.
+    let autre = demander(&adresse, "/branches/br_99/history", &[]).await;
+    assert!(autre.starts_with("HTTP/1.1 200 OK"), "{autre}");
+    assert!(autre.contains("\"items\":[]"), "{autre}");
+    assert!(!autre.contains("branch.opened"), "{autre}");
+}
+
+/// **Un cursor illisible sur cette route rend `400`, pas `500`.**
+///
+/// La règle de `W20.g` vaut route par route et ne s'hérite pas : un mutant qui rendait `500` ici a
+/// survécu tant qu'aucun test ne présentait de cursor cassé à `/branches/:id/history`. Un `500`
+/// inviterait le client à retenter à l'identique — c'est ce que `500` veut dire — et il retenterait
+/// indéfiniment avec le même cursor.
+#[tokio::test]
+async fn un_cursor_casse_sur_l_histoire_rend_un_refus_type() {
+    let adresse = serveur_de_branche(&["branch.opened"]).await;
+    let reponse = demander(&adresse, "/branches/br_01/history?cursor=zz", &[]).await;
+
+    assert!(reponse.starts_with("HTTP/1.1 400"), "{reponse}");
+    assert!(reponse.contains("\"family\":\"validation\""), "{reponse}");
+
+    // Et un cursor d'une autre collection est refusé en nommant les deux.
+    let etranger = Cursor::issue(Collection::Timeline, 1);
+    let refus = demander(
+        &adresse,
+        &format!("/branches/br_01/history?cursor={etranger}"),
+        &[],
+    )
+    .await;
+    assert!(refus.starts_with("HTTP/1.1 400"), "{refus}");
+    assert!(refus.contains("timeline"), "{refus}");
+    assert!(refus.contains("history"), "{refus}");
+}
+
+/// **Une seule des quatre lectures est joignable**, et le test le tient par l'absence.
+///
+/// Le ledger de `W17.f` annonçait « la liaison HTTP des quatre lectures » comme prochain item. La
+/// vérification a démenti le compte, et câbler les trois autres aurait demandé d'inventer en passant
+/// ce qui leur manque : un résolveur `VersionId` → `Version` pour le diff et la preview, les
+/// `Barriers` en vigueur pour la preview, un plan et un environnement enregistré pour l'ombre.
+///
+/// Le test refuse donc les trois routes plutôt que de les laisser apparaître sans que personne ne
+/// s'aperçoive de ce qu'elles auraient dû résoudre. Il tombera le jour où le résolveur existera,
+/// et c'est exactement ce qu'on lui demande.
+#[test]
+fn les_trois_autres_lectures_de_branche_ne_sont_pas_cablees() {
+    let source = include_str!("../src/http.rs");
+    for route in [
+        "/branches/{id}/diff",
+        "/branches/{id}/preview",
+        "/branches/{id}/shadow",
+    ] {
+        assert!(
+            !source.contains(route),
+            "« {route} » : le diff et la preview demandent deux `Version`, que rien ne rend depuis une `VersionId` ; l'ombre demande un plan et un environnement, qu'un GET ne porte pas"
+        );
+    }
+    assert!(source.contains("/branches/{id}/history"));
 }

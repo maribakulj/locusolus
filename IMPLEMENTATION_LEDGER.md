@@ -9511,3 +9511,64 @@ tout.
 l'ombre et la navigation dans le temps. `W20.g` a posé la surface en lecture seule ; ce qui manquait
 est la façon dont un client nomme une `Version`, et `/branches/:id/history` lui donne désormais les
 identifiants à passer.
+
+## 2026-08-20 — W17.g — la liaison HTTP de l'histoire de branche, et le compte qui était faux
+
+**Périmètre.** `apps/locusd/src/http.rs` — la route `GET /branches/{id}/history`, et `served()`
+rattaché à son énumération ; `apps/locusd/tests/http.rs` — quatre tests de plus ;
+`docs/10_V1_ROADMAP.md` — deux lignes, `W17.g` livrée et `W17.h` bloquée.
+
+**Tests exécutés.** `npm run check` — les douze gardes. Dix-sept tests dans `tests/http.rs`.
+Mutation testing, `mutate_w17f_http.py` : **6 tués, 1 équivalent, 1 inexploitable** — après une
+première passe à 3 tués et 4 survivants, dont trois étaient de vraies lacunes.
+
+**Le compte annoncé était faux, et le vérifier a été le travail.** L'entrée de `W17.f` annonçait «
+la liaison HTTP des quatre lectures » comme prochain item. Il n'y en a **qu'une** de joignable par
+un `GET` aujourd'hui, et l'établir a demandé de lire les signatures plutôt que la prose :
+
+- `branch_diff` et `branch_preview` prennent deux `&Version`, pas deux identifiants. **Rien dans le
+  dépôt ne rend une `Version` depuis une `VersionId`** — vérifié plutôt que supposé : aucune
+  projection n'en tient une, et `Version` ne se reconstruit que par `apply` depuis sa racine. La
+  preview demande en outre les `Barriers` en vigueur, que le composition root ne câble pas.
+- `branch_shadow` n'est pas une lecture : elle prend un plan et un environnement enregistré. Un
+  `GET` ne les porte pas, et lui faire porter un corps de requête en ferait une commande sous un
+  verbe qui promet le contraire.
+
+D'où `W17.h`, qui nomme le résolveur au lieu de l'improviser. Un test d'absence refuse les trois
+routes non câblées : il tombera le jour où le résolveur existera, ce qui est exactement ce qu'on lui
+demande.
+
+**Une liste écrite à la main, la troisième.** `served()` énumérait cinq collections à la main.
+`history` a reçu sa route sans y entrer, et le test qui lit cette liste est **passé au vert** : il
+ne vérifiait qu'un sens — « toute collection annoncée a une route », jamais l'inverse. Une
+vérification à sens unique sur deux listes n'en tient qu'une.
+
+`served()` déstructure désormais `Collection::ALL`, ce qui la rattache **à la compilation** :
+ajouter une variante casse la ligne, et la casser oblige à décider. C'est la troisième occurrence du
+même motif après `Family::rang` et `Collection::ALL` lui-même, et c'est la même correction — une
+liste littérale n'oblige à rien.
+
+**Les trois survivants de la première passe, et ce qu'ils désignaient.**
+
+- **Le cursor ignoré survivait** parce que le test affirmait « la suite contient la révision 2 », ce
+  qui est vrai aussi d'une page qui recommence au début. Reprendre ne veut rien dire si le test ne
+  regarde pas ce qui a été **laissé derrière** ; l'assertion négative manquait.
+- **Le stream codé en dur survivait** parce que tous les tests demandaient `br_01`. Une route
+  paramétrée dont aucun test ne change le paramètre est une constante avec une jolie signature.
+- **Le `500` sur cursor illisible survivait** parce que la règle de `W20.g` avait été vérifiée sur
+  d'autres routes. Elle ne s'hérite pas : elle se vérifie route par route.
+
+Le quatrième est **équivalent** et compté comme tel : déplacer `history` dans le tableau de
+`served()` n'en change pas le contenu, et l'ordre n'y a aucun sens — c'est un collecteur de
+diagnostic, pas une séquence.
+
+**Écart avec la spec.** Aucun. §22.4 nomme la navigation dans le temps ; elle est servie. Les trois
+autres lectures y sont nommées aussi, et `W17.h` dit ce qui leur manque.
+
+**Prochain item.** `W17.h`, le résolveur de versions, **inscrit à faire et non bloqué** — et la
+distinction a été prise en écrivant la ligne. Ce qui lui manque est un choix de forme : une
+projection qui rejoue les opérations de coordination depuis la racine, un instantané, ou les deux.
+Un choix de forme est un arbitrage qu'on prend ; le marquer « bloqué » l'aurait rangé auprès de
+`W18.f`, qui attend une machine que personne ne peut fournir, et les deux ne se ressemblent que dans
+un tableau. La règle que `W0.16` a fini par formuler s'applique ici dans l'autre sens : `externe`
+dit « aucun item de ce plan », pas « aucune décision ».
