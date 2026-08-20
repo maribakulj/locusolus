@@ -10124,3 +10124,53 @@ qu'on ne relit jamais.
 leur nature** — la propriété que deux mutants de `W17.f` avaient traversée.
 
 **Prochain item.** `W17.k` — `memory::Genre`, le premier des items ouverts par l'ADR 0022.
+
+## 2026-08-20 — W17.k — le genre, seconde dimension de la mémoire
+
+**Périmètre.** `packages/memory/src/genre.rs`, neuf — `Genre`, `GenreOracle`, `Unknowing` ;
+`level.rs` — `Entry` et `Shelf::store` gagnent le genre, `store_checked` et
+`MemoryError::GenreContradicted` ; `retrieval.rs` — `Candidate` perd ses champs publics au profit de
+`Candidate::new`, et `RetrievalError::VectorOnFormal` ; `separated.rs` ; le `lib.rs` ; les tests
+`genre.rs`, `retrieval.rs` et `level.rs`.
+
+**Tests exécutés.** `npm run check` — les douze gardes. Neuf tests dans `tests/genre.rs`.
+
+**Le nom.** `Genre` et non `Kind`, que `compaction` occupe. Un test importe les deux dans un même
+`use` sans renommage : si le genre s'était appelé `Kind`, cette ligne ne compilerait pas et chaque
+appelant aurait renommé à l'import — la duplication de vocabulaire sous une autre forme. Ce crate
+avait déjà tranché la même collision dans le même sens avec `DuplicateCandidate`.
+
+**Le recoupement est vérifié, pas dupliqué.** Quatre genres recouvrent des distinctions encodées
+ailleurs, et `Genre::Negative` aurait été la quatrième représentation du résultat négatif — ce que
+l'ADR 0021 vient de retirer pour `proposal::Change`. Le genre reste **déclaré**, parce qu'une
+`Entry` doit être auto-descriptive ; mais là où un oracle connaît la clé, le désaccord est un
+**refus qui nomme les deux**. Une clé qu'aucun oracle ne résout est **acceptée** : l'ignorance n'est
+pas un démenti, et la faute symétrique — refuser tout ce qu'on ne sait pas confirmer — rendrait la
+mémoire inutilisable partout où le résolveur n'a rien à dire.
+
+**`Candidate.is_negative` a disparu**, et c'est une conséquence non prévue de la décision 1 bis. Un
+booléen qui pouvait contredire le genre était une seconde source de vérité pour la même question ;
+`is_negative()` lit désormais le genre. La dimension a donc **retiré** un champ au lieu d'en ajouter
+un — l'inverse de ce qu'on attend d'un ajout de dimension.
+
+**Le refus `(Formal, Vector)` coûte ce qui était annoncé.** `Ranking::of` est inchangé, comme
+l'analyse le prévoyait ; mais `Candidate` n'avait pas de constructeur, et ses quatre champs étaient
+`pub`. Ils cessent de l'être, faute de quoi un littéral de structure contournerait la vérification
+sans qu'aucun test ne s'en aperçoive. Un test vérifie les trois cas : le couple refusé, le même
+score sur un objet sémantique accepté, et un objet formel classé autrement accepté — l'interdit vise
+le **couple**, il ne bannit pas le genre du retrieval.
+
+**Un genre déduit à la frontière, et le choix est dit.** `separated.rs` ne connaît que `is_negative`
+: le genre s'y déduit — `Negative` sinon `Semantic` côté épistémique, `Negative` sinon
+`Coordination` côté organisationnel. Faire porter le genre à `EpistemicEntry` serait plus juste et
+demanderait de le remonter jusqu'aux appelants : un item, pas une correction de passage. Les deux
+`expect` qui en découlent portent une section `# Panics` qui dit pourquoi ils ne peuvent pas tirer.
+
+**Un premier test d'absence comptait la mauvaise chose.** Il comptait le jeton `Entry {`, qui
+attrape aussi la déclaration et le bloc `impl` — trois occurrences pour une seule construction. La
+forme visée est `= Entry {`. Un compte qui ramasse trois choses différentes ne dit rien de ce qu'on
+voulait savoir.
+
+**Écart avec la spec.** Aucun. §16.1 garde ses sept niveaux et §16.3 ses dix signaux, inchangés.
+
+**Prochain item.** `W17.l` — `Intent`, `Plan`, `Escalation`, et `retrieve` qui prend un plan.

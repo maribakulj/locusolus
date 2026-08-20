@@ -44,6 +44,7 @@ use std::collections::BTreeMap;
 use locus_domain::{Confidentiality, RevisionId};
 use locus_protocol::{Id, id::Agent};
 
+use crate::genre::Genre;
 use crate::retrieval::{Candidate, Ranking, retrieve};
 
 /// Ce qu'on cherche du côté **épistémique**.
@@ -98,6 +99,13 @@ pub struct OrganisationalHit {
 }
 
 /// Chercher « que savait-on ».
+///
+/// # Panics
+///
+/// Jamais en pratique, et la raison est locale : le genre est **choisi ici**, parmi deux valeurs
+/// dont aucune n'est `Formal`. Or `Candidate::new` ne refuse que le couple `(Formal, Vector)`.
+/// Le `expect` est donc une assertion sur du code voisin, pas sur une entrée — et il vaut mieux
+/// qu'un `unwrap_or` qui inventerait un candidat le jour où quelqu'un ajouterait un genre ici.
 #[must_use]
 pub fn epistemic(
     corpus: &[EpistemicEntry],
@@ -110,28 +118,47 @@ pub fn epistemic(
         .collect();
     let candidates: Vec<Candidate> = corpus
         .iter()
-        .map(|entry| Candidate {
-            key: entry.revision.to_string(),
-            classification: entry.classification,
-            is_negative: entry.is_negative,
-            ranking: entry.ranking.clone(),
+        .map(|entry| {
+            // Le genre se déduit ici d'`is_negative`, et le choix se dit : une entrée épistémique
+            // qui ne porte pas de résultat négatif est un claim validé, c'est-à-dire `Semantic`.
+            // Faire porter le genre à `EpistemicEntry` serait plus juste et demanderait de le
+            // remonter jusqu'aux appelants — un item, pas une correction de passage.
+            let genre = if entry.is_negative {
+                Genre::Negative
+            } else {
+                Genre::Semantic
+            };
+            Candidate::new(
+                entry.revision.to_string(),
+                entry.classification,
+                genre,
+                entry.ranking.clone(),
+            )
         })
-        .collect();
+        .collect::<Result<Vec<_>, _>>()
+        .expect("un genre déduit d'`is_negative` n'est jamais `Formal`");
 
     retrieve(&candidates, clearance, budget)
         .included()
         .iter()
         .filter_map(|found| {
-            by_key.get(&found.key).map(|revision| EpistemicHit {
+            by_key.get(found.key()).map(|revision| EpistemicHit {
                 revision: *revision,
-                is_negative: found.is_negative,
-                ranking: found.ranking.clone(),
+                is_negative: found.is_negative(),
+                ranking: found.ranking().clone(),
             })
         })
         .collect()
 }
 
 /// Chercher « qui a travaillé ».
+///
+/// # Panics
+///
+/// Jamais en pratique, et la raison est locale : le genre est **choisi ici**, parmi deux valeurs
+/// dont aucune n'est `Formal`. Or `Candidate::new` ne refuse que le couple `(Formal, Vector)`.
+/// Le `expect` est donc une assertion sur du code voisin, pas sur une entrée — et il vaut mieux
+/// qu'un `unwrap_or` qui inventerait un candidat le jour où quelqu'un ajouterait un genre ici.
 #[must_use]
 pub fn organisational(
     corpus: &[OrganisationalEntry],
@@ -144,22 +171,33 @@ pub fn organisational(
         .collect();
     let candidates: Vec<Candidate> = corpus
         .iter()
-        .map(|entry| Candidate {
-            key: entry.agent.to_string(),
-            classification: entry.classification,
-            is_negative: entry.is_negative,
-            ranking: entry.ranking.clone(),
+        .map(|entry| {
+            // Le retrieval organisationnel porte sur des agents, pas sur des claims : son genre est
+            // `Coordination`, sauf quand l'entrée porte un résultat négatif — « cet agent a échoué
+            // ici » est un fait négatif avant d'être un fait d'organisation.
+            let genre = if entry.is_negative {
+                Genre::Negative
+            } else {
+                Genre::Coordination
+            };
+            Candidate::new(
+                entry.agent.to_string(),
+                entry.classification,
+                genre,
+                entry.ranking.clone(),
+            )
         })
-        .collect();
+        .collect::<Result<Vec<_>, _>>()
+        .expect("ni `Coordination` ni `Negative` ne sont `Formal`");
 
     retrieve(&candidates, clearance, budget)
         .included()
         .iter()
         .filter_map(|found| {
-            by_key.get(&found.key).map(|agent| OrganisationalHit {
+            by_key.get(found.key()).map(|agent| OrganisationalHit {
                 agent: *agent,
-                is_negative: found.is_negative,
-                ranking: found.ranking.clone(),
+                is_negative: found.is_negative(),
+                ranking: found.ranking().clone(),
             })
         })
         .collect()

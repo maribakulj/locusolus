@@ -6,19 +6,20 @@
 //!    l'exerce avec `f64::MAX`.
 
 use locus_domain::Confidentiality;
-use locus_memory::{Candidate, Excluded, Ranking, RetrievalError, Signal, retrieve};
+use locus_memory::{Candidate, Excluded, Genre, Ranking, RetrievalError, Signal, retrieve};
 
 fn ranking(contributions: &[(Signal, f64)]) -> Ranking {
     Ranking::of(contributions).expect("le score expose ses facteurs")
 }
 
 fn candidate(key: &str, classification: Confidentiality, total: f64) -> Candidate {
-    Candidate {
-        key: key.to_owned(),
+    Candidate::new(
+        key,
         classification,
-        is_negative: false,
-        ranking: ranking(&[(Signal::Lexical, total)]),
-    }
+        Genre::Semantic,
+        ranking(&[(Signal::Lexical, total)]),
+    )
+    .expect("un candidat sémantique classé lexicalement est admissible")
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -107,18 +108,19 @@ fn a_contribution_that_is_not_a_finite_number_is_refused() {
 /// rien à contourner, il n'est pas dans la course.
 #[test]
 fn a_maximal_vector_score_does_not_defeat_an_acl() {
-    let secret = Candidate {
-        key: "restreint".to_owned(),
-        classification: Confidentiality::Restricted,
-        is_negative: false,
-        ranking: ranking(&[(Signal::Vector, f64::MAX)]),
-    };
+    let secret = Candidate::new(
+        "restreint",
+        Confidentiality::Restricted,
+        Genre::Semantic,
+        ranking(&[(Signal::Vector, f64::MAX)]),
+    )
+    .expect("sémantique admet la similarité vectorielle");
     let ordinary = candidate("interne", Confidentiality::Internal, 0.1);
 
     let results = retrieve(&[secret, ordinary], Confidentiality::Internal, 10);
 
     assert_eq!(results.included().len(), 1);
-    assert_eq!(results.included()[0].key, "interne");
+    assert_eq!(results.included()[0].key(), "interne");
     assert_eq!(
         results.excluded(),
         [Excluded::BeyondClearance {
@@ -165,11 +167,7 @@ fn the_order_is_deterministic_down_to_ties() {
         candidate("c", Confidentiality::Public, 2.0),
     ];
     let results = retrieve(&candidates, Confidentiality::Public, 10);
-    let keys: Vec<&str> = results
-        .included()
-        .iter()
-        .map(|found| found.key.as_str())
-        .collect();
+    let keys: Vec<&str> = results.included().iter().map(Candidate::key).collect();
     assert_eq!(keys, ["c", "a", "b"]);
 }
 
@@ -203,16 +201,17 @@ fn the_context_budget_truncates_and_says_what_it_dropped() {
 /// pas un filtre.
 #[test]
 fn a_negative_result_is_retrieved_like_any_other() {
-    let negative = Candidate {
-        key: "réfutation".to_owned(),
-        classification: Confidentiality::Internal,
-        is_negative: true,
-        ranking: ranking(&[(Signal::NegativeResults, 1.0)]),
-    };
+    let negative = Candidate::new(
+        "réfutation",
+        Confidentiality::Internal,
+        Genre::Negative,
+        ranking(&[(Signal::NegativeResults, 1.0)]),
+    )
+    .expect("un résultat négatif est admissible");
     let results = retrieve(&[negative], Confidentiality::Internal, 10);
 
     assert_eq!(results.included().len(), 1);
-    assert!(results.included()[0].is_negative);
+    assert!(results.included()[0].is_negative());
     assert!(results.excluded().is_empty());
 }
 

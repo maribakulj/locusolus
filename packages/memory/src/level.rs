@@ -20,6 +20,8 @@
 //! deviendrait la source.
 
 use std::collections::BTreeMap;
+
+use crate::genre::{Genre, GenreOracle, Unknowing};
 use std::fmt;
 
 /// Les sept niveaux de §16.1, du plus étroit au plus large.
@@ -129,6 +131,7 @@ impl fmt::Display for Substance {
 pub struct Entry {
     key: String,
     level: Level,
+    genre: Genre,
     substance: Substance,
 }
 
@@ -139,10 +142,19 @@ impl Entry {
         &self.key
     }
 
-    /// Son niveau.
+    /// Son niveau — **qui a le droit de voir**.
     #[must_use]
     pub const fn level(&self) -> Level {
         self.level
+    }
+
+    /// Son genre — **ce que le lecteur a le droit d'en faire** (ADR 0022 décision 1).
+    ///
+    /// Obligatoire au même titre que le niveau : une mémoire dont le genre n'est pas nommé n'existe
+    /// pas, et c'est pour cela qu'il n'y a pas d'`Entry` sans genre à construire.
+    #[must_use]
+    pub const fn genre(&self) -> Genre {
+        self.genre
     }
 
     /// Ce qu'elle est.
@@ -172,12 +184,47 @@ impl Shelf {
     /// [`MemoryError::EmptyKey`] pour une entrée sans clé — elle ne se retrouve pas, donc elle est
     /// perdue en étant rangée, ce qui est pire que de ne pas la ranger ;
     /// [`MemoryError::AlreadyStored`] pour une clé déjà prise, parce qu'écraser en silence ferait
-    /// disparaître un canonique derrière une projection du même nom.
+    /// disparaître un canonique derrière une projection du même nom ;
+    /// [`MemoryError::GenreContradicted`] quand l'oracle attribue à cette clé un autre genre que
+    /// celui déclaré — voir [`Shelf::store_checked`], qui porte le raisonnement.
+    ///
+    /// Cette forme range **sans confronter** : elle passe un oracle qui ne sait rien. C'est le bon
+    /// défaut pour un appelant qui n'a pas de résolveur, et c'est honnête — il ne prétend pas
+    /// vérifier.
     pub fn store(
         &mut self,
         key: &str,
         level: Level,
+        genre: Genre,
         substance: Substance,
+    ) -> Result<&Entry, MemoryError> {
+        self.store_checked(key, level, genre, substance, &Unknowing)
+    }
+
+    /// Ranger une entrée **en confrontant son genre** à ce que le reste du système en sait.
+    ///
+    /// # Le désaccord est un refus, l'ignorance ne l'est pas
+    ///
+    /// Quatre genres recouvrent des distinctions encodées ailleurs — `Negative` par
+    /// `CoreObjectType::NegativeResult` et l'agrégat de §18.7, `Formal` par `FormalizationStatus`,
+    /// `Computational` par `reproducibility`, `Coordination` par le crate de coordination. Laisser
+    /// le genre se déclarer sans jamais le confronter en ferait une seconde source de vérité, qui
+    /// divergerait le jour où l'une des deux serait corrigée.
+    ///
+    /// Une clé qu'aucun oracle ne résout est **acceptée** : l'ignorance n'est pas un démenti. La
+    /// faute symétrique serait de refuser tout ce qu'on ne sait pas confirmer, ce qui rendrait la
+    /// mémoire inutilisable partout où le résolveur n'a rien à dire.
+    ///
+    /// # Errors
+    ///
+    /// Les mêmes que [`Shelf::store`], et [`MemoryError::GenreContradicted`] en propre.
+    pub fn store_checked(
+        &mut self,
+        key: &str,
+        level: Level,
+        genre: Genre,
+        substance: Substance,
+        oracle: &impl GenreOracle,
     ) -> Result<&Entry, MemoryError> {
         if key.trim().is_empty() {
             return Err(MemoryError::EmptyKey);
@@ -188,9 +235,19 @@ impl Shelf {
                 level: existing.level,
             });
         }
+        if let Some(known) = oracle.genre_of(key)
+            && known != genre
+        {
+            return Err(MemoryError::GenreContradicted {
+                key: key.to_owned(),
+                declared: genre,
+                known,
+            });
+        }
         let entry = Entry {
             key: key.to_owned(),
             level,
+            genre,
             substance,
         };
         Ok(self.entries.entry(key.to_owned()).or_insert(entry))
@@ -240,6 +297,18 @@ pub enum MemoryError {
         /// À quel niveau elle est déjà rangée.
         level: Level,
     },
+    /// Le genre déclaré contredit celui que le reste du système attribue à cette clé.
+    ///
+    /// Le refus **nomme les deux**, parce qu'un désaccord dont on ne sait pas de quel côté il vient
+    /// ne se tranche pas : il faut savoir si c'est la déclaration ou le résolveur qui a tort.
+    GenreContradicted {
+        /// Laquelle.
+        key: String,
+        /// Ce que le rangement déclare.
+        declared: Genre,
+        /// Ce que le reste du système en sait.
+        known: Genre,
+    },
 }
 
 impl fmt::Display for MemoryError {
@@ -252,6 +321,16 @@ impl fmt::Display for MemoryError {
                 formatter,
                 "« {key} » est déjà rangée en « {level} » : écraser en silence ferait disparaître un \
                  canonique derrière une projection du même nom"
+            ),
+            Self::GenreContradicted {
+                key,
+                declared,
+                known,
+            } => write!(
+                formatter,
+                "« {key} » est rangée en « {declared} » et le reste du système la tient pour \
+                 « {known} » : un genre est une autorité, et deux autorités pour un même objet \
+                 divergeront"
             ),
         }
     }

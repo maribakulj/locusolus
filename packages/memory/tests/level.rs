@@ -5,7 +5,7 @@
 //!    déclare toujours.
 //! 3. Une mémoire dont le niveau n'est pas nommé n'existe pas.
 
-use locus_memory::{Level, MemoryError, Shelf, Substance};
+use locus_memory::{Genre, Level, MemoryError, Shelf, Substance};
 
 // ---------------------------------------------------------------------------------------------
 // 1. Les sept, sous leur nom
@@ -91,16 +91,36 @@ fn what_is_canonical_is_never_regenerable() {
 fn a_shelf_says_what_a_purge_would_cost() {
     let mut shelf = Shelf::new();
     shelf
-        .store("evt-1", Level::Branch, Substance::Canonical)
+        .store(
+            "evt-1",
+            Level::Branch,
+            Genre::Episodic,
+            Substance::Canonical,
+        )
         .expect("un événement");
     shelf
-        .store("art-1", Level::Program, Substance::Canonical)
+        .store(
+            "art-1",
+            Level::Program,
+            Genre::Computational,
+            Substance::Canonical,
+        )
         .expect("un artefact");
     shelf
-        .store("embedding-1", Level::Team, Substance::Projection)
+        .store(
+            "embedding-1",
+            Level::Team,
+            Genre::Semantic,
+            Substance::Projection,
+        )
         .expect("un embedding");
     shelf
-        .store("summary-1", Level::AgentPrivate, Substance::Projection)
+        .store(
+            "summary-1",
+            Level::AgentPrivate,
+            Genre::Semantic,
+            Substance::Projection,
+        )
         .expect("un résumé");
 
     let regenerable: Vec<&str> = shelf.regenerable().map(locus_memory::Entry::key).collect();
@@ -121,10 +141,10 @@ fn a_shelf_says_what_a_purge_would_cost() {
 fn a_level_keeps_only_what_was_stored_in_it() {
     let mut shelf = Shelf::new();
     shelf
-        .store("a", Level::Team, Substance::Projection)
+        .store("a", Level::Team, Genre::Semantic, Substance::Projection)
         .expect("rangée");
     shelf
-        .store("b", Level::Program, Substance::Projection)
+        .store("b", Level::Program, Genre::Semantic, Substance::Projection)
         .expect("rangée");
 
     let team: Vec<&str> = shelf
@@ -148,7 +168,7 @@ fn an_entry_without_a_key_is_refused() {
     let mut shelf = Shelf::new();
     assert_eq!(
         shelf
-            .store("  ", Level::Team, Substance::Projection)
+            .store("  ", Level::Team, Genre::Semantic, Substance::Projection)
             .expect_err("sans clé"),
         MemoryError::EmptyKey
     );
@@ -162,11 +182,21 @@ fn an_entry_without_a_key_is_refused() {
 fn storing_over_an_existing_key_is_refused() {
     let mut shelf = Shelf::new();
     shelf
-        .store("claim-1", Level::Branch, Substance::Canonical)
+        .store(
+            "claim-1",
+            Level::Branch,
+            Genre::Semantic,
+            Substance::Canonical,
+        )
         .expect("rangée");
     assert_eq!(
         shelf
-            .store("claim-1", Level::Team, Substance::Projection)
+            .store(
+                "claim-1",
+                Level::Team,
+                Genre::Semantic,
+                Substance::Projection
+            )
             .expect_err("la clé est prise"),
         MemoryError::AlreadyStored {
             key: "claim-1".to_owned(),

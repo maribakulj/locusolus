@@ -38,6 +38,8 @@ use std::fmt;
 
 use locus_domain::Confidentiality;
 
+use crate::genre::Genre;
+
 /// Les dix signaux que §16.3 combine, dans l'ordre du texte.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Signal {
@@ -160,14 +162,84 @@ impl Ranking {
 /// Un candidat au retrieval.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Candidate {
+    key: String,
+    classification: Confidentiality,
+    genre: Genre,
+    ranking: Ranking,
+}
+
+impl Candidate {
+    /// Un candidat, **si le couple genre/score est admissible**.
+    ///
+    /// # Pourquoi le refus est ici et non dans `Ranking::of`
+    ///
+    /// ADR 0022 décision 2 : un objet `Formal` ne se classe pas par similarité vectorielle, son
+    /// autorité étant un vérificateur. `Ranking::of` ne connaît pas le candidat et ne peut donc pas
+    /// poser ce refus ; le poser après coup laisserait exister un `Ranking` valide qui deviendrait
+    /// invalide en étant attaché, c'est-à-dire un état intermédiaire invalide représentable — ce que
+    /// ce dépôt évite partout ailleurs.
+    ///
+    /// Les champs cessent d'être publics pour cette raison, et pour elle seule : un littéral de
+    /// structure contournerait la vérification sans qu'aucun test ne s'en aperçoive.
+    ///
+    /// # Errors
+    ///
+    /// [`RetrievalError::VectorOnFormal`] pour le couple interdit.
+    pub fn new(
+        key: impl Into<String>,
+        classification: Confidentiality,
+        genre: Genre,
+        ranking: Ranking,
+    ) -> Result<Self, RetrievalError> {
+        let key = key.into();
+        if !genre.admits_vector_similarity()
+            && ranking
+                .contribution(Signal::Vector)
+                .is_some_and(|value| value != 0.0)
+        {
+            return Err(RetrievalError::VectorOnFormal { key });
+        }
+        Ok(Self {
+            key,
+            classification,
+            genre,
+            ranking,
+        })
+    }
+
     /// Sa clé.
-    pub key: String,
+    #[must_use]
+    pub fn key(&self) -> &str {
+        &self.key
+    }
+
     /// Sa classification.
-    pub classification: Confidentiality,
-    /// Vrai quand il porte un résultat négatif — jamais une raison de l'écarter.
-    pub is_negative: bool,
+    #[must_use]
+    pub const fn classification(&self) -> Confidentiality {
+        self.classification
+    }
+
+    /// Son genre — ADR 0022 décision 1.
+    #[must_use]
+    pub const fn genre(&self) -> Genre {
+        self.genre
+    }
+
+    /// Vrai quand il porte un résultat négatif — **jamais une raison de l'écarter**.
+    ///
+    /// Lit le genre plutôt qu'un booléen à part : un drapeau qui pouvait contredire le genre était
+    /// une seconde source de vérité pour la même question, et l'ADR 0022 décision 1 bis refuse
+    /// exactement cela.
+    #[must_use]
+    pub fn is_negative(&self) -> bool {
+        self.genre == Genre::Negative
+    }
+
     /// Son score, facteurs compris.
-    pub ranking: Ranking,
+    #[must_use]
+    pub const fn ranking(&self) -> &Ranking {
+        &self.ranking
+    }
 }
 
 /// Pourquoi un candidat n'est pas dans le résultat.
@@ -247,10 +319,10 @@ pub fn retrieve(candidates: &[Candidate], clearance: Confidentiality, budget: us
     let mut allowed: Vec<Candidate> = Vec::new();
 
     for candidate in candidates {
-        if rank(candidate.classification) > rank(clearance) {
+        if rank(candidate.classification()) > rank(clearance) {
             excluded.push(Excluded::BeyondClearance {
-                key: candidate.key.clone(),
-                classification: candidate.classification,
+                key: candidate.key().to_owned(),
+                classification: candidate.classification(),
                 clearance,
             });
             continue;
@@ -271,7 +343,7 @@ pub fn retrieve(candidates: &[Candidate], clearance: Confidentiality, budget: us
     for (position, candidate) in allowed.into_iter().enumerate() {
         if position >= budget {
             excluded.push(Excluded::BeyondBudget {
-                key: candidate.key,
+                key: candidate.key().to_owned(),
                 rank: position + 1,
             });
             continue;
@@ -283,8 +355,17 @@ pub fn retrieve(candidates: &[Candidate], clearance: Confidentiality, budget: us
 }
 
 /// Ce qui empêche un score d'exister.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RetrievalError {
+    /// Une contribution vectorielle sur un objet formel — ADR 0022 décision 2.
+    ///
+    /// L'autorité d'un objet formel est un vérificateur, et un score de proximité n'a aucune
+    /// relation avec elle. Le laisser passer ferait ranger un lemme démontré par ressemblance, et la
+    /// machine cesserait de distinguer « démontré » de « qui ressemble à ».
+    VectorOnFormal {
+        /// Lequel.
+        key: String,
+    },
     /// Un score sans facteurs.
     NoFactorsExposed,
     /// Une contribution qui n'est pas un nombre fini.
@@ -297,6 +378,11 @@ pub enum RetrievalError {
 impl fmt::Display for RetrievalError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::VectorOnFormal { key } => write!(
+                formatter,
+                "« {key} » est formel et porte une contribution de similarité vectorielle : son \
+                 autorité est un vérificateur, qu'un score de proximité ne remplace pas"
+            ),
             Self::NoFactorsExposed => formatter.write_str(
                 "un score sans facteurs est un nombre nu : il se compare, se trie et se cite, et \
                  personne ne peut dire pourquoi il vaut ce qu'il vaut",
