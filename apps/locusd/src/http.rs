@@ -31,7 +31,7 @@
 use std::sync::Arc;
 
 use axum::Router;
-use axum::extract::{Query, State};
+use axum::extract::{Path, Query, State};
 use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
@@ -75,6 +75,7 @@ where
         .route("/workers", get(workers::<S>))
         .route("/conflicts", get(conflicts::<S>))
         .route("/events", get(events::<S>))
+        .route("/branches/{id}/history", get(branch_history::<S>))
         .route("/projections/status", get(projections_status::<S>))
         .with_state(runtime)
 }
@@ -160,6 +161,43 @@ async fn events<S: EventStore + Send + Sync + 'static>(
 }
 
 /// `GET /projections/status` — §22.4, la santé des projections.
+/// `GET /branches/{id}/history` — la navigation dans le temps de `W17.f`, §22.4.
+///
+/// # Pourquoi celle-ci et pas les trois autres
+///
+/// `W17.f` a livré six capacités et le ledger annonçait « la liaison HTTP des quatre lectures ».
+/// La vérification a démenti le compte : **une seule** des quatre est joignable par un `GET`
+/// aujourd'hui, et le dire vaut mieux que d'en câbler trois qui mentiraient.
+///
+/// - **le diff** et **la preview** prennent deux `&Version`, pas deux identifiants. Rien dans le
+///   dépôt ne sait rendre une `Version` depuis une `VersionId` — vérifié, pas supposé : aucune
+///   projection n'en tient, et `Version` ne se reconstruit que par `apply` depuis sa racine. Ce
+///   qu'il faudrait est un **résolveur de versions**, donc une projection de plus, donc un item ;
+///   l'écrire en passant dans une liaison HTTP serait exactement le débordement que `W20.c` a
+///   refusé pour le transport. La preview demande en outre les `Barriers` en vigueur, que le
+///   composition root ne câble pas.
+/// - **l'ombre** n'est pas une lecture : elle prend un plan et un environnement enregistré. Un
+///   `GET` ne les porte pas, et lui faire porter un corps de requête en ferait une commande sous un
+///   verbe qui promet le contraire.
+///
+/// L'histoire, elle, ne demande que le stream et un cursor — les deux que le client a déjà.
+async fn branch_history<S: EventStore + Send + Sync + 'static>(
+    State(runtime): State<Arc<Runtime<S>>>,
+    Path(id): Path<String>,
+    Query(paging): Query<Paging>,
+) -> Response {
+    let stream = format!("branch/{id}");
+    match runtime.branch_history(&stream, paging.cursor().as_ref(), paging.limit) {
+        Ok(page) => json_page(&page, |entry| {
+            format!(
+                "{{\"revision\":{},\"event_type\":\"{}\",\"recorded_at\":\"{}\"}}",
+                entry.revision, entry.event_type, entry.recorded_at
+            )
+        }),
+        Err(error) => refusal(error),
+    }
+}
+
 async fn projections_status<S: EventStore + Send + Sync + 'static>(
     State(runtime): State<Arc<Runtime<S>>>,
 ) -> Response {
@@ -234,13 +272,26 @@ pub const DEFAULT_BIND: &str = "127.0.0.1:8787";
 ///
 /// Il vit ici, à côté du routeur, parce que c'est le routeur qui décide ce qui est servi : deux
 /// listes à deux endroits divergeraient au premier ajout de route.
+///
+/// # Le déstructurage n'est pas une coquetterie
+///
+/// La liste était écrite à la main, et elle a dérivé au premier ajout : `history` a été servie sans
+/// être annoncée, et le test qui lit cette liste est passé au vert — il ne vérifiait qu'un sens,
+/// « toute collection annoncée a une route », jamais l'inverse.
+///
+/// C'est la troisième fois dans ce chantier qu'une liste écrite à la main se désynchronise de son
+/// énumération — après `Family::rang` et `Collection::ALL` lui-même. Le déstructurage la rattache
+/// **à la compilation** : ajouter une variante à `Collection` casse cette ligne, et la casser oblige
+/// à décider si la nouvelle collection est servie ou non. Une liste littérale n'oblige à rien.
 #[must_use]
-pub fn served() -> [&'static str; 5] {
+pub fn served() -> [&'static str; 6] {
+    let [timeline, workers, conflicts, events, history] = Collection::ALL.map(Collection::name);
     [
-        Collection::Timeline.name(),
-        Collection::Workers.name(),
-        Collection::Conflicts.name(),
-        Collection::Events.name(),
+        timeline,
+        workers,
+        conflicts,
+        events,
+        history,
         "projections/status",
     ]
 }
