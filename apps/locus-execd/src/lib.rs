@@ -32,6 +32,7 @@ pub mod build;
 pub mod linux;
 pub mod macos;
 pub mod placement;
+pub mod readiness;
 pub mod reroute;
 pub mod runtime;
 pub mod wire;
@@ -45,5 +46,6 @@ pub use linux::{ConfinementPlan, HostFacts, PlanError, PodmanBackend, Workload, 
 pub use linux::{NO_STORAGE_DECLARED, PROJECT_QUOTA_OPTIONS, QUOTA_CAPABLE_FILESYSTEMS, Support};
 pub use macos::{MachineFacts, MachineState};
 pub use placement::{Candidate, Placement, place};
+pub use readiness::Readiness;
 pub use reroute::{Attempt, RerouteError, Rerouting, reroute};
 pub use runtime::{RuntimeError, RuntimePort, SandboxId};

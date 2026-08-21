@@ -11829,3 +11829,80 @@ invisible ne l'est pas.
 **Écart avec la spec.** Aucun.
 
 **Prochain item.** `W22.c` — `main.rs` de `locus-execd`.
+
+## 2026-08-21 — W22.c — Le binaire construit ce qu'il déclarait absent, et le refus vient de l'hôte
+
+**Périmètre.** `apps/locus-execd/src/readiness.rs` (neuf), `apps/locus-execd/src/main.rs`,
+`apps/locus-execd/src/lib.rs`, `apps/locus-execd/src/linux/driver.rs` (un accesseur),
+`apps/locus-execd/tests/readiness.rs`, `docs/10_V1_ROADMAP.md`.
+
+**Tests exécutés.** `cargo test -p locus-execd --test readiness` → 8 conformes, avec l'anti-garde
+vérifiée **rouge sur le message d'origine** puis verte après retrait, l'injection assertée présente.
+`npm run check` → les douze portes. Mutation : dix mutants, **dix tués**, après réparation de deux
+survivants.
+
+**Ce que le binaire disait.** « aucun driver de runtime n'est encore branché (W4.d) », puis
+`ExitCode::FAILURE`. Le crate exportait `SystemRunner` depuis `W4.d.2` — la seule fonction du dépôt
+qui exécute `podman`. Un exploitant qui lançait le binaire concluait que la fabric d'exécution
+n'existait pas.
+
+**La cause n'est pas l'inattention.** Aucun test ne traversait `main.rs`. Une affirmation que rien
+ne vérifie vieillit sans que rien ne le dise — et c'est le corollaire que l'ADR 0025 vient d'ajouter
+à l'ADR 0022 décision 0 : une capacité **niée** est une promesse négative.
+
+**La forme de la réparation.** Pas un meilleur message : un **type**. `Readiness` est une valeur que
+des tests exercent, `main.rs` n'est plus qu'une coquille qui l'imprime. C'est ce que `locusd` fait
+déjà, dont le point d'entrée ne décide de rien et rend compte d'un état calculé ailleurs.
+
+Le binaire construit désormais le driver **sans condition** et le nomme. On ne peut pas déclarer
+absent ce qu'on vient d'instancier : la négation est devenue inexprimable, pas seulement interdite.
+
+**Ce qu'il dit maintenant, sur cette machine :**
+
+```
+locus-execd : driver podman
+  cgroup v2 : indisponible (sys/fs/cgroup/cgroup.controllers est absent : pas de hiérarchie unifiée)
+  namespace utilisateur non privilégié : disponible
+  seccomp : disponible
+locus-execd : driver construit ; cet hôte plafonne à S1, sous S2, et il y manque :
+  - cgroup v2 : sys/fs/cgroup/cgroup.controllers est absent : pas de hiérarchie unifiée
+  - contrôleur cgroup : « cpu » n'est pas délégué à ce cgroup
+```
+
+Fait par fait, jamais « l'hôte ne convient pas » : à qui l'on dit quel contrôleur manque corrige en
+une commande, à qui l'on dit « non » change de machine. C'est la règle d'`admit`, qui accumule ses
+refus.
+
+**Aucune phrase sur l'avenir.** Le point d'entrée ne dit pas « en attendant tel item ». Une phrase
+sur ce qui viendra est de la prose qu'aucun test ne vérifie, c'est-à-dire la faute même que cette
+phase supprime — l'y remettre pour expliquer une absence serait la réintroduire en la commentant. Le
+texte du constat est **calculé** depuis `HostFacts`, donc il ne peut pas se périmer sans que l'hôte
+change, et un test le tient en comparant deux hôtes cassés autrement.
+
+**Premier survivant, et il a révélé un fait du dépôt.** Remonter `Readiness::FLOOR` de `S2` à `S3`
+ne tuait aucun test — et ce n'était pas un trou de couverture : `missing_for` n'exige **rien** de
+plus pour `S3` que pour `S2`. Sondé plutôt que supposé : les deux rendent des ensembles identiques,
+sur un hôte capable comme sur un hôte court. Ce qui sépare les deux niveaux est l'isolation réseau,
+et elle ne se lit pas dans `/proc` — elle se vérifie sur une sandbox **vivante**, par les sondes de
+`W5.k`. Un hôte qui prouverait `S2` sans `S3` est donc inexprimable pour ce lecteur de faits.
+
+Plutôt que de retirer le plancher, dont le nom dit juste ce que le backend Podman exige, le fait est
+**épinglé par un test** : si une sonde réseau entre un jour dans `HostFacts`, il rougira et dira à
+qui l'ajoute que le plancher vient de prendre un sens. Un mutant intuable par construction se
+remplace par l'assertion de ce qui le rend intuable — sans quoi il resterait au harnais comme un
+échec permanent, et on finirait par l'ignorer.
+
+**Second survivant.** « Driver construit » n'était asserté que dans le constat de refus. Un seul des
+deux chemins le disant, l'autre pouvait le taire — et c'est le chemin du succès qui aurait cessé de
+mentionner la capacité dont tout cet item traite.
+
+**Un quatrième maillon manquant, que l'audit n'a pas compté.** Il en nomme trois : les écritures de
+`locusd`, la persistance, la boucle du worker. Il en manque un : **aucun code du dépôt ne construit
+de client vers `locus-execd`, et le broker n'écoute rien.** Vérifié par recherche sur l'arbre. Il ne
+se voit pas parce que les deux côtés sont cohérents séparément — `locusd` ne parle à aucun runtime,
+comme la quatrième frontière l'exige, et le broker détient le socket, comme l'ADR 0004 l'exige ; ce
+qui manque est entre les deux. `W4.h` entre au plan.
+
+**Écart avec la spec.** Aucun.
+
+**Prochain item.** `W22.d` — la garde déclaration/symbole.

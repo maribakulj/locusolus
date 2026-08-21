@@ -1,17 +1,39 @@
 //! Le point d'entrée du broker.
 //!
-//! Il ne démarre rien tant qu'aucun driver n'existe : W4.c livre la frontière — le port, la
-//! décision d'admission, la garde qui vérifie que personne d'autre ne parle à un runtime — et
-//! W4.d le premier driver. Un binaire qui prétendrait servir alors qu'il n'a rien à quoi parler
-//! serait exactement le « sandbox factice » que l'ADR 0004 interdit dans son plan de rollback.
+//! # Il ne décide de rien
+//!
+//! Il construit le driver, lit l'hôte, et imprime ce que [`locus_execd::Readiness`] en dit. Toute
+//! la décision est dans le module, parce que la version précédente de ce fichier décidait seule et
+//! qu'aucun test ne la traversait : elle a annoncé « aucun driver de runtime n'est encore branché »
+//! pendant que le crate exportait [`locus_execd::linux::SystemRunner`], la seule fonction du dépôt
+//! qui exécute `podman`.
+//!
+//! ADR 0025 : une affirmation sur l'état du système est une promesse, et une capacité **niée** est
+//! une promesse négative. La parade n'est pas de mieux rédiger le message, c'est de faire du
+//! constat une valeur que des tests exercent.
 
 use std::process::ExitCode;
 
+use locus_execd::linux::{HostFacts, SystemRunner};
+use locus_execd::readiness::Readiness;
+
 fn main() -> ExitCode {
-    eprintln!(
-        "locus-execd : aucun driver de runtime n'est encore branché (W4.d).\n\
-         Ce binaire tient la frontière — port, admission, garde de socket — et refuse de \
-         prétendre servir."
-    );
-    ExitCode::FAILURE
+    // Le driver, construit sans condition. C'est la capacité que le crate exporte, et ce binaire
+    // n'a plus le droit de la nier : la construire ici est ce qui rend la négation inexprimable.
+    let driver = SystemRunner::new();
+    println!("locus-execd : driver {}", driver.program());
+
+    let facts = HostFacts::read_host();
+    for line in facts.evidence() {
+        println!("  {line}");
+    }
+
+    let readiness = Readiness::assess(&facts);
+    println!("locus-execd : {readiness}");
+
+    if readiness.is_provable() {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::FAILURE
+    }
 }
