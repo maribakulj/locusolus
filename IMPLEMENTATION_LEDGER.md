@@ -11109,3 +11109,68 @@ ne sont pas remontés à la racine pour la même raison.
 **Écart avec la spec.** Aucun.
 
 **Prochain item.** `W21.e` — `rollback_rate`, par cohorte.
+
+## 2026-08-21 — W21.e — `rollback_rate` par cohorte, et la septième fois que je mords ma propre prose
+
+**Périmètre.** `packages/coordination/src/cohort.rs`, `packages/coordination/src/lib.rs`,
+`packages/coordination/tests/cohort.rs`.
+
+**Tests exécutés.** `cargo test -p locus-coordination --test cohort` → 11 conformes. `npm run check`
+→ les douze portes. Mutation : neuf mutants, **neuf tués**.
+
+**Le biais, et pourquoi la cohorte est la seule réponse.** Une mutation acceptée aujourd'hui peut
+être annulée demain. Un taux calculé à l'instant `T` divise des annulations qui ont eu le temps de
+survenir par des acceptations qui, pour les plus récentes, ne l'ont pas eu. La conséquence est
+perverse : **plus le système accepte vite, plus le taux paraît bas.** « On annule de moins en moins
+» se produit tout seul dès qu'on accélère, sans qu'aucune décision ne se soit améliorée.
+
+Un test le démontre plutôt que de le décrire : deux lots au sort identique — une annulation sur deux
+— dont le second contient en plus deux acceptations toutes fraîches. Un taux instantané tomberait à
+`0.25` et ferait croire à une amélioration ; la cohorte rend `None` et **dit** qu'elle attend.
+
+**La fenêtre se compte en opérations, jamais en temps.** Une horloge ferait dépendre la mesure d'un
+fait extérieur au journal, alors que la matrice exige des métriques « calculées depuis le seul
+journal » — et deux rejeux du même préfixe rendraient deux valeurs différentes.
+
+**Trois refus à la construction**, parce qu'une cohorte mal formée rend un nombre plausible plutôt
+qu'une erreur : fenêtre nulle (elle n'observe rien, et rendrait toute cohorte close à zéro
+annulation — un zéro qui n'a rien constaté), annulation antérieure à son acceptation, acceptation
+postérieure à ce que le journal a été lu.
+
+**Une annulation hors fenêtre n'est pas une annulation de cette cohorte.** Elle a eu lieu, elle est
+vraie, et elle appartient à une autre question ; la compter ferait dépendre le résultat de tout ce
+qui s'est passé après la fenêtre, ce qui est exactement le biais qu'on supprime. Deux fixtures
+identiques à un rang près — annulation en `at + window` et en `at + window + 1` — rendent `1.0` et
+`0.0`.
+
+**Le cas que je n'avais pas vu en écrivant la doc.** Une acceptation annulée **hors** fenêtre
+n'ouvre pas la cohorte : son sort _dans cette fenêtre_ est « a tenu », et il est établi sans
+attendre. La compter comme encore observable ferait attendre une information qu'on a déjà. Un mutant
+qui l'ouvrait meurt.
+
+**Septième occurrence du motif, et la plus nette.** L'anti-garde « aucun ordre » cherchait la chaîne
+`PartialOrd` dans toute la source et a mordu sur la ligne de documentation qui _explique_ l'absence
+: « Le type ne dérive **ni** `PartialOrd` **ni** `Ord` ». Le test qui a échoué portait, dans son
+propre commentaire, la phrase « les motifs visent des dérivations et des signatures, pas des mots ».
+Écrire la règle et l'enfreindre dans le même fichier est le meilleur argument possible pour la
+règle.
+
+Corrigé de la seule façon qui tienne : le motif extrait les lignes `#[derive(` et n'inspecte
+qu'elles. Il porte en plus une assertion que la liste des dérivations n'est pas vide — un motif qui
+ne trouverait plus aucun attribut passerait sinon en silence, ce qui est la faute du compteur qui
+n'a rien lu, transposée à une anti-garde.
+
+**Une CI locale rouge, et clippy avait raison.** `match_same_arms` a refusé deux bras vides —
+`Some(_) => {}` et `None => {}` — que seuls leurs commentaires distinguaient. La tentation était de
+poser un `#[expect]` en invoquant la valeur documentaire. Elle était mauvaise : les deux cas sont
+bien deux faits distincts, mais ils ont **une seule conséquence**, et les écrire en deux bras dirait
+le contraire à qui lit le code. Un seul bras, avec un commentaire qui porte les deux, dit la chose
+juste. Réparé en une tentative.
+
+Corollaire d'outillage : la correction a périmé un motif du harnais de mutants, que j'ai mis à jour
+et **relancé** plutôt que de croire la passe précédente. Un `npm run check` vert sur un arbre qu'on
+modifie ensuite n'est pas vert, et cela vaut aussi d'une passe de mutants.
+
+**Écart avec la spec.** Aucun.
+
+**Prochain item.** `W21.f` — `degree_entropy`, normalisée.

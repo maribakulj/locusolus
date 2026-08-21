@@ -26,6 +26,7 @@ pub mod agent;
 pub mod barrier;
 pub mod capability;
 pub mod churn;
+pub mod cohort;
 pub mod decision;
 pub mod diff;
 pub mod edit;
@@ -47,6 +48,7 @@ pub use agent::{AgentError, AgentInstance, AgentTemplate, InstanceState, Templat
 pub use barrier::{Barrier, BarrierError, Barriers, Passage, threatened_by};
 pub use capability::{Capability, CapabilityError, Source, Sources, capabilities};
 pub use churn::EdgeChurn;
+pub use cohort::{Accepted, Cohort, CohortError, Rollbacks};
 pub use decision::{ApprovalRequest, ApprovalState, Decision, DecisionError, DecisionState};
 pub use diff::{Diff, DiffError};
 pub use edit::AppliedEdit;
