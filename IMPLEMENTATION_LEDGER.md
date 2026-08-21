@@ -11663,3 +11663,75 @@ d'absence.
 
 **Prochain item.** La phase `W21` est close. La frontière repart à ce que la garde de roadmap
 désigne.
+
+## 2026-08-21 — ADR 0025 + phase W22 — Le dépôt vérifie tout, sauf ce qu'il dit de lui-même
+
+**Périmètre.** `docs/adr/0025-la-coherence-descriptive.md` (neuf), `docs/10_V1_ROADMAP.md`. Aucun
+code.
+
+**Origine.** Un audit externe daté du 2026-08-21, apporté par le propriétaire du produit. Il
+rapporte quatre affirmations fausses sur l'état du système, dans deux dépôts. **Les quatre ont été
+revérifiées à la ligne avant l'écriture de l'ADR**, parce que le document lui-même annonce un taux
+d'erreur non nul sur ses affirmations. Les quatre tiennent :
+
+- `apps/locus-execd/src/main.rs` imprime « aucun driver de runtime n'est encore branché » et rend
+  `ExitCode::FAILURE`, pendant que `lib.rs` du **même crate** écrit « Depuis W4.d.2, ce paquet
+  **lance** un runtime » ; `src/linux/` porte sept fichiers dont `driver.rs` et `seccomp.rs`.
+- `W4.d.1` à `W4.d.4` n'ont aucun marqueur `**fait**`, alors que le ledger porte quatre entrées
+  complètes datées du 2026-08-17.
+- `bubblewrapWorks: () => Bun.which("bwrap") !== null` et `diskFreeMb: 0` en dur, à soixante lignes
+  du contrat qui exige « Vrai quand `bwrap` **démarre réellement** ».
+- `locus/index.ts` justifie l'inertie du worker par une condition que `W2.4` a levée.
+
+**Ce que la vérification a trouvé de plus, et que l'audit rate.** Il attribue l'absence de marqueur
+sur `W4.d` à un oubli. La cause réelle est que **la garde de roadmap ne voit pas ces lignes** : son
+motif d'identifiant s'arrête devant le second point, donc `W4.d.1` n'entre ni dans `planned`, ni
+dans `marked`, ni dans aucune réconciliation. Lu, pas supposé :
+
+```
+W4.d.1   planned=false   marked=false   delivered=false
+```
+
+Huit lignes sont dans ce cas — `W4.d.1` à `W4.d.4`, `W4.e.1`, `W4.f.1`, `W4.g.1`, `W4.g.2`. Le «
+frontière vide » que la garde imprimait, et que j'ai relayé au propriétaire du produit au tour
+précédent, portait donc sur **179 lignes sur 187**, sans le dire.
+
+**Troisième occurrence de la même cécité.** `W0.11` avait donné une garde à la roadmap ; `W0.17`
+avait réparé une première cécité — elle ne lisait qu'une des deux familles d'identifiants et
+déclarait « frontière vide » sur un plan qui ne l'était pas. La réparation avait porté sur la
+famille `R<n>` et **n'avait pas demandé si d'autres formes existaient**. C'est la règle du dépôt
+retournée contre son propre outillage : une garde qui ne voit pas une ligne ne la déclare pas
+manquante, elle la déclare inexistante — et aucun décompte ne baisse, ce qui est précisément ce qui
+rend la faute invisible.
+
+**L'ordre de la phase en découle, et c'est le seul écart avec le document d'audit.** Il proposait de
+corriger `main.rs` d'abord et de marquer `W4.d` au passage. La phase répare d'abord l'instrument :
+`W22.a` rend la garde capable de voir les huit lignes **et** de déclarer combien elle en reconnaît,
+puis pose les marqueurs. Marquer à la main pendant que la garde reste aveugle rendrait la roadmap
+vraie une fois, sans empêcher la faute de revenir — ce qui est exactement ce qui s'est passé entre
+`W0.17` et aujourd'hui.
+
+**Le corollaire ajouté à l'ADR 0022 décision 0.** Une affirmation sur l'état du système est une
+promesse. Une capacité **niée** est une promesse négative : elle induit en erreur dans l'autre sens,
+et le dépôt n'avait aucune garde pour ce sens-là.
+
+**Ce que l'ADR écarte.** Une garde par recherche de mots — elle attraperait le commentaire d'inertie
+et manquerait le binaire, tout en criant sur un ledger append-only qui décrit délibérément des états
+passés. Une interdiction de la prose historique — le ledger existe pour ça ; ce qui est interdit est
+qu'elle occupe un point d'entrée. Et un motif d'identifiant élargi « au cas où » : la décision 0
+corrige une cécité **constatée** sur huit lignes lues, et prétendre couvrir des formes jamais vues
+serait la même faute dans l'autre sens.
+
+**Question ouverte du document, refermée par vérification.** Il demandait de vérifier que la garde
+de frontières expose déjà un décompte de fichiers réutilisable. Elle l'expose :
+`check-boundaries.ts` imprime `vérifiée sur N fichier(s)` et distingue `NON VÉRIFIÉE` de
+`sans objet`. `W22.d` s'appuiera dessus sans le reconstruire.
+
+**Décisions de cadrage prises avec le propriétaire du produit.** Dépôt en deux PR — celle-ci pour la
+cohérence descriptive, une seconde pour l'échelle. `W18.f` reste **reporté**. Le test de bout en
+bout sera **scindé**, sa moitié attestation et clause tierce rejoignant le report de `W18.f`, parce
+qu'un centre de gravité bloqué ne pilote rien.
+
+**Écart avec la spec.** Aucun. L'ADR n'amende aucune section de `SPEC_V1.md`.
+
+**Prochain item.** `W22.a` — la garde voit tout le plan.
