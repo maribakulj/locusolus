@@ -10410,3 +10410,47 @@ cite une révision feinte, et il est tué.
 
 **Prochain item.** `W18.h`, `W9.e`, `W6.g` ou `W8.j` — les quatre sont indépendants. `W14.e` attend
 la lecture de §18.3 à §18.6.
+
+## 2026-08-21 — W6.g — formats d'artefact 3D, et la promotion qui se mérite
+
+**Périmètre.** `packages/artifacts/src/promotion.rs`, neuf — `promote`, `PromotionError` ; le
+`lib.rs` ; `packages/artifacts/tests/three_d.rs`.
+
+**Tests exécutés.** `npm run check` — les douze gardes. Six tests dans `tests/three_d.rs`. Vérifié
+**rouge puis vert** sur l'arbre réel : la garde de reproductibilité neutralisée, le test de
+promotion tombe ; rétablie, les six passent.
+
+**Deux tiers de l'item n'avaient besoin d'aucun code.** Un maillage est un artefact comme un autre :
+`ArtifactManifest::declare` accepte les types `model/*`, le hash se déclare avant l'upload, et
+`Integrity` s'y consigne. L'item ne construit pas de chemin 3D — il **vérifie qu'il n'y en a pas
+besoin**, ce qui est une conclusion et non une absence de travail.
+
+**Ce qui manquait vraiment.** `state::transition` savait dire qu'une transition est **permise** ;
+rien ne disait qu'elle est **méritée**. Un artefact produit par un run pouvait passer à `Promoted` —
+« il peut être cité, servi, dérivé » — sans qu'aucune reproductibilité ne le soutienne, alors que
+l'invariant 4 exige le contraire. `promote` joint la machine à états et l'`Assessment`, qui
+existaient tous deux sans se connaître.
+
+**Le gate ne s'applique pas à tout, et la frontière était déjà écrite.** Un artefact déposé par un
+humain n'a aucun run à reproduire ; lui reprocher `Missing::Inputs` serait lui reprocher de ne pas
+être ce qu'il n'a jamais prétendu être. Ce qui distingue les deux est `ProducedBy::run_id` — un
+artefact qui nomme un run **affirme** venir d'une exécution, et c'est cette affirmation qui se
+vérifie. La 3D est l'occasion de l'item, pas sa portée : rien ne justifierait qu'un maillage soit
+tenu à une exigence que les autres artefacts générés n'ont pas.
+
+**L'ordre des deux refus compte.** La machine à états parle en premier : un artefact en quarantaine
+n'a pas à être évalué pour être refusé, et lui rendre un motif de reproductibilité masquerait la
+vraie raison — envoyant son auteur corriger ce qui n'est pas en cause. Un test le tient sur un
+artefact en quarantaine dont l'évaluation est **parfaite**.
+
+**Le refus rend tous les manques**, pas le premier : un appelant qui corrigerait l'un pour buter sur
+le suivant ferait autant d'allers-retours qu'il y a de causes.
+
+**L'invariant 10 est exercé par le client qui ignore la suggestion.** Vérifier qu'un `ViewerHints`
+se lit ne dit rien ; ce qui le dit est qu'un client qui ne le regarde pas obtienne malgré tout
+l'identité, le type et le hash — et que la suggestion ne change **aucune** transition d'état.
+
+**Écart avec la spec.** Aucun. §19 exige la reproductibilité d'un résultat majeur ; cet item la rend
+opposable au moment où elle compte, la promotion.
+
+**Prochain item.** `W8.j`, `W9.e`, `W14.e` ou `W18.h`.
