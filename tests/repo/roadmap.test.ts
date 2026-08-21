@@ -554,6 +554,80 @@ test("une ligne bloquée sans marqueur n'est jamais rapportée", async () => {
   assert.deepEqual(await inspectRoadmap(root), []);
 });
 
+/**
+ * **Les deux familles d'identifiants, et le seul test qui prouve que les deux motifs ont bougé.**
+ *
+ * Le plan porte des `W<phase>.<item>` et des `R<n>`, et le garde ne lisait que les premiers — dans
+ * le registre **et** dans le tableau, puisque le même alphabet ancrait les deux motifs. Les six
+ * items de recherche ont été livrés le 2026-08-18, avec leur code, leurs tests et leurs mutants ;
+ * le garde a répondu `frontière vide` et `ok` par-dessus pendant trois jours.
+ *
+ * Ce test tient les deux motifs à la fois, et c'est voulu : si seul le motif de registre avait été
+ * élargi, `R1` ne serait pas au plan et aucun constat ne sortirait ; si seul celui du tableau
+ * l'avait été, `R1` ne serait pas livré et aucun constat ne sortirait non plus. Le constat
+ * n'apparaît que lorsque les deux lisent la même famille — c'est pourquoi l'alphabet est écrit une
+ * fois et partagé, plutôt que recopié quatre fois.
+ */
+test("un item de recherche est lu dans le registre comme dans le plan", async () => {
+  const ledger = "# Ledger\n\n## 2026-08-18 — R1 — Le consensus circulaire, lu sur le graphe\n";
+
+  const ouvert = await readReconciliation(
+    await fixture({ ledger, roadmap: "| # |\n|---|\n| R1 `[R]` | le consensus circulaire |\n" }),
+  );
+  assert.equal(ouvert.delivered.has("R1"), true, "le titre d'entrée atteste la livraison");
+  assert.deepEqual(ouvert.frontier, ["R1"], "la prose ne nommait aucune frontière");
+  assert.deepEqual(
+    reconcile(ouvert).map((finding) => finding.rule),
+    ["livre-non-marque"],
+  );
+
+  const marque = await readReconciliation(
+    await fixture({
+      ledger,
+      roadmap: "| # |\n|---|\n| R1 `[R]` **fait** | le consensus circulaire |\n",
+    }),
+  );
+  assert.deepEqual(marque.frontier, []);
+  assert.deepEqual(reconcile(marque), []);
+});
+
+/**
+ * **`attend:R<n>` se périme, sinon il ne devrait pas s'analyser du tout.**
+ *
+ * `satisfied` tranche sur la présence d'un point : `W15.f` est un item, `W20` une phase dont il faut
+ * regarder toutes les lignes. `R1` n'a pas de point et n'est pas une phase pour autant — sans la
+ * règle qui le dit, il partait chercher des lignes `R1.<quelque chose>`, n'en trouvait aucune, et
+ * `attend:R1` devenait insatisfiable **à jamais**.
+ *
+ * C'est le pire des trois états : la ligne resterait bloquée sans que rien ne le dise, et le garde
+ * aurait l'air de la vérifier. La famille entre donc dans le marqueur et dans `satisfied` du même
+ * geste, et les deux sens sont tenus ici — livré, le blocage expire ; ouvert, il tient.
+ */
+test("un blocage qui attend un item de recherche livré est rapporté", async () => {
+  const bloquee =
+    "| W9.z `[R]` **bloqué** | la vue 3D des cycles | `attend:R1` — la détection n'existe pas |";
+
+  const perime = await readReconciliation(
+    await fixture({
+      ledger: "# Ledger\n\n## 2026-08-18 — R1 — Le consensus circulaire\n",
+      roadmap: `| # |\n|---|\n| R1 \`[R]\` **fait** | le consensus circulaire |\n${bloquee}\n`,
+    }),
+  );
+  assert.deepEqual(perime.awaiting.get("W9.z"), ["R1"]);
+  assert.deepEqual(
+    reconcile(perime).map((finding) => finding.rule),
+    ["blocage-perime"],
+  );
+
+  const tient = await readReconciliation(
+    await fixture({
+      ledger: "# Ledger\n",
+      roadmap: `| # |\n|---|\n| R1 \`[R]\` | le consensus circulaire |\n${bloquee}\n`,
+    }),
+  );
+  assert.deepEqual(reconcile(tient), [], "R1 reste à faire, et le blocage tient");
+});
+
 /** Un chantier jouet : le dépôt confronté, et les voisins qu'on veut bien lui donner. */
 async function fixture(contents: {
   ledger: string;
