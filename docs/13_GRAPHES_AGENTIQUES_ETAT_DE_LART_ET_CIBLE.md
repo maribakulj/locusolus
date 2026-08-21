@@ -64,6 +64,41 @@ découvrent après avoir baptisé la première MVP ». Le niveau 4 est donc : **
 consciente de la version, plus des frontières d'activation sûres.** Cette borne n'est pas une
 prudence, c'est l'état de l'art industriel.
 
+### La taille de population, et ce que « supporter N agents » veut dire — ADR 0026 décision 1
+
+L'échelle ci-dessus mesure le **dynamisme**, pas la **taille**, et le second mot était employé sans
+définition. Un audit du 2026-08-21 a inspecté au code les systèmes qui revendiquent de grandes
+populations : aucun ne démontre de cognition agentique massivement concurrente. Le plus gros tient un
+million d'objets en mémoire avec un consommateur unique et n'en active qu'une fraction par pas de
+temps ; le seul dont le runtime soit transférable ne tient que des identités et reconstruit les agents
+depuis le disque à chaque tick.
+
+Le dépôt s'engage donc sur une définition unique :
+
+> **N identités** capables de mémoriser, de recevoir des événements, d'être ordonnancées et de
+> participer à une campagne, dont un **sous-ensemble variable** raisonne concurremment.
+
+Trois compteurs distincts sont exigés partout où une taille est rapportée, et un rapport qui n'en
+donne qu'un est refusé :
+
+| Compteur | Ce qu'il compte |
+|---|---|
+| `nominal` | les identités qui existent — `AgentInstance` non terminales |
+| `active` | celles qu'une campagne en cours peut ordonnancer |
+| `generating` | celles qui raisonnent **à cet instant** |
+
+L'invariant `generating ≤ active ≤ nominal` est testé, et `W23.b` le porte. Le mot « supporter »
+recouvre au moins quatre choses incompatibles — identités stockées, objets en mémoire, agents simulés
+dans le temps, acteurs concurremment actifs —, et l'audit montre que la confusion est la norme du
+champ. Un dépôt dont la discipline est de distinguer une sonde non exécutée d'un échec ne peut pas se
+permettre ce flou.
+
+**Et aucune taille de regroupement n'est décrétée.** Le nombre effectif de contributions indépendantes
+sature très bas — `N_eff` mesuré à 1,8 puis ~1,2 selon la tâche, retrouvé par la théorie de
+l'information, et observé en production. `W23.d` la **mesure** avant que `W23.e` construise quoi que
+ce soit qui en dépende ; le corollaire est écrit dans l'ADR 0026 décision 3, et il est littéral : si
+les tentatives indépendantes gagnent, `W23.e` n'existe pas.
+
 ---
 
 ## 2. Le constat décisif : la spec couvre déjà l'essentiel

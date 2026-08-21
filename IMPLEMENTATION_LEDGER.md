@@ -12033,3 +12033,129 @@ l'ADR 0025, et non un travail de confort.
 **Écart avec la spec.** Aucun.
 
 **Prochain item.** `W4.h` — la surface du broker, découverte en écrivant `W22.c`.
+
+---
+
+## 2026-08-21 — ADR 0026 et ADR 0027 — Le passage à l'échelle, déposé ; et le raisonnement, qui cesse d'être jeté
+
+**Ce qui est livré.** Deux ADR, quatre phases de roadmap, les deux premiers des quatre maillons de
+la fermeture verticale, la coupure en deux du test de bout en bout, et une définition dans
+`docs/13`. Aucun code. C'est la seconde moitié du dépôt convenu après l'audit externe du 2026-08-21,
+la première ayant été la phase `W22`.
+
+**`docs/adr/0026-la-population-virtuelle.md`.** Sept décisions et une décision 0. La population est
+**virtuelle** : `AgentInstance` est une identité durable, l'exécution est un emplacement, et aucun
+objet d'agent ne traverse une frontière de processus. `AgentStateStore` est un **port** avec une
+implémentation mémoire, comme `packages/event-store` l'a fait ; le backend n'est pas figé, et
+l'audit donne la raison — le seul système vérifié persiste un répertoire par agent, ce qui charge
+lourdement la couche de métadonnées à 100 000. Une `Cell` n'existe que si elle porte quatre bornes
+qui existent déjà séparément, et **sa taille est mesurée par `W23.d` avant que quoi que ce soit la
+suppose**. Le routage par intention route **parmi des pairs déjà autorisés** : une souscription se
+dérive de la `ContextView` et n'est jamais déclarée par l'agent. Le journal reste l'unique chemin
+durable — aucun bus éphémère. Le modèle devient une **dimension d'ordonnancement** et non une
+constante.
+
+**La décision 0, et pourquoi elle existe.** Le document d'audit bloquait la phase `W23` entière
+derrière la fermeture verticale. Confronté à la règle du dépôt — « _aucun appelant ne l'utilise
+encore_ n'est pas un motif de report ; les deux seuls motifs admis sont une dépendance technique
+nommée et un hôte externe absent », ADR 0022 décision 0 — cet ordre ne survit qu'en partie, et
+**trois de ses dépendances tombent** : `W23.a` est un port avec son implémentation de référence,
+donc une capacité finie et exerçable aujourd'hui ; `W24` et `W25` sont du domaine pur et des tests
+d'absence, et l'audit les plaçait après `W20.h` sans nommer aucune dépendance. Ce qui reste bloqué
+l'est pour une raison technique **nommée** : `W23.b` compte un fait qu'aucun journal n'écrit — les
+six `InstanceState` de §7.1 n'en portent pas l'équivalent —, et l'inventer pour avoir quoi compter
+serait ce que `W21.g` a refusé sous ce nom. Suivre un audit n'est pas le recopier : une affirmation
+sur l'état du système se vérifie, fût-elle dans le document qui vous apprend le reste.
+
+**`docs/adr/0027-la-retention-du-raisonnement.md`.** Il répond à une question du propriétaire du
+produit : perdre le raisonnement des agents est-il une erreur, et peut-on le garder tout en le
+réglant ? La réponse tient dans la décision 0 : **retenir et diffuser sont deux actes**, et
+l'invariant 11 n'en gouverne qu'un — il borne un ensemble de **lecteurs**, il n'a jamais ordonné de
+détruire. Le dépôt avait déjà les trois pièces, écrites séparément et sans lien :
+`memory::Level::AgentPrivate` (le plus étroit des sept de §16.1, **sans aucun producteur**),
+`memory::Genre::MetaMemory` (qui existe pour que l'utilité passée n'entre pas dans le score de
+vérité) et `review::contamination::Contamination::GeneratorReasoningLeaked` (qui **détecte déjà** la
+fuite). Rien n'écrivait le raisonnement nulle part.
+
+Huit décisions : la trace est un artefact de §9.1, rangée en `AgentPrivate` / `MetaMemory`, et aucun
+résumé n'est stocké à sa place. Trois classes de lecteurs et pas quatre — générateur, institution,
+pair —, la lecture institutionnelle étant **journalisée**. Un `Disclosure` porte motif, portée,
+échéance et journal, et l'énumération des motifs **commence vide** : le premier arrive avec son
+mécanisme, et c'est l'objection non résolue après un nombre borné de tours — le conflit prolongé que
+la question nommait. Ce qui est dévoilé entre en `MetaMemory` et **jamais comme prémisse** : c'est
+la troisième fois que le dépôt tient cette forme, après `W18.h` et avant `W24.c`.
+
+**La décision 5 est celle qui coûte, et c'est la seule qui rendait la demande satisfiable.** Un
+dévoilement vers un reviewer dont la revue est **ouverte** n'est pas constructible — l'invariant 11
+est une borne sur le mécanisme, pas un défaut qu'un motif surclasse. Après un verdict enregistré, la
+revue est un fait figé que rien ne contamine rétroactivement : un dévoilement produit alors un
+**second** verdict qui le porte dans sa provenance, et les deux sont conservés, l'invariant 12
+interdisant de faire disparaître le premier. **L'écart entre les deux verdicts est précisément
+l'information que le conflit prolongé cherchait.** Dévoiler pendant la revue casse l'invariant ; ne
+jamais dévoiler laisse le conflit sans autre issue que l'autorité.
+
+**La décision 6, et la tension qu'elle tranche.** `contamination::inspect` signale aujourd'hui tout
+raisonnement de générateur trouvé chez un destinataire. Une fois `Disclosure` construit, il doit
+apprendre la différence — et le défaut reste **fuite** : un élément sans dévoilement valide attaché
+reste `GeneratorReasoningLeaked`. Présumer régulier ce qui n'est pas prouvé irrégulier ferait de
+l'oubli un silence. Mais la leçon de `W22.d` vaut dans l'autre sens, une garde qui crie sur ce qui
+est juste se fait désactiver, et la seule issue qui tienne les deux est que **le dévoilement voyage
+avec l'élément** au lieu d'être cherché ailleurs par la garde.
+
+**`W16.d` change de blocage pour la seconde fois, et cette fois il se périme tout seul.** Il était
+une décision, puis un consommateur absent, et portait `attend:externe` — c'est-à-dire « rien de ce
+plan ne le débloquera ». L'ADR 0027 décision 7 tranche la décision : l'institution voit **qu'un
+sous-agent a existé**, sa classe de cognition, son coût et son résultat, et ne voit son contexte que
+par les décisions 1 à 5. Ce que la ligne posait comme question — « voir qu'un sous-agent existe et
+voir son contexte sont deux choses » — était déjà la réponse. Il devient `attend:W26.b`, que la
+garde de `W0.16` sait vérifier et périmer.
+
+**Les quatre maillons de la fermeture verticale, dont deux entrent ici.** `W20.h` — la sérialisation
+des écritures, dont `main.rs` de `locusd` **nomme lui-même** le blocage — et `W20.i` — le driver
+PostgreSQL — rejoignent `W2.20` (la boucle du worker) et `W4.h` (la surface du broker, découverte en
+écrivant `W22.c`). L'audit en comptait trois ; il y en a quatre, et le quatrième ne se voyait pas
+parce que les deux côtés sont cohérents séparément. Aucun des quatre n'apparaissait comme manquant
+dans un décompte d'items faits : c'est la même cécité que `W22.a` a réparée dans l'outillage,
+rencontrée dans l'architecture.
+
+**Le test de bout en bout est coupé en deux plutôt que reporté en entier.** `W12.d` exerce la chaîne
+complète dans le confinement qu'un runner peut tenir, `S1`/`S2`, et son jumeau tue le worker au
+milieu. `W12.e` porte les deux clauses qui demandent autre chose que du code — l'attestation
+`S3`/`S4` et la reproduction par un tiers — et rejoint le report de `W18.f`, même hôte, mêmes trois
+conditions rendues précises par `W5.f`. Reporter l'ensemble aurait fait payer à quinze garanties
+l'absence d'une machine ; tout tenir dans un item et le déclarer fait sur un runner aurait déclaré
+**attesté** un confinement qui ne l'est pas — l'affirmation fausse que l'ADR 0025 existe pour rendre
+coûteuse.
+
+**Ce qui a été vérifié au code avant d'être écrit.** `AgentInstance`, `InstanceState` et ses six
+valeurs, `Id<Agent>`, `Task::assigned_agent_id`, `coordination::lifecycle`,
+`Expected::{NoStream, Exact}`, `Dimension::ALL` et ses six valeurs, `Classification::Unclassified`,
+`Genre::MetaMemory`, `Level::AgentPrivate`, `Contamination::ALL` et ses cinq valeurs, `ContextView`,
+`Published`, `coordination::region`, et l'emplacement réel de `place` — chez `locus-execd`, et non
+dans un `packages/` comme l'audit le laissait entendre. L'ADR 0026 décision 7 le dit sous sa vraie
+adresse, parce que `W23.c` en dépend : l'ordonnanceur d'instances ne choisit jamais d'hôte.
+
+**Un défaut de garde, trouvé en s'en servant.** Le dépôt refusé quatre fois : `blocage-perime`
+annonçait que `W23.b` attend `W2.20` « qui est livré », alors que `W2.20` est lui-même bloqué sur
+`W20.h`. `satisfied` traitait un item **décidé** comme un item **livré**. Pour une _phase_ c'est
+juste — « attend `W20` » veut dire « attend qu'il ne reste rien à y faire », et une ligne reportée
+n'y sera jamais faite. Pour un _item_, c'était faux, et le message l'était aussi : la chaîne réelle
+est « `W23.b` attend `W2.20` qui attend `W20.h` », et le garde disait « vas-y » sur un item qui ne
+peut pas être fait — le plus coûteux des deux sens de `W0.11`, celui qui ne se découvre qu'en aval.
+
+C'est le motif de l'ADR 0025 rencontré **dans un garde**, et il n'aurait pas été trouvé par
+relecture : la règle avait l'air de vérifier quelque chose. Un test rouge d'abord — la chaîne à
+trois maillons —, un second qui tient l'autre moitié pour qu'elle ne se casse pas en réparant la
+première, et une passe de mutants sur `satisfied` : quatre tués, **un survivant**,
+`rows.length > 0`. Rien n'éprouvait qu'`attend:W99` — une phase mal orthographiée — ne se déclare
+pas satisfaite, `[].every` valant `true`. Un troisième test le tient. Le correctif est un commit à
+part, avant le dépôt, parce qu'il se relit seul.
+
+**Ce que ce dépôt ne fait pas.** Aucune ligne de code de produit. Un dépôt de plan qui prétendrait
+livrer serait la faute symétrique de celle que `W22` vient de réparer.
+
+**Écart avec la spec.** L'ADR 0026 **amende** `docs/13` sur l'échelle visée, et la section est
+écrite. L'ADR 0027 n'amende rien : il **relie** §12.4, §16.1 et §16.6, qui ne se parlaient pas.
+
+**Prochain item.** `W4.h` — la surface du broker. Il demande un ADR de transport, donc un arbitrage
+présenté avant d'être écrit.
