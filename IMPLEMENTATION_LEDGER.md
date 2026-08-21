@@ -11466,3 +11466,55 @@ ou un artefact.
 **Écart avec la spec.** Aucun.
 
 **Prochain item.** `W21.k` — `failure_recovery_time`.
+
+## 2026-08-21 — W21.k — `failure_recovery_time` : une panne sans reprise n'est ni zéro, ni rien
+
+**Périmètre.** `packages/evaluation/src/recovery.rs`, `packages/evaluation/src/lib.rs`,
+`packages/evaluation/tests/recovery.rs`.
+
+**Tests exécutés.** `cargo test -p locus-evaluation --test recovery` → 8 conformes. `npm run check`
+→ les douze portes. Mutation : neuf mutants, **neuf tués**, zéro survivant.
+
+**Le fait le plus important d'une campagne est celui qu'on perd le plus facilement.** Une panne dont
+la reprise n'a pas eu lieu décrit un système **encore à terre**. Deux implémentations serviables le
+font disparaître : l'omettre du relevé, ou la compter comme une reprise instantanée — et la seconde
+est la pire, parce qu'elle ne se contente pas de perdre le fait, elle le **retourne en son
+contraire** et fait _baisser_ la durée mesurée. Plus le système est cassé, meilleur le chiffre.
+
+`Recovery::Unrecovered` la nomme donc, ne porte aucune durée, et est comptée dans deux compteurs
+distincts — `failures()` et `unrecovered()` — sans jamais entrer dans `longest()`. Le mutant qui
+range `Some(0)` dans la plus longue durée meurt sur le test qui porte l'item.
+
+**Deux absences de durée qui ne se ressemblent pas.** `longest()` rend `None` dans deux situations :
+aucune panne n'a eu lieu, ou aucune panne n'a été reprise. La première est la meilleure nouvelle
+qu'une campagne puisse produire, la seconde la pire. Un seul accesseur les confondrait ; c'est
+`failures()` qui les sépare, rendu **à côté** de la durée plutôt que résumé dedans — même forme que
+les relais et les tentatives de `W21.i`, et même refus de collapse que les absences de `xiiif`.
+
+**Le branchement sur l'endurance est testé, pas annoncé.** L'item demande que la mesure « se branche
+sur le cadre de `endurance.rs` sans le modifier ». Le test le fait pour de vrai : il verse
+`releve.failures()` dans `Campaign::counted(Requirement::WorkerLosses, …)` et vérifie que le cadre
+l'accepte tel quel. Une propriété décrite sans être testée est une propriété qu'on croit tenir —
+c'est le motif que cette phase relève depuis `W21.a`, et un `u64` qui ne rentrerait pas se serait vu
+au premier appel réel plutôt qu'ici.
+
+`endurance.rs` n'est pas touché : il comptait déjà les pertes de workers et disait si la reprise
+avait tenu, jamais **combien de temps** elle avait pris. C'est exactement le trou que cet item
+comble, et le combler par un module voisin plutôt que par un champ de plus est ce qui garde le cadre
+d'endurance lisible.
+
+**Aucune horloge, pour la raison de `W21.j`.** Les instants entrent en données. Il n'y a pas
+d'instant courant à soustraire, donc `Unrecovered` ne peut pas devenir une durée même par erreur —
+la règle tient par construction et non par discipline d'appel. L'anti-garde lit le **code seul**, la
+source privée de ses commentaires, ce qui laisse la documentation du module libre de nommer
+`std::time` pour expliquer son absence : la réparation structurelle de `W21.j` sert ici pour la
+première fois hors de son item d'origine.
+
+**Ce que la mesure ne prouve pas.** Elle se calcule sur fixtures et y est testée. Son
+**interprétation** demande une campagne longue : trois transitions ne disent rien de la robustesse
+d'un système en production, et lire l'une pour l'autre est précisément la faute que `docs/11` évite
+en exigeant sept jours. C'est écrit dans le module plutôt que supposé.
+
+**Écart avec la spec.** Aucun.
+
+**Prochain item.** `W21.m` — la classification de dépense, qui débloquera `W21.l`.

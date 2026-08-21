@@ -33,6 +33,7 @@ pub mod credit;
 pub mod critical_path;
 pub mod endurance;
 pub mod evolution;
+pub mod recovery;
 pub mod regret;
 
 pub use benchmark::{
@@ -45,6 +46,7 @@ pub use credit::{Arm, Baseline, Credit, CreditError, Factor, attribute};
 pub use critical_path::{AverageParallelism, CriticalPath, CriticalPathError, Dependencies};
 pub use endurance::{Campaign, Endurance, EnduranceError, Measure, Requirement, Shortfall};
 pub use evolution::{Evolution, EvolutionError, Improvement, Occurrence, consider};
+pub use recovery::{Outage, Recoveries, Recovery, RecoveryError};
 pub use regret::{Candidate, Regret, RegretError, regret};
 
 use std::collections::BTreeMap;
