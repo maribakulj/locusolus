@@ -841,7 +841,8 @@ D'où l'ordre : l'ADR d'abord, le code ensuite. Une métrique implémentée depu
 
 L'ADR a arrêté **quatre renommages**, chacun parce que le nom promettait plus que le calcul : `graph_edit_distance` annonçait une minimalité NP-difficile que le `diff` ne calcule pas ; `parallelism` était déjà une dimension de budget de §7.2, donc un plafond homonyme d'une mesure ; `state_transfer_volume` appelait des octets que l'ADR 0019 condition 3 interdit délibérément de produire ; `topology_entropy` ne disait pas de quelle distribution, parmi au moins quatre qui ne classent pas dans le même ordre.
 
-Onze items à écrire, plus `W21.m` dont `W21.l` dépend. `structural_regret` n'a pas d'item : elle est livrée.
+Onze items à écrire, plus `W21.m` dont `W21.l` dépendait — `W21.m` est livré et le blocage est levé.
+`structural_regret` n'a pas d'item : elle est livrée.
 
 | # | Commit | Dépôt | Test de sortie |
 |---|---|---|---|

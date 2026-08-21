@@ -243,7 +243,9 @@ seuil est une valeur qu'on peut voir, discuter et changer.
 | `agent_lifetime` | inchangé | Durée entre l'entrée d'une instance dans une version et sa sortie, lue des transitions de `lifecycle.rs` | Rien sur ce que l'instance a accompli pendant ce temps |
 | `failure_recovery_time` | inchangé | Durée entre un fait de panne et le fait de reprise correspondant | Rien tant qu'aucune campagne longue n'a produit de pannes réelles |
 
-Onze à écrire, une livrée, une reportée.
+Onze à écrire, une livrée, une reportée — et ce report est **levé** depuis que `W21.m` a livré la
+classification de dépense : voir l'addendum de la décision 8. Douze restent donc à écrire au moment
+où cette ligne est corrigée.
 
 ## Conditions, sans lesquelles ces décisions sont mauvaises
 
