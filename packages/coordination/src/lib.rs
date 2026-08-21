@@ -32,6 +32,7 @@ pub mod diff;
 pub mod edit;
 pub mod entropy;
 pub mod lifecycle;
+pub mod lifetime;
 pub mod messaging;
 pub mod metrics;
 pub mod mutations;
@@ -63,6 +64,7 @@ pub use lifecycle::{
 // emploient — `locus_event_store` a ses enveloppes, `lep` a ses trames — et un nom court remonté à
 // la racine ferait croire à un type unique là où il y en a plusieurs, chacun juste dans sa couche.
 // Le chemin de module porte la distinction sans coûter un nom.
+pub use lifetime::{Lifetime, LifetimeError, Span};
 pub use messaging::{EpochError, Epochs, Handover, HandoverError};
 pub use metrics::Metrics;
 pub use mutations::{Mutations, MutationsError, Replay};
