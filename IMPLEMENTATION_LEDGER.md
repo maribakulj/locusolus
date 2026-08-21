@@ -11972,3 +11972,64 @@ sur une erreur de lecture, ce que la décision 4 de l'ADR 0025 écarte nommémen
 
 **Prochain item.** `W22.e` — la sonde réelle de Canterel, le seul des quatre défauts qui porte sur
 un niveau d'isolation.
+
+## 2026-08-21 — W22 — Clôture de phase : ce que le dépôt disait de lui-même
+
+**Périmètre.** `docs/10_V1_ROADMAP.md` — les marques de `W22.e` et `W22.f`, dont les entrées vivent
+dans le registre de `canterel` puisque le code y vit. Aucune ligne de code ici.
+
+**Les six items sont livrés.** La garde de roadmap rend `194 lignes reconnues sur 194`, et la
+frontière repart sur `W4.h`.
+
+**Ce que la phase a corrigé, et ce qu'elle a trouvé sous chaque correction.**
+
+`W22.a` — le motif d'identifiant s'arrêtait devant un second point. Huit lignes du plan n'entraient
+dans **aucun** ensemble : ni comptées, ni marquables, ni comparées au registre. L'audit attribuait
+l'absence de marqueur à un oubli ; la cause était une cécité, et c'était la **troisième** de cette
+garde. La leçon n'est pas « ajouter une alternance » : **un motif ne peut pas se vérifier
+lui-même**, et il lui faut un compteur qui ne passe pas par lui. Le compteur s'ancre donc sur le
+type `[R]`/`[M]`, que les 193 lignes portaient sans exception.
+
+`W22.b` — **déjà livré**. Les deux règles existaient depuis `W0.12` et `W0.13` et étaient justes ;
+il leur manquait la vue. L'écrire comme du travail neuf était une affirmation fausse sur l'état du
+système, dans le plan qui met en œuvre l'ADR qui l'interdit.
+
+`W22.c` — le binaire de `locus-execd` niait une capacité que son propre crate exportait. La
+réparation n'est pas un meilleur message mais un **type** : construire le driver dans le point
+d'entrée rend la négation **inexprimable**. Un survivant de mutation y a révélé que `HostFacts` ne
+distingue pas `S2` de `S3` — l'isolation réseau ne se lit pas dans `/proc` — et le fait est épinglé
+par un test plutôt que contourné. Et un **quatrième maillon manquant** que l'audit n'avait pas
+compté : aucun code ne construit de client vers le broker, et le broker n'écoute rien. `W4.h`.
+
+`W22.d` — la formulation de l'item était fausse et l'implémentation l'a démentie. Chercher « le
+symbole que le refus déclare manquant » n'aurait pas attrapé le défaut qui l'a motivée ; chercher la
+tournure aurait mordu sur un refus **calculé** et vrai. Le signal est que le message **cite un item
+du plan** — un programme qui tourne n'a pas à citer la roadmap, parce que le plan change sans que le
+message change.
+
+`W22.e` — le seul défaut portant sur un **niveau d'isolation**, et pire que l'audit ne le disait :
+`sandboxBackend` appelant `which` avant `bubblewrapWorks`, l'adaptateur en faisait une tautologie.
+La seconde barrière **ne pouvait pas refuser**.
+
+`W22.f` — une raison périmée dans un commentaire, et l'échappement par bloc de citation qui clôt
+enfin dix occurrences du même motif.
+
+**Trois leçons que la phase a produites, et qui valent au-delà d'elle.**
+
+1. **Une garde qui ne voit pas une ligne ne la déclare pas manquante : elle la déclare
+   inexistante**, et aucun décompte ne baisse. C'est ce qui rend cette faute indétectable par
+   relecture. D'où : toute garde déclare ce qu'elle a **réellement** examiné, et un décompte nul est
+   un échec.
+2. **Une garde qui crie sur ce qui est juste se fait désactiver**, et c'est ainsi qu'on perd celles
+   qui avaient raison. Trois items ont dû resserrer leur règle pour cette raison.
+3. **Un test peut exister, être vert, et n'éprouver rien de ce que son nom annonce.** `W22.f` en a
+   produit trois d'un coup, tous trouvés par mutation et par rien d'autre. C'est la forme la plus
+   trompeuse du motif que `W21.a` relève depuis le début.
+
+**Ce que la phase n'a pas fait.** Elle n'a livré aucune capacité et levé aucun blocage fonctionnel.
+Elle a rendu vrai ce que le dépôt dit — une dette de la même nature qu'une promesse non tenue, selon
+l'ADR 0025, et non un travail de confort.
+
+**Écart avec la spec.** Aucun.
+
+**Prochain item.** `W4.h` — la surface du broker, découverte en écrivant `W22.c`.
