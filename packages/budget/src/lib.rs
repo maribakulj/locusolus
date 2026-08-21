@@ -19,8 +19,10 @@ mod account;
 mod dimension;
 mod ledger;
 mod limits;
+mod spend;
 
 pub use account::{BudgetAccount, BudgetError, Overrun, Reconciliation, Reservation, Settlement};
 pub use dimension::{Amounts, Dimension};
 pub use ledger::{Entry, EntryKind};
 pub use limits::{Limits, Unbounded};
+pub use spend::{Classification, Spend};

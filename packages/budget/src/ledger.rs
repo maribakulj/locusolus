@@ -9,6 +9,7 @@ use std::fmt;
 use locus_protocol::{Id, id::provisional::Reservation};
 
 use crate::dimension::Amounts;
+use crate::spend::Classification;
 
 /// Les six écritures obligatoires de §7.2.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -73,6 +74,7 @@ pub struct Entry {
     reservation: Option<Id<Reservation>>,
     amounts: Amounts,
     reason: String,
+    spend: Classification,
 }
 
 impl Entry {
@@ -82,6 +84,7 @@ impl Entry {
         reservation: Option<Id<Reservation>>,
         amounts: Amounts,
         reason: &str,
+        spend: Classification,
     ) -> Self {
         Self {
             sequence,
@@ -89,6 +92,7 @@ impl Entry {
             reservation,
             amounts,
             reason: reason.to_owned(),
+            spend,
         }
     }
 
@@ -120,6 +124,15 @@ impl Entry {
     #[must_use]
     pub fn reason(&self) -> &str {
         &self.reason
+    }
+
+    /// Ce qu'elle paie — l'objet, là où [`Self::kind`] donne le mouvement.
+    ///
+    /// [`Classification::Unclassified`] pour une écriture passée par une méthode qui ne le demande
+    /// pas : personne ne l'a dit, et ce n'est pas du travail par défaut.
+    #[must_use]
+    pub const fn spend(&self) -> Classification {
+        self.spend
     }
 }
 

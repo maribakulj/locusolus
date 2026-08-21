@@ -21,6 +21,7 @@ use locus_protocol::{
 use crate::dimension::{Amounts, Dimension};
 use crate::ledger::{Entry, EntryKind};
 use crate::limits::Limits;
+use crate::spend::{self, Classification, Spend};
 
 /// Le droit d'exécuter, à concurrence de ce qui est retenu.
 ///
@@ -253,6 +254,29 @@ impl BudgetAccount {
     /// [`BudgetError::BeyondCeiling`] quand l'allocation dépasserait la borne dure — allouer plus
     /// que la borne ne rendrait pas la borne moins dure, cela rendrait seulement l'écriture fausse.
     pub fn allocate(&mut self, amounts: &Amounts, reason: &str) -> Result<(), BudgetError> {
+        self.allocate_as(amounts, reason, Classification::Unclassified)
+    }
+
+    /// Créditer le compte en disant **ce que** le crédit paie.
+    ///
+    /// # Errors
+    ///
+    /// Les mêmes que [`Self::allocate`], dont c'est la variante classée.
+    pub fn allocate_for(
+        &mut self,
+        amounts: &Amounts,
+        reason: &str,
+        spend: Spend,
+    ) -> Result<(), BudgetError> {
+        self.allocate_as(amounts, reason, spend.into())
+    }
+
+    fn allocate_as(
+        &mut self,
+        amounts: &Amounts,
+        reason: &str,
+        spend: Classification,
+    ) -> Result<(), BudgetError> {
         let balances = self.fold();
         for (dimension, amount) in amounts {
             let ceiling = self.ceiling_of(*dimension)?;
@@ -265,7 +289,7 @@ impl BudgetAccount {
                 });
             }
         }
-        self.append(EntryKind::Allocation, None, amounts.clone(), reason);
+        self.append(EntryKind::Allocation, None, amounts.clone(), reason, spend);
         Ok(())
     }
 
@@ -291,6 +315,34 @@ impl BudgetAccount {
         amounts: &Amounts,
         reason: &str,
     ) -> Result<Reservation, BudgetError> {
+        self.reserve_as(id, amounts, reason, Classification::Unclassified)
+    }
+
+    /// Retenir de quoi exécuter, en disant **ce que** l'exécution paie.
+    ///
+    /// La classification est portée par cette écriture-là, et les soldes en héritent : rendre,
+    /// constater et rapprocher ne la redemandent pas. Voir [`crate::Classification`].
+    ///
+    /// # Errors
+    ///
+    /// Les mêmes que [`Self::reserve`], dont c'est la variante classée.
+    pub fn reserve_for(
+        &mut self,
+        id: Id<ReservationKind>,
+        amounts: &Amounts,
+        reason: &str,
+        spend: Spend,
+    ) -> Result<Reservation, BudgetError> {
+        self.reserve_as(id, amounts, reason, spend.into())
+    }
+
+    fn reserve_as(
+        &mut self,
+        id: Id<ReservationKind>,
+        amounts: &Amounts,
+        reason: &str,
+        spend: Classification,
+    ) -> Result<Reservation, BudgetError> {
         if amounts.is_empty() || amounts.values().all(|amount| *amount == 0) {
             return Err(BudgetError::EmptyReservation);
         }
@@ -310,7 +362,13 @@ impl BudgetAccount {
             }
         }
 
-        self.append(EntryKind::Reservation, Some(id), amounts.clone(), reason);
+        self.append(
+            EntryKind::Reservation,
+            Some(id),
+            amounts.clone(),
+            reason,
+            spend,
+        );
         Ok(Reservation {
             id,
             account: self.id,
@@ -333,7 +391,8 @@ impl BudgetAccount {
         // ce que « une retenue se solde une fois » veut dire au niveau du type.
         let Reservation { id, account, .. } = reservation;
         let held = self.outstanding_of(id, account)?;
-        self.append(EntryKind::Release, Some(id), held, reason);
+        let spend = self.classification_of(&id);
+        self.append(EntryKind::Release, Some(id), held, reason, spend);
         Ok(())
     }
 
@@ -383,7 +442,14 @@ impl BudgetAccount {
             }
         }
 
-        self.append(EntryKind::Consumption, Some(id), actual.clone(), reason);
+        let spend = self.classification_of(&id);
+        self.append(
+            EntryKind::Consumption,
+            Some(id),
+            actual.clone(),
+            reason,
+            spend,
+        );
         Ok(Settlement { released, overruns })
     }
 
@@ -424,12 +490,14 @@ impl BudgetAccount {
             }
         }
 
+        let spend = self.classification_of(reservation);
         if !debited.is_empty() {
             self.append(
                 EntryKind::Adjustment,
                 Some(*reservation),
                 debited.clone(),
                 reason,
+                spend,
             );
         }
         if !credited.is_empty() {
@@ -438,6 +506,7 @@ impl BudgetAccount {
                 Some(*reservation),
                 credited.clone(),
                 reason,
+                spend,
             );
         }
         Ok(Reconciliation { debited, credited })
@@ -534,10 +603,40 @@ impl BudgetAccount {
         reservation: Option<Id<ReservationKind>>,
         amounts: Amounts,
         reason: &str,
+        spend: Classification,
     ) {
         let sequence = self.entries.len() as u64;
-        self.entries
-            .push(Entry::new(sequence, kind, reservation, amounts, reason));
+        self.entries.push(Entry::new(
+            sequence,
+            kind,
+            reservation,
+            amounts,
+            reason,
+            spend,
+        ));
+    }
+
+    /// Ce qu'une retenue paie, d'après le journal.
+    ///
+    /// C'est ce dont les écritures dérivées héritent : rendre, constater et rapprocher ne
+    /// redéclarent rien, et rembourser de la coordination reste de la coordination.
+    ///
+    /// Une retenue que le journal ne connaît pas se lit [`Classification::Unclassified`] — pas
+    /// « travail ». C'est la même règle que pour une écriture qu'aucun appelant n'a classée : ne
+    /// pas savoir n'est pas savoir que c'est du travail.
+    ///
+    /// Le journal n'est pas passé au classificateur : seules deux colonnes le sont, la retenue
+    /// nommée et la classification. Le motif ne franchit pas cette frontière, ce qui est la façon
+    /// de tenir « aucune classification ne se déduit du texte libre » par la forme plutôt que par
+    /// la vigilance. Voir [`crate::Classification`].
+    #[must_use]
+    pub fn classification_of(&self, reservation: &Id<ReservationKind>) -> Classification {
+        spend::inherited(
+            self.entries
+                .iter()
+                .map(|entry| (entry.reservation(), entry.spend())),
+            reservation,
+        )
     }
 
     /// Déduire les soldes du journal — la seule façon de les connaître.
