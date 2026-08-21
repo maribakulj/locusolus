@@ -11062,3 +11062,50 @@ ici le sens du diff, et ce que « vide » veut dire — que rien n'exerçait.
 **Écart avec la spec.** Aucun, et l'ADR 0024 est amendé plutôt que contredit.
 
 **Prochain item.** `W21.d` — `accepted_mutation_rate`.
+
+## 2026-08-21 — W21.d — `accepted_mutation_rate`, et ce qu'une révocation ne défait pas
+
+**Périmètre.** `packages/coordination/src/acceptance.rs`, `packages/coordination/src/lib.rs`,
+`packages/coordination/tests/acceptance.rs`.
+
+**Tests exécutés.** `cargo test -p locus-coordination --test acceptance` → 7 conformes.
+`npm run check` → les douze portes. Mutation : sept mutants, **sept tués** du premier coup.
+
+**Le dénominateur ne contient pas l'indécis.** Une proposition encore `proposed` n'est ni acceptée
+ni refusée. La compter ferait baisser le taux pour une raison sans rapport avec la qualité des
+propositions — **la lenteur des décideurs** — et la lecture naturelle, « les agents proposent
+n'importe quoi », enverrait corriger les agents. Le test ajoute vingt propositions en attente et
+vérifie que le taux ne bouge pas d'un iota.
+
+C'est la règle de `W18.e` transposée : une adaptation que personne n'a regardée y est déclarée hors
+mesure, jamais acceptée, parce que le silence n'est pas un accord.
+
+**La décision de conception : `revoked` compte comme accepté.** `DecisionState` a quatre états, et
+`Revoked` désigne une décision qui **a été approuvée** puis annulée après coup. Elle entre donc au
+numérateur comme au dénominateur : au moment de la décision, elle a bien été acceptée.
+
+L'exclure ferait baisser le taux d'acceptation **rétroactivement**, à chaque révocation, ce qui
+fondrait deux questions en un seul nombre : « les propositions passent-elles ? » et « celles qui
+passent tiennent-elles ? ». La seconde est celle de `W21.e`, et un taux d'acceptation qui bougerait
+en même temps rendrait les deux illisibles. Un test le tient par égalité : remplacer une approuvée
+par une révoquée ne change ni le taux, ni le numérateur, ni le dénominateur.
+
+**Aucune décision ne rend pas zéro.** `rate()` rend `None` quand rien n'a été décidé. Zéro signifie
+« tout ce qui a été décidé a été refusé », qui est un fait ; `None` signifie « rien n'a été décidé
+», qui est l'absence de fait. Les deux se lisent « rien n'est accepté » et appellent des suites
+opposées : regarder les propositions, ou attendre les décideurs. Le test exerce les trois cas —
+rien, que des indécises, et tout refusé — parce que c'est le seul moyen de montrer que `Some(0.0)`
+et `None` ne se confondent pas.
+
+**Les indécises accompagnent le taux jusque dans l'affichage.** `3/4` sur quatre propositions et
+`3/4` sur quatre-vingt-quatre ne disent pas la même chose de la gouvernance. Un mutant qui taisait
+les indécises dans le `Display` meurt.
+
+**Nommage.** Le type s'appelle `MutationAcceptance` et non `Acceptance` : ce dernier existe déjà
+dans `region`, et deux types homonymes dans un même crate obligeraient à choisir lequel garde le mot
+juste. Le crate suit déjà cette discipline pour `messaging::Message` et `simulation::Verdict`, qui
+ne sont pas remontés à la racine pour la même raison.
+
+**Écart avec la spec.** Aucun.
+
+**Prochain item.** `W21.e` — `rollback_rate`, par cohorte.

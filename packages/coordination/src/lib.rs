@@ -21,6 +21,7 @@
 //! l'invariant 11 s'y appuient — et c'est la seule. `mentors`, `delegates_to`, `supervises`
 //! seraient du vocabulaire que rien ne vérifie.
 
+pub mod acceptance;
 pub mod agent;
 pub mod barrier;
 pub mod capability;
@@ -41,6 +42,7 @@ pub mod team;
 pub mod version;
 pub mod visibility;
 
+pub use acceptance::MutationAcceptance;
 pub use agent::{AgentError, AgentInstance, AgentTemplate, InstanceState, TemplateStatus};
 pub use barrier::{Barrier, BarrierError, Barriers, Passage, threatened_by};
 pub use capability::{Capability, CapabilityError, Source, Sources, capabilities};
