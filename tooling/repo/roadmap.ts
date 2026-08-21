@@ -77,14 +77,52 @@ import type { Finding } from "../lib/findings.ts";
 const SIBLINGS = ["canterel", "xiiif", "emacs-config"] as const;
 
 /**
- * Un identifiant d'item, des deux familles : `W5.q` du chemin critique, `R1` de recherche.
+ * Un identifiant d'item, des deux familles : `W5.q` du chemin critique, `R1` de recherche — et la
+ * **sous-décomposition** `W4.d.1`, qu'un item trop gros reçoit quand un sprint le découpe.
  *
  * Écrit une fois et partagé par les quatre motifs. Les avoir écrits quatre fois est précisément ce
  * qui a permis à une famille entière d'échapper aux quatre en même temps : une alternance ajoutée à
  * trois motifs sur quatre laisserait le garde lire les lignes sans lire les entrées, ou l'inverse,
  * et il conclurait alors « livré nulle part » sur six items livrés.
+ *
+ * # La troisième forme, et pourquoi elle manquait
+ *
+ * `W0.17` avait ajouté la famille `R<n>` après qu'elle eut échappé aux quatre motifs. La réparation
+ * a corrigé ce qu'elle avait vu et **n'a pas demandé si d'autres formes existaient**. Il y en avait
+ * une : huit lignes portent un second point — `W4.d.1` à `W4.d.4`, `W4.e.1`, `W4.f.1`, `W4.g.1`,
+ * `W4.g.2` — et le motif s'arrêtait devant lui. Elles n'entraient dans aucun ensemble, donc aucune
+ * règle ne s'y appliquait, donc rien ne protestait qu'elles n'aient pas de marqueur alors que le
+ * registre porte pour chacune une entrée de livraison complète.
+ *
+ * Une garde qui ne voit pas une ligne ne la déclare pas manquante : elle la déclare **inexistante**,
+ * et aucun décompte ne baisse. C'est ce qui rend cette faute-là indétectable par relecture, et c'est
+ * pourquoi `unrecognised` existe désormais à côté du motif : **le motif ne se corrige plus seul.**
  */
-const ITEM = String.raw`(?:W\d+\.[a-z0-9]+|R\d+)`;
+const WITHIN = String.raw`\.[a-z0-9]+(?:\.\d+)?`;
+
+/**
+ * Ce qui suit un numéro de workstream dans un identifiant d'item : `.d`, ou `.d.1`.
+ *
+ * Extrait pour que `ITEM` et `awaits` ne puissent plus **diverger**. Ils divergeaient : le premier
+ * lisait `W4.d.1`, le second s'arrêtait à `W4.d` et rendait donc un **autre item** sur
+ * `attend:W4.d.1`, sans que rien ne le signale. Une troncature silencieuse est de la même famille
+ * que la cécité qu'`ITEM` vient de corriger, et l'écrire deux fois est ce qui l'a produite — comme
+ * l'avoir écrit quatre fois avait produit celle de `W0.17`.
+ */
+const ITEM = String.raw`(?:W\d+${WITHIN}|R\d+)`;
+
+/**
+ * Ce qui fait d'une ligne de tableau une **ligne d'item**, indépendamment de son identifiant.
+ *
+ * Toute ligne du plan déclare son type entre accents graves — `[R]` ou `[M]` —, et c'est la seule
+ * marque que les 193 lignes partagent sans exception. Les autres tableaux du document (les tranches
+ * du mineur, l'état des dépôts, les passages d'une sonde) n'en portent aucune.
+ *
+ * C'est donc la définition qui permet de compter les lignes **sans passer par le motif qu'on veut
+ * vérifier** — sans quoi le compteur serait aveugle exactement où le motif l'est, et confirmerait
+ * chaque cécité au lieu de la dénoncer.
+ */
+const typedRow = /^\| (\S+) [^|]*`\[(?:R|M)\]`/gm;
 
 /** Le motif d'un titre d'entrée de ledger : `## 2026-08-19 — W5.q — …`. */
 const ledgerHeading = new RegExp(String.raw`^## \d{4}-\d{2}-\d{2} — (${ITEM})\b([^\n]*)$`, "gm");
@@ -146,7 +184,7 @@ const wholeRow = new RegExp(String.raw`^\| (${ITEM}) [^|]*\|([^\n]*)$`, "gm");
  * D'où `attend:<quoi>`, écrit exprès. `attend:externe` dit « rien dans ce plan ne le débloquera » et
  * ne se vérifie pas ; `attend:W20` se vérifie, et se périme tout seul.
  */
-const awaits = new RegExp(String.raw`attend:(W\d+(?:\.[a-z0-9]+)?|R\d+|externe)`, "g");
+const awaits = new RegExp(String.raw`attend:(W\d+(?:${WITHIN})?|R\d+|externe)`, "g");
 
 /**
  * Un item de recherche est un **item**, jamais une phase.
@@ -181,6 +219,16 @@ export type Reconciliation = {
   readonly decided: ReadonlySet<string>;
   readonly planned: ReadonlySet<string>;
   readonly frontier: readonly string[];
+  /** Combien de lignes d'item le motif a **reconnues** — voir `typedRow`. */
+  readonly recognised: number;
+  /**
+   * Les lignes d'item que le motif n'a **pas** reconnues, sous leur premier jeton.
+   *
+   * Non vide veut dire que le plan porte une forme d'identifiant que le garde ne sait pas lire, donc
+   * qu'il travaille sur un sous-ensemble en croyant travailler sur le tout. C'est le seul écart de
+   * ce fichier qui invalide **tous** les autres constats, et il se rapporte comme tel.
+   */
+  readonly unrecognised: readonly string[];
   readonly unread: readonly string[];
   /** Pour chaque ligne décidée qui l'a déclaré, ce qu'elle attend — voir `awaits`. */
   readonly awaiting: ReadonlyMap<string, readonly string[]>;
@@ -264,6 +312,20 @@ export async function readReconciliation(root: string): Promise<Reconciliation> 
     }
   }
 
+  const recognisable = new RegExp(String.raw`^${ITEM}$`);
+  const unrecognised: string[] = [];
+  let recognised = 0;
+  for (const [, token] of roadmap.matchAll(typedRow)) {
+    if (token === undefined) {
+      continue;
+    }
+    if (recognisable.test(token)) {
+      recognised += 1;
+    } else {
+      unrecognised.push(token);
+    }
+  }
+
   const awaiting = new Map<string, readonly string[]>();
   for (const [, item, rest] of roadmap.matchAll(wholeRow)) {
     if (item === undefined || rest === undefined || !decided.has(item)) {
@@ -277,7 +339,18 @@ export async function readReconciliation(root: string): Promise<Reconciliation> 
     }
   }
 
-  return { delivered, blocked, marked, decided, planned, frontier, unread, awaiting };
+  return {
+    delivered,
+    blocked,
+    marked,
+    decided,
+    planned,
+    frontier,
+    recognised,
+    unrecognised,
+    unread,
+    awaiting,
+  };
 }
 
 /**
@@ -316,6 +389,17 @@ function satisfied(what: string, state: Reconciliation): boolean {
  */
 export function reconcile(state: Reconciliation): readonly Finding[] {
   const findings: Finding[] = [];
+
+  // En premier, et sous son nom : une ligne que le motif ne reconnaît pas n'est dans aucun des
+  // ensembles, donc aucune des règles suivantes ne parle d'elle. Les rapporter après les autres
+  // ferait lire « quelques écarts » là où il faut lire « le garde n'a pas tout regardé ».
+  for (const token of [...state.unrecognised].sort()) {
+    findings.push({
+      rule: "ligne-non-reconnue",
+      where: "docs/10_V1_ROADMAP.md",
+      message: `« ${token} » est une ligne d'item que le motif d'identifiant ne reconnaît pas : elle n'entre dans aucun ensemble, donc aucune règle ne la vérifie, et son absence de marqueur ne se voit pas`,
+    });
+  }
 
   // Un item décidé et livré est signalé plus bas, sous son nom propre. Le signaler ici aussi
   // rendrait deux constats pour un fait, et le moins juste des deux en premier : « ajoute **fait** »
