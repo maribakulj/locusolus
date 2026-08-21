@@ -29,6 +29,7 @@ pub mod diff;
 pub mod lifecycle;
 pub mod messaging;
 pub mod metrics;
+pub mod mutations;
 pub mod objection;
 pub mod proposal;
 pub mod region;
@@ -53,6 +54,7 @@ pub use lifecycle::{
 // Le chemin de module porte la distinction sans coûter un nom.
 pub use messaging::{EpochError, Epochs, Handover, HandoverError};
 pub use metrics::Metrics;
+pub use mutations::{Mutations, MutationsError, Replay};
 pub use objection::{Contestable, ObjectedTo, Objection, ObjectionError, Remedy};
 pub use proposal::{
     Approved, Author, Committed, EpistemicIndex, Justification, Mode, Proposal, ProposalError,

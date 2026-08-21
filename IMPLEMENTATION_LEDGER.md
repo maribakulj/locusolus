@@ -10886,3 +10886,74 @@ inscrire le soustrait à la discussion tout en le rendant invisible à qui lit l
 (système) et §28.3 (scientifiques) de `SPEC_V1.md` sont distinctes et ne sont pas touchées.
 
 **Prochain item.** `W21.a` — `mutations_per_run`.
+
+## 2026-08-21 — W21.a — `mutations_per_run`, ou pourquoi le compte est un rejeu
+
+**Périmètre.** `packages/coordination/src/mutations.rs`, `packages/coordination/src/lib.rs`,
+`packages/coordination/tests/mutations.rs`. Première métrique de la phase W21, sous l'ADR 0024.
+
+**Tests exécutés.** `cargo test -p locus-coordination --test mutations` → 9 conformes.
+`npm run check` → les douze portes. Mutation : sept mutants, **sept tués**.
+
+**La décision qui a tout déterminé : compter, c'est rejouer.** L'item demande de compter les
+opérations **appliquées**, jamais les proposées. Une fonction qui recevrait une liste d'opérations
+et les compterait tiendrait cette distinction par la seule bonne foi de l'appelant — c'est lui qui
+aurait trié, et rien dans le calcul ne le vérifierait. Pire, un test écrit contre une telle fonction
+ne prouverait rien non plus : il compterait ce qu'il a lui-même trié. C'est exactement le défaut du
+test vide de `W9.e`, qui choisissait sa conclusion par `nodes[0]` et n'assertait sur rien.
+
+`Mutations::replay` rejoue donc la suite contre une version de départ et ne compte que ce que
+`Version::apply` accepte. « Appliquée » cesse d'être une promesse d'appelant et devient une
+propriété du calcul — et le test correspondant propose de retirer un nœud jamais membre, sans
+simuler aucun refus : c'est la version qui tranche.
+
+**Une opération qui ne s'applique pas arrête le rejeu, elle ne se saute pas.** La tentation de
+l'ignorer et de continuer est forte, et elle est mauvaise. Une opération que la version ne reçoit
+pas signifie que le rejeu part de la mauvaise racine, ou que la suite n'est pas celle du journal.
+Dans les deux cas, poursuivre produirait un compte **pour une histoire qui n'a pas eu lieu** — un
+nombre plausible, du genre exact que la décision 1 de l'ADR 0024 refuse, puisque rien dans son
+apparence ne le distinguerait d'un nombre juste.
+
+Le refus nomme le **rang** et la sorte. Sans le rang, un rejeu qui échoue laisse chercher dans toute
+la suite, et la première réaction est de le relancer depuis une autre racine jusqu'à ce qu'il passe
+— la façon la plus discrète de choisir son résultat.
+
+**La reproductibilité se teste par découpage, pas par répétition.** Rappeler deux fois la même
+fonction pure ne prouve que sa pureté ; le test le fait quand même, parce que c'est la lettre de
+l'item, mais il ne suffit pas. Le test qui a du contenu rejoue un **préfixe puis le reste** et
+vérifie que les comptes s'additionnent et que la version atteinte est la même. Cela prouve que le
+compte est une fonction de l'**histoire** et non de la façon dont on la lit — la propriété que «
+calculées depuis le seul journal » veut dire.
+
+**Zéro est un fait, une clé absente n'en est pas un.** Les dix sortes d'`Operation::NAMES` sont
+toujours présentes, y compris sur un rejeu vide. Une clé absente ne dirait pas si la sorte n'est
+jamais survenue ou si le compteur ne la connaît pas, et ces deux-là appellent des suites opposées :
+regarder l'organisation, ou réparer le compteur. Symétriquement, `of_sort` rend `None` pour un nom
+inconnu et `Some(0)` pour une sorte connue non survenue — un appelant qui interroge une sorte mal
+orthographiée doit l'apprendre plutôt que de lire une absence rassurante.
+
+**Le compteur incrémente par `or_insert` plutôt que par accès à une clé supposée présente.** C'est
+délibéré : une onzième sorte qui entrerait dans l'énumération sans entrer dans `NAMES` produirait
+ainsi une clé de plus, que le test d'exhaustivité voit. La faire échouer à l'incrément la rendrait
+invisible au test et bruyante en production — l'inverse de ce qu'on veut d'une lacune de compteur.
+
+**Le chemin n'est pas la destination, et un test le montre.** Ajouter une arête puis la retirer
+compte **deux**, et la version revient exactement d'où elle venait — vérifié par égalité sur les
+relations. C'est la démonstration exécutable de la décision 3 de l'ADR 0024, celle qui a failli
+faire supprimer l'une des deux métriques comme redondante : leur écart est le travail de
+coordination qui n'a laissé aucune trace, et il sera mesurable quand `W21.c` existera.
+
+**Ce que le module ne fait pas.** Il ne juge pas — décision 9. Un test lit la source et refuse
+`const MIN`, `const MAX`, `fn is_healthy`, `fn score`, `enum Verdict` et `fn verdict`. Les motifs
+visent des **formes de code**, pas des mots : un test qui refuserait le mot « seuil » mordrait sur
+la phrase qui explique pourquoi il n'y en a pas, ce qui est arrivé six fois dans ce dépôt.
+
+**Emplacement.** `packages/coordination` et non `packages/evaluation`, malgré la parenté avec le
+regret de `R3`. `evaluation` n'a **aucune** dépendance, et c'est délibéré : ses mesures travaillent
+sur des utilités nommées, des chaînes et des flottants. Y porter cette métrique aurait exigé d'y
+faire entrer `locus-coordination` pour lire `Operation`, donc une arête inter-paquets nouvelle au
+service d'un seul compteur. La métrique est **de** la coordination ; elle vit avec elle.
+
+**Écart avec la spec.** Aucun. `mutations_per_run` est rendu tel que l'ADR 0024 l'arrête.
+
+**Prochain item.** `W21.b` — `edge_churn`.
