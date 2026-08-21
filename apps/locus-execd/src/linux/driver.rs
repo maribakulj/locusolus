@@ -101,6 +101,17 @@ impl SystemRunner {
         Self::default()
     }
 
+    /// Le programme que ce lanceur exécutera.
+    ///
+    /// Lisible parce que le binaire le **nomme** au démarrage : un broker qui annoncerait « driver
+    /// construit » sans dire lequel laisserait un exploitant deviner, et c'est en devinant qu'on
+    /// lit une capacité pour une autre. Le champ reste privé — il ne se règle que par
+    /// [`Self::with_program`], et jamais depuis une entrée.
+    #[must_use]
+    pub const fn program(&self) -> &'static str {
+        self.program
+    }
+
     /// Le même, avec un autre plafond par appel.
     #[must_use]
     pub const fn with_budget(mut self, budget: Duration) -> Self {
