@@ -11906,3 +11906,69 @@ qui manque est entre les deux. `W4.h` entre au plan.
 **Écart avec la spec.** Aucun.
 
 **Prochain item.** `W22.d` — la garde déclaration/symbole.
+
+## 2026-08-21 — W22.d — La garde de cohérence, et une formulation d'item que l'implémentation a démentie
+
+**Périmètre.** `tooling/coherence/coherence.ts` (neuf), `tooling/coherence/check-coherence.ts`
+(neuf), `tests/coherence/entry-points.test.ts` (neuf), `package.json`, `docs/adr/0025` (addendum),
+`docs/10_V1_ROADMAP.md`.
+
+**Tests exécutés.** `npm test` → 215 conformes, dont neuf neufs. La garde vérifiée **rouge sur le
+message d'origine** — le texte exact qu'`apps/locus-execd/src/main.rs` a imprimé — puis verte après
+retrait, l'injection assertée présente. `npm run check` → treize portes, la nouvelle comprise.
+Mutation : treize mutants, **treize tués**, après réparation de deux survivants.
+
+**Ce que l'item annonçait, et pourquoi c'était faux.** Il demandait une garde cherchant « un motif
+de refus dans un point d'entrée dont le crate exporte le symbole déclaré manquant ». Implémentée,
+cette forme **n'aurait pas attrapé le défaut qui a motivé l'item** : « aucun driver de runtime n'est
+encore branché (W4.d) » ne nomme aucun symbole.
+
+Et la forme opposée — chercher la tournure de négation — aurait mordu sur `apps/locusd/src/main.rs`,
+qui imprime « le port n'est pas ouvert » : une affirmation d'absence **vraie et calculée**, sur une
+condition que le binaire vient d'évaluer. Une garde qui crie sur ce qui est juste se fait
+désactiver, et c'est ainsi qu'on perd celles qui avaient raison.
+
+**Le signal.** Le message fautif **cite un item du plan** — `(W4.d)`. Un programme qui tourne n'a
+pas à citer la roadmap, parce que **le plan change sans que le message change** : c'est la
+définition même de la dérive que l'ADR 0025 nomme. Ce qu'un binaire a le droit de dire est ce qu'il
+a **calculé** — « cet hôte plafonne à `S1` » vieillit avec la machine, pas avec le dépôt.
+
+C'est bien un couple, comme la décision 4 l'exigeait, mais déclaration ↔ **plan** et non déclaration
+↔ symbole. L'ADR porte l'addendum ; la ligne de l'item a été réécrite plutôt que laissée à décrire
+une garde qui n'existe pas.
+
+**Ce que la garde ne lit pas.** Ni les commentaires, ni le registre — seulement les littéraux de
+chaîne des `[[bin]]` déclarés. Un point d'entrée garde donc le droit d'expliquer dans ses
+commentaires quel item l'a écrit, ce que `W22.c` fait, et le registre append-only, plein
+d'identifiants, n'est jamais concerné : il n'est pas un point d'entrée.
+
+**Les points d'entrée sont découverts, jamais listés.** Ils viennent des `[[bin]]` des manifestes.
+Une liste écrite à la main aurait la même infirmité que le motif d'identifiant de `W22.a` : aveugle
+au binaire suivant, et son silence se lirait « rien à signaler ». Un décompte nul est donc un échec,
+et le runner **nomme** les fichiers plutôt que de les compter — « 2 points d'entrée » ne dit pas
+lesquels, et c'est en ne sachant pas lesquels qu'on croit un jour qu'ils sont tous là.
+
+Un `[[bin]]` sans `path` n'est pas complété par `src/main.rs`. Cargo le déduirait ; une garde qui
+invente son entrée ne dit plus sur quoi elle a conclu.
+
+**Trois propriétés décrites et non testées, dans le fichier qui traite ce défaut.** Les mutants ont
+trouvé deux d'entre elles — la sous-décomposition `W4.d.1` dans un message, et les bornes du motif —
+et la troisième était pire : le commentaire du motif **annonçait** « un test d'accord entre les deux
+gardes le tient », et ce test n'existait pas. Écrire la règle et l'enfreindre dans le même fichier,
+pour la troisième fois de cette session après `W21.e` et `W21.j`.
+
+L'accord est désormais vérifié **contre le plan réel** et non contre une copie du motif : chacun des
+193 identifiants que la roadmap déclare doit être reconnu comme une citation. Deux copies d'une
+expression régulière peuvent être égales et fausses ensemble ; le plan, lui, ne ment pas sur ce
+qu'il contient.
+
+**Un test qui avait tort contre une garde qui avait raison.** Ma liste de « ce qui n'est pas un
+identifiant » contenait `W4.dz`. La forme admet `[a-z0-9]+` après le point : `dz` est licite, et la
+garde de roadmap le lirait pareil. Le test a échoué, et c'est le test qu'il a fallu corriger. Noté
+ici parce que l'inverse — corriger la garde pour faire passer un test faux — aurait élargi le motif
+sur une erreur de lecture, ce que la décision 4 de l'ADR 0025 écarte nommément.
+
+**Écart avec la spec.** Aucun.
+
+**Prochain item.** `W22.e` — la sonde réelle de Canterel, le seul des quatre défauts qui porte sur
+un niveau d'isolation.
