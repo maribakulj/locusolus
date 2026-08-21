@@ -238,7 +238,7 @@ seuil est une valeur qu'on peut voir, discuter et changer.
 | `degree_entropy` | ex-`topology_entropy` | Entropie de Shannon des degrés, divisée par `log n` | **Pas** l'équité de charge : c'est `busiest_reviewer_load` |
 | `critical_path_length` | inchangé | Plus longue chaîne de dépendances du graphe de tâches ; un cycle est **refusé en le nommant**, jamais parcouru | Rien sur le temps réel — c'est un compte d'étapes |
 | `average_parallelism` | ex-`parallelism` | Travail total ÷ `critical_path_length` | **Pas** le nombre d'agents qui tournaient ; et à ne pas confondre avec `Dimension::Parallelism`, qui est un plafond |
-| `communication_tokens` | **débloqué** | Tokens de coordination ÷ tokens totaux | — `W21.m` livré, voir l'addendum de la décision 8 |
+| `communication_tokens` | **livré** | Tokens **dépensés** à se coordonner ÷ tokens dépensés déclarés ; les non classés comptés à part, hors des deux termes | **Pas** si la coordination valait son prix, et rien du provisionnement — allouer et retenir ne sont pas dépenser |
 | `handed_over_attempts` | ex-`state_transfer_volume` | Tentatives en vol transmises par `Handover` | **Pas** un volume d'octets : ADR 0019 condition 3 interdit la copie qui en produirait |
 | `agent_lifetime` | inchangé | Durée entre l'entrée d'une instance dans une version et sa sortie, lue des transitions de `lifecycle.rs` | Rien sur ce que l'instance a accompli pendant ce temps |
 | `failure_recovery_time` | inchangé | Durée entre un fait de panne et le fait de reprise correspondant | Rien tant qu'aucune campagne longue n'a produit de pannes réelles |

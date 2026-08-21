@@ -284,6 +284,7 @@ dependencies = [
 name = "locus-coordination"
 version = "0.0.0"
 dependencies = [
+ "locus-budget",
  "locus-domain",
  "locus-protocol",
  "locus-review",
