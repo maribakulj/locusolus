@@ -42,7 +42,7 @@ pub use counterfactual::{
     CompareError, DomainEnvironment, Outcome, Trajectory, Unmeasured, compare, fidelity,
 };
 pub use credit::{Arm, Baseline, Credit, CreditError, Factor, attribute};
-pub use critical_path::{CriticalPath, CriticalPathError, Dependencies};
+pub use critical_path::{AverageParallelism, CriticalPath, CriticalPathError, Dependencies};
 pub use endurance::{Campaign, Endurance, EnduranceError, Measure, Requirement, Shortfall};
 pub use evolution::{Evolution, EvolutionError, Improvement, Occurrence, consider};
 pub use regret::{Candidate, Regret, RegretError, regret};

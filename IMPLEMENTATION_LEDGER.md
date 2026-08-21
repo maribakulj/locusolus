@@ -11318,3 +11318,49 @@ démenti — troisième document amendé par son implémentation dans cette phas
 `W21.c` et l'item `W21.f` par lui-même.
 
 **Prochain item.** `W21.h` — `average_parallelism`, qui consommera ce chemin critique.
+
+## 2026-08-21 — W21.h — `average_parallelism`, une moyenne qu'on prend souvent pour un pic
+
+**Périmètre.** `packages/evaluation/src/critical_path.rs` (le type et la mesure),
+`packages/evaluation/src/lib.rs`, `packages/evaluation/tests/parallelism.rs`.
+
+**Tests exécutés.** `cargo test -p locus-evaluation --test parallelism` → 8 conformes.
+`npm run check` → les douze portes. Mutation : cinq mutants, **cinq tués** du premier coup.
+
+**La moyenne n'est pas la largeur maximale, et c'est le test qui porte l'item.** Onze nœuds sur deux
+étapes : le niveau le plus large en porte **dix**, la moyenne vaut **5,5**. Les deux répondent à
+deux questions — « combien pourrait avancer de front au mieux » et « combien avance de front en
+moyenne » — et lire l'une pour l'autre ferait dimensionner une flotte sur un pic qui ne dure qu'une
+étape.
+
+**Ce n'est pas non plus le nombre d'agents, et cela se tient par la signature.**
+`average_parallelism` ne prend aucun argument, et `Dependencies` ne porte que des identifiants de
+travail. Une organisation à un seul agent obtiendrait la même valeur — ce qui est **correct** : la
+mesure décrit le graphe, pas son exécution. Un test d'absence refuse `Agent`, `worker`, `agent_id`
+et `fn assigned` dans la source.
+
+**Et surtout, ce n'est pas un plafond.** `Dimension::Parallelism` de §7.2 est une **limite qu'on
+fixe** ; ceci est un **constat**. « Le parallélisme vaut 4 » ne dirait plus lequel des deux, et
+c'est exactement la confusion que le renommage de la décision 2 de l'ADR 0024 évite. L'item
+demandait un test d'absence sur les imports ; la forme retenue lit le `Cargo.toml`, parce que
+`locus-evaluation` n'a aucune dépendance et que l'import ne compilerait donc pas. La séparation est
+tenue par le graphe de paquets.
+
+**Aucun arrondi, contrairement à `degree_entropy`, et la raison est écrite.** L'entropie somme des
+termes et accumule de l'erreur ; ici il n'y a qu'une **division de deux entiers exacts**, donc deux
+graphes de même forme rendent déjà bit pour bit la même valeur. Arrondir sans nécessité aurait
+recopié une décision au lieu de la reprendre — et une décision recopiée est une décision que
+personne ne rejugera.
+
+**Deux absences de valeur, et elles ne se ressemblent pas.** `NoWork` quand il n'y a aucun nœud —
+`0 / 0` produirait un `NaN`, qui ne se compare à rien et se propagerait en silence. Et le refus de
+`W21.g` qui **se propage** sur un cycle : sans chemin critique il n'y a rien à diviser, et rendre
+une valeur obligerait à inventer un dénominateur qui serait lu comme une mesure.
+
+**Le harnais a servi dès sa première réutilisation.** Le délai de garde posé à `W21.g` était en
+place avant d'écrire cette passe, et `cargo fmt` a tourné avant elle : les deux corrections
+d'outillage de la phase ont tenu sans qu'il faille y repenser.
+
+**Écart avec la spec.** Aucun.
+
+**Prochain item.** `W21.i` — `handed_over_attempts`.
