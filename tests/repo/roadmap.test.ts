@@ -41,6 +41,8 @@ test("un item livré mais non marqué est rapporté", () => {
     decided: new Set(),
     planned: new Set(["W5.q"]),
     frontier: [],
+    recognised: 0,
+    unrecognised: [],
     unread: [],
     awaiting: new Map(),
   });
@@ -65,6 +67,8 @@ test("un item marqué sans entrée au ledger est rapporté", () => {
     decided: new Set(),
     planned: new Set(["W5.t"]),
     frontier: [],
+    recognised: 0,
+    unrecognised: [],
     unread: [],
     awaiting: new Map(),
   });
@@ -90,6 +94,8 @@ test("un registre non lu suspend « marqué sans entrée », jamais l'inverse", 
     decided: new Set(),
     planned: new Set(["W5.q", "W2.4"]),
     frontier: [],
+    recognised: 0,
+    unrecognised: [],
     unread: ["canterel"],
     awaiting: new Map(),
   });
@@ -115,6 +121,8 @@ test("un item livré hors du plan ne compte pas comme un écart", () => {
       decided: new Set(),
       planned: new Set(),
       frontier: [],
+      recognised: 0,
+      unrecognised: [],
       unread: [],
       awaiting: new Map(),
     }),
@@ -284,6 +292,8 @@ test("un item décidé bloqué qui a son entrée au ledger est rapporté", () =>
     decided: new Set(["W16.d"]),
     planned: new Set(["W16.d"]),
     frontier: [],
+    recognised: 0,
+    unrecognised: [],
     unread: [],
     awaiting: new Map(),
   });
@@ -450,6 +460,8 @@ test("une ligne faite dont l'entrée dit bloqué a son constat à elle", () => {
     decided: new Set(),
     planned: new Set(["W15.f"]),
     frontier: [],
+    recognised: 0,
+    unrecognised: [],
     unread: [],
     awaiting: new Map(),
   });
@@ -476,6 +488,8 @@ test("un blocage dont la dépendance est livrée est rapporté", () => {
     decided: new Set(["W17.f"]),
     planned: new Set(["W17.f", "W20.a", "W20.b"]),
     frontier: [],
+    recognised: 0,
+    unrecognised: [],
     unread: [],
     awaiting: new Map([["W17.f", ["W20"]]]),
   });
@@ -496,6 +510,8 @@ test("un blocage dont la dépendance est incomplète n'est pas rapporté", () =>
     decided: new Set(["W17.f"]),
     planned: new Set(["W17.f", "W20.a", "W20.b"]),
     frontier: ["W20.b"],
+    recognised: 0,
+    unrecognised: [],
     unread: [],
     awaiting: new Map([["W17.f", ["W20"]]]),
   });
@@ -524,6 +540,8 @@ test("un blocage externe ne se périme pas", () => {
     decided: new Set(["W18.f"]),
     planned: new Set(["W18.f", "W20.a"]),
     frontier: [],
+    recognised: 0,
+    unrecognised: [],
     unread: [],
     awaiting: new Map([["W18.f", ["externe"]]]),
   });
@@ -646,3 +664,135 @@ async function fixture(contents: {
   }
   return root;
 }
+
+/**
+ * **Une ligne d'item d'une forme que le motif ne connaît pas est rapportée.**
+ *
+ * Le test qui porte `W22.a`. C'est le seul écart de cette garde qui invalide tous les autres
+ * constats : une ligne non reconnue n'entre dans aucun ensemble, donc aucune règle ne parle d'elle,
+ * donc **aucun décompte ne baisse** — et « ok » se lit « tout est vérifié ».
+ *
+ * Le compteur est dérivé du type `[R]`/`[M]`, que les 193 lignes du plan portent sans exception, et
+ * jamais du motif d'identifiant : un compteur qui passerait par le motif serait aveugle exactement
+ * là où le motif l'est, et confirmerait chaque cécité au lieu de la dénoncer.
+ */
+test("une ligne d'item que le motif ne reconnaît pas est rapportée", async () => {
+  const inconnue = await readReconciliation(
+    await fixture({
+      ledger: "# Ledger\n",
+      roadmap: "| # |\n|---|\n| W20.a `[R]` **fait** |\n| W4.d.1.7 `[R]` |\n",
+    }),
+  );
+
+  assert.deepEqual(inconnue.unrecognised, ["W4.d.1.7"]);
+  assert.equal(inconnue.recognised, 1, "l'autre ligne, elle, est reconnue");
+  assert.equal(inconnue.planned.has("W4.d.1.7"), false, "et elle n'est dans aucun ensemble");
+
+  const findings = reconcile(inconnue);
+  assert.equal(
+    findings[0]?.rule,
+    "ligne-non-reconnue",
+    "et c'est le premier constat, pas le dernier",
+  );
+  assert.match(findings[0]?.message ?? "", /W4\.d\.1\.7/);
+});
+
+/**
+ * **Un item à deux points est vu par les deux règles, dans les deux sens.**
+ *
+ * `livre-non-marque` et `marque-non-livre` existaient depuis `W0.12` et `W0.13`, et elles étaient
+ * justes. Elles ne voyaient simplement pas les huit lignes que le motif tronquait — la garde n'avait
+ * pas de trou de règle, elle avait un trou de vue.
+ *
+ * Ce test exerce donc les deux règles **sur la forme qui manquait**, ce qui est la seule
+ * non-régression qui compte : réparer le motif sans le tenir laisserait la prochaine forme repasser.
+ */
+test("un item à deux points est vu dans les deux sens", () => {
+  const sansMarqueur = reconcile({
+    delivered: new Set(["W4.d.1"]),
+    marked: new Set(),
+    blocked: new Set(),
+    decided: new Set(),
+    planned: new Set(["W4.d.1"]),
+    frontier: [],
+    recognised: 1,
+    unrecognised: [],
+    unread: [],
+    awaiting: new Map(),
+  });
+  assert.equal(sansMarqueur.length, 1);
+  assert.equal(sansMarqueur[0]?.rule, "livre-non-marque");
+  assert.match(sansMarqueur[0]?.message ?? "", /W4\.d\.1/);
+
+  const sansEntree = reconcile({
+    delivered: new Set(),
+    marked: new Set(["W4.d.1"]),
+    blocked: new Set(),
+    decided: new Set(),
+    planned: new Set(["W4.d.1"]),
+    frontier: [],
+    recognised: 1,
+    unrecognised: [],
+    unread: [],
+    awaiting: new Map(),
+  });
+  assert.equal(sansEntree.length, 1);
+  assert.equal(sansEntree[0]?.rule, "marque-non-livre");
+});
+
+/**
+ * **Un blocage qui nomme un item à deux points le nomme en entier.**
+ *
+ * Le motif d'`attend:` et celui des lignes doivent s'accorder sur ce qu'est un identifiant. S'ils
+ * divergent, `attend:W4.d.1` se lit `W4.d` — un **autre** item — et le blocage se périme ou ne se
+ * périme pas pour de mauvaises raisons, sans que rien ne le signale. Une troncature silencieuse est
+ * exactement la faute que cet item existe pour supprimer.
+ */
+test("un blocage qui attend un item à deux points le lit en entier", async () => {
+  const state = await readReconciliation(
+    await fixture({
+      ledger: "# Ledger\n",
+      roadmap: [
+        "| # |",
+        "|---|",
+        "| W4.d.1 `[R]` |",
+        "| W9.a `[R]` **bloqué** | attend:W4.d.1 |",
+        "",
+      ].join("\n"),
+    }),
+  );
+
+  assert.deepEqual(state.awaiting.get("W9.a"), ["W4.d.1"]);
+  assert.deepEqual(reconcile(state), [], "W4.d.1 n'est ni marqué ni décidé : le blocage tient");
+});
+
+/**
+ * **Le runner déclare ce qu'il a reconnu, avant toute conclusion.**
+ *
+ * Sans cette ligne, une cécité du motif se lit « rien à signaler ». C'est ce qui est arrivé : la
+ * garde imprimait « frontière vide — toute ligne du plan est faite » sur un plan dont huit lignes
+ * livrées n'avaient pas de marqueur, et le nombre n'était nulle part.
+ */
+test("le runner déclare le nombre de lignes reconnues", async () => {
+  const runner = fileURLToPath(new URL("../../tooling/repo/check-roadmap.ts", import.meta.url));
+
+  const propre = await run(
+    runner,
+    await fixture({
+      ledger: "# Ledger\n\n## 2026-08-18 — W20.a — fait\n",
+      roadmap: "| # |\n|---|\n| W20.a `[R]` **fait** |\n",
+    }),
+  );
+  assert.equal(propre.code, 0);
+  assert.match(propre.out, /1 ligne\(s\) d'item reconnue\(s\) sur 1/);
+
+  const borgne = await run(
+    runner,
+    await fixture({
+      ledger: "# Ledger\n\n## 2026-08-18 — W20.a — fait\n",
+      roadmap: "| # |\n|---|\n| W20.a `[R]` **fait** |\n| W4.d.1.7 `[R]` |\n",
+    }),
+  );
+  assert.notEqual(borgne.code, 0, "une ligne non reconnue fait échouer la garde");
+  assert.match(borgne.out, /1 ligne\(s\) d'item reconnue\(s\) sur 2/);
+});

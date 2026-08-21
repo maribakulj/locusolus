@@ -11735,3 +11735,97 @@ qu'un centre de gravité bloqué ne pilote rien.
 **Écart avec la spec.** Aucun. L'ADR n'amende aucune section de `SPEC_V1.md`.
 
 **Prochain item.** `W22.a` — la garde voit tout le plan.
+
+## 2026-08-21 — W22.a — La garde voit enfin tout le plan, et déclare combien elle en voit
+
+**Périmètre.** `tooling/repo/roadmap.ts`, `tooling/repo/check-roadmap.ts`,
+`tests/repo/roadmap.test.ts`, `docs/10_V1_ROADMAP.md`.
+
+**Tests exécutés.** `npm test` → 202 conformes, dont quatre neufs ; **rouge d'abord** sur la
+troncature d'`attend:`, puis vert. `npm run check` → les douze portes. Mutation : huit mutants,
+**huit tués**, zéro survivant.
+
+**Ce qui était cassé.** Le motif d'identifiant lisait `W\d+\.[a-z0-9]+` et s'arrêtait devant un
+second point. Huit lignes en portent un — `W4.d.1` à `W4.d.4`, `W4.e.1`, `W4.f.1`, `W4.g.1`,
+`W4.g.2` — et elles n'entraient dans **aucun** ensemble : ni `planned`, ni `marked`, ni `delivered`.
+Aucune des cinq règles ne parlait d'elles, et aucun décompte ne baissait.
+
+C'est ce qui rend cette faute-là indétectable par relecture. Une garde qui ne voit pas une ligne ne
+la déclare pas manquante : elle la déclare **inexistante**. Le tour précédent de cette session a
+relayé au propriétaire du produit un « frontière vide — toute ligne du plan est faite » qui portait
+sur 179 lignes sur 187.
+
+**Troisième occurrence.** `W0.11` a donné la garde, `W0.17` a réparé une première cécité — la
+famille `R<n>` échappait aux quatre motifs — et cette réparation **n'a pas demandé si d'autres
+formes existaient**. Elle a corrigé ce qu'elle voyait. La leçon n'est donc pas « ajouter une
+alternance » : c'est qu'un motif ne peut pas se vérifier lui-même, et qu'il lui faut un compteur qui
+ne passe pas par lui.
+
+**Le compteur, et pourquoi il ne passe pas par le motif.** Les 193 lignes d'item du plan portent
+toutes leur type entre accents graves, `[R]` ou `[M]`, et c'est la seule marque qu'elles partagent
+sans exception ; aucun autre tableau du document n'en porte. Le dénombrement s'ancre donc là,
+**pas** sur l'identifiant. Un compteur bâti sur le motif aurait été aveugle exactement où le motif
+l'est, et aurait confirmé chaque cécité au lieu de la dénoncer — un mutant le vérifie, et il meurt.
+
+Le total est **dérivé** et jamais écrit en constante : `recognised + unrecognised.length`. Un nombre
+attendu écrit en dur aurait demandé d'être relevé à chaque ligne ajoutée, et une constante qu'on
+relève sans y penser ne vérifie plus rien.
+
+Le runner imprime maintenant `193 ligne(s) d'item reconnue(s) sur 193`, **avant** toute conclusion,
+et une ligne non reconnue produit un constat qui passe en premier : elle invalide tous les autres,
+puisqu'elle dit que la garde n'a pas tout regardé.
+
+**Le rouge qui a servi.** Le test sur `attend:W4.d.1` a échoué au premier passage, et sur le bon
+défaut : le motif d'`attend:` avait sa **propre** copie de la forme d'identifiant, s'arrêtait à
+`W4.d` et rendait donc un autre item — un blocage se serait périmé ou non pour de mauvaises raisons,
+en silence. La forme est désormais extraite dans `WITHIN` et partagée par les deux, ce qui rend la
+divergence inexprimable. C'est le même remède que `W0.17` avait appliqué en écrivant `ITEM` une
+seule fois, et le même défaut réapparu là où une seconde copie subsistait.
+
+**Les huit marqueurs.** Chacune des huit lignes a son entrée de livraison au registre, datée du
+2026-08-17, aucune avec un préfixe `Bloqué`/`Reporté`/`Partiel`. Elles portent donc `**fait**`, et
+la règle `livre-non-marque` — qui existait et était juste — a protesté sur les huit dès que le motif
+a été réparé, avant que je ne pose un seul marqueur.
+
+**Écart avec la spec.** Aucun.
+
+**Prochain item.** `W22.c` — `main.rs` de `locus-execd`.
+
+## 2026-08-21 — W22.b — La règle existait, c'est la vue qui manquait
+
+**Périmètre.** `tests/repo/roadmap.test.ts`, `docs/10_V1_ROADMAP.md`. Aucune règle écrite.
+
+**Une note sur le titre de cette entrée.** Elle s'est d'abord intitulée « Partiel : … », et la garde
+l'a refusée — `Partiel` est l'un des trois préfixes de décision, donc l'entrée ne valait pas
+livraison et `W22.b` se retrouvait marqué **fait** sans rien pour l'attester. Le refus était juste,
+et le mot était faux : `Partiel` veut dire « attend le reste du même travail », et ici rien n'est
+attendu. L'item est livré ; ce qu'il a coûté est simplement plus petit qu'annoncé.
+
+**Ce que l'item annonçait, et ce qui était vrai.** Il demandait « le couple marqueur ↔ entrée de
+ledger, dans les deux sens ». Les deux sens existaient déjà : `livre-non-marque` depuis `W0.12`,
+`marque-non-livre` depuis `W0.13`, et le texte de l'item disait lui-même « l'inverse aussi, et il
+est déjà tenu » sans en tirer la conséquence.
+
+Ce qui manquait n'était pas une règle mais une **vue**. Les huit lignes que le motif tronquait
+n'entraient dans aucun ensemble, donc aucune des deux règles ne parlait d'elles. Réparer `W22.a` les
+a fait protester sur les huit d'un coup, sans qu'une ligne de règle soit écrite.
+
+**Ce que ce sprint livre réellement.** La non-régression : un test exerce les deux règles sur la
+forme à deux points, dans les deux sens. Sans lui, réparer le motif sans le tenir laisserait la
+prochaine forme repasser par le même trou — ce qui est précisément l'histoire de `W0.17`.
+
+**Pourquoi cette entrée existe.** Écrire cet item comme du travail neuf était **une affirmation
+fausse sur l'état du système**, et l'ADR 0025 vient d'établir qu'une telle affirmation est une
+promesse. Le plan qui met en œuvre cet ADR en portait une, écrite par moi la veille et reprise d'un
+document d'audit qui la portait aussi. Consigner le constat plutôt que réécrire l'item en silence
+est ce qu'un registre est pour : un lecteur qui verra `W22.b` marqué **fait** saura qu'aucune règle
+n'a été écrite ce jour-là.
+
+**Ce que ça enseigne sur l'audit.** Il a correctement identifié quatre symptômes et proposé quatre
+corrections. Sur deux d'entre elles, la cause était en amont — la garde aveugle pour `D2`, la règle
+déjà écrite pour ce qu'il appelait `W22.c`. Un audit lit ce qui est visible ; ce qui rend une chose
+invisible ne l'est pas.
+
+**Écart avec la spec.** Aucun.
+
+**Prochain item.** `W22.c` — `main.rs` de `locus-execd`.
