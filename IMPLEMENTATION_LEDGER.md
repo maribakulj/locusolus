@@ -10957,3 +10957,54 @@ service d'un seul compteur. La métrique est **de** la coordination ; elle vit a
 **Écart avec la spec.** Aucun. `mutations_per_run` est rendu tel que l'ADR 0024 l'arrête.
 
 **Prochain item.** `W21.b` — `edge_churn`.
+
+## 2026-08-21 — W21.b — `edge_churn`, et un mutant qui a trouvé l'immobilité fausse
+
+**Périmètre.** `packages/coordination/src/churn.rs`, `packages/coordination/src/lib.rs`,
+`packages/coordination/tests/churn.rs`.
+
+**Tests exécutés.** `cargo test -p locus-coordination --test churn` → 7 conformes. `npm run check` →
+les douze portes. Mutation : sept mutants, **six tués puis sept** après correction d'un trou réel.
+
+**Pourquoi entre deux versions, et non sur une suite d'opérations.** Compter les `ADD_EDGE` et les
+`REMOVE_EDGE` d'un rejeu aurait été plus direct — et aurait **manqué des arêtes**. Trois opérations
+changent les arêtes sans être l'une des deux : `REPLACE_NODE` emporte les arêtes de l'identité
+remplacée, `SPLIT_NODE` partage celles du nœud scindé, `MERGE_NODES` les réunit. Un churn tiré des
+seules opérations d'arête rendrait **zéro** sur un remplacement qui a réécrit tout le voisinage d'un
+nœud.
+
+La différence symétrique des ensembles d'arêtes les voit toutes, quelle que soit l'opération qui les
+a produites. Un test le tient en confrontant, sur un remplacement, ce que ce module rend et ce que
+le compteur de `W21.a` rend : **deux contre zéro**. C'est aussi ce qui rend cet item non redondant
+avec le précédent, ce dont la décision 3 de l'ADR 0024 dit qu'il faut se méfier.
+
+**Aucun solde n'est rendu.** Ce n'est pas une omission. Un accesseur qui rendrait la différence de
+cardinalité serait à un caractère de distance de celui qu'il faut lire, porterait un nom tout aussi
+plausible, et rendrait un nombre **plus petit** — donc plus rassurant. Un test d'absence refuse
+`fn net`, `fn balance`, `fn solde` et `fn delta` dans la source. Les motifs visent des signatures :
+le module explique longuement pourquoi le solde n'est pas le churn, et un test qui refuserait le mot
+mordrait sur son propre motif — la faute commise six fois dans ce dépôt.
+
+**Le mutant qui a trouvé quelque chose.** `is_still()` réduit à `self.entered.is_empty()` a
+**survécu** à toute la suite. Aucun test n'exerçait un churn **unilatéral** : une organisation qui
+perd des arêtes sans en gagner aurait été déclarée immobile — le pire des deux sens, puisque c'est
+exactement le moment où on veut regarder.
+
+J'avais écrit dans la source qu'un churn nul « signifie que les deux ensembles d'arêtes sont le même
+». La phrase décrivait une propriété que rien ne tenait dans sa moitié gauche. C'est le motif que ce
+dépôt rencontre à chaque passe : **une propriété décrite sans être testée est une propriété qu'on
+croit tenir.** Le test neuf tient les deux directions, perte et gain, parce qu'une seule laisserait
+passer l'autre moitié.
+
+**Les ensembles sont rendus, pas seulement leurs tailles.** Savoir **quelles** arêtes ont changé est
+ce qui rend un churn actionnable ; un nombre seul envoie relire les deux versions à la main pour
+retrouver ce que la mesure vient de calculer.
+
+**Une note d'outillage.** `cargo fmt` a tourné **avant** la passe de mutants cette fois, et les
+motifs ont été écrits contre la source formatée. Au tour précédent l'ordre inverse avait périmé le
+harnais sans conséquence ; c'est le même piège que quatre fois auparavant, et l'ordre le supprime.
+
+**Écart avec la spec.** Aucun. `edge_churn` est rendu tel que l'ADR 0024 l'arrête — entrées plus
+sorties, jamais le solde.
+
+**Prochain item.** `W21.c` — `applied_edit_length`.
