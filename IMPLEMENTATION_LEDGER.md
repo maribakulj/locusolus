@@ -10653,3 +10653,51 @@ et il attend déjà sous `W18.f`.
 pas touché.
 
 **Prochain item.** La frontière de `check:roadmap` après cet item.
+
+## 2026-08-21 — Mutation testing sur W6.g → W18.h — un test vide et deux octets nuls
+
+**Périmètre.** `apps/web/src/scene3d.ts` — le séparateur de clé rendu délibéré ;
+`tests/web/scene3d.test.ts` — le faisceau tiré des arêtes réelles ;
+`packages/adaptation/tests/reasoner.rs` — un test de plus. Aucun code de domaine.
+
+**Tests exécutés.** `npm run check`. Vingt-quatre mutants sur `promotion.rs`, `scene3d.ts`,
+`locus-author.el`, `alignment.rs` et `reasoner.rs` : **24 tués, 0 survivant** après correction.
+
+**Un test qui portait sur un ensemble vide.** L'assertion « aucun segment ne double le faisceau »
+choisissait sa conclusion par `nodes[0]`. Or `readView` **réordonne** les nœuds en forme canonique,
+et le premier de la fixture ne reçoit aucune arête : le faisceau n'absorbait rien, la boucle
+d'assertion ne tournait sur rien, et elle passait quoi qu'il arrive. Un mutant supprimant
+l'absorption y a survécu.
+
+La conclusion et ses prémisses viennent désormais des **arêtes réelles** de la vue. Une assertion
+universelle sur une collection possiblement vide est vraie sans rien dire — et c'est plus dangereux
+qu'un test absent, parce qu'elle a l'air de garder quelque chose.
+
+**Deux octets nuls dans une source, trouvés par accident.** `grep` a signalé `scene3d.ts` comme
+fichier binaire pendant l'analyse d'un mutant. Le séparateur de clé d'arête, que je croyais avoir
+écrit comme une espace, était un octet nul **littéral** : le code fonctionnait, la CI passait, et
+rien ne l'aurait signalé.
+
+Le nul est en réalité le **bon** séparateur ici : un identifiant ne peut pas en contenir, la forme
+canonique de §23.3 refusant les caractères de contrôle depuis `W17.h`, donc la clé ne se forge pas.
+Une espace aurait collisionné dès qu'un identifiant en contient une. Ce qui était faux n'est donc
+pas le choix mais son **statut** : accidentel, invisible, et posé en littéral plutôt qu'en
+échappement. Il est désormais une fonction nommée, écrit `\u0000`, avec son motif — et le fichier
+redevient du texte pour `grep`, `diff` et toute revue humaine.
+
+La leçon s'est répétée en écrivant cette entrée : le premier essai la déposait par un `heredoc` qui
+recopiait les deux octets depuis la source, et l'outillage l'a refusé pour « caractères de contrôle
+cachés ». Une notation invisible se propage partout où on la recopie.
+
+**Un refus qui n'était testé nulle part.** `ProposedClaim::proposed` refuse un sujet vide ; rien ne
+l'exerçait, et le mutant a traversé toute la suite. Une conclusion au sujet vide serait entrée dans
+le dossier comme un verdict sur rien — avec sa provenance complète, donc parfaitement crédible.
+
+**Trois mutants inexploitables, tous de ma main.** Deux motifs écrits contre une indentation que
+`cargo fmt` et `prettier` avaient changée ; un troisième appelant `Capability::name()`, qui
+s'appelle `as_str()`. Corrigés, les trois tuent.
+
+**Écart avec la spec.** Aucun.
+
+**Prochain item.** Aucun : la frontière de `check:roadmap` est vide. Restent `W16.d` et `W18.f`,
+tous deux `attend:externe`.

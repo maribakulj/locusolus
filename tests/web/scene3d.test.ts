@@ -92,9 +92,15 @@ test("la scène n'est pas une grille plate déguisée", () => {
 
 test("une hyperarête se distingue d'une relation binaire par sa structure", () => {
   const vue = epistemique();
-  const conclusion = vue.nodes[0]?.id ?? "";
-  const premisses = vue.nodes.slice(1, 4).map((n) => n.id);
-  assert.ok(premisses.length >= 2, "la fixture doit porter de quoi faire un faisceau");
+
+  // La conclusion et ses prémisses viennent des **arêtes réelles** de la vue, jamais de l'ordre des
+  // nœuds. Une première version prenait `nodes[0]` comme conclusion : or `readView` réordonne en
+  // forme canonique, et ce nœud-là ne recevait aucune arête. Le faisceau n'absorbait donc rien, et
+  // l'assertion « aucun segment ne double le faisceau » portait sur un ensemble **vide** — elle
+  // passait quoi qu'il arrive. Un mutant qui supprimait l'absorption y a survécu.
+  const conclusion = vue.edges[0]?.to ?? "";
+  const premisses = vue.edges.filter((e) => e.to === conclusion).map((e) => e.from);
+  assert.ok(premisses.length >= 2, "la fixture doit porter au moins deux arêtes vers un même nœud");
 
   const scene = render(vue, new Map([[conclusion, premisses]]));
 

@@ -293,3 +293,21 @@ fn la_meme_identite_ne_s_inscrit_pas_deux_fois() {
     );
     assert_eq!(registre.len(), 1);
 }
+
+/// **Une conclusion sans sujet ne porte sur rien**, et rien ne le tenait.
+///
+/// Le refus existait ; aucun test ne l'exerçait, et un mutant qui l'a neutralisé a traversé toute la
+/// suite. Une conclusion au sujet vide entrerait dans le dossier comme un verdict sur rien — avec sa
+/// provenance complète, donc parfaitement crédible.
+#[test]
+fn une_conclusion_sans_sujet_est_refusee() {
+    assert_eq!(
+        ProposedClaim::proposed("", Verdict::Consistent, provenance()),
+        Err(ReasonerError::EmptySubject)
+    );
+    assert_eq!(
+        ProposedClaim::proposed("   ", Verdict::Undetermined, provenance()),
+        Err(ReasonerError::EmptySubject)
+    );
+    assert!(ProposedClaim::proposed("cidoc:E22", Verdict::Rejected, provenance()).is_ok());
+}
