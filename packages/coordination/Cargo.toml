@@ -11,6 +11,7 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+locus-budget = { path = "../budget" }
 locus-domain = { path = "../domain" }
 locus-protocol = { path = "../protocol" }
 

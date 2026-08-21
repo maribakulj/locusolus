@@ -11587,3 +11587,79 @@ l'ignorance.
 toucher aux six mouvements obligatoires, et aucune écriture existante ne change de sens.
 
 **Prochain item.** `W21.l` — `communication_tokens`, le dernier de la phase W21.
+
+## 2026-08-21 — W21.l — `communication_tokens`, et l'anti-garde qui mord enfin sur du vrai code
+
+**Périmètre.** `packages/coordination/src/communication.rs` (neuf),
+`packages/coordination/src/lib.rs`, `packages/coordination/Cargo.toml`,
+`packages/coordination/tests/communication.rs`, `docs/adr/0024`, `docs/10_V1_ROADMAP.md`.
+
+**Tests exécutés.** `cargo test -p locus-coordination --test communication` → 11 conformes, avec
+l'anti-garde vérifiée **rouge puis verte** sur un `.reason()` injecté.
+`cargo clippy -p locus-coordination --all-targets` → rien. `npm run check` → les douze portes.
+Mutation : treize mutants, **treize tués**, zéro survivant.
+
+**Où la métrique vit, et pourquoi pas ailleurs.** Elle lit le journal de budget, donc son hôte doit
+dépendre de `locus-budget`. `packages/evaluation` était le voisin naturel des trois autres métriques
+de campagne — mais `critical_path.rs` y documente, à deux endroits, que « `locus-evaluation` n'a
+**aucune** dépendance, donc l'impossibilité est structurelle ». Ajouter une dépendance y aurait
+rendu fausse une garantie écrite. `packages/coordination` l'héberge donc : les sept frontières
+vérifiées par la CI n'y rangent `locus-budget` ni dans l'infrastructure, ni dans le graphe
+épistémique, et c'est déjà le foyer des métriques d'objets de coordination.
+
+**« Dépensé » est ce que le registre appelle dépensé.** Trois mouvements sur six font une dépense —
+`Consumption` et `Adjustment` ajoutent, `Refund` retire — et ce sont exactement les trois signes que
+`BudgetAccount::spent` emploie. Réinventer l'arithmétique ici en aurait produit une seconde, et
+c'est toujours la seconde qui ment.
+
+Allouer, retenir et rendre déplacent du **provisionnement**. Une allocation de coordination
+généreuse jamais consommée ne dit rien de ce que la coordination a coûté ; la compter ferait dire à
+la métrique le contraire de ce qu'elle mesure — plus on prévoit de se coordonner, plus on paraîtrait
+le faire. Un test verse 500 000 jetons d'allocation et 400 000 de retenue rendue, tous deux classés
+coordination, et vérifie que la part ne bouge pas.
+
+**Les non classées ne sont dans aucun des deux termes.** Ni au numérateur, ni au dénominateur. Au
+dénominateur elles feraient **baisser** la part à chaque écriture que personne n'a classée, ce qui
+se lirait comme un progrès. Deux tests le tiennent : l'un lit les valeurs, l'autre compare deux
+journaux qui ne diffèrent que par les non classées et exige une part **strictement égale**.
+
+**Une campagne entièrement non classée rend une absence, pas un zéro.** `Share::NothingDeclared`.
+Zéro voudrait dire « aucune coordination », qui est une bonne nouvelle ; ne rien savoir n'en est pas
+une. Même distinction qu'entre « aucune panne » et « aucune reprise » en `W21.k`, et posée au même
+endroit : sur l'accesseur, pas dans la tête du lecteur.
+
+**Un journal incohérent est refusé, pas saturé.** Rembourser au-delà de la dépense est
+**atteignable** : chaque rapprochement se compare à la consommation enregistrée et non au cumul des
+corrections, donc trois rapprochements à zéro remboursent trois fois le même écart. Le test le
+produit vraiment plutôt que de le supposer. Saturer à zéro rendrait un nombre d'apparence normale
+sur un journal qui ne l'est pas — ce qu'un registre existe précisément pour ne pas faire.
+
+**Neuvième morsure de l'anti-garde, et elle est d'une autre nature.**
+
+Le motif interdit `reason` a mordu sur `#[expect(reason = "…")]`, que la configuration de lints du
+workspace **impose**. Ce n'était donc pas la prose : `code_seul` avait bien fait son travail, et le
+mot était dans du code exécutable.
+
+La réparation de `W21.j` reste juste, mais elle ne couvrait pas ce cas-là : nettoyer la botte de
+foin traite le mot **dans un commentaire** ; un mot qui est aussi du code dans un autre sens demande
+la **forme d'appel**. Le motif est donc `.reason()`, la lecture du champ, et non le mot. C'est
+exactement ce que la première tentative de `W21.j` cherchait à faire en classant les motifs — elle
+avait échoué parce qu'elle voulait le faire _pour tous_ les motifs ; ici la distinction ne porte que
+sur celui-là, et elle est immédiate.
+
+**Le « vert » qui ne prouvait rien.** La première vérification en rouge a rendu **vert**, ce qui
+aurait signifié une anti-garde inopérante. La cause n'était pas la garde : `cargo fmt` avait renommé
+la variable locale et mon motif d'injection ne correspondait plus, donc **l'injection n'avait pas eu
+lieu**. Seule une assertion sur la présence du motif l'a dit. C'est la règle « un compteur qui n'a
+rien lu ne vaut pas zéro » appliquée à la vérification elle-même : un test d'absence qu'on croit
+avoir mis en échec sans l'avoir fait est pire qu'un test d'absence qu'on n'a pas vérifié.
+
+**Ce que la métrique ne dit pas.** Si la coordination valait son prix. Une équipe qui ne se parle
+jamais dépense zéro et se trompe ensemble ; une part élevée peut décrire une négociation coûteuse ou
+une négociation nécessaire. Aucun seuil, aucun verdict — décision 9 de l'ADR 0024, tenue par un test
+d'absence.
+
+**Écart avec la spec.** Aucun.
+
+**Prochain item.** La phase `W21` est close. La frontière repart à ce que la garde de roadmap
+désigne.
