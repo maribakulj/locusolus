@@ -10704,9 +10704,8 @@ tous deux `attend:externe`.
 
 ## 2026-08-21 — W0.17 — Le garde ne lisait qu'une famille d'identifiants sur deux
 
-**Périmètre.** `tooling/repo/roadmap.ts`, `tests/repo/roadmap.test.ts`,
-`docs/10_V1_ROADMAP.md` (section « Recherche » tabulée, ligne `W0.17`, cellule manquante de
-`W0.16`). Aucun code de domaine.
+**Périmètre.** `tooling/repo/roadmap.ts`, `tests/repo/roadmap.test.ts`, `docs/10_V1_ROADMAP.md`
+(section « Recherche » tabulée, ligne `W0.17`, cellule manquante de `W0.16`). Aucun code de domaine.
 
 **Tests exécutés.** `npm run check` — les douze portes. `node --test tests/repo/roadmap.test.ts` :
 23 tests, dont deux neufs. Mutation : quatre mutants, **quatre tués** — l'alphabet privé de la
@@ -10732,11 +10731,11 @@ angle mort dans son alphabet est un défaut.
 
 **Comment il a été trouvé, ce qui est la partie utile.** Pas par une revue du garde : en butant
 dessus. La frontière était vide, les deux items restants sont `attend:externe`, et la boucle de
-session n'avait plus d'entrée. En vérifiant qu'il ne restait vraiment rien, j'ai lu la section
-« Recherche » — « `R1` **consensus circulaire** [...] le moins cher des items de recherche,
-publiable seul » — et je m'apprêtais à l'écrire. `packages/graph/src/consensus.rs` existait depuis
-trois jours. C'est mot pour mot le premier des deux sens que `W0.11` énumère : « la roadmap
-sous-estime l'avancement, et une session refait le travail ». Il ne manquait que le dernier pas.
+session n'avait plus d'entrée. En vérifiant qu'il ne restait vraiment rien, j'ai lu la section «
+Recherche » — « `R1` **consensus circulaire** [...] le moins cher des items de recherche, publiable
+seul » — et je m'apprêtais à l'écrire. `packages/graph/src/consensus.rs` existait depuis trois
+jours. C'est mot pour mot le premier des deux sens que `W0.11` énumère : « la roadmap sous-estime
+l'avancement, et une session refait le travail ». Il ne manquait que le dernier pas.
 
 **Deux moitiés d'un même défaut, et l'une sans l'autre ne répare rien.** Élargir les motifs ne
 change rien tant que la section reste de la prose : `livre-non-marque` exige que l'item soit **au
@@ -10787,7 +10786,16 @@ statut en gras et manquait donc toutes les autres. Un compteur qui n'a pas lu ce
 compter est la faute que `CLAUDE.md` retient du premier réveil de cette session, et elle se glisse
 aussi bien dans une phrase de bilan que dans un script d'attente.
 
+**Une CI rouge, et la faute est la même que celle de l'entrée.** `check:format` a refusé cette
+entrée-ci : `prettier` la voulait pliée autrement. Les douze portes étaient pourtant vertes en local
+— **avant** les deux dernières corrections, celle du compteur et celle de la ligne de mutation,
+écrites après coup et jamais revérifiées. Un `npm run check` vert sur un arbre qu'on modifie ensuite
+n'est pas un `npm run check` vert : c'est le constat d'un arbre qui n'existe plus. Troisième forme
+du même défaut en une seule entrée — le compteur qui n'a rien lu, la notification d'attente qui
+lisait le code de sortie d'un `echo`, et une vérification datant d'avant ce qu'elle prétend couvrir.
+Réparé en une tentative.
+
 **Écart avec la spec.** Aucun.
 
-**Prochain item.** Aucun dans le plan. La frontière est vide et, cette fois, elle a lu la totalité du
-tableau.
+**Prochain item.** Aucun dans le plan. La frontière est vide et, cette fois, elle a lu la totalité
+du tableau.
