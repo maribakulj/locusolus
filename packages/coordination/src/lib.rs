@@ -24,6 +24,7 @@
 pub mod agent;
 pub mod barrier;
 pub mod capability;
+pub mod churn;
 pub mod decision;
 pub mod diff;
 pub mod lifecycle;
@@ -42,6 +43,7 @@ pub mod visibility;
 pub use agent::{AgentError, AgentInstance, AgentTemplate, InstanceState, TemplateStatus};
 pub use barrier::{Barrier, BarrierError, Barriers, Passage, threatened_by};
 pub use capability::{Capability, CapabilityError, Source, Sources, capabilities};
+pub use churn::EdgeChurn;
 pub use decision::{ApprovalRequest, ApprovalState, Decision, DecisionError, DecisionState};
 pub use diff::{Diff, DiffError};
 pub use lifecycle::{
