@@ -11408,3 +11408,61 @@ tentatives, comptes de relais différents.
 rendue telle qu'elle l'arrête.
 
 **Prochain item.** `W21.j` — `agent_lifetime`.
+
+## 2026-08-21 — W21.j — `agent_lifetime`, et la huitième fois que je mords ma prose — réparée pour de bon
+
+**Périmètre.** `packages/coordination/src/lifetime.rs`, `packages/coordination/src/lib.rs`,
+`packages/coordination/tests/lifetime.rs`.
+
+**Tests exécutés.** `cargo test -p locus-coordination --test lifetime` → 8 conformes, **rouge
+d'abord sur une horloge injectée** puis vert après retrait. `npm run check` → les douze portes.
+Mutation : six mutants, **six tués**.
+
+**Une instance encore en place n'a pas de durée.** Une durée arrêtée à l'instant de lecture **change
+à chaque lecture** : deux rapports produits à dix minutes d'intervalle donneraient deux valeurs pour
+le même passé, et le second aurait l'air d'un fait nouveau. Ce n'est pas un fait du journal, c'est
+un fait de la montre de celui qui lit. `Lifetime::Standing` ne porte donc aucune durée — même règle
+que la cohorte ouverte de `W21.e`.
+
+**Aucune horloge, et c'est ce qui rend la règle tenable.** Une règle qui dépendrait de la discipline
+d'appel tomberait au premier appelant pressé. Ici la seule façon d'obtenir un instant est de le
+recevoir : il n'y a pas d'instant courant à soustraire, même par erreur. Vérifié en rouge — un
+`use std::time::SystemTime` injecté fait échouer le test, retiré il repasse.
+
+**Trois façons de partir, trois états qui restent.** Terminer, échouer et être arrêtée se
+distinguent ; `provisioned`, `active` et `waiting` sont **refusés** comme sortie, parce que les
+accepter clôrait un séjour qui continue. La liste dérive d'un `match` exhaustif : une septième
+valeur d'`InstanceState` ferait échouer la compilation plutôt que d'être rangée du mauvais côté.
+
+**Huitième occurrence du motif — et cette fois la réparation est structurelle.**
+
+L'anti-garde « aucune horloge » a mordu sur la ligne de documentation qui _explique_ l'absence : «
+rien n'importe `std::time` ». Le commentaire de ce test portait déjà, deux lignes plus haut, la
+phrase « les motifs visent des formes de code, pas des mots ». Écrire la règle et l'enfreindre dans
+la même fonction, pour la deuxième fois de la session après `W21.e`, tranche la question : **ce
+n'est pas l'attention qui manque.**
+
+_Première réparation tentée, et pourquoi elle a échoué en une minute._ J'ai écrit un prédicat qui
+classait les **motifs** — déclaration, appel, constante en majuscules — et refusait les mots nus. Il
+a immédiatement rejeté `Instant::now`, qui est pourtant du code. Rien ne distingue syntaxiquement
+`Instant::now` de `std::time` : deux chemins, deux natures, une seule forme. Classer l'aiguille ne
+marche pas.
+
+_La réparation qui tient._ Ne pas classer l'aiguille, **nettoyer la botte de foin**. Une anti-garde
+regarde du code, et le code est la source privée de ses commentaires — `code_seul` les retire, et
+les deux tests d'absence lisent le résultat. Les motifs peuvent alors redevenir des mots simples
+(`produced`, `Artifact`) sans risque, et la prose redevient libre de nommer ce qu'elle interdit, ce
+qui est le seul moyen d'expliquer une absence sans la déclencher.
+
+Le test vérifie aussi que le nettoyage n'a pas trop enlevé — `code.contains("pub fn")` — sans quoi
+une anti-garde qui ne lirait plus rien passerait en silence, ce qui est la faute du compteur qui n'a
+rien lu.
+
+**Ce que la mesure ne dit pas.** Rien de ce que l'instance a **accompli**. Une instance qui a tenu
+longtemps peut n'avoir rien produit, et une courte peut avoir tout fait ; lire l'une pour l'autre
+est la faute que le mot « lifetime » invite naturellement. Aucun chemin vers un résultat, une tâche
+ou un artefact.
+
+**Écart avec la spec.** Aucun.
+
+**Prochain item.** `W21.k` — `failure_recovery_time`.
