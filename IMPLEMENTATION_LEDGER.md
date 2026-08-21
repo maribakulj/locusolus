@@ -11241,3 +11241,80 @@ dérange.
 l'implémentation a démenti, comme l'ADR 0024 l'a été par `W21.c`.
 
 **Prochain item.** `W21.g` — `critical_path_length`.
+
+## 2026-08-21 — W21.g — `critical_path_length`, et un graphe de tâches qui n'existe pas
+
+**Périmètre.** `packages/evaluation/src/critical_path.rs`, `packages/evaluation/src/lib.rs`,
+`packages/evaluation/tests/critical_path.rs`, `docs/10_V1_ROADMAP.md` (test de sortie corrigé).
+
+**Tests exécutés.** `cargo test -p locus-evaluation --test critical_path` → 10 conformes.
+`npm run check` → les douze portes. Mutation : huit mutants, **sept tués puis huit** après
+correction d'un trou réel.
+
+**L'item annonçait un graphe qui n'existe pas.** Son test de sortie disait « le graphe de tâches est
+celui de `task.rs` et `barrier.rs` ». Vérification faite, ni l'un ni l'autre n'en porte : `Task` a
+un état et des assignations, jamais de dépendance, et `Barrier` **n'expose délibérément aucun nœud**
+— « un accesseur qui rendrait des identités ferait écrire, un jour, _barrer aussi ceux-là_ ». Les
+relations `depends_on` et `blocked_by` existent bien, mais dans `packages/graph`, que la sixième
+frontière de la CI interdit au domaine de coordination d'importer.
+
+Deuxième fois de la phase qu'une phrase d'item est écrite depuis une lecture plausible plutôt que
+depuis le code, après le `n = 0` de `W21.f`. Les deux ont été trouvées de la même façon : en allant
+voir.
+
+**Ce qu'on ne fait pas : construire le graphe pour avoir quoi mesurer.** Ce serait bâtir une
+fonctionnalité afin de justifier une métrique — le geste que ce dépôt a déjà refusé en 2026-08-18
+pour `W16.e`, sous la forme « construire une messagerie pour débloquer un item revient à construire
+une fonctionnalité afin de justifier un test ».
+
+**Ce qu'on fait à la place : la relation entre en données.** Le module reçoit des couples « celui-ci
+avant celui-là » et calcule. C'est un sous-système complet et testé dont l'appelant viendra quand il
+existera — ce que la décision 0 de l'ADR 0022 appelle une **capacité**, et qu'elle autorise
+explicitement : « aucun appelant ne l'utilise encore » n'est pas un motif de report.
+
+**L'emplacement fait la frontière.** `packages/evaluation` n'a **aucune** dépendance, et ses mesures
+travaillent déjà sur des identifiants nus (`regret.rs`, `credit.rs`). Y poser cette métrique rend
+l'impossibilité de la calculer sur le graphe de coordination **structurelle** : importer
+`locus-coordination` ne compilerait pas. L'item demandait un test d'absence sur les motifs de la
+source ; la forme retenue lit le `Cargo.toml`, parce que c'est là que la frontière vit. Et il
+vérifie qu'il a bien lu une section `[dependencies]` — sans quoi un manifeste remanié le ferait
+passer en silence.
+
+**Le cycle est refusé en le nommant.** Tri topologique de Kahn, **itératif** : une version récursive
+déborderait la pile exactement sur les graphes profonds, c'est-à-dire ceux dont le chemin critique
+est long. Le refus **liste** les nœuds qu'aucun ordre ne place, et un test vérifie qu'un nœud qui
+_mène_ au cycle sans en faire partie n'y figure pas. Un refus muet obligerait à chercher le cycle à
+la main dans un graphe dont on vient d'apprendre qu'il en contient un.
+
+**Le mutant qui a trouvé le défaut classique.** Remplacer `max(actuel, atteint + 1)` par
+`atteint + 1` a **survécu**. Mon test « la plus longue branche l'emporte » a bien deux branches,
+mais elles ne **convergent** nulle part : aucun nœud n'y a deux prédécesseurs, donc le maximum
+n'était jamais exercé.
+
+C'est le défaut classique du plus long chemin — un nœud atteint par plusieurs prédécesseurs prend la
+profondeur du **dernier traité**, et la valeur dépend alors de l'ordre d'itération. Une métrique qui
+change de valeur selon la façon dont on la lit. Le test neuf fait converger une branche de quatre et
+une de deux, dans les deux ordres de déclaration.
+
+**Deux corrections de clippy, et la seconde a réparé le harnais.** `missing_panics_doc` a refusé mes
+`get_mut(..).expect(..)` : ce sont des chemins de panique dans une fonction publique. Ajouter une
+section `# Panics` aurait documenté une panique **impossible** — les nœuds viennent des couples,
+donc la clé existe toujours — c'est-à-dire la faute exacte que la variante `NoMembers` de `W21.f`
+venait de me coûter. Tout passe désormais par `entry`, et la panique est **inexprimable** plutôt que
+documentée.
+
+Le remaniement a rendu un mutant possible qui ne l'était pas : court-circuiter le décompte des
+attentes. Il **fait boucler** la détection de cycle à l'infini — et mon harnais, sans délai de
+garde, s'est bloqué au lieu de compter un kill.
+
+L'ironie est utile : le mutant qui bloque le harnais est précisément celui qui casse la garde contre
+la non-terminaison, la propriété que cet item existe pour tenir. Un harnais bloqué ne rend aucun
+verdict, ce qui est la faute du compteur qui n'a rien lu sous une autre forme. Le harnais porte
+désormais un délai, et un dépassement compte comme **tué** — ce qu'il est : un mutant qui ne termine
+pas est un mutant détecté.
+
+**Écart avec la spec.** Aucun. Le test de sortie de l'item est corrigé sur le point que le code a
+démenti — troisième document amendé par son implémentation dans cette phase, après l'ADR 0024 par
+`W21.c` et l'item `W21.f` par lui-même.
+
+**Prochain item.** `W21.h` — `average_parallelism`, qui consommera ce chemin critique.
