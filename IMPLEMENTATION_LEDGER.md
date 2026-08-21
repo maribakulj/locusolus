@@ -11174,3 +11174,70 @@ modifie ensuite n'est pas vert, et cela vaut aussi d'une passe de mutants.
 **Écart avec la spec.** Aucun.
 
 **Prochain item.** `W21.f` — `degree_entropy`, normalisée.
+
+## 2026-08-21 — W21.f — `degree_entropy`, et une variante qui annonçait un cas impossible
+
+**Périmètre.** `packages/coordination/src/entropy.rs`, `packages/coordination/src/lib.rs`,
+`packages/coordination/tests/entropy.rs`, `docs/10_V1_ROADMAP.md` (test de sortie de l'item
+corrigé).
+
+**Tests exécutés.** `cargo test -p locus-coordination --test entropy` → 8 conformes. `npm run check`
+→ les douze portes. Mutation : huit mutants, **sept tués puis huit** après correction d'un trou
+réel.
+
+**La normalisation, mesurée avant d'être affirmée.** Une sonde jetable a rendu les chiffres plutôt
+que de les déduire : cycle de 3, cycle de 6 et cycle de 12 rendent tous **exactement `1.0`**, et
+l'étoile à cinq nœuds rend `0.861`. Sans division par `ln n`, l'entropie brute croîtrait avec la
+taille et comparer deux organisations reviendrait à comparer leurs tailles.
+
+**L'arrondi à `1e-9` est ce qui rend l'égalité stricte possible.** Deux mesures de la même forme
+doivent être **égales**, pas presque égales : personne ne compare deux organisations à epsilon près,
+et un lecteur qui voit `0.999999999999` à côté de `1.0` conclut à une différence. Un mutant qui
+retire l'arrondi meurt sur l'égalité `cycle(3) == cycle(6)`.
+
+**Une variante qui annonçait un cas impossible.** La première rédaction portait `NoMembers`. La
+sonde a montré qu'une `Version` ne peut **jamais** avoir zéro membre : `Version::root` le refuse, et
+`apply(RemoveNode)` sur le dernier nœud le refuse aussi. La variante annonçait donc un cas que rien
+ne peut produire — une **promesse**, au sens de la décision 0 de l'ADR 0022, et le genre de valeur
+d'énumération que `CLAUDE.md` refuse.
+
+Retirée. Le cas est **inexprimable**, ce qui est plus fort que rendu : pas de branche à tester, pas
+de message à écrire, pas de lecteur à qui expliquer un état qu'il ne verra jamais. Un test tient
+l'absence par les **deux chemins** qui pourraient y mener, plutôt que par l'énumération — même forme
+que « la contamination inexprimable » de `W5.r`.
+
+Le test de sortie de l'item disait « `n = 1` et `n = 0` sont des cas rendus explicitement ». Il est
+corrigé dans `docs/10` : laisser la phrase enverrait chercher une branche qui n'existe pas.
+
+**Deux absences qui restent, et ne se fondent pas.** `SingleMember` — rien à disperser, la question
+ne se pose pas — et `NoEdges` — des membres, mais aucune arête, donc la structure **pourrait**
+exister et elle est vide. Les fondre ferait lire « rien à mesurer » sur une organisation dont les
+agents ne se parlent pas, ce qui est précisément un constat.
+
+**Le mutant qui a trouvé un `NaN`.** Retirer le filtre `degree > 0` de la somme d'entropie a
+**survécu** : aucune fixture ne mélangeait nœuds connectés et nœuds isolés, alors que c'est un cas
+parfaitement ordinaire. Un degré nul donne `0 × ln 0`, soit `NaN` — et un `NaN` ne se compare à
+rien, pas même à lui-même : il se serait propagé dans tout tableau de bord sans qu'aucune assertion
+ne le retienne.
+
+Le test neuf vérifie la finitude **et** la valeur : quatre membres dont deux isolés rendent `0.5`,
+moitié moins qu'un graphe régulier — les isolés font partie de l'organisation et n'y apportent rien.
+
+**Ce que la métrique ne mesure pas, exercé plutôt que cru sur parole.** L'étoile a une entropie de
+`0.861`, proche du `1.0` d'un cycle, pendant que `busiest_reviewer_load` de `R3` passe de `1` à `4`.
+Les deux nombres regardent **les mêmes arêtes** et répondent à deux questions ; qui cherche un
+goulot avec l'entropie ne le trouve pas.
+
+**Une CI locale rouge, et clippy avait tort cette fois.** `float_cmp` a refusé deux `assert_eq!` sur
+des `f64`. La lint est un bon défaut, et elle ne s'applique pas ici : l'égalité **stricte** est la
+propriété testée, puisque la valeur est délibérément arrondie à `1e-9` pour que deux mesures de la
+même forme soient égales et non presque égales. La relâcher en « à epsilon près » supprimerait
+exactement ce que le test tient. Un `#[expect]` motivé, donc — et c'est le cas inverse de `W21.e`,
+où `match_same_arms` avait raison et où poser un `#[expect]` aurait été le confort. Les deux
+décisions se prennent en regardant ce que la lint dit du **code**, jamais en regardant si elle
+dérange.
+
+**Écart avec la spec.** Aucun. Le test de sortie de l'item est corrigé sur le point que
+l'implémentation a démenti, comme l'ADR 0024 l'a été par `W21.c`.
+
+**Prochain item.** `W21.g` — `critical_path_length`.

@@ -30,6 +30,7 @@ pub mod cohort;
 pub mod decision;
 pub mod diff;
 pub mod edit;
+pub mod entropy;
 pub mod lifecycle;
 pub mod messaging;
 pub mod metrics;
@@ -52,6 +53,7 @@ pub use cohort::{Accepted, Cohort, CohortError, Rollbacks};
 pub use decision::{ApprovalRequest, ApprovalState, Decision, DecisionError, DecisionState};
 pub use diff::{Diff, DiffError};
 pub use edit::AppliedEdit;
+pub use entropy::DegreeEntropy;
 pub use lifecycle::{
     Command, Lifecycle, LifecycleError, Outcome, Quiescence, may_leave_the_version,
 };
