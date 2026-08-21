@@ -356,23 +356,41 @@ export async function readReconciliation(root: string): Promise<Reconciliation> 
 /**
  * Vrai quand ce que la ligne attend est **entièrement** livré.
  *
- * Une phase — `W20` — est satisfaite quand toutes ses lignes sont marquées ou décidées : c'est ce
- * que « attend `locusd`, décomposé en W20 » voulait dire. Un item — `W15.f` — l'est quand il porte
- * son marqueur. `externe` ne l'est jamais, et c'est le point : une ligne qui attend un hôte ou un
- * consommateur n'a pas de date, et le garde ne doit pas prétendre en connaître une.
+ * `externe` ne l'est jamais, et c'est le point : une ligne qui attend un hôte ou un consommateur
+ * n'a pas de date, et le garde ne doit pas prétendre en connaître une.
  *
  * Ce qu'`externe` ne dit **pas** : « rien ne le débloquera jamais ». `W16.e` portait ce marqueur
  * pour une messagerie inter-agents, et l'ADR 0019 l'a levé en une décision. Le marqueur dit « aucun
  * item de ce plan », ce qui reste vrai d'un item débloqué par un arbitrage — un arbitrage n'est pas
  * une ligne du tableau. Élargir la règle pour attraper ce cas demanderait au garde de savoir qu'une
  * décision est mûre, ce qu'aucun fichier ne porte.
+ *
+ * # Un item et une phase ne se satisfont pas de la même chose, et les confondre disait faux
+ *
+ * Une **phase** — `W20` — est satisfaite quand toutes ses lignes sont marquées **ou décidées** :
+ * « attend `locusd`, décomposé en W20 » veut dire « attend qu'il ne reste rien à y faire », et une
+ * ligne reportée n'y sera jamais faite. Attendre indéfiniment une phase à cause d'une de ses lignes
+ * reportée bloquerait un item pour une raison qui ne tombera pas.
+ *
+ * Un **item** — `W2.20` — ne l'est que quand il porte son marqueur. La règle valait pour les deux
+ * jusqu'à ce que le dépôt de l'ADR 0026 en fasse la démonstration : `W23.b` attend `W2.20`, qui est
+ * lui-même bloqué sur `W20.h`, et le garde a répondu **« `W2.20` est livré »**. Il ne l'est pas. La
+ * chaîne réelle est « `W23.b` attend `W2.20` qui attend `W20.h` », et le seul verdict juste est que
+ * le blocage tient.
+ *
+ * C'est le motif de l'ADR 0025 rencontré **dans le garde** : une affirmation fausse sur l'état du
+ * système, produite par une règle qui avait l'air de vérifier quelque chose. Et c'est la forme la
+ * plus coûteuse des deux sens de `W0.11` — le garde disait « vas-y » sur un item qui ne peut pas
+ * être fait, ce qui ne se découvre qu'en aval, une fois le travail commencé.
+ *
+ * Un `R<n>` suit la règle des items : il n'a pas de point mais il n'est pas une phase.
  */
 function satisfied(what: string, state: Reconciliation): boolean {
   if (what === "externe") {
     return false;
   }
   if (what.includes(".") || research.test(what)) {
-    return state.marked.has(what) || state.decided.has(what);
+    return state.marked.has(what);
   }
   const rows = [...state.planned].filter((item) => item.startsWith(`${what}.`));
   return rows.length > 0 && rows.every((item) => state.marked.has(item) || state.decided.has(item));

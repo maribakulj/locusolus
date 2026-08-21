@@ -113,6 +113,7 @@ puisse compenser ses lacunes.
 | W2.17 `[R]` **fait** | `human-input.ts` (§22) | suspension sans processus coûteux maintenu |
 | W2.18 `[R]` **fait** | `ui/worker-status.ts`, `mission-view.ts`, `security-view.ts` | rendu |
 | W2.19 `[R]` **fait** | suite de conformance complète + consumer-driven contracts (§28.2/28.3) | verte contre le harness |
+| W2.20 `[R]` **bloqué** | la boucle du worker : de `inert` à une mission exécutée | `attend:W20.h` — `runWorker` rend `inert` faute d'un serveur qui accepte des écritures, et `locusd` ne les sérialise pas encore. Test de sortie : `runWorker` ne rend plus `inert` — enrôlement, offre, lease, mission, session amont **réellement initialisée**, événements, résultat ; le `SessionPlan` de `session-map.ts` reste **une donnée** et aucun handle ne traverse la couture, comme l'ADR 0010 l'exige ; aucun fichier des cinq répertoires amont intouchables n'est modifié, tenu par `upstream.test.ts` ; une interruption au milieu reprend sous le **même** numéro de tentative ; `W22.f` a rendu vraie la **raison** de l'inertie, cet item lève l'inertie elle-même, et confondre les deux ferait passer une correction de vérité pour une livraison |
 
 La liste de fichiers de `repos/canterel/SPEC_V1.md` §4 est une **annexe indicative**, pas un
 gabarit. Ne crée pas 34 stubs vides : chaque commit ci-dessus livre une garantie testée, et les
@@ -500,11 +501,13 @@ fautes à injecter (§29.4), quatorze attaques (§29.5), huit ablations (§29.8)
 clôture qui rend l'exercice vérifiable : une liste nommée permet de dire ce qui n'a **pas** été
 éprouvé, ce qu'une intention générale ne permet jamais.
 
-| # | Commit | Dépôt | Test de sortie |
-|---|---|---|---|
+| # | Commit | Test de sortie |
+|---|---|---|
 | W12.a `[R]` **fait** | `packages/evaluation` : le registre d'épreuves de §29.4, §29.5 et §29.8, et le verdict de préparation | une épreuve non traitée empêche la préparation, en la nommant ; une épreuve **écartée** exige sa raison, et une raison vide ne passe pas ; « pas éprouvé » n'est jamais « réussi » |
 | W12.b `[R]` **fait** | endurance de §29.6 : les huit seuils, et le constat qui les confronte | une campagne qui manque un seul seuil ne se dit pas endurante, et le verdict nomme lequel ; un compteur non relevé n'est pas un seuil atteint |
 | W12.c `[R]` **fait** | benchmarks de §29.7 : les six configurations et les onze mesures | une comparaison à laquelle il manque une configuration se déclare partielle ; une mesure absente n'est pas une mesure nulle |
+| W12.d `[R]` **bloqué** | `e2e/minimal_science` et son jumeau avec panne — **le centre de gravité du projet** | `attend:W20.h attend:W20.i attend:W2.20` — les trois maillons de la fermeture verticale. Test de sortie : une question produit une mission ; un worker s'enregistre et est placé sur ce qu'il a **prouvé** ; la session tourne ; les outils s'exécutent dans le confinement promis ; les événements repartent ; les artefacts sont hashés ; un `EpistemicCommit` est mis en scène puis intégré ; les projections se mettent à jour ; le graphe rend la conclusion, ses prémisses, son expérience, ses artefacts, ses objections et son coût ; `locusd` redémarre et **tout est encore là**. Le jumeau tue le worker au milieu : la lease est revalidée, la reprise se fait sous le même numéro de tentative, **zéro perte et zéro doublon**. Le confinement est celui qu'un runner peut tenir — `S1`/`S2` —, et il n'est pas **attesté** : c'est `W12.e` |
+| W12.e `[M]` **reporté** | l'**attestation** du confinement et la clause externe de `e2e/minimal_science` | `attend:externe` — même hôte que `W18.f`, et pour les mêmes trois raisons rendues précises par `W5.f`. Test de sortie : les outils s'exécutent dans un confinement `S3`/`S4` **attesté**, et l'attestation est vérifiée et non crue ; un tiers exécute les artefacts et retrouve les résultats — la clause qui compte, puisqu'un compilateur passant 99 % du torture test de GCC a produit 40 784 erreurs d'édition de liens chez qui l'exécutait. Séparé de `W12.d` parce qu'un test de bout en bout qui attend une machine dédiée n'aurait jamais tourné, et que l'attendre aurait retardé tout ce qu'il vérifie par ailleurs |
 
 ---
 
@@ -673,7 +676,7 @@ aucune fonctionnalité inventée pour le justifier.
 | W16.a `[R]` **fait** | les transitions de cycle de vie du scheduler — `spawn`, `suspend`, `drain`, `kill`, `replace`, `connect`, `disconnect` — comme machine à états explicite, et la **quiescence locale** d'un nœud | une transition interdite est refusée en nommant l'état de départ et celui visé ; un nœud est drainé **sans** que rien d'autre soit arrêté, et la quiescence se constate au lieu de s'attendre ; `kill` sur un nœud quiescent et sur un nœud actif ne disent pas la même chose |
 | W16.b `[R]` **fait** | les **barrières par invariant menacé** plutôt que par lieu | une reconfiguration ne barre que les nœuds dont elle menace un invariant, et le refus nomme l'invariant, pas le lieu ; deux reconfigurations qui ne menacent pas le même invariant ne se bloquent pas l'une l'autre ; une barrière posée sans invariant menacé est refusée |
 | W16.c `[R]` **fait** | le plan de simulation : rejeu déterministe, substitut d'environnement enregistré, ombre en sandbox réelle, canari facultatif | deux rejeux de la même trace rendent le même résultat ; un substitut d'environnement qui n'a pas la réponse le **dit** au lieu d'en inventer une ; un objet simulé n'existe **pas** comme type dans le domaine épistémique, et un test le tient par l'absence |
-| W16.d `[M]` **bloqué** | visibilité institutionnelle facultative des sous-agents internes du harnais — **tranche 4 du mineur `lep/1.1`** (ADR 0017 §5.4) | `attend:externe` — l'ADR est écrit ; **le blocage a changé de nature** et n'est plus une décision mais un consommateur, qui n'existe pas. Ce que l'institution voit d'un sous-agent reste à trancher, et ce trait traverse l'invariant 11 : voir qu'un sous-agent existe et voir son contexte sont deux choses, et un reviewer interne au harnais ne doit pas devenir le chemin par lequel le raisonnement privé du générateur remonte |
+| W16.d `[M]` **bloqué** | visibilité institutionnelle facultative des sous-agents internes du harnais — **tranche 4 du mineur `lep/1.1`** (ADR 0017 §5.4) | `attend:W26.b` — **le blocage a changé de nature une seconde fois, et cette fois il se périme tout seul.** Il était une décision, puis un consommateur absent ; l'ADR 0027 décision 7 tranche la décision — l'institution voit qu'un sous-agent a existé, sa classe de cognition, son coût et son résultat, et ne voit son contexte que par les décisions 1 à 5 —, et `W26.b` fournit le lecteur qui manquait. Ce que la ligne posait comme question, « voir qu'un sous-agent existe et voir son contexte sont deux choses », est devenu la réponse. `attend:externe` aurait donc continué de dire « rien de ce plan ne le débloquera » sur un item qu'un item de ce plan débloque |
 | W16.e `[R]` **fait** | epochs, messages tardifs et transfert d'état — la messagerie comme **usage du journal** (ADR 0019) | émettre un message rend un événement du namespace `message` et **rien d'autre** : aucun second stockage durable, tenu par l'absence comme `W20.b` tient les écritures ; un message reçu sous un epoch antérieur à celui du destinataire est rapporté `Late` **en nommant les deux epochs**, jamais appliqué ni jeté en silence, et un epoch inconnu rend `Unknown` et non `Late` — deviner et ignorer sont deux fautes distinctes, pas deux nuances de la même ; le passage de témoin d'un `drain` transmet ce que le nœud sortant tenait et **refuse** un contexte de mission, la règle « nouvel attempt, nouvelle vue, nouveau hash » de `docs/13` étant tenue par un test d'absence |
 
 W16.a avant W16.b : une barrière borne des transitions, donc les transitions d'abord. W16.c ne
@@ -826,9 +829,17 @@ avec des ports purs ». Le daemon commence donc **avant** l'ADR du transport, et
 | W20.f `[R]` **fait** | les événements clients de §22.1 — WebSocket/SSE avec cursor | un client qui se reconnecte reprend depuis sa séquence et ne perd rien ; un client lent ne fait perdre aucun événement au journal, et ce qu'il n'a pas pu recevoir se relit — la coalescence de W2.12 vaut pour le fil client comme pour le fil worker |
 | W20.g `[R]` **fait** | la **liaison HTTP** du fil et des queries — les premières dépendances de transport, autorisées par l'ADR 0018 | `Cargo.toml` gagne `tokio` aux features nommées et `axum`, et `dependencies.json` les porte avec leur ADR ; une route rend `text/event-stream` et le cadre porte le cursor en `id:`, vérifié sur une réponse réelle ; les queries de §22.4 se servent par HTTP et un cursor étranger rend un refus **typé**, pas un 500 ; `tokio/full` fait échouer `check:deps`, vérifié en rouge d'abord |
 
+| W20.h `[R]` | la **sérialisation des écritures** — un écrivain par agrégat | `main.rs` de `locusd` nomme lui-même le blocage : « `Transaction::submit` prend `&mut self`, et la couche HTTP ne tient qu'un `&Runtime`. Sérialiser les écritures — verrou, file, acteur — est une décision qui mérite son item. » C'est une **décision** avant d'être du code, et elle a son ADR. Test de sortie : deux commandes concurrentes sur le même agrégat sérialisent ; sur deux agrégats distincts, elles ne s'attendent pas, et un test le **mesure** plutôt que de le décrire ; le refus de concurrence rend de quoi savoir s'il faut relire et retenter — l'état courant, comme `W20.a` l'exige déjà de tout conflit —, jamais « conflit » seul ; §22.3 devient servable, ce qui est exactement ce que `W20.g` a laissé de côté |
+| W20.i `[M]` | le driver PostgreSQL de `packages/event-store` | la suite de contract tests de `W1` passe **à l'identique** contre les deux backends, et l'implémentation mémoire reste le backend de test — un driver qui exigerait d'adapter les tests aurait changé le contrat ; une reconstruction depuis zéro rend l'état courant ; la troisième frontière tient — aucun client PostgreSQL hors `packages/event-store` et projections, et la garde le vérifie sur le nouveau chemin ; plan de rollback dans l'ADR |
+
 `W20.g` après `W20.e` et `W20.f`, dont il est la liaison : il ne sert que ce qu'ils ont déjà rendu
 vérifiable sans socket. `W20.a` avant `W20.b` : un handler reçoit une enveloppe. `W20.c` peut se faire en parallèle des deux
 premiers et **doit** précéder `W20.d`. `W20.e` et `W20.f` après `W20.d`, qui est ce qu'elles exposent.
+
+`W20.h` et `W20.i` sont les deux premiers des **quatre maillons de la fermeture verticale** : sans
+eux, le bâtiment a des murs, une porte de lecture, et rien qui écrive ni qui dure. Les deux autres
+sont `W2.20` — la boucle du worker — et `W4.h` — la surface du broker. Aucun des quatre ne se voyait
+dans un décompte d'items faits, parce que chaque côté est cohérent séparément.
 
 **Ce que `W20` débloque :** `W17.f` — `/branches/:id/diff`, la preview, l'ombre, l'approbation, le
 rollback et la navigation dans le temps — dont la logique est déjà écrite et à qui il ne manque
@@ -884,11 +895,98 @@ Onze items à écrire, plus `W21.m` dont `W21.l` dépendait — `W21.m` est livr
 
 **Ce que la phase ne fait pas.** Elle ne livre aucune capacité nouvelle et ne lève aucun blocage fonctionnel. Elle rend vrai ce que le dépôt dit — ce qui, d'après l'ADR 0025, est une dette de la même nature qu'une promesse non tenue, et non un travail de confort.
 
+---
+
+## W23 — La population virtuelle
+
+**ADR 0026.** Un audit du terrain a inspecté au code les systèmes qui revendiquent des populations
+d'agents de grande taille, et le résultat contraint la conception : **aucun ne démontre de cognition
+agentique massivement concurrente**, et le seul runtime transférable y parvient en rendant les agents
+sans état entre deux pas. « Supporter N agents » est donc défini avant d'être visé — N identités
+ordonnançables, dont un sous-ensemble variable raisonne concurremment — et trois compteurs distincts
+sont exigés partout où une taille est rapportée.
+
+**Ce que ce dépôt a déjà, et qu'il ne faut pas reconstruire.**
+`packages/coordination/src/agent.rs` porte `AgentInstance` sous son nom, avec `Id<Agent>` pour
+identité et les six `InstanceState` de §7.1 ; `Task` porte `assigned_agent_id` ; `lifecycle`
+journalise les transitions ; `W21.j` en tire déjà la durée de vie d'une instance. Il manque le port
+de persistance et le protocole de reconstruction, et rien d'autre.
+
+**L'ordre des blocages n'est pas celui de l'audit, et la décision 0 de l'ADR 0026 dit pourquoi.**
+L'audit bloquait la phase entière derrière la fermeture verticale. La règle du dépôt — « aucun
+appelant ne l'utilise encore n'est pas un motif de report » — n'en garde que ce qui nomme une
+dépendance technique : `W23.a` est un port avec son implémentation de référence, donc une capacité
+finie, donc exerçable aujourd'hui ; `W23.b` attend un fait que rien n'écrit encore ; `W23.c` et
+`W23.d` attendent des instances qui s'exécutent.
+
+| # | Commit | Dépôt | Test de sortie |
+|---|---|---|---|
+| W23.a `[R]` | `AgentStateStore` : le port, et l'implémentation de référence en mémoire | locusolus | une instance se reconstruit depuis son état persisté et rend **exactement** le même état, condensat compris ; **aucun objet d'agent ne traverse une frontière de processus**, tenu par l'absence de type sérialisable portant un comportement ; le port n'a pas de variante « peu importe l'état » — reconstruire sans savoir depuis quelle révision n'a pas de sens, et `Expected` de l'event store le dit déjà pour l'écriture ; un backend externe n'est **pas** choisi, et l'ADR 0026 décision 2 dit pourquoi |
+| W23.b `[R]` **bloqué** | les trois compteurs : `nominal`, `active`, `generating` | locusolus | `attend:W2.20` — dépendance technique nommée : `generating` compte un fait qu'aucun journal n'écrit, les six `InstanceState` de §7.1 n'en portant pas l'équivalent, et **inventer ce fait pour avoir quoi compter** serait ce que `W21.g` a refusé sous ce nom. Test de sortie : les trois se recalculent depuis le journal et se rejouent à l'identique ; un rapport qui n'en porte qu'un **n'est pas constructible**, tenu par le type ; `generating ≤ active ≤ nominal` est un invariant testé, et une violation nomme les trois valeurs ; aucun de ces compteurs ne porte de seuil, comme les treize métriques de `W21` |
+| W23.c `[R]` **bloqué** | l'ordonnanceur d'instances, au-dessus du placement d'hôte | locusolus | `attend:W2.20` — il ordonnance des instances qui s'exécutent. Test de sortie : réveiller, suspendre, drainer, remplacer se lisent de `coordination::lifecycle` et de rien d'autre — le module n'en redéfinit aucun ; `place` de `W4.g`, qui vit chez `locus-execd`, reste **seul juge de l'hôte**, et un test d'absence refuse que l'ordonnanceur d'instances en choisisse un ; une décision locale ne produit **aucun** événement de portefeuille, et un test le tient en comparant les namespaces émis |
+| W23.d `[R]` **bloqué** | la mesure de la taille de regroupement — **avant** toute cellule | locusolus | `attend:W2.20` — c'est une campagne, pas une fixture. Test de sortie : l'expérience compare, sur une même tâche et un même budget, un regroupement collaboratif contre des tentatives indépendantes réévaluées ; elle rend `N_eff` par `R2`, le regret par `R3`, l'entropie de degré par `W21.f` et le parallélisme par `W21.h` ; **aucune taille de cellule n'est écrite dans le code avant que cet item ait rendu un résultat**, tenu par l'absence de constante ; un résultat qui ne tranche pas est rendu comme tel, jamais arrondi vers l'hypothèse de départ. §18 est à lire **avant** : la fusion de branches est le mécanisme dont cette expérience teste l'hypothèse |
+| W23.e `[R]` **bloqué** | `Cell` — **conditionnel au résultat de `W23.d`** | locusolus | `attend:W23.d` — et le mot « conditionnel » est littéral : si les tentatives indépendantes gagnent, cet item n'existe pas. Test de sortie : une cellule porte un budget, un périmètre de `ContextView`, une enveloppe de politique et un ordonnanceur local, et **n'est pas constructible sans les quatre** ; une décision dans les bornes ne remonte pas au portefeuille, une décision hors bornes y remonte en **nommant la borne franchie** ; la taille vient de `W23.d` et n'est écrite nulle part ailleurs |
+
+## W24 — Le routage par intention, borné par l'autorisation
+
+**ADR 0026 décision 4.** Un mécanisme sémantique peut **choisir** un destinataire dans un ensemble
+autorisé ; il ne détermine jamais l'autorisation. C'est la borne que la source omet : chez elle, la
+souscription s'aligne sur le prompt système que l'agent apporte en rejoignant le réseau, ce qui
+reviendrait ici à faire négocier aux agents leur propre accès à l'information — §12.4, l'invariant 11
+et §16.6 cassés d'un seul geste.
+
+Aucun de ces trois items n'est bloqué : ce sont du domaine pur et des tests d'absence, et `ContextView`
+existe déjà dans `packages/review`.
+
+| # | Commit | Dépôt | Test de sortie |
+|---|---|---|---|
+| W24.a `[R]` | la souscription **dérivée** de la `ContextView` | locusolus | une souscription se calcule de la `ContextView` et de rien d'autre ; **aucun chemin de type ne permet à un agent d'écrire sa propre souscription**, tenu par l'absence ; un agent qui demande un élargissement passe par la demande d'extension existante, jamais par sa souscription — et un test exhibe les deux chemins pour montrer qu'ils ne se rejoignent pas |
+| W24.b `[R]` | l'appariement sémantique **dans** l'ensemble autorisé | locusolus | l'ensemble candidat est calculé **avant** l'appariement, et l'appariement ne peut pas l'élargir, tenu par la signature ; un test exhibe un pair sémantiquement parfait et non autorisé, et vérifie qu'il n'est **jamais** sélectionné ; l'aveuglement du reviewer survit à tout appariement, exercé sur une revue indépendante réelle |
+| W24.c `[R]` | la fiabilité observée — **une seule polarité** | locusolus | une seule convention dans tout le module : un test refuse qu'un seuil se compare dans un sens à un endroit et dans l'autre ailleurs — la source de l'ADR 0026 en porte deux opposées dans la même machinerie bayésienne, et les transcrire produirait un filtre **inversé en silence** ; le nom du type dit son sens, et ce qui compte des fautes ne s'appelle pas réputation ; la fiabilité observée **influence le rang, jamais la validité**, et aucun chemin ne mène d'une observation vers un `Support` ou une prémisse d'`Inference`, tenu par l'absence comme `MetaMemory` de l'ADR 0022 décision 2 |
+
+## W25 — La cognition comme dimension d'ordonnancement
+
+**ADR 0026 décision 6.** La mesure la plus directement rentable du dossier, et la seule industrielle :
+à qualité identique vérifiée par test caché, un facteur 7,9 sur le coût total et 22 sur la flotte de
+workers seule. Le levier n'est pas le modèle, c'est **l'affectation** — frontière pour planifier, bon
+marché pour exécuter. `packages/budget` porte déjà les six dimensions de §7.2 et, depuis `W21.m`, la
+classification `Coordination` / `Work` / non classé.
+
+| # | Commit | Dépôt | Test de sortie |
+|---|---|---|---|
+| W25.a `[R]` | la classe de cognition dans la mission | locusolus | une mission déclare une **classe**, jamais un modèle, et un test d'absence refuse tout identifiant de modèle dans le domaine ; l'affectation classe → modèle est une valeur de politique versionnée, visible dans la trace d'évaluation de §20.5 ; **changer l'affectation ne change aucun type**, et c'est le test qui porte l'item |
+| W25.b `[R]` | le plafond de cognition dans `packages/budget` | locusolus | le plafond est une dimension au sens de §7.2, et son dépassement refuse en **nommant la dimension** ; il se combine avec la classification de `W21.m` — une dépense de coordination et une dépense de travail ne s'imputent pas au même plafond, et un test le tient ; une dépense **non classée** n'entre dans aucun plafond, exactement comme `W21.l` la traite, et ne devient pas « travail » par défaut |
+| W25.c `[R]` | la fabric d'inférence comme **capacité admise** | locusolus | elle n'entre que par un `Published` de `W5.b`, comme le raisonneur d'ontologie de `W18.h` ; **aucun crate n'acquiert de dépendance vers un moteur de service**, tenu par `dependencies.json` et par la garde de frontières ; son absence dégrade la latence et **jamais** la correction, et un test l'exerce en la retirant |
+
+## W26 — La rétention du raisonnement, et le dévoilement réglé
+
+**ADR 0027.** Le dépôt savait détecter la fuite — `Contamination::GeneratorReasoningLeaked`, première
+des cinq de §16.6 —, il avait le rayonnage privé — `Level::AgentPrivate`, le plus étroit des sept de
+§16.1 — et le genre qui empêche la contamination épistémique — `Genre::MetaMemory`. Et **rien
+n'écrivait le raisonnement nulle part** : l'invariant 11, qui borne un ensemble de lecteurs, avait
+été lu comme un ordre de destruction.
+
+Retenir et diffuser sont deux actes. Détruire est le seul qu'aucun audit ne rattrape, et l'invariant
+12 l'interdit déjà pour les résultats négatifs.
+
+Aucun de ces items n'est bloqué : la matière est là.
+
+| # | Commit | Dépôt | Test de sortie |
+|---|---|---|---|
+| W26.a `[R]` | la trace de raisonnement comme **artefact** | locusolus | elle entre par le chemin de §9.1 — déclarée avant dépôt, hashée, référencée par son condensat — et **aucun second stockage n'apparaît**, tenu par l'absence comme `W16.e` le tient pour les messages ; elle est rangée en `Level::AgentPrivate` et `Genre::MetaMemory`, et un test refuse tout autre couple ; **aucun résumé n'est stocké à la place**, et un test d'absence refuse toute signature qui condenserait avant écriture — un résumé est une lecture, il se refait |
+| W26.b `[R]` | les trois classes de lecteurs, et la lecture institutionnelle journalisée | locusolus | générateur, institution, pair : trois et pas quatre, tenu par une énumération close qu'un test lit sous ses noms ; l'institution lit sans condition d'autorisation **et la lecture produit un fait**, vérifié en comptant les événements émis ; un lecteur qui n'est aucune des trois n'a pas de chemin, et un test d'absence le tient ; c'est ce lecteur qui débloque `W16.d` |
+| W26.c `[R]` | `Disclosure` : motif, portée, échéance, journal | locusolus | les quatre sont exigés par le type, et il n'existe pas de constructeur qui en laisse un de côté ; l'énumération des motifs **commence vide** et reçoit ici son premier — l'objection non résolue après un nombre borné de tours —, avec le mécanisme qui le déclenche, jamais sans ; « toutes les traces de cette branche » n'est **pas** une portée constructible ; un dévoilement expiré ne donne plus rien, et un test le passe de part et d'autre de l'échéance |
+| W26.d `[R]` | l'aveuglement du reviewer, et le second verdict qui paie le dévoilement | locusolus | un `Disclosure` vers un reviewer dont la revue est **ouverte** n'est pas constructible, et le test le tient par l'absence — l'invariant 11 est une borne sur le mécanisme, pas un défaut qu'un motif surclasse ; après un verdict enregistré, un dévoilement produit un **second** verdict qui le porte dans sa provenance, et **les deux sont conservés** — un test vérifie que le premier reste lisible, l'invariant 12 interdisant de le faire disparaître ; `contamination::inspect` distingue le dévoilement de la fuite, et **le défaut reste la fuite** : un élément sans dévoilement valide attaché reste `GeneratorReasoningLeaked`, vérifié en rouge d'abord |
+
+`W26.a` avant `W26.b` : on ne règle pas la lecture de ce qui n'est pas écrit. `W26.c` après `W26.b`,
+dont il borne une des trois classes. `W26.d` en dernier, parce qu'il modifie une garde existante et
+que le rouge doit être vu sur une garde qui marchait.
+
 
 ## Ce qui est reporté, et pourquoi c'est écrit ici plutôt que deviné
 
-Un item de cette roadmap ne se fera pas en V1, et le laisser marqué « bloqué » sans dire combien de
-temps ferait croire à une attente courte.
+Deux items de cette roadmap ne se feront pas en V1, et les laisser marqués « bloqué » sans dire
+combien de temps ferait croire à une attente courte.
 
 **`W16.e` était le second, et il ne l'est plus.** Ce paragraphe garde sa trace parce qu'un report
 levé s'explique aussi mal qu'un report posé : la section disait qu'il attendait « une messagerie
@@ -906,6 +1004,16 @@ quoi `podman create` refuse), qui sache isoler le réseau (`S3`) et démarrer un
 sache **attester** ce qu'il a fait. Un runner GitHub n'en tient aucun des trois derniers et échoue sur
 le premier. La condition est donc une machine dédiée, et son absence est un fait de déploiement, pas
 une dette de code.
+
+**`W12.e` est le second, et il partage exactement l'hôte de `W18.f`.** Le test de bout en bout de
+`W12` a été **coupé en deux** plutôt que reporté en entier : `W12.d` exerce la chaîne complète —
+mission, placement, session, événements, artefacts, `EpistemicCommit`, projections, graphe, redémarrage,
+et le jumeau qui tue le worker au milieu — dans le confinement qu'un runner peut tenir, `S1`/`S2` ;
+`W12.e` porte les deux clauses qui demandent autre chose que du code, l'attestation `S3`/`S4` et la
+reproduction par un tiers. Reporter l'ensemble aurait retardé tout ce que la chaîne vérifie par
+ailleurs, ce qui aurait fait payer à quinze garanties l'absence d'une machine. Et le contraire — tout
+tenir dans un seul item et le déclarer fait sur un runner — aurait déclaré attesté un confinement qui
+ne l'est pas, c'est-à-dire exactement l'affirmation fausse que l'ADR 0025 existe pour rendre coûteuse.
 
 ## Recherche — sans dépendance de chemin critique, abandonnable sans coût
 

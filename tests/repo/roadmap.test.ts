@@ -646,6 +646,101 @@ test("un blocage qui attend un item de recherche livré est rapporté", async ()
   assert.deepEqual(reconcile(tient), [], "R1 reste à faire, et le blocage tient");
 });
 
+/**
+ * **Un item bloqué ne satisfait pas ce qui l'attend, et le dire serait une affirmation fausse.**
+ *
+ * Le dépôt de l'ADR 0026 a fait la démonstration : `W23.b` attend `W2.20`, qui est lui-même bloqué
+ * sur `W20.h`, et le garde a répondu « `W2.20` est livré ». Il ne l'est pas. La chaîne réelle est
+ * « `W23.b` attend `W2.20` qui attend `W20.h` », et le seul verdict juste est que le blocage tient.
+ *
+ * Une phase, elle, garde l'autre règle : « attend `W20` » veut dire « attend qu'il ne reste rien à y
+ * faire », et une ligne reportée n'y sera jamais faite. Les deux moitiés sont tenues ici, parce que
+ * corriger l'une en cassant l'autre bloquerait indéfiniment un item pour une raison qui ne tombe pas.
+ *
+ * C'est le motif de l'ADR 0025 rencontré **dans un garde** : une règle qui avait l'air de vérifier
+ * quelque chose, et qui affirmait faux sur l'état du système.
+ */
+test("un blocage qui attend un item lui-même bloqué tient", async () => {
+  const chaine = [
+    "| # |",
+    "|---|",
+    "| W20.h `[R]` | la sérialisation des écritures |",
+    "| W2.20 `[R]` **bloqué** | la boucle du worker | `attend:W20.h` |",
+    "| W23.b `[R]` **bloqué** | les trois compteurs | `attend:W2.20` |",
+    "",
+  ].join("\n");
+
+  const tient = await readReconciliation(await fixture({ ledger: "# Ledger\n", roadmap: chaine }));
+  assert.deepEqual(tient.awaiting.get("W23.b"), ["W2.20"]);
+  assert.deepEqual(reconcile(tient), [], "W2.20 est bloqué, donc il ne satisfait rien");
+
+  const livre = await readReconciliation(
+    await fixture({
+      ledger: "# Ledger\n\n## 2026-08-22 — W2.20 — La boucle du worker\n",
+      roadmap: chaine.replace("| W2.20 `[R]` **bloqué** |", "| W2.20 `[R]` **fait** |"),
+    }),
+  );
+  assert.deepEqual(
+    reconcile(livre).map((finding) => finding.rule),
+    ["blocage-perime"],
+    "livré, le blocage de W23.b expire",
+  );
+});
+
+/**
+ * **Une phase reste satisfaite par une ligne décidée, et c'est la moitié qu'il ne faut pas casser.**
+ *
+ * `attend:W20` veut dire « attend qu'il ne reste rien à faire dans W20 ». Une ligne reportée n'y sera
+ * jamais faite : exiger son marqueur bloquerait l'attendant à jamais, ce qui est exactement ce que
+ * `W0.17` décrit comme pire que les deux états qu'un marqueur départage.
+ */
+test("une phase dont une ligne est reportée satisfait quand même ce qui l'attend", async () => {
+  const state = await readReconciliation(
+    await fixture({
+      ledger: "# Ledger\n\n## 2026-08-20 — W12.a — Le registre d'épreuves\n",
+      roadmap: [
+        "| # |",
+        "|---|",
+        "| W12.a `[R]` **fait** | le registre d'épreuves |",
+        "| W12.e `[M]` **reporté** | l'attestation | `attend:externe` |",
+        "| W9.z `[R]` **bloqué** | la vue 3D | `attend:W12` |",
+        "",
+      ].join("\n"),
+    }),
+  );
+
+  assert.deepEqual(
+    reconcile(state).map((finding) => finding.rule),
+    ["blocage-perime"],
+    "W12 n'a plus rien à faire, donc le blocage de W9.z a expiré",
+  );
+});
+
+/**
+ * **Une phase dont aucune ligne n'existe n'est pas satisfaite ; sans quoi une coquille dit « vas-y ».**
+ *
+ * `rows.every(...)` sur un ensemble vide vaut `true` : sans le `rows.length > 0` qui le précède,
+ * `attend:W99` — une phase mal orthographiée, ou pas encore écrite — serait rapporté comme un blocage
+ * expiré. Le garde enverrait alors une session sur un item bloqué en lui disant que sa dépendance est
+ * livrée, ce qui est le plus coûteux des deux sens de `W0.11`.
+ *
+ * Trouvé par une passe de mutants sur `satisfied` : le seul survivant de la passe était la disparition
+ * de cette garde-là, et rien ne l'éprouvait.
+ */
+test("un blocage qui attend une phase dont aucune ligne n'existe tient", async () => {
+  const state = await readReconciliation(
+    await fixture({
+      ledger: "# Ledger\n",
+      roadmap: ["| # |", "|---|", "| W9.z `[R]` **bloqué** | la vue 3D | `attend:W99` |", ""].join(
+        "\n",
+      ),
+    }),
+  );
+
+  assert.deepEqual(state.awaiting.get("W9.z"), ["W99"]);
+  assert.deepEqual(reconcile(state), [], "aucune ligne de W99 n'a été lue, donc rien n'est conclu");
+});
+
 /** Un chantier jouet : le dépôt confronté, et les voisins qu'on veut bien lui donner. */
 async function fixture(contents: {
   ledger: string;
