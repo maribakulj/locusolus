@@ -41,6 +41,7 @@ pub mod region;
 pub mod simulation;
 pub mod task;
 pub mod team;
+pub mod transfer;
 pub mod version;
 pub mod visibility;
 
@@ -80,6 +81,7 @@ pub use region::{
 pub use simulation::{Answer, Fidelity, Recorded};
 pub use task::{Assignment, Task, TaskError};
 pub use team::{CoordinationMode, Team, TeamError};
+pub use transfer::HandedOver;
 pub use version::{
     ContentDigest, Digest, Operation, ParseOperationError, Undo, Version, VersionError, VersionId,
 };

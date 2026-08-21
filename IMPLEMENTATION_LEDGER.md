@@ -11364,3 +11364,47 @@ d'outillage de la phase ont tenu sans qu'il faille y repenser.
 **Écart avec la spec.** Aucun.
 
 **Prochain item.** `W21.i` — `handed_over_attempts`.
+
+## 2026-08-21 — W21.i — `handed_over_attempts` : transmettre n'est pas abandonner
+
+**Périmètre.** `packages/coordination/src/transfer.rs`, `packages/coordination/src/lib.rs`,
+`packages/coordination/tests/transfer.rs`.
+
+**Tests exécutés.** `cargo test -p locus-coordination --test transfer` → 8 conformes.
+`npm run check` → les douze portes. Mutation : six mutants, **six tués** du premier coup, dont deux
+sur `messaging.rs` — le refus dont dépend toute la mesure.
+
+**Pourquoi ce n'est pas un volume d'octets.** La matrice demandait `state_transfer_volume`, et le
+mot appelle des octets qui n'existent pas — non par omission, mais par décision : l'ADR 0019
+condition 3 tranche que le passage de témoin porte ce que le nœud sortant **tenait**, jamais ce
+qu'il **savait**. Une métrique de volume vaudrait donc zéro en permanence — un cadran qu'on finirait
+par croire cassé plutôt que juste — ou ferait ajouter la copie pour avoir quelque chose à mesurer,
+et **créerait le coût qu'elle prétend observer**.
+
+**La confusion que cet item évite, et qui est pire que je ne l'avais écrite.** En allant lire
+`lifecycle.rs`, j'ai trouvé que `Outcome::Killed` porte lui aussi un compte : combien de tentatives
+ont été **abandonnées**, « porté même quand il vaut zéro, ce qui distingue un arrêt propre d'un
+arrêt coûteux ».
+
+Une mesure qui additionnerait les deux dirait qu'une reconfiguration a **transmis** cinq tentatives
+là où cinq ont été **perdues** : deux issues opposées sous un même nombre, et celle qui coûte le
+plus cher rendue invisible. C'est le genre de nombre que la décision 1 de l'ADR 0024 refuse, dans sa
+forme la plus coûteuse — non pas un chiffre imprécis, mais un chiffre qui dit le contraire de ce qui
+s'est passé.
+
+**La confusion est inexprimable, pas évitée par discipline.** `HandedOver::over` ne reçoit que des
+`Handover`, et `Handover::after_drain` refuse tout ce qui n'est pas un drain. Un `kill` ne produit
+donc aucune valeur que cette mesure sache lire, et le mutant qui fait passer la main à un `kill`
+meurt. Un `Settled` est refusé aussi, pour une raison différente : il n'y a rien en vol, non parce
+qu'on l'a abandonné mais parce que tout est fini.
+
+**Deux comptes, jamais un.** Un relais à zéro tentative **est** un relais : deux nœuds se sont
+relayés sans que rien ne soit en vol, et la reconfiguration n'a rien coûté. Le confondre avec «
+aucun relais n'a eu lieu » ferait lire une organisation qui se recompose sans frais comme une
+organisation qui ne se recompose pas. Un test met les deux côte à côte : **même** nombre de
+tentatives, comptes de relais différents.
+
+**Écart avec la spec.** Aucun. Le renommage vient de la décision 2 de l'ADR 0024, et la mesure est
+rendue telle qu'elle l'arrête.
+
+**Prochain item.** `W21.j` — `agent_lifetime`.
