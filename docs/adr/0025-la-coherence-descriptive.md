@@ -126,6 +126,33 @@ prétend couvrir ce qu'elle n'a jamais vu — la même faute, dans l'autre sens.
 `W22.a` déclare donc le nombre de lignes réellement reconnues, et une baisse de ce nombre est un
 échec.
 
+### Addendum — « déclaration/symbole » est devenu « déclaration/plan »
+
+La décision 1 annonçait une garde cherchant « la présence d'un motif de refus dans un point d'entrée
+dont le crate exporte le symbole que le refus déclare manquant ». `W22.d` l'a implémentée et a
+constaté que **cette forme n'aurait pas attrapé `D1`** : le message fautif ne nommait aucun symbole,
+il disait « aucun driver ».
+
+Chercher la tournure de négation, à l'inverse, aurait mordu sur `apps/locusd/src/main.rs`, qui
+imprime « le port n'est pas ouvert » — une affirmation d'absence **vraie et calculée**, sur une
+condition que le binaire vient d'évaluer.
+
+Le signal qui sépare les deux est ailleurs, et il est net : le message fautif **cite un item du
+plan**, `(W4.d)`. Un programme qui tourne n'a pas à citer la roadmap, parce que le plan change sans
+que le message change — ce qui est la définition même de la dérive que cet ADR nomme. Ce qu'un
+binaire a le droit de dire est ce qu'il a **calculé** : « cet hôte plafonne à `S1` » vieillit avec la
+machine, pas avec le dépôt.
+
+C'est bien un **couple**, comme la décision 4 l'exige — déclaration d'exécution ↔ identifiant de
+plan — et non une recherche de mots. La phrase « jamais sur des mots » de la décision 4 visait la
+prose des commentaires et du registre ; elle reste vraie, et la garde ne lit ni l'un ni l'autre :
+seuls les littéraux de chaîne des `[[bin]]` déclarés.
+
+**Ce que la garde ne verra jamais**, et qui est écrit dans son en-tête : un message qui affirmerait
+une absence sans citer d'item. Rien de mécanique ne le distingue du refus légitime de `locusd`.
+`W22.c` a fermé ce cas pour `locus-execd` par un test local qui refuse toute tournure d'absence dans
+ce point d'entrée précis — ce qu'on peut faire fichier par fichier, et pas en général.
+
 ## Conséquences
 
 `tooling/` gagne deux gardes ; la garde de roadmap en gagne deux. `apps/locus-execd/src/main.rs`,
