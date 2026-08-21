@@ -11518,3 +11518,72 @@ en exigeant sept jours. C'est écrit dans le module plutôt que supposé.
 **Écart avec la spec.** Aucun.
 
 **Prochain item.** `W21.m` — la classification de dépense, qui débloquera `W21.l`.
+
+## 2026-08-21 — W21.m — la classification de dépense : ne pas savoir n'est pas savoir que c'est du travail
+
+**Périmètre.** `packages/budget/src/spend.rs` (neuf), `packages/budget/src/ledger.rs`,
+`packages/budget/src/account.rs`, `packages/budget/src/lib.rs`, `packages/budget/tests/spend.rs`,
+`docs/adr/0024`, `docs/10_V1_ROADMAP.md`.
+
+**Tests exécutés.** `cargo test -p locus-budget --test spend` → 11 conformes ; la suite complète du
+paquet reste verte. `npm run check` → les douze portes. Mutation : treize mutants, **treize tués**
+après réparation de deux survivants (voir plus bas).
+
+**Ce que `EntryKind` disait, et ce qu'il ne disait pas.** Les six écritures de §7.2 décrivent le
+**mouvement** — allouer, retenir, rendre, constater, ajuster, rembourser — et jamais son objet. Une
+consommation de jetons est une consommation de jetons, qu'elle ait servi à faire le travail ou à se
+mettre d'accord sur qui le ferait. `Spend` ajoute l'objet manquant, et rien d'autre.
+
+**Le défaut serviable est le pire des deux.** Toute la difficulté d'ajouter un champ à un journal
+existant tient dans ce que valent les écritures d'avant. Supposer « travail » aurait été
+_majoritairement juste_ — donc invisible — et aurait faussé `communication_tokens` dans le sens qui
+rassure, en faisant paraître la coordination moins chère qu'elle n'est, exactement là où la métrique
+sert à la mesurer. `Classification::Unclassified` nomme donc l'ignorance.
+
+**L'ignorance n'est pas un troisième objet de dépense.** `Spend` porte deux valeurs ; « non classé »
+vit dans un second type. Une énumération à trois barreaux laisserait un appelant _déclarer_ non
+classé, ce qui est une affirmation, alors que l'absence se **constate**. Même séparation que les
+deux verdicts de `xiiif` §19, et même refus de collapse.
+
+**Les soldes héritent, ils ne redéclarent pas.** Rendre, constater et rapprocher reprennent la
+classification de la retenue qu'ils soldent : rembourser de la coordination reste de la
+coordination. Redemander l'objet à chaque solde ouvrirait la porte à deux réponses pour la même
+retenue, et le journal porterait une contradiction que personne n'aurait voulue. L'héritage
+n'invente rien non plus : ce qui descend d'une retenue non classée reste non classé — un héritage
+qui « comblerait » l'ignorance en aval serait le défaut par le travail, déplacé d'un cran.
+
+**Rien ne se déduit de `reason`, et c'est le type qui le tient.** Une justesse qui dépendrait de la
+rédaction de chaque appelant se dégraderait au premier qui écrit autrement, **et en silence**. Le
+classificateur ne reçoit donc pas les écritures : il reçoit des paires « retenue, classification ».
+Le motif ne franchit pas la frontière, donc il ne peut pas être lu. Deux tests gardent une porte que
+la forme a déjà fermée — une anti-garde sur la source de `spend.rs`, et un exercice où le motif dit
+littéralement le contraire de la déclaration.
+
+**Deux survivants, et ce qu'ils ont appris.**
+
+_« Le classificateur rend du travail quand il ne trouve rien. »_ La branche « rien trouvé » n'était
+atteignable par aucun appelant : `release`, `consume` et `reconcile` résolvent tous la retenue avant
+d'appeler. Une branche que l'API ne peut pas exercer est une branche que les tests ne tiennent pas.
+La réparation n'a pas été de la tester par la porte de derrière mais de la rendre **atteignable** :
+`BudgetAccount::classification_of` est désormais publique, ce dont `W21.l` avait de toute façon
+besoin, et une retenue inconnue s'y lit non classée. C'est le même mouvement qu'en `W21.f`, en sens
+inverse — là une branche impossible a été supprimée, ici une branche utile a été rendue possible.
+
+_« Coordination et travail portent le même nom. »_ Aucun test ne lisait `slug` ni `Display`. Deux
+valeurs distinctes qui s'affichent pareil rendraient le rapport illisible **au moment de le lire**,
+alors que le calcul, lui, serait juste : le pire endroit pour une faute.
+
+**Deux motifs de mutation périmés par `cargo fmt`.** Le formatage a éclaté deux appels sur cinq
+lignes après l'écriture du harnais. Le harnais l'a **dit** — `MOTIF ABSENT` — au lieu de compter un
+kill : c'est la règle « un compteur qui n'a rien lu ne vaut pas zéro » qui a fonctionné, et la passe
+a été refaite en entier après correction.
+
+**Ce que ça débloque.** `W21.l` n'est plus `**bloqué**` : la dépendance technique nommée par la
+décision 8 de l'ADR 0024 n'existe plus, et l'ADR porte l'addendum qui l'acte. Un test compte déjà
+les trois tas de jetons — coordination, travail, non classés — et vérifie qu'aucun n'absorbe
+l'ignorance.
+
+**Écart avec la spec.** Aucun. §7.2 ne parle pas de l'objet d'une dépense ; le champ s'ajoute sans
+toucher aux six mouvements obligatoires, et aucune écriture existante ne change de sens.
+
+**Prochain item.** `W21.l` — `communication_tokens`, le dernier de la phase W21.

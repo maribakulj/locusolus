@@ -194,6 +194,22 @@ dépendance technique nommée — l'un des deux seuls motifs de report qu'admet 
 La ligne de plan portera `attend:W21.m`, l'item qui ajoute cette classification, et se lèvera d'elle
 même quand il sera livré — la règle de `W0.16`.
 
+### Addendum — le blocage est levé
+
+`W21.m` est livré : `Entry` porte une [`Classification`], `reserve_for` et `allocate_for` la
+déclarent, et les soldes en héritent. La dépendance technique nommée n'existe plus, et `W21.l` est
+redevenu un item ordinaire.
+
+Deux choses que l'implémentation a fixées, et qui n'étaient pas décidées ici :
+
+- **L'ignorance n'est pas un objet de dépense.** `Spend` porte deux valeurs, `Coordination` et
+  `Work` ; « non classé » vit dans un second type. Une énumération à trois barreaux laisserait un
+  appelant *déclarer* non classé, ce qui est une affirmation, alors que l'absence se **constate**.
+- **Les soldes héritent, ils ne redéclarent pas.** Rendre, constater et rapprocher reprennent la
+  classification de la retenue qu'ils soldent : rembourser de la coordination reste de la
+  coordination. Redemander l'objet à chaque solde ouvrirait la porte à deux réponses pour la même
+  retenue, et le journal porterait une contradiction que personne n'aurait voulue.
+
 ## Décision 9 — Aucune métrique de cette famille ne juge
 
 Aucun module de métriques ne contient de seuil, de note, de verdict ni de qualificatif. C'est la
@@ -222,12 +238,14 @@ seuil est une valeur qu'on peut voir, discuter et changer.
 | `degree_entropy` | ex-`topology_entropy` | Entropie de Shannon des degrés, divisée par `log n` | **Pas** l'équité de charge : c'est `busiest_reviewer_load` |
 | `critical_path_length` | inchangé | Plus longue chaîne de dépendances du graphe de tâches ; un cycle est **refusé en le nommant**, jamais parcouru | Rien sur le temps réel — c'est un compte d'étapes |
 | `average_parallelism` | ex-`parallelism` | Travail total ÷ `critical_path_length` | **Pas** le nombre d'agents qui tournaient ; et à ne pas confondre avec `Dimension::Parallelism`, qui est un plafond |
-| `communication_tokens` | **reporté** | Tokens de coordination ÷ tokens totaux | — `attend:W21.m` |
+| `communication_tokens` | **débloqué** | Tokens de coordination ÷ tokens totaux | — `W21.m` livré, voir l'addendum de la décision 8 |
 | `handed_over_attempts` | ex-`state_transfer_volume` | Tentatives en vol transmises par `Handover` | **Pas** un volume d'octets : ADR 0019 condition 3 interdit la copie qui en produirait |
 | `agent_lifetime` | inchangé | Durée entre l'entrée d'une instance dans une version et sa sortie, lue des transitions de `lifecycle.rs` | Rien sur ce que l'instance a accompli pendant ce temps |
 | `failure_recovery_time` | inchangé | Durée entre un fait de panne et le fait de reprise correspondant | Rien tant qu'aucune campagne longue n'a produit de pannes réelles |
 
-Onze à écrire, une livrée, une reportée.
+Onze à écrire, une livrée, une reportée — et ce report est **levé** depuis que `W21.m` a livré la
+classification de dépense : voir l'addendum de la décision 8. Douze restent donc à écrire au moment
+où cette ligne est corrigée.
 
 ## Conditions, sans lesquelles ces décisions sont mauvaises
 
