@@ -10600,3 +10600,56 @@ politique d'alignement n'existe.
 **Écart avec la spec.** Une catégorie de politique en plus des seize de §20.1, assumée et signalée.
 
 **Prochain item.** `W18.h` — le raisonneur d'ontologie comme première capacité réellement admise.
+
+## 2026-08-21 — W18.h — le raisonneur d'ontologie, première capacité réellement admise
+
+**Périmètre.** `packages/adaptation/src/reasoner.rs`, neuf — `Verdict`, `Provenance`,
+`ProposedClaim`, `Reasoners`, `ReasonerError` ; le `lib.rs` ;
+`packages/adaptation/tests/reasoner.rs`.
+
+**Tests exécutés.** `npm run check` — les douze gardes. Sept tests dans `tests/reasoner.rs`.
+
+**Les trois réserves de l'ADR 0023, inscrites avant l'admission et non après.** Le test de sortie
+l'exigeait dans cet ordre, et l'ordre est le sujet : une réserve écrite après coup est une
+justification, pas une condition.
+
+1. **Le magasin du raisonneur candidat est un `Mutex<Store>` unique.** Cela disqualifie l'usage «
+   mémoire partagée » — plusieurs agents interrogeant simultanément se sérialiseraient — et **pas**
+   l'usage « un agent pose une question de classification », qui est celui que cet item ouvre.
+2. **Son registre n'a qu'un emplacement d'ontologie actif.** Suffisant ici, où une question porte
+   sur une ontologie à la fois ; insuffisant le jour où un alignement devra interroger les deux
+   côtés dans la même session, et c'est `W14.e` qui butera dessus en premier.
+3. **Ses résultats d'alignement sont publiés comme inférieurs aux baselines** — rang 9 sur 13, gain
+   de +0,063 F1 sur une égalité de chaînes, avec un échec en **rappel** et non en précision. C'est
+   une raison de plus pour la décision 6 : un matcher propose, il ne décide pas.
+
+**Le troisième verdict refuse la confiance.** `Undetermined` n'est pas un `Consistent` atténué : un
+échec à dériver une contradiction n'est pas une cohérence, et l'hypothèse de monde ouvert rend la
+conversion systématiquement fausse. `supports_a_claim()` rend la distinction interrogeable sans que
+l'appelant ait à se souvenir lequel des trois est l'ignorance — même discipline que `W4.b`, où « une
+sonde non exécutée est un troisième verdict ».
+
+**La résolution se fait par identité, et le motif est un mode d'échec silencieux.** Le registre est
+clé par le **digest d'image** que l'admission porte. Un provider activé par nom qu'on masque «
+redirigerait silencieusement la mémoire de l'agent au lieu de simplement remplacer un outil » — et
+une substitution de source de connaissance ne produit pas d'erreur, elle produit des réponses
+plausibles fondées sur autre chose. Deux capacités homonymes sont donc deux entrées, et un test le
+vérifie ; la **même** identité deux fois est refusée.
+
+**Sixième garde trop large, et celle-ci mérite d'être dite.** J'avais écrit dans le commentaire du
+test « les motifs visent des types et des signatures, pas des mots », puis j'ai listé `Inference` et
+`Support` nus deux lignes plus bas — et la garde s'est déclenchée sur la documentation du module,
+qui les emploie pour dire exactement ce qu'elle veut obtenir. Énoncer une règle ne suffit pas à
+l'appliquer, même dans le paragraphe qui la formule. Les motifs visent désormais `: Inference`,
+`-> Support`, `use locus_graph`.
+
+**Ce que cet item éprouve pour la première fois.** `W18.d` avait construit le chemin d'admission
+sans qu'aucun artefact réel ne le traverse. Celui-ci le traverse de bout en bout : `Locked` →
+`Built` → `Inventoried` → `Scanned` → `Tested` → `Published` → `admit` → registre. Le chemin de
+gouvernance ne demande pas d'hôte `S3`/`S4` — c'est son **exercice** contre un hôte réel qui attend,
+et il attend déjà sous `W18.f`.
+
+**Écart avec la spec.** Aucun. Aucun crate n'acquiert de dépendance RDF, et `packages/graph` n'est
+pas touché.
+
+**Prochain item.** La frontière de `check:roadmap` après cet item.
