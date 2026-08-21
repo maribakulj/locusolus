@@ -10496,3 +10496,49 @@ dernier bit d'un flottant, donc aurait été vrai en pratique et faux en droit.
 celui-ci ajoute la profondeur là où elle paie et la refuse là où elle coûte.
 
 **Prochain item.** `W8.j`, `W14.e` ou `W18.h`.
+
+## 2026-08-21 — W8.j — Emacs auteur, et les deux formes qu'il ne faut pas confondre
+
+**Périmètre.** `apps/emacs/locus-author.el`, neuf — `locus-author-parse`, `locus-author-canonical`,
+`locus-author-write`, `locus-author-proposal-from-buffer` ; `apps/emacs/test/locus-author-test.el`.
+
+**Tests exécutés.** `npm run check` — les douze gardes, dont `emacs-tests` et la séparation
+`emacs -Q`. Onze tests dans `locus-author-test.el`.
+
+**Deux formes, et les confondre coûterait la signature.** La forme d'**écriture** est ce qu'un
+humain tape ; la forme **canonique** est ce sur quoi porte le condensat, donc ce qu'une approbation
+signe. Si les deux étaient le même objet, il faudrait choisir entre deux maux : un commentaire
+ajouté changerait ce qu'une approbation signe, ou la canonicalisation devrait **dépouiller** la
+forme d'écriture — et le dépouillement est exactement l'endroit où vivaient les forgeries que
+`W17.h` a découvertes.
+
+**Deux propriétés, deux tests, et la formule naïve est fausse.** `canonical(parse(t))` est
+invariante par commentaire et par réordonnancement ; `parse(write(p))` rend la **valeur** `p`. Ce
+qu'on écrirait spontanément — `parse(write(t)) = t` sur le **texte** — ne tient pas, puisque `write`
+ne restitue ni les commentaires ni l'ordre. Un test nomme cette fausseté au lieu de la laisser
+découvrir : sans lui, quelqu'un l'écrirait, la verrait échouer pour une raison saine, et
+l'affaiblirait au lieu de la comprendre.
+
+**Deux défauts de test, tous deux dans mon propre montage.**
+
+Le premier assertait `(should-not (buffer-modified-p))` après avoir lui-même inséré le texte : il
+testait son `insert`, pas la commande, et aurait échoué même sur une commande parfaitement inerte.
+Un test qui ne peut pas passer ne garde rien. Corrigé par une remise à zéro explicite avant l'appel.
+
+Le second lisait `load-file-name` **dans le corps du test**, où il n'est pas lié —
+`expand-file-name` échouait alors sur un type au lieu de dire ce qui manquait. Le chemin est
+désormais capturé dans un `defconst`, au chargement.
+
+**Cinquième garde d'absence de la série, écrite précise du premier coup.** Elle vise des **appels**
+— `(locus-command-submit`, `(write-region`, `(save-buffer` — et non des mots, parce que la
+documentation du module emploie « soumettre » pour dire précisément ce qu'il ne fait pas. La leçon
+des quatre précédentes a servi.
+
+**Un point-virgule échappé est une donnée.** Le point-virgule ouvre un commentaire ; sans échappée,
+un champ ne pourrait pas en contenir, et personne ne le devinerait avant d'y perdre du texte — le
+genre de perte qui ne se voit qu'une fois le document approuvé.
+
+**Écart avec la spec.** Aucun. §20 et §22.3 gardent leurs objets ; ce module ajoute une façade
+d'écriture côté client, ce que l'ADR 0020 laissait ouvert.
+
+**Prochain item.** `W14.e` — qui exige la lecture de §18.3 à §18.6 — ou `W18.h`.
