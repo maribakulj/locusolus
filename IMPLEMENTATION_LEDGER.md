@@ -11008,3 +11008,57 @@ harnais sans conséquence ; c'est le même piège que quatre fois auparavant, et
 sorties, jamais le solde.
 
 **Prochain item.** `W21.c` — `applied_edit_length`.
+
+## 2026-08-21 — W21.c — `applied_edit_length`, et une décision d'ADR démentie par la mesure
+
+**Périmètre.** `packages/coordination/src/edit.rs`, `packages/coordination/src/lib.rs`,
+`packages/coordination/tests/edit.rs`, `docs/adr/0024-les-metriques-structurelles.md` (amendement de
+la décision 3).
+
+**Tests exécutés.** `cargo test -p locus-coordination --test edit` → 6 conformes. `npm run check` →
+les douze portes. Mutation : six mutants, **quatre tués puis six** après correction de deux trous.
+
+**La non-minimalité se démontre, elle ne s'invoque pas.** L'ADR écartait le nom
+`graph_edit_distance` en invoquant la NP-difficulté du problème général. C'était vrai et hors sujet.
+La vraie raison est écrite dans `diff.rs`, et elle est **délibérée** : `Diff::between` n'émet que
+quatre sortes d'opérations et n'infère jamais un `REPLACE_NODE`, un `SPLIT_NODE` ni un
+`MERGE_NODES`, parce qu'au niveau des états un remplacement est indiscernable d'un retrait suivi
+d'un ajout, et que deviner ferait lire à un approbateur une intention que personne n'a écrite.
+
+Le test l'exhibe donc sur un cas concret plutôt que de le déduire d'un théorème : un remplacement de
+nœud coûte **une** opération au chemin et **quatre** au diff — `REMOVE_EDGE`, `REMOVE_NODE`,
+`ADD_NODE`, `ADD_EDGE`.
+
+**Une décision d'ADR corrigée par sa propre implémentation.** La décision 3, écrite il y a une
+heure, énonçait le détour comme l'**écart** entre le chemin et la destination. Cela suppose que le
+chemin est toujours au moins aussi long que le diff. Les chiffres ci-dessus le démentent : la
+soustraction change de signe.
+
+`detour_from` rend donc `None` dans ce cas, jamais un entier signé. Un détour de `-3` serait
+affiché, et lu comme une quantité — « moins que rien » — alors qu'il signifie « ces deux mesures ne
+comptent pas dans le même vocabulaire ». Et `Some(0)` reste distinct de `None` : « il n'y a pas eu
+de détour » et « la comparaison n'a pas de sens ici » sont deux constats différents, comme
+`unrecorded` et `unchecked` le sont dans xiiif.
+
+L'ADR porte l'amendement, avec la condition qui manquait au paragraphe d'origine : ce qu'il décrit
+reste juste **tant que le chemin s'exprime dans le vocabulaire du diff**, ce qui est le cas courant.
+La borne supérieure de la décision 2 vaut contre ce vocabulaire, pas contre les dix opérations.
+
+**Les deux mutants survivants, et ce qu'ils ont montré.**
+
+_Le sens du diff._ Un mutant inversant les deux versions a **survécu**. Mon test assertait la
+séquence des **sortes** — `["REMOVE_EDGE", "REMOVE_NODE", "ADD_NODE", "ADD_EDGE"]` — et un diff pris
+à l'envers produit exactement la même séquence : retirer l'arête, retirer un nœud, ajouter l'autre,
+ajouter l'arête. Seuls les **opérandes** distinguent « on retire 1 et on ajoute 5 » de son
+contraire. Le test les vérifie désormais, dans les deux sens.
+
+_`is_empty` à la longueur un._ Un mutant lisant `len() <= 1` a survécu, parce qu'aucun test ne
+touchait `is_empty()` sur un écart d'exactement une opération : les cas exercés valaient zéro ou
+quatre. C'est le voisinage immédiat de la frontière, et c'est toujours là que ces mutants vivent.
+
+Les deux sont la même faute que celle de `W21.b` : une propriété affirmée dans la documentation —
+ici le sens du diff, et ce que « vide » veut dire — que rien n'exerçait.
+
+**Écart avec la spec.** Aucun, et l'ADR 0024 est amendé plutôt que contredit.
+
+**Prochain item.** `W21.d` — `accepted_mutation_rate`.
