@@ -22,9 +22,13 @@
 //! Une cascade est un script — elle fait au commit des choses que le diff ne montrait pas, et
 //! l'approbation aurait porté sur autre chose que ce qui s'applique.
 //!
-//! # Huit opérations, et trois qui attendent leur lecteur
+//! # Dix opérations : huit des onze de `docs/13`, et deux de §14.3
 //!
-//! `docs/13` nomme onze opérations cibles. La règle « aucune sémantique inerte » (ADR 0016,
+//! `docs/13` nomme onze opérations cibles, dont **huit** sont ici. Les deux dernières —
+//! [`Operation::SetMode`] et [`Operation::SetCoordinator`] — ne viennent pas de cette liste mais de
+//! §14.3, par l'ADR 0021, et elles sont entrées **ensemble** : §14.3 fait du coordinateur la
+//! définition du mode `coordinator`, et les séparer aurait permis d'atteindre entre les deux un état
+//! que §14.3 déclare impossible. La règle « aucune sémantique inerte » (ADR 0016,
 //! décision 4) vaut pour une opération comme pour une sorte de relation, et elle trace ici une
 //! frontière nette : une opération **structurelle** — nœuds et arêtes — a son effet entièrement
 //! défini par l'état que ce crate détient, donc un consommateur exécutable et testé, qui est
@@ -55,7 +59,7 @@
 //!
 //! # Fusionner se compense, se défait pas
 //!
-//! Sept des huit opérations ont un inverse exact. La fusion n'en a pas, et pour une raison qui se
+//! Neuf des dix opérations ont un inverse exact. La fusion n'en a pas, et pour une raison qui se
 //! lit dans sa définition : elle perd la partition. Deux arêtes `X → premier` et `X → second`
 //! deviennent une seule `X → fusionné`, et rien dans le résultat ne dit qu'elles étaient deux. La
 //! scission, elle, énonce sa partition, donc sa fusion inverse la restitue.
@@ -70,7 +74,8 @@ use std::fmt;
 use locus_domain::ContentHash;
 use locus_protocol::{Id, id::Agent};
 
-use crate::proposal::Relation;
+use crate::proposal::{Relation, RelationKind};
+use crate::team::CoordinationMode;
 
 /// La ligne d'en-tête de la forme canonique d'un contenu.
 const CONTENT_MAGIC: &str = "coordination-content/1";
@@ -125,6 +130,16 @@ impl Digest for ContentDigest {
 pub struct VersionId(ContentHash);
 
 impl VersionId {
+    /// Relire une identité de version reçue d'ailleurs — un chemin d'URL, un cursor, un événement.
+    ///
+    /// `None` plutôt qu'un défaut : une identité illisible rabattue sur une racine plausible est
+    /// exactement le mode d'échec que `W17.j` interdit, et celui que `W20.e` a nommé pour les
+    /// cursors — une réponse prise au mauvais endroit, que rien dans la réponse ne signale.
+    #[must_use]
+    pub fn parse(text: &str) -> Option<Self> {
+        ContentHash::parse(text).ok().map(Self)
+    }
+
     /// Le hash sous-jacent.
     #[must_use]
     pub const fn hash(&self) -> &ContentHash {
@@ -138,8 +153,8 @@ impl fmt::Display for VersionId {
     }
 }
 
-/// Les huit opérations de `docs/13` qui ont un consommateur exécutable — sept structurelles, et
-/// `SET_ROLE`, la première attributaire à avoir trouvé son lecteur.
+/// Les dix opérations qui ont un consommateur exécutable : sept structurelles, et trois
+/// attributaires — `SET_ROLE`, entrée par W15.f, puis `SET_MODE` et `SET_COORDINATOR` par l'ADR 0021.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Operation {
     /// `ADD_NODE` — une instance d'agent entre.
@@ -190,10 +205,32 @@ pub enum Operation {
         /// Ce qu'elle portera — `None` la lui retire.
         to: Option<String>,
     },
+    /// `SET_MODE` — changer le mode de coordination de §14.3.
+    ///
+    /// Attributaire comme `SET_ROLE`, et entrée par l'ADR 0021 **avec** [`Operation::SetCoordinator`],
+    /// jamais seule : §14.3 fait du coordinateur la définition du mode `coordinator`, et deux
+    /// opérations entrées séparément auraient permis d'atteindre entre les deux un état que §14.3
+    /// déclare impossible.
+    ///
+    /// Elle énonce ce qu'elle remplace, pour la raison de `SET_ROLE` — sans `from`, son inverse
+    /// devrait deviner.
+    SetMode {
+        /// Celui d'avant.
+        from: CoordinationMode,
+        /// Celui d'après.
+        to: CoordinationMode,
+    },
+    /// `SET_COORDINATOR` — désigner, changer ou retirer l'instance qui coordonne (§14.3).
+    SetCoordinator {
+        /// Celle d'avant — `None` s'il n'y en avait pas.
+        from: Option<Id<Agent>>,
+        /// Celle d'après — `None` la retire.
+        to: Option<Id<Agent>>,
+    },
 }
 
 impl Operation {
-    /// Les huit noms, ceux de `docs/13`.
+    /// Les dix noms — les huit de `docs/13`, et les deux que l'ADR 0021 y ajoute.
     ///
     /// Les trois absents — `SET_VISIBILITY`, `SET_VALIDATOR`, `SET_EXECUTION_ORDER` — le sont
     /// parce qu'aucun lecteur n'existe pour l'attribut qu'ils écriraient, et un test le tient par
@@ -209,7 +246,7 @@ impl Operation {
     /// doit avoir aucun moyen de toucher à une mission émise. Sa version stricte — le nom interdit
     /// jusque dans la prose — coûte cette périphrase et évite d'avoir à décider, à chaque relecture,
     /// si une occurrence est un usage ou une explication.
-    pub const NAMES: [&'static str; 8] = [
+    pub const NAMES: [&'static str; 10] = [
         "ADD_NODE",
         "REMOVE_NODE",
         "REPLACE_NODE",
@@ -218,6 +255,12 @@ impl Operation {
         "SPLIT_NODE",
         "MERGE_NODES",
         "SET_ROLE",
+        // Deux ajouts locaux, et signalés comme tels : `docs/13` ne les liste pas. Ils entrent par
+        // l'ADR 0021, qui fait vivre dans la version la structure que `Team` stockait en double, et
+        // sous la règle de la décision 4 de l'ADR 0016 — §14.3 est leur consommateur. Les fondre
+        // dans la liste sans le dire ferait passer un ajout pour une lecture de `docs/13`.
+        "SET_MODE",
+        "SET_COORDINATOR",
     ];
 
     /// Son nom, celui de `docs/13`.
@@ -232,6 +275,8 @@ impl Operation {
             Self::SplitNode { .. } => "SPLIT_NODE",
             Self::MergeNodes { .. } => "MERGE_NODES",
             Self::SetRole { .. } => "SET_ROLE",
+            Self::SetMode { .. } => "SET_MODE",
+            Self::SetCoordinator { .. } => "SET_COORDINATOR",
         }
     }
 
@@ -279,6 +324,124 @@ impl Operation {
                     slot(to.as_ref())
                 )
             }
+            Self::SetMode { from, to } => {
+                format!("{}\t{}\t{}", self.name(), from.slug(), to.slug())
+            }
+            Self::SetCoordinator { from, to } => format!(
+                "{}\t{}\t{}",
+                self.name(),
+                node_slot(from.as_ref()),
+                node_slot(to.as_ref())
+            ),
+        }
+    }
+
+    /// Relire une opération depuis sa forme canonique.
+    ///
+    /// # Pourquoi la forme canonique est aussi la forme de transport
+    ///
+    /// `W17.i` doit écrire une opération dans le journal, et le journal est la vérité
+    /// institutionnelle : ce qu'on y met se relit dans dix ans. Deux formes étaient possibles — une
+    /// sérialisation dérivée, ou celle-ci. Celle-ci gagne pour une raison qui n'est pas
+    /// l'économie : les octets écrits sont **exactement** ceux sur lesquels le condensat a été
+    /// calculé. Un lecteur qui relit un événement relit ce qui a été signé, et non une seconde
+    /// représentation dont il faudrait prouver qu'elle dit la même chose.
+    ///
+    /// Ce n'était pas vrai avant le durcissement contre l'injection. Un rôle portant une tabulation
+    /// forgeait un champ, et un rôle nommé `-` était indistinguable d'une absence : la forme
+    /// canonique n'était pas analysable sans ambiguïté. Elle l'est devenue en refusant ces deux
+    /// entrées, et cette fonction en est le bénéficiaire direct.
+    ///
+    /// # Errors
+    ///
+    /// [`ParseOperationError`] — le nom, l'arité ou un champ. Le refus dit **lequel**, parce qu'un
+    /// événement illisible dont on ne sait pas quelle moitié est fautive ne se répare pas.
+    pub fn parse(canonical: &str) -> Result<Self, ParseOperationError> {
+        let mut fields = canonical.split('\t');
+        let name = fields.next().ok_or(ParseOperationError::Empty)?;
+        let rest: Vec<&str> = fields.collect();
+        let arity = |expected: usize| {
+            if rest.len() == expected {
+                Ok(())
+            } else {
+                Err(ParseOperationError::Arity {
+                    operation: name.to_owned(),
+                    expected,
+                    found: rest.len(),
+                })
+            }
+        };
+        match name {
+            "ADD_NODE" | "REMOVE_NODE" => {
+                arity(1)?;
+                let node = node(rest[0])?;
+                Ok(if name == "ADD_NODE" {
+                    Self::AddNode(node)
+                } else {
+                    Self::RemoveNode(node)
+                })
+            }
+            "REPLACE_NODE" => {
+                arity(2)?;
+                Ok(Self::ReplaceNode {
+                    from: node(rest[0])?,
+                    to: node(rest[1])?,
+                })
+            }
+            "ADD_EDGE" | "REMOVE_EDGE" => {
+                arity(1)?;
+                let relation = relation(rest[0])?;
+                Ok(if name == "ADD_EDGE" {
+                    Self::AddEdge(relation)
+                } else {
+                    Self::RemoveEdge(relation)
+                })
+            }
+            "SPLIT_NODE" => {
+                arity(4)?;
+                let mut follows_first = BTreeSet::new();
+                for edge in rest[3].split(' ').filter(|edge| !edge.is_empty()) {
+                    follows_first.insert(relation(edge)?);
+                }
+                Ok(Self::SplitNode {
+                    node: node(rest[0])?,
+                    into: (node(rest[1])?, node(rest[2])?),
+                    follows_first,
+                })
+            }
+            "MERGE_NODES" => {
+                arity(3)?;
+                Ok(Self::MergeNodes {
+                    first: node(rest[0])?,
+                    second: node(rest[1])?,
+                    into: node(rest[2])?,
+                })
+            }
+            "SET_ROLE" => {
+                arity(3)?;
+                Ok(Self::SetRole {
+                    node: node(rest[0])?,
+                    from: role_slot(rest[1]),
+                    to: role_slot(rest[2]),
+                })
+            }
+            "SET_MODE" => {
+                arity(2)?;
+                Ok(Self::SetMode {
+                    from: mode(rest[0])?,
+                    to: mode(rest[1])?,
+                })
+            }
+            "SET_COORDINATOR" => {
+                arity(2)?;
+                Ok(Self::SetCoordinator {
+                    from: node_option(rest[0])?,
+                    to: node_option(rest[1])?,
+                })
+            }
+            other => Err(ParseOperationError::UnknownOperation {
+                operation: other.to_owned(),
+            }),
         }
     }
 
@@ -313,6 +476,14 @@ impl Operation {
                 node: *node,
                 from: to.clone(),
                 to: from.clone(),
+            }),
+            Self::SetMode { from, to } => Undo::Exact(Self::SetMode {
+                from: *to,
+                to: *from,
+            }),
+            Self::SetCoordinator { from, to } => Undo::Exact(Self::SetCoordinator {
+                from: *to,
+                to: *from,
             }),
         }
     }
@@ -361,6 +532,8 @@ pub struct Version {
     members: BTreeSet<Id<Agent>>,
     relations: BTreeSet<Relation>,
     roles: BTreeMap<Id<Agent>, String>,
+    mode: CoordinationMode,
+    coordinator: Option<Id<Agent>>,
     content: ContentHash,
 }
 
@@ -372,9 +545,15 @@ impl Version {
     /// [`VersionError::DanglingEdge`] pour une relation dont une extrémité n'est pas membre, et
     /// [`VersionError::SelfRelation`] pour une relation d'un agent vers lui-même : sous la seule
     /// sorte qui existe, ce serait un agent qui se relit, ce que §14.4 et l'invariant 11 refusent.
+    ///
+    /// [`VersionError::NoMembers`], [`VersionError::CoordinatorNotAMember`] et
+    /// [`VersionError::CoordinatorRequired`] sont les trois règles de §14.3, déménagées ici depuis
+    /// `Team::new` par l'ADR 0021 — elles portent sur la structure, et la structure vit ici.
     pub fn root(
         members: &[Id<Agent>],
         relations: &[Relation],
+        mode: CoordinationMode,
+        coordinator: Option<Id<Agent>>,
         digest: &impl Digest,
     ) -> Result<Self, VersionError> {
         let members: BTreeSet<Id<Agent>> = members.iter().copied().collect();
@@ -382,13 +561,28 @@ impl Version {
         for relation in &relations {
             check_relation(relation, &members)?;
         }
+        check_composition(&members, mode, coordinator.as_ref())?;
         Ok(Self::seal(
             None,
             members,
             relations,
             BTreeMap::new(),
+            mode,
+            coordinator,
             digest,
         ))
+    }
+
+    /// Le mode de coordination — §14.3.
+    #[must_use]
+    pub const fn mode(&self) -> CoordinationMode {
+        self.mode
+    }
+
+    /// L'instance qui coordonne, quand le mode en nomme une.
+    #[must_use]
+    pub const fn coordinator(&self) -> Option<&Id<Agent>> {
+        self.coordinator.as_ref()
     }
 
     /// Son identité.
@@ -443,7 +637,13 @@ impl Version {
     /// octets, sinon le hash cesse de dire ce qu'il prétend dire.
     #[must_use]
     pub fn canonical(&self) -> String {
-        content_canonical(&self.members, &self.relations, &self.roles)
+        content_canonical(
+            &self.members,
+            &self.relations,
+            &self.roles,
+            self.mode,
+            self.coordinator.as_ref(),
+        )
     }
 
     /// Appliquer une opération, produisant la version suivante.
@@ -456,11 +656,25 @@ impl Version {
         let mut members = self.members.clone();
         let mut relations = self.relations.clone();
         let mut roles = self.roles.clone();
+        let mut mode = self.mode;
+        let mut coordinator = self.coordinator;
         match operation {
             Operation::AddNode(node) => add_node(&mut members, *node)?,
-            Operation::RemoveNode(node) => remove_node(&mut members, &relations, &roles, *node)?,
+            Operation::RemoveNode(node) => remove_node(
+                &mut members,
+                &relations,
+                &roles,
+                coordinator.as_ref(),
+                *node,
+            )?,
             Operation::ReplaceNode { from, to } => {
                 replace_node(&mut members, &mut relations, &mut roles, *from, *to)?;
+                // Un remplacement est un isomorphisme : il emporte l'identité, donc la charge de
+                // coordinateur avec elle. Rien ne s'y perd, et c'est ce qui le distingue d'un
+                // retrait — refusé sur le coordinateur, parce que l'inverse ne saurait pas le rendre.
+                if coordinator == Some(*from) {
+                    coordinator = Some(*to);
+                }
             }
             Operation::AddEdge(relation) => add_edge(&members, &mut relations, *relation)?,
             Operation::RemoveEdge(relation) => remove_edge(&mut relations, *relation)?,
@@ -484,12 +698,22 @@ impl Version {
             Operation::SetRole { node, from, to } => {
                 set_role(&mut roles, &members, *node, from.as_deref(), to.as_deref())?;
             }
+            Operation::SetMode { from, to } => set_mode(&mut mode, *from, *to)?,
+            Operation::SetCoordinator { from, to } => {
+                set_coordinator(&mut coordinator, &members, *from, *to)?;
+            }
         }
+        // Vérifié après, et pas seulement dans les deux opérations attributaires : `REMOVE_NODE`
+        // et `SPLIT_NODE` changent l'appartenance, et §14.3 lie le mode au coordinateur. Une règle
+        // vérifiée seulement là où on pense qu'elle peut casser est une règle qu'on croit tenir.
+        check_composition(&members, mode, coordinator.as_ref())?;
         Ok(Self::seal(
             Some(self.id.clone()),
             members,
             relations,
             roles,
+            mode,
+            coordinator,
             digest,
         ))
     }
@@ -499,9 +723,17 @@ impl Version {
         members: BTreeSet<Id<Agent>>,
         relations: BTreeSet<Relation>,
         roles: BTreeMap<Id<Agent>, String>,
+        mode: CoordinationMode,
+        coordinator: Option<Id<Agent>>,
         digest: &impl Digest,
     ) -> Self {
-        let content = digest.digest(&content_canonical(&members, &relations, &roles));
+        let content = digest.digest(&content_canonical(
+            &members,
+            &relations,
+            &roles,
+            mode,
+            coordinator.as_ref(),
+        ));
         let id = VersionId(digest.digest(&identity_canonical(parent.as_ref(), &content)));
         Self {
             id,
@@ -509,6 +741,8 @@ impl Version {
             members,
             relations,
             roles,
+            mode,
+            coordinator,
             content,
         }
     }
@@ -532,6 +766,7 @@ fn remove_node(
     members: &mut BTreeSet<Id<Agent>>,
     relations: &BTreeSet<Relation>,
     roles: &BTreeMap<Id<Agent>, String>,
+    coordinator: Option<&Id<Agent>>,
     node: Id<Agent>,
 ) -> Result<(), VersionError> {
     if !members.contains(&node) {
@@ -540,6 +775,14 @@ fn remove_node(
         });
     }
     check_roleless(roles, &node)?;
+    // Même raison que pour un rôle : la charge de coordinateur est une information que le nœud
+    // emporte, et l'opération inverse — `ADD_NODE` — ne saurait pas la rendre. Le diff doit donc
+    // écrire `SET_COORDINATOR` d'abord, ce qui le rend lisible par un approbateur.
+    if coordinator == Some(&node) {
+        return Err(VersionError::NodeIsCoordinator {
+            node: node.to_string(),
+        });
+    }
     let attached = incident(relations, &node).count();
     if attached > 0 {
         return Err(VersionError::NodeStillConnected {
@@ -742,6 +985,8 @@ fn content_canonical(
     members: &BTreeSet<Id<Agent>>,
     relations: &BTreeSet<Relation>,
     roles: &BTreeMap<Id<Agent>, String>,
+    mode: CoordinationMode,
+    coordinator: Option<&Id<Agent>>,
 ) -> String {
     let mut lines: Vec<String> =
         members
@@ -755,6 +1000,13 @@ fn content_canonical(
                     .iter()
                     .map(|(node, role)| format!("r\t{node}\t{role}")),
             )
+            .chain([
+                format!("m\t{}", mode.slug()),
+                format!(
+                    "c\t{}",
+                    coordinator.map_or(ABSENT.to_owned(), ToString::to_string)
+                ),
+            ])
             .collect();
     lines.sort_unstable();
     let mut canonical = String::from(CONTENT_MAGIC);
@@ -778,6 +1030,83 @@ fn identity_canonical(parent: Option<&VersionId>, content: &ContentHash) -> Stri
 /// périmé s'appliquerait sinon à autre chose que ce qu'il montrait à l'approbateur. C'est la même
 /// exigence que la partition d'une scission, écrite au moment de l'application plutôt qu'à celui de
 /// la lecture.
+/// §14.3 : le mode est enregistré et comparé dans les benchmarks. Un changement sans effet est
+/// refusé comme pour un rôle — une ligne de diff sans effet se lit comme un changement approuvé.
+fn set_mode(
+    mode: &mut CoordinationMode,
+    from: CoordinationMode,
+    to: CoordinationMode,
+) -> Result<(), VersionError> {
+    if *mode != from {
+        return Err(VersionError::ModeMismatch {
+            held: mode.slug().to_owned(),
+            declared: from.slug().to_owned(),
+        });
+    }
+    if from == to {
+        return Err(VersionError::ModeUnchanged {
+            mode: mode.slug().to_owned(),
+        });
+    }
+    *mode = to;
+    Ok(())
+}
+
+fn set_coordinator(
+    coordinator: &mut Option<Id<Agent>>,
+    members: &BTreeSet<Id<Agent>>,
+    from: Option<Id<Agent>>,
+    to: Option<Id<Agent>>,
+) -> Result<(), VersionError> {
+    if *coordinator != from {
+        return Err(VersionError::CoordinatorMismatch {
+            held: node_slot(coordinator.as_ref()),
+            declared: node_slot(from.as_ref()),
+        });
+    }
+    if from == to {
+        return Err(VersionError::CoordinatorUnchanged {
+            coordinator: node_slot(coordinator.as_ref()),
+        });
+    }
+    if let Some(node) = to
+        && !members.contains(&node)
+    {
+        return Err(VersionError::CoordinatorNotAMember {
+            coordinator: node.to_string(),
+        });
+    }
+    *coordinator = to;
+    Ok(())
+}
+
+/// Les trois règles de §14.3, qu'aucune opération ne détient à elle seule.
+///
+/// Vérifiées après **chaque** application, et pas seulement dans les deux opérations attributaires :
+/// `REMOVE_NODE`, `SPLIT_NODE` et `MERGE_NODES` changent l'appartenance, donc peuvent défaire « le
+/// coordinateur est membre » sans rien savoir du coordinateur. Une règle vérifiée seulement là où
+/// l'on pense qu'elle peut casser est une règle qu'on croit tenir.
+fn check_composition(
+    members: &BTreeSet<Id<Agent>>,
+    mode: CoordinationMode,
+    coordinator: Option<&Id<Agent>>,
+) -> Result<(), VersionError> {
+    if members.is_empty() {
+        return Err(VersionError::NoMembers);
+    }
+    if let Some(node) = coordinator
+        && !members.contains(node)
+    {
+        return Err(VersionError::CoordinatorNotAMember {
+            coordinator: node.to_string(),
+        });
+    }
+    if mode == CoordinationMode::Coordinator && coordinator.is_none() {
+        return Err(VersionError::CoordinatorRequired);
+    }
+    Ok(())
+}
+
 fn set_role(
     roles: &mut BTreeMap<Id<Agent>, String>,
     members: &BTreeSet<Id<Agent>>,
@@ -852,6 +1181,119 @@ fn check_roleless(
 /// Un rôle vide est refusé par [`set_role`], donc `-` ne peut pas se confondre avec un rôle réel.
 fn slot(value: Option<&String>) -> &str {
     value.map_or(ABSENT, String::as_str)
+}
+
+/// La même marque d'absence, pour un identifiant.
+///
+/// Un `Id` n'a pas la faille que `slot` doit surveiller pour un rôle : sa forme textuelle est
+/// contrainte, ne vaut jamais `-` et ne porte aucun caractère de contrôle. Il n'y a donc rien à
+/// refuser ici, et la dissymétrie tient au texte libre, pas à la fonction.
+fn node(text: &str) -> Result<Id<Agent>, ParseOperationError> {
+    Id::parse(text).map_err(|_| ParseOperationError::Field {
+        field: "nœud".to_owned(),
+        value: text.to_owned(),
+    })
+}
+
+/// `-` est l'absence, et **jamais** un identifiant : `set_role` et `set_coordinator` refusent une
+/// valeur égale à la sentinelle, ce qui rend cette lecture non ambiguë plutôt que probable.
+fn node_option(text: &str) -> Result<Option<Id<Agent>>, ParseOperationError> {
+    if text == ABSENT {
+        return Ok(None);
+    }
+    node(text).map(Some)
+}
+
+fn role_slot(text: &str) -> Option<String> {
+    if text == ABSENT {
+        return None;
+    }
+    Some(text.to_owned())
+}
+
+fn mode(text: &str) -> Result<CoordinationMode, ParseOperationError> {
+    CoordinationMode::parse(text).ok_or_else(|| ParseOperationError::Field {
+        field: "mode".to_owned(),
+        value: text.to_owned(),
+    })
+}
+
+/// Une arête s'écrit `<from>><kind>><to>` — sans tabulation, pour tenir dans un champ.
+fn relation(text: &str) -> Result<Relation, ParseOperationError> {
+    let parts: Vec<&str> = text.split('>').collect();
+    let [from, kind, to] = parts.as_slice() else {
+        return Err(ParseOperationError::Field {
+            field: "arête".to_owned(),
+            value: text.to_owned(),
+        });
+    };
+    Ok(Relation {
+        from: node(from)?,
+        to: node(to)?,
+        kind: RelationKind::parse(kind).ok_or_else(|| ParseOperationError::Field {
+            field: "sorte de relation".to_owned(),
+            value: (*kind).to_owned(),
+        })?,
+    })
+}
+
+/// Pourquoi une opération ne se relit pas.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ParseOperationError {
+    /// Une chaîne vide.
+    Empty,
+    /// Un nom d'opération que ce jeu ne contient pas.
+    UnknownOperation {
+        /// Ce qui a été lu.
+        operation: String,
+    },
+    /// Le bon nom, le mauvais nombre de champs.
+    Arity {
+        /// L'opération.
+        operation: String,
+        /// Ce qu'elle attend.
+        expected: usize,
+        /// Ce qui a été trouvé.
+        found: usize,
+    },
+    /// Un champ illisible, nommé.
+    Field {
+        /// Lequel.
+        field: String,
+        /// Sa valeur.
+        value: String,
+    },
+}
+
+impl fmt::Display for ParseOperationError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Empty => formatter.write_str("opération vide"),
+            Self::UnknownOperation { operation } => {
+                write!(
+                    formatter,
+                    "« {operation} » n'est pas une opération de ce jeu"
+                )
+            }
+            Self::Arity {
+                operation,
+                expected,
+                found,
+            } => write!(
+                formatter,
+                "« {operation} » attend {expected} champ(s) et en a {found}"
+            ),
+            Self::Field { field, value } => {
+                write!(formatter, "{field} illisible : « {value} »")
+            }
+        }
+    }
+}
+
+impl std::error::Error for ParseOperationError {}
+
+fn node_slot(value: Option<&Id<Agent>>) -> String {
+    value.map_or_else(|| ABSENT.to_owned(), ToString::to_string)
 }
 
 fn render(relation: &Relation) -> String {
@@ -959,6 +1401,49 @@ pub enum VersionError {
         /// Lequel.
         node: String,
     },
+    /// Ce nœud coordonne — le retirer perdrait une information que son inverse ne rendrait pas.
+    NodeIsCoordinator {
+        /// Lequel.
+        node: String,
+    },
+    /// Une version sans membre — §14.3 : une équipe sans membre ne coordonne rien.
+    ///
+    /// Déménagée depuis `Team::new` par l'ADR 0021. Vérifiée sur **toute** version, pas seulement
+    /// la racine : retirer le dernier membre est refusé, et c'est voulu — une équipe qu'on vide
+    /// s'archive, elle ne se réduit pas silencieusement à un graphe vide qui se dit encore une
+    /// équipe.
+    NoMembers,
+    /// Le coordinateur désigné n'est pas membre — §14.3.
+    CoordinatorNotAMember {
+        /// Lequel.
+        coordinator: String,
+    },
+    /// Le mode `coordinator` sans personne pour coordonner — §14.3 en fait la définition du mode.
+    CoordinatorRequired,
+    /// Le mode d'avant déclaré ne correspond pas à celui que la version porte.
+    ModeMismatch {
+        /// Celui qu'elle porte.
+        held: String,
+        /// Celui que l'opération déclare.
+        declared: String,
+    },
+    /// L'opération ne change rien : `from` et `to` sont le même mode.
+    ModeUnchanged {
+        /// Lequel.
+        mode: String,
+    },
+    /// Le coordinateur d'avant déclaré ne correspond pas à celui que la version porte.
+    CoordinatorMismatch {
+        /// Celui qu'elle porte.
+        held: String,
+        /// Celui que l'opération déclare.
+        declared: String,
+    },
+    /// L'opération ne change rien : `from` et `to` sont le même coordinateur.
+    CoordinatorUnchanged {
+        /// Lequel.
+        coordinator: String,
+    },
     /// Un rôle vide ou blanc — indistinguable d'une absence pour tout lecteur.
     EmptyRole {
         /// Lequel.
@@ -1056,6 +1541,41 @@ impl fmt::Display for VersionError {
                 formatter,
                 "l'opération ne changerait rien au rôle de {node} : une ligne de diff sans effet \
                  se lit comme un changement approuvé"
+            ),
+            Self::NodeIsCoordinator { node } => write!(
+                formatter,
+                "{node} coordonne : le retirer perdrait une charge que son inverse ne rendrait \
+                 pas — écrire SET_COORDINATOR d'abord rend le diff lisible"
+            ),
+            Self::NoMembers => formatter.write_str(
+                "une version sans membre : §14.3 dit qu'une équipe sans membre ne coordonne rien",
+            ),
+            Self::CoordinatorNotAMember { coordinator } => write!(
+                formatter,
+                "{coordinator} coordonnerait une équipe dont il n'est pas membre"
+            ),
+            Self::CoordinatorRequired => formatter.write_str(
+                "le mode « coordinator » sans coordinateur : §14.3 en fait la définition du mode, \
+                 et l'omettre laisse une équipe qui se dit coordonnée sans que personne ne coordonne",
+            ),
+            Self::ModeMismatch { held, declared } => write!(
+                formatter,
+                "le mode est « {held} », l'opération en déclare « {declared} » : elle a été écrite \
+                 sur un état périmé"
+            ),
+            Self::ModeUnchanged { mode } => write!(
+                formatter,
+                "l'opération ne changerait rien au mode « {mode} » : une ligne de diff sans effet \
+                 se lit comme un changement approuvé"
+            ),
+            Self::CoordinatorMismatch { held, declared } => write!(
+                formatter,
+                "le coordinateur est « {held} », l'opération en déclare « {declared} » : elle a été \
+                 écrite sur un état périmé"
+            ),
+            Self::CoordinatorUnchanged { coordinator } => write!(
+                formatter,
+                "l'opération ne changerait rien au coordinateur « {coordinator} »"
             ),
             Self::EmptyRole { node } => write!(
                 formatter,

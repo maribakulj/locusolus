@@ -38,7 +38,7 @@
 //! # fn demo(cites: locus_domain::RevisionId) -> Result<(), locus_coordination::ProposalError> {
 //! let justification = slow::justify(Trigger::ReviewDisagreement, cites)?;
 //! assert_eq!(justification.trigger(), "review_disagreement");
-//! // Puis `Proposal::write(id, author, mode, base, change, justification, index)`, tel quel.
+//! // Puis `Proposal::write(id, author, mode, base, diff, justification, index)`, tel quel.
 //! # Ok(())
 //! # }
 //! ```

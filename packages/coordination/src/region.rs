@@ -117,11 +117,17 @@ pub fn threatens(operation: &Operation) -> BTreeSet<Invariant> {
         // politique de revue **avant** le rôle, de sorte qu'un rôle ne peut pas renvoyer une revue
         // indépendante vers le profil du générateur (ADR 0017 §5.1). L'écrire ici comme une menace
         // d'acyclicité nommerait le mauvais invariant et ferait relâcher le bon.
+        // `SET_MODE` et `SET_COORDINATOR` (ADR 0021) ne touchent ni membre ni arête non plus. Le
+        // mode `coordinator` **concentre** le travail sur une instance, ce qui est une question de
+        // charge et de dépendance, pas d'acyclicité de revue : nommer ici l'invariant de revue
+        // ferait relâcher une barrière pour une menace qui n'est pas celle-là.
         Operation::AddEdge(_)
         | Operation::AddNode(_)
         | Operation::RemoveNode(_)
         | Operation::ReplaceNode { .. }
         | Operation::RemoveEdge(_)
+        | Operation::SetMode { .. }
+        | Operation::SetCoordinator { .. }
         | Operation::SplitNode { .. }
         | Operation::SetRole { .. } => BTreeSet::new(),
     }
@@ -354,6 +360,11 @@ fn touched(operation: &Operation) -> Vec<Id<Agent>> {
             second,
             into,
         } => vec![*first, *second, *into],
+        // Le mode ne nomme aucun nœud. Le coordinateur en nomme jusqu'à deux, et les deux comptent :
+        // une région qui ne contiendrait pas le coordinateur sortant pourrait le démettre depuis
+        // l'extérieur, ce que la borne de région existe pour empêcher.
+        Operation::SetMode { .. } => Vec::new(),
+        Operation::SetCoordinator { from, to } => from.iter().chain(to.iter()).copied().collect(),
     }
 }
 

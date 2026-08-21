@@ -10,8 +10,8 @@ use std::collections::BTreeSet;
 
 use locus_adaptation::{Adaptation, Adjustment, Fast, FastError, Trigger, slow};
 use locus_coordination::{
-    Author, Change, EpistemicIndex, Justification, Mode, Proposal, ProposalError, Relation,
-    RelationKind, approve, commit,
+    Author, ContentDigest, CoordinationMode, Diff, EpistemicIndex, Justification, Mode, Operation,
+    Proposal, ProposalError, Relation, RelationKind, Version, approve, commit,
 };
 use locus_domain::RevisionId;
 use locus_protocol::{
@@ -64,12 +64,30 @@ fn lasting(subject: u8, adjustment: Adjustment, from: i64, until: i64) -> Adapta
         .expect("une fenêtre non vide")
 }
 
-fn change() -> Change {
-    Change::AddRelation(Relation {
-        from: id::<Agent>(1),
-        to: id::<Agent>(2),
-        kind: RelationKind::Review,
-    })
+/// L'organisation sur laquelle l'adaptation lente porte.
+fn organisation() -> Version {
+    Version::root(
+        &[id::<Agent>(1), id::<Agent>(2)],
+        &[],
+        CoordinationMode::Blackboard,
+        None,
+        &ContentDigest,
+    )
+    .expect("fixture cohérente")
+}
+
+/// Ce qu'une adaptation lente change — un diff, depuis l'ADR 0021.
+fn diff() -> Diff {
+    Diff::declaring(
+        &organisation(),
+        vec![Operation::AddEdge(Relation {
+            from: id::<Agent>(1),
+            to: id::<Agent>(2),
+            kind: RelationKind::Review,
+        })],
+        &ContentDigest,
+    )
+    .expect("l'opération s'applique")
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -198,7 +216,7 @@ fn a_slow_adaptation_follows_the_whole_path() {
         author,
         Mode::Assisted,
         4,
-        change(),
+        diff(),
         slow::justify(Trigger::ReviewDisagreement, revision(1)).expect("un slug non vide"),
         &index(),
     )
@@ -211,8 +229,14 @@ fn a_slow_adaptation_follows_the_whole_path() {
         id::<Approval>(3),
     )
     .expect("un autre auteur approuve");
-    let committed = commit(approved, 4).expect("la base est à jour");
+    let committed =
+        commit(approved, 4, &organisation(), &ContentDigest).expect("la base est à jour");
     assert_eq!(committed.revision, 5);
+    assert_eq!(
+        committed.version.parent(),
+        Some(organisation().id()),
+        "une adaptation lente produit une version, comme toute proposition depuis l'ADR 0021"
+    );
 }
 
 /// Le mode par défaut refuse à l'agent de proposer — l'ADR 0016 décision 8, tenue depuis ici.
@@ -223,7 +247,7 @@ fn an_agent_cannot_adapt_the_structure_under_the_default_mode() {
         Author::Agent(id::<Agent>(1)),
         Mode::Observed,
         4,
-        change(),
+        diff(),
         slow::justify(Trigger::BranchStagnation, revision(1)).expect("un slug non vide"),
         &index(),
     )
@@ -246,7 +270,7 @@ fn a_slow_adaptation_is_not_self_approved() {
         author.clone(),
         Mode::Assisted,
         4,
-        change(),
+        diff(),
         slow::justify(Trigger::NewMethodFound, revision(1)).expect("un slug non vide"),
         &index(),
     )
@@ -264,7 +288,7 @@ fn a_slow_adaptation_cites_an_existing_revision() {
         Author::Human("marcel".to_owned()),
         Mode::Assisted,
         4,
-        change(),
+        diff(),
         slow::justify(Trigger::SourceConflict, revision(42)).expect("un slug non vide"),
         &index(),
     )

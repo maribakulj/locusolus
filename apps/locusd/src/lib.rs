@@ -46,6 +46,7 @@ pub mod error;
 pub mod handler;
 pub mod http;
 pub mod messaging;
+pub mod organisation;
 pub mod outcome;
 pub mod query;
 pub mod stream;
@@ -58,6 +59,9 @@ pub use cursor::{Collection, Cursor, CursorError};
 pub use error::{CommandError, Conflict, EmptyResourceRef, Family, ResourceRef, Revision};
 pub use handler::{Batch, Decide, IdempotencyScope, Submission};
 pub use messaging::{MessageContext, Send};
+pub use organisation::{
+    Commit, Create, OrganisationContext, ReplayError, replay, resolve, resolve_at, stream_of,
+};
 pub use outcome::{Accepted, Outcome};
 pub use query::{Page, TimelineEntry};
 pub use stream::{ClientEvent, Delivery, Frame};

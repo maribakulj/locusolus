@@ -594,28 +594,199 @@ async fn un_cursor_casse_sur_l_histoire_rend_un_refus_type() {
     assert!(refus.contains("history"), "{refus}");
 }
 
-/// **Une seule des quatre lectures est joignable**, et le test le tient par l'absence.
+/// **Deux des quatre lectures sont joignables**, et le test tient encore les deux autres par
+/// l'absence.
 ///
-/// Le ledger de `W17.f` annonçait « la liaison HTTP des quatre lectures » comme prochain item. La
-/// vérification a démenti le compte, et câbler les trois autres aurait demandé d'inventer en passant
-/// ce qui leur manque : un résolveur `VersionId` → `Version` pour le diff et la preview, les
-/// `Barriers` en vigueur pour la preview, un plan et un environnement enregistré pour l'ombre.
+/// # Ce que ce test disait, et pourquoi il ne le dit plus
 ///
-/// Le test refuse donc les trois routes plutôt que de les laisser apparaître sans que personne ne
-/// s'aperçoive de ce qu'elles auraient dû résoudre. Il tombera le jour où le résolveur existera,
-/// et c'est exactement ce qu'on lui demande.
+/// `W17.g` l'avait écrit pour refuser les **trois** routes restantes, en notant : « il tombera le
+/// jour où le résolveur existera, et c'est exactement ce qu'on lui demande ». Ce jour est `W17.j` :
+/// `resolve_at` rend une `Version` depuis une `VersionId`, donc `/diff` a de quoi répondre et la
+/// propriété d'origine ne s'applique plus à lui.
+///
+/// Elle s'applique toujours aux deux autres, et pour les raisons qui n'ont pas bougé : la preview
+/// demande les `Barriers` en vigueur, que rien ne matérialise depuis le journal ; l'ombre demande un
+/// plan et un environnement enregistré, qu'un `GET` ne porte pas. Les câbler maintenant reviendrait
+/// à inventer en passant ce qui leur manque.
 #[test]
-fn les_trois_autres_lectures_de_branche_ne_sont_pas_cablees() {
+fn les_deux_lectures_de_branche_restantes_ne_sont_pas_cablees() {
     let source = include_str!("../src/http.rs");
-    for route in [
-        "/branches/{id}/diff",
-        "/branches/{id}/preview",
-        "/branches/{id}/shadow",
+    for (route, raison) in [
+        (
+            "/branches/{id}/preview",
+            "la preview demande les `Barriers` en vigueur, que rien ne matérialise depuis le journal",
+        ),
+        (
+            "/branches/{id}/shadow",
+            "l'ombre demande un plan et un environnement enregistré, qu'un `GET` ne porte pas",
+        ),
     ] {
-        assert!(
-            !source.contains(route),
-            "« {route} » : le diff et la preview demandent deux `Version`, que rien ne rend depuis une `VersionId` ; l'ombre demande un plan et un environnement, qu'un GET ne porte pas"
-        );
+        assert!(!source.contains(route), "« {route} » : {raison}");
     }
+    // Les deux qui le sont, nommées : un test d'absence qui ne dirait pas ce qui est présent
+    // passerait aussi sur un routeur vide.
     assert!(source.contains("/branches/{id}/history"));
+    assert!(source.contains("/branches/{id}/diff"));
+}
+
+// ---------------------------------------------------------------------------------------------
+// 6. `/branches/{id}/diff` — W17.j, et c'est la route qui a motivé toute la chaîne
+// ---------------------------------------------------------------------------------------------
+
+/// Un daemon dont une branche a une organisation fondée puis modifiée.
+///
+/// Rend l'adresse et les deux `VersionId` — la racine et l'état final — parce qu'un test qui
+/// fabriquerait ses bornes ne prouverait pas qu'elles viennent du journal.
+async fn serveur_avec_organisation() -> (String, String, String) {
+    use locus_coordination::CoordinationMode;
+    use locus_coordination::version::{ContentDigest, Operation, Version};
+    use locusd::{Commit, Create, OrganisationContext};
+
+    let branche = id::<locus_protocol::id::Branch>(9);
+    let contexte = |seed: u8| OrganisationContext {
+        branch_id: branche,
+        project_id: id::<Project>(4),
+        event_id: id::<Event>(seed),
+        occurred_at: NOW,
+        payload_hash: format!("sha256:{}", "ab".repeat(32)),
+    };
+    let commande_org = |seed: u8, revision: u64| {
+        CommandEnvelope::mutating(
+            id::<Command>(seed),
+            "team.modify",
+            id::<Workspace>(2),
+            id::<Agent>(3),
+            format!("org-{seed}"),
+            Revision::new(revision),
+        )
+        .expect("commande bien formée")
+    };
+
+    let racine = Version::root(
+        &[id::<Agent>(1), id::<Agent>(2)],
+        &[],
+        CoordinationMode::Blackboard,
+        None,
+        &ContentDigest,
+    )
+    .expect("fixture cohérente");
+    let apres = racine
+        .apply(&Operation::AddNode(id::<Agent>(3)), &ContentDigest)
+        .expect("licite");
+
+    let mut runtime = Runtime::in_memory();
+    runtime
+        .transaction()
+        .submit(
+            &Create {
+                root: racine.clone(),
+                digest: ContentDigest,
+            },
+            &commande_org(1, 0),
+            &contexte(1),
+            NOW,
+        )
+        .accepted()
+        .expect("la fondation passe");
+    runtime
+        .transaction()
+        .submit(
+            &Commit {
+                base: racine.clone(),
+                operation: Operation::AddNode(id::<Agent>(3)),
+                digest: ContentDigest,
+            },
+            &commande_org(2, 1),
+            &contexte(2),
+            NOW,
+        )
+        .accepted()
+        .expect("le commit passe");
+    runtime.catch_up();
+
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("la boucle locale accepte un port libre");
+    let adresse = listener
+        .local_addr()
+        .expect("l'adresse est connue")
+        .to_string();
+    let app = router(Arc::new(runtime));
+    tokio::spawn(async move {
+        let _ = axum::serve(listener, app).await;
+    });
+
+    (adresse, racine.id().to_string(), apres.id().to_string())
+}
+
+/// **Le diff se sert par HTTP, et il porte la nature des opérations.**
+///
+/// C'est la propriété que deux mutants de `W17.f` avaient traversée : rendre « 47 changements »
+/// sans dire lesquels laisse un approbateur signer au lieu d'approuver. Le test lit donc la forme
+/// canonique de l'opération dans la réponse, et pas seulement un compte.
+#[tokio::test]
+async fn le_diff_d_une_branche_se_sert_par_http_avec_la_nature_des_operations() {
+    let (adresse, racine, apres) = serveur_avec_organisation().await;
+    let branche = id::<locus_protocol::id::Branch>(9);
+
+    let reponse = demander(
+        &adresse,
+        &format!("/branches/{branche}/diff?from={racine}&to={apres}"),
+        &[],
+    )
+    .await;
+
+    assert!(reponse.starts_with("HTTP/1.1 200 OK"), "{reponse}");
+    assert!(reponse.contains(&racine), "la borne de départ est nommée");
+    assert!(reponse.contains(&apres), "la borne d'arrivée est nommée");
+    assert!(
+        reponse.contains("ADD_NODE"),
+        "la **nature** de l'opération, pas seulement un compte : {reponse}"
+    );
+}
+
+/// **Une version inconnue rend `404`, jamais une racine plausible.**
+///
+/// `W17.j` l'interdit nommément, et le mode d'échec est celui des cursors de `W20.e` : une réponse
+/// plausible prise au mauvais endroit, que rien dans la réponse ne signale.
+#[tokio::test]
+async fn une_version_inconnue_rend_404_et_non_une_racine_plausible() {
+    let (adresse, racine, _) = serveur_avec_organisation().await;
+    let branche = id::<locus_protocol::id::Branch>(9);
+    let inconnue = format!("sha256:{}", "cd".repeat(32));
+
+    let reponse = demander(
+        &adresse,
+        &format!("/branches/{branche}/diff?from={racine}&to={inconnue}"),
+        &[],
+    )
+    .await;
+
+    assert!(reponse.starts_with("HTTP/1.1 404"), "{reponse}");
+    assert!(reponse.contains("not_found"), "{reponse}");
+    // Et surtout : aucune opération n'est rendue. Un diff vide serait la réponse plausible.
+    assert!(
+        !reponse.contains("operations"),
+        "une version inconnue ne rend pas un diff : {reponse}"
+    );
+}
+
+/// **Une comparaison sans borne n'est pas une comparaison** — `400`, et non un diff « depuis le
+/// début ».
+#[tokio::test]
+async fn un_diff_sans_bornes_est_refuse() {
+    let (adresse, racine, _) = serveur_avec_organisation().await;
+    let branche = id::<locus_protocol::id::Branch>(9);
+
+    for cible in [
+        format!("/branches/{branche}/diff"),
+        format!("/branches/{branche}/diff?from={racine}"),
+    ] {
+        let reponse = demander(&adresse, &cible, &[]).await;
+        assert!(
+            reponse.starts_with("HTTP/1.1 400"),
+            "« {cible} » : {reponse}"
+        );
+        assert!(reponse.contains("validation"), "{reponse}");
+    }
 }

@@ -6,19 +6,20 @@
 //!    l'exerce avec `f64::MAX`.
 
 use locus_domain::Confidentiality;
-use locus_memory::{Candidate, Excluded, Ranking, RetrievalError, Signal, retrieve};
+use locus_memory::{Candidate, Excluded, Genre, Plan, Ranking, RetrievalError, Signal, retrieve};
 
 fn ranking(contributions: &[(Signal, f64)]) -> Ranking {
     Ranking::of(contributions).expect("le score expose ses facteurs")
 }
 
 fn candidate(key: &str, classification: Confidentiality, total: f64) -> Candidate {
-    Candidate {
-        key: key.to_owned(),
+    Candidate::new(
+        key,
         classification,
-        is_negative: false,
-        ranking: ranking(&[(Signal::Lexical, total)]),
-    }
+        Genre::Semantic,
+        ranking(&[(Signal::Lexical, total)]),
+    )
+    .expect("un candidat sémantique classé lexicalement est admissible")
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -107,18 +108,23 @@ fn a_contribution_that_is_not_a_finite_number_is_refused() {
 /// rien à contourner, il n'est pas dans la course.
 #[test]
 fn a_maximal_vector_score_does_not_defeat_an_acl() {
-    let secret = Candidate {
-        key: "restreint".to_owned(),
-        classification: Confidentiality::Restricted,
-        is_negative: false,
-        ranking: ranking(&[(Signal::Vector, f64::MAX)]),
-    };
+    let secret = Candidate::new(
+        "restreint",
+        Confidentiality::Restricted,
+        Genre::Semantic,
+        ranking(&[(Signal::Vector, f64::MAX)]),
+    )
+    .expect("sémantique admet la similarité vectorielle");
     let ordinary = candidate("interne", Confidentiality::Internal, 0.1);
 
-    let results = retrieve(&[secret, ordinary], Confidentiality::Internal, 10);
+    let results = retrieve(
+        &Plan::compatible(10).expect("budget licite"),
+        &[secret, ordinary],
+        Confidentiality::Internal,
+    );
 
     assert_eq!(results.included().len(), 1);
-    assert_eq!(results.included()[0].key, "interne");
+    assert_eq!(results.included()[0].key(), "interne");
     assert_eq!(
         results.excluded(),
         [Excluded::BeyondClearance {
@@ -145,7 +151,11 @@ fn clearance_covers_what_is_at_or_below_it() {
         (Confidentiality::Confidential, 3),
         (Confidentiality::Restricted, 4),
     ] {
-        let results = retrieve(&all, clearance, 10);
+        let results = retrieve(
+            &Plan::compatible(10).expect("budget licite"),
+            &all,
+            clearance,
+        );
         assert_eq!(results.included().len(), expected, "{clearance:?}");
     }
 }
@@ -164,12 +174,12 @@ fn the_order_is_deterministic_down_to_ties() {
         candidate("a", Confidentiality::Public, 1.0),
         candidate("c", Confidentiality::Public, 2.0),
     ];
-    let results = retrieve(&candidates, Confidentiality::Public, 10);
-    let keys: Vec<&str> = results
-        .included()
-        .iter()
-        .map(|found| found.key.as_str())
-        .collect();
+    let results = retrieve(
+        &Plan::compatible(10).expect("budget licite"),
+        &candidates,
+        Confidentiality::Public,
+    );
+    let keys: Vec<&str> = results.included().iter().map(Candidate::key).collect();
     assert_eq!(keys, ["c", "a", "b"]);
 }
 
@@ -184,7 +194,11 @@ fn the_context_budget_truncates_and_says_what_it_dropped() {
         candidate("b", Confidentiality::Public, 2.0),
         candidate("c", Confidentiality::Public, 1.0),
     ];
-    let results = retrieve(&candidates, Confidentiality::Public, 2);
+    let results = retrieve(
+        &Plan::compatible(2).expect("budget licite"),
+        &candidates,
+        Confidentiality::Public,
+    );
 
     assert_eq!(results.included().len(), 2);
     assert_eq!(
@@ -203,16 +217,21 @@ fn the_context_budget_truncates_and_says_what_it_dropped() {
 /// pas un filtre.
 #[test]
 fn a_negative_result_is_retrieved_like_any_other() {
-    let negative = Candidate {
-        key: "réfutation".to_owned(),
-        classification: Confidentiality::Internal,
-        is_negative: true,
-        ranking: ranking(&[(Signal::NegativeResults, 1.0)]),
-    };
-    let results = retrieve(&[negative], Confidentiality::Internal, 10);
+    let negative = Candidate::new(
+        "réfutation",
+        Confidentiality::Internal,
+        Genre::Negative,
+        ranking(&[(Signal::NegativeResults, 1.0)]),
+    )
+    .expect("un résultat négatif est admissible");
+    let results = retrieve(
+        &Plan::compatible(10).expect("budget licite"),
+        &[negative],
+        Confidentiality::Internal,
+    );
 
     assert_eq!(results.included().len(), 1);
-    assert!(results.included()[0].is_negative);
+    assert!(results.included()[0].is_negative());
     assert!(results.excluded().is_empty());
 }
 
@@ -224,7 +243,11 @@ fn nothing_disappears_between_the_two_lists() {
         candidate("b", Confidentiality::Restricted, 2.0),
         candidate("c", Confidentiality::Public, 1.0),
     ];
-    let results = retrieve(&candidates, Confidentiality::Public, 1);
+    let results = retrieve(
+        &Plan::compatible(1).expect("budget licite"),
+        &candidates,
+        Confidentiality::Public,
+    );
     assert_eq!(
         results.included().len() + results.excluded().len(),
         candidates.len(),

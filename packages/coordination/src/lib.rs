@@ -55,8 +55,8 @@ pub use messaging::{EpochError, Epochs, Handover, HandoverError};
 pub use metrics::Metrics;
 pub use objection::{Contestable, ObjectedTo, Objection, ObjectionError, Remedy};
 pub use proposal::{
-    Approved, Author, Change, Committed, EpistemicIndex, Justification, Mode, Proposal,
-    ProposalError, Relation, RelationKind, approve, commit,
+    Approved, Author, Committed, EpistemicIndex, Justification, Mode, Proposal, ProposalError,
+    Relation, RelationKind, approve, commit,
 };
 pub use region::{
     Acceptance, ApprovalMode, Invariant, Refusal, Region, RegionError, Verdict, threatens,
@@ -68,5 +68,7 @@ pub use region::{
 pub use simulation::{Answer, Fidelity, Recorded};
 pub use task::{Assignment, Task, TaskError};
 pub use team::{CoordinationMode, Team, TeamError};
-pub use version::{ContentDigest, Digest, Operation, Undo, Version, VersionError, VersionId};
+pub use version::{
+    ContentDigest, Digest, Operation, ParseOperationError, Undo, Version, VersionError, VersionId,
+};
 pub use visibility::Visibility;

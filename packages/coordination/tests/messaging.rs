@@ -19,7 +19,7 @@ use locus_coordination::messaging::{
     EpochError, Epochs, Handover, HandoverError, Message, Reception,
 };
 use locus_coordination::version::{Digest, Operation, Version};
-use locus_coordination::{InstanceState, Relation, RelationKind};
+use locus_coordination::{CoordinationMode, InstanceState, Relation, RelationKind};
 use locus_domain::ContentHash;
 use locus_protocol::{Id, IdKind, Timestamp, id::Agent};
 
@@ -69,8 +69,14 @@ impl Digest for Fnv {
 
 /// L'epoch initial : deux agents, une revue.
 fn first() -> Version {
-    Version::root(&[agent(1), agent(2)], &[reviews(agent(1), agent(2))], &Fnv)
-        .expect("la fixture est cohérente")
+    Version::root(
+        &[agent(1), agent(2)],
+        &[reviews(agent(1), agent(2))],
+        CoordinationMode::Blackboard,
+        None,
+        &Fnv,
+    )
+    .expect("la fixture est cohérente")
 }
 
 /// L'epoch suivant : un agent de plus entre. La graine change à chaque génération, sans quoi la
@@ -90,8 +96,14 @@ fn second(from: &Version) -> Version {
 /// Ce n'est pas un epoch « du futur » ni « du passé » — c'est un epoch que le destinataire n'a
 /// aucun moyen de situer, ce qui est exactement le cas que [`Reception::Unknown`] vise.
 fn elsewhere() -> Version {
-    Version::root(&[agent(7), agent(8)], &[reviews(agent(7), agent(8))], &Fnv)
-        .expect("la fixture est cohérente")
+    Version::root(
+        &[agent(7), agent(8)],
+        &[reviews(agent(7), agent(8))],
+        CoordinationMode::Blackboard,
+        None,
+        &Fnv,
+    )
+    .expect("la fixture est cohérente")
 }
 
 // ---------------------------------------------------------------------------------------------

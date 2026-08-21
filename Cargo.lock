@@ -258,6 +258,7 @@ dependencies = [
  "locus-domain",
  "locus-environments",
  "locus-execution",
+ "locus-memory",
  "locus-policy",
  "locus-protocol",
 ]
@@ -414,6 +415,7 @@ version = "0.0.0"
 dependencies = [
  "locus-domain",
  "locus-lep",
+ "locus-memory",
  "locus-protocol",
 ]
 

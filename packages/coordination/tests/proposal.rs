@@ -10,8 +10,8 @@
 use std::collections::BTreeSet;
 
 use locus_coordination::{
-    Author, Change, CoordinationMode, EpistemicIndex, Justification, Mode, Proposal, ProposalError,
-    Relation, RelationKind, approve, commit,
+    Author, ContentDigest, CoordinationMode, Diff, DiffError, EpistemicIndex, Justification, Mode,
+    Operation, Proposal, ProposalError, Relation, RelationKind, Version, approve, commit,
 };
 use locus_domain::RevisionId;
 use locus_protocol::{
@@ -60,12 +60,38 @@ fn index() -> KnownRevisions {
     KnownRevisions::with(&[revision(1)])
 }
 
-fn change() -> Change {
-    Change::AddRelation(Relation {
-        from: id::<Agent>(1),
-        to: id::<Agent>(2),
+fn reviews(from: u8, to: u8) -> Relation {
+    Relation {
+        from: id::<Agent>(from),
+        to: id::<Agent>(to),
         kind: RelationKind::Review,
-    })
+    }
+}
+
+/// L'organisation courante : deux agents, aucune relation.
+///
+/// `ContentDigest` plutôt qu'un condensat jouet, et c'est délibéré : ce fichier teste le **chemin de
+/// commit**, pas la stabilité de la forme canonique — celle-ci a son propre test, avec sa fixture
+/// figée. Employer ici l'implémentation de production vérifie en passant qu'elle se compose.
+fn organisation() -> Version {
+    Version::root(
+        &[id::<Agent>(1), id::<Agent>(2)],
+        &[],
+        CoordinationMode::Blackboard,
+        None,
+        &ContentDigest,
+    )
+    .expect("fixture cohérente")
+}
+
+/// Le diff que la proposition porte : une relation de revue entre les deux membres.
+fn diff() -> Diff {
+    Diff::declaring(
+        &organisation(),
+        vec![Operation::AddEdge(reviews(1, 2))],
+        &ContentDigest,
+    )
+    .expect("l'opération s'applique")
 }
 
 fn human_proposal(base: u64) -> Proposal {
@@ -74,7 +100,7 @@ fn human_proposal(base: u64) -> Proposal {
         Author::Human("usr-marie".to_owned()),
         Mode::Observed,
         base,
-        change(),
+        diff(),
         justification(),
         &index(),
     )
@@ -105,10 +131,12 @@ fn deux_propositions_sur_la_meme_base_ne_committent_pas_toutes_deux() {
     )
     .expect("approbateur distinct");
 
-    let committed = commit(first, current).expect("la première commite");
+    let committed =
+        commit(first, current, &organisation(), &ContentDigest).expect("la première commite");
     assert_eq!(committed.revision, current + 1);
 
-    let refused = commit(second, committed.revision).expect_err("la seconde est périmée");
+    let refused = commit(second, committed.revision, &organisation(), &ContentDigest)
+        .expect_err("la seconde est périmée");
     assert_eq!(
         refused,
         ProposalError::Stale {
@@ -134,12 +162,58 @@ fn une_proposition_a_jour_commite() {
         id::<Approval>(1),
     )
     .expect("approbateur distinct");
-    let committed = commit(approved, 18).expect("base à jour");
+    let committed = commit(approved, 18, &organisation(), &ContentDigest).expect("base à jour");
     assert_eq!(committed.revision, 19);
-    assert_eq!(committed.proposal.change(), change());
+    assert_eq!(committed.proposal.diff(), &diff());
+
+    // **Le commit produit une version**, et c'est ce que l'ADR 0021 a rebranché : avant, il rendait
+    // un compteur et le diff n'était appliqué à rien.
+    assert_eq!(committed.version.parent(), Some(organisation().id()));
+    assert!(committed.version.relations().contains(&reviews(1, 2)));
+    assert_ne!(
+        committed.version.content_hash(),
+        organisation().content_hash()
+    );
 }
 
-/// Une annulation est le commit d'un changement **inverse**, pas la suppression d'une version.
+/// **Deux vérifications, et aucune ne couvre l'autre.**
+///
+/// La révision dit que personne n'a écrit entre-temps ; le rejeu dit que ce qu'on applique est bien
+/// ce qui a été approuvé. Ici la révision **correspond** et le diff ne s'applique pourtant pas : il
+/// a été écrit sur une autre lignée. Un système qui n'aurait que le CAS aurait commité en croyant
+/// avoir vérifié.
+#[test]
+fn une_revision_a_jour_ne_dispense_pas_de_rejouer_le_diff() {
+    let approved = approve(
+        human_proposal(18),
+        Author::Human("usr-gov".to_owned()),
+        id::<Approval>(1),
+    )
+    .expect("approbateur distinct");
+
+    // Même contenu, autre lignée : un troisième agent est entré puis sorti, donc l'identité diffère.
+    let autre = organisation()
+        .apply(&Operation::AddNode(id::<Agent>(3)), &ContentDigest)
+        .expect("un nœud entre")
+        .apply(&Operation::RemoveNode(id::<Agent>(3)), &ContentDigest)
+        .expect("et ressort");
+    assert_eq!(
+        autre.content_hash(),
+        organisation().content_hash(),
+        "le contenu est revenu"
+    );
+    assert_ne!(autre.id(), organisation().id(), "l'histoire non");
+
+    let refused = commit(approved, 18, &autre, &ContentDigest).expect_err("autre lignée");
+    let ProposalError::Inapplicable { detail, rebase } = &refused else {
+        panic!("le refus doit distinguer le rejeu du CAS : {refused:?}");
+    };
+    assert!(*rebase, "le diff a dit qu'il fallait rebaser");
+    assert!(detail.contains("rebaser"), "{detail}");
+}
+
+/// Une annulation est le commit d'un diff **inverse**, pas la suppression d'une version.
+///
 /// Retirer une version rendrait l'histoire fausse : on ne pourrait plus dire qu'une mission a
 /// tourné sous une organisation qui, désormais, n'aurait jamais existé.
 #[test]
@@ -153,15 +227,24 @@ fn une_annulation_est_un_commit_inverse_qui_ne_supprime_rien() {
         )
         .expect("approbateur distinct"),
         18,
+        &organisation(),
+        &ContentDigest,
     )
     .expect("commitée");
+
+    // L'inverse s'écrit sur la version que le commit a **produite**, pas sur celle d'avant : c'est
+    // là qu'il doit s'appliquer.
+    let inverse = original
+        .diff()
+        .inverse(&committed.version, &ContentDigest)
+        .expect("ajouter une arête s'annule exactement");
 
     let cancelling = Proposal::write(
         id::<DecisionKind>(2),
         Author::Human("usr-marie".to_owned()),
         Mode::Observed,
         committed.revision,
-        original.change().inverse(),
+        inverse,
         justification(),
         &index(),
     )
@@ -170,12 +253,8 @@ fn une_annulation_est_un_commit_inverse_qui_ne_supprime_rien() {
 
     assert_eq!(cancelling.cancels(), Some(original.id()));
     assert_eq!(
-        cancelling.change(),
-        Change::RemoveRelation(Relation {
-            from: id::<Agent>(1),
-            to: id::<Agent>(2),
-            kind: RelationKind::Review,
-        })
+        cancelling.diff().operations(),
+        &[Operation::RemoveEdge(reviews(1, 2))]
     );
 
     let undone = commit(
@@ -186,33 +265,120 @@ fn une_annulation_est_un_commit_inverse_qui_ne_supprime_rien() {
         )
         .expect("approbateur distinct"),
         committed.revision,
+        &committed.version,
+        &ContentDigest,
     )
     .expect("commitée à son tour");
+
     assert_eq!(
         undone.revision,
         committed.revision + 1,
         "l'annulation produit une version de plus, jamais une de moins"
     );
+
+    // **Le contenu revient, l'histoire non** — la propriété que `version.rs` tient depuis W15.a, et
+    // que le chemin de proposition doit préserver de bout en bout.
+    assert_eq!(
+        undone.version.content_hash(),
+        organisation().content_hash(),
+        "l'état revient"
+    );
+    assert_ne!(
+        undone.version.id(),
+        organisation().id(),
+        "et il y est revenu par un commit de plus, pas par un retrait"
+    );
+    assert_eq!(undone.version.parent(), Some(committed.version.id()));
 }
 
+/// **Un diff se défait dans l'ordre inverse**, et l'ordre n'est pas un détail.
+///
+/// Retirer une arête puis son nœud se défait en remettant le nœud **puis** l'arête. L'ordre naïf —
+/// inverser chaque opération en place — produirait une arête pendante, que `Version::apply` refuse.
+/// Le test le vérifie sur une suite où les deux ordres ne sont pas interchangeables.
 #[test]
-fn chaque_changement_a_son_inverse_exact() {
-    for change in [
-        Change::AddMember(id::<Agent>(1)),
-        Change::RemoveMember(id::<Agent>(1)),
-        change(),
-        Change::SetMode {
-            from: CoordinationMode::Debate,
-            to: CoordinationMode::IndependentPool,
-        },
-    ] {
-        assert_eq!(
-            change.inverse().inverse(),
-            change,
-            "l'inverse de l'inverse est l'identité, sinon annuler une annulation dérive"
-        );
-        assert_ne!(change.inverse(), change);
-    }
+fn un_diff_se_defait_dans_l_ordre_inverse() {
+    let base = Version::root(
+        &[id::<Agent>(1), id::<Agent>(2)],
+        &[reviews(1, 2)],
+        CoordinationMode::Blackboard,
+        None,
+        &ContentDigest,
+    )
+    .expect("fixture cohérente");
+
+    // Retirer l'arête, puis le nœud qu'elle tenait : l'ordre imposé par le refus de la cascade.
+    let forward = Diff::declaring(
+        &base,
+        vec![
+            Operation::RemoveEdge(reviews(1, 2)),
+            Operation::RemoveNode(id::<Agent>(1)),
+        ],
+        &ContentDigest,
+    )
+    .expect("les deux s'appliquent");
+    let after = forward.replay(&base, &ContentDigest).expect("rejeu");
+
+    let backward = forward
+        .inverse(&after, &ContentDigest)
+        .expect("les deux s'inversent");
+    assert_eq!(
+        backward.operations(),
+        &[
+            Operation::AddNode(id::<Agent>(1)),
+            Operation::AddEdge(reviews(1, 2)),
+        ],
+        "le nœud revient avant l'arête, sans quoi l'arête pendrait"
+    );
+
+    let restored = backward.replay(&after, &ContentDigest).expect("rejeu");
+    assert_eq!(restored.content_hash(), base.content_hash());
+}
+
+/// **Ce qui ne s'inverse pas le déclare** — ADR 0016 décision 5.
+///
+/// La fusion perd la partition : deux arêtes `X → premier` et `X → second` deviennent une seule, et
+/// aucune scission ne saurait dire laquelle était laquelle. Rendre ici une scission plausible ferait
+/// passer une **compensation** pour une **annulation**, et l'approbateur signerait sur un document
+/// qui prétend rendre l'état d'avant. Le refus nomme l'opération, et l'appelant écrit lui-même ce
+/// qu'il compense — lui seul sait ce qu'il veut compenser.
+#[test]
+fn une_fusion_refuse_de_s_inverser_en_se_nommant() {
+    let base = Version::root(
+        &[id::<Agent>(1), id::<Agent>(2), id::<Agent>(3)],
+        &[],
+        CoordinationMode::Blackboard,
+        None,
+        &ContentDigest,
+    )
+    .expect("fixture cohérente");
+
+    let fusion = Operation::MergeNodes {
+        first: id::<Agent>(1),
+        second: id::<Agent>(2),
+        into: id::<Agent>(9),
+    };
+    let forward = Diff::declaring(&base, vec![fusion.clone()], &ContentDigest).expect("s'applique");
+    let after = forward.replay(&base, &ContentDigest).expect("rejeu");
+
+    let refused = forward
+        .inverse(&after, &ContentDigest)
+        .expect_err("une fusion ne s'annule pas");
+    assert_eq!(
+        refused,
+        DiffError::NotInvertible {
+            position: 0,
+            operation: fusion.canonical(),
+        }
+    );
+    assert!(
+        refused.to_string().contains("compensée"),
+        "le refus doit dire ce qui reste possible : {refused}"
+    );
+    assert!(
+        !refused.needs_rebase(),
+        "rebaser n'y changerait rien : ce n'est pas un conflit de base"
+    );
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -226,7 +392,7 @@ fn une_justification_qui_cite_une_revision_inconnue_est_refusee() {
         Author::Human("usr-marie".to_owned()),
         Mode::Observed,
         18,
-        change(),
+        diff(),
         Justification::new("barrier_encountered", revision(99)).expect("déclencheur non vide"),
         &index(),
     )
@@ -314,7 +480,7 @@ fn une_proposition_agentique_suit_le_meme_chemin_qu_une_humaine() {
         Author::Agent(id::<Agent>(7)),
         Mode::Assisted,
         18,
-        change(),
+        diff(),
         justification(),
         &index(),
     )
@@ -330,6 +496,8 @@ fn une_proposition_agentique_suit_le_meme_chemin_qu_une_humaine() {
         )
         .expect("un humain approuve"),
         18,
+        &organisation(),
+        &ContentDigest,
     )
     .expect("commitée");
     let human_committed = commit(
@@ -340,6 +508,8 @@ fn une_proposition_agentique_suit_le_meme_chemin_qu_une_humaine() {
         )
         .expect("approbateur distinct"),
         18,
+        &organisation(),
+        &ContentDigest,
     )
     .expect("commitée");
 
@@ -348,8 +518,13 @@ fn une_proposition_agentique_suit_le_meme_chemin_qu_une_humaine() {
         "le même chemin produit le même effet : l'auteur ne change pas la mécanique"
     );
     assert_eq!(
-        agent_committed.proposal.change(),
-        human_committed.proposal.change()
+        agent_committed.proposal.diff(),
+        human_committed.proposal.diff()
+    );
+    assert_eq!(
+        agent_committed.version.id(),
+        human_committed.version.id(),
+        "et la même version : le chemin est le même jusqu'au contenu produit"
     );
     assert_eq!(from_agent.author(), &Author::Agent(id::<Agent>(7)));
 }
@@ -364,7 +539,7 @@ fn un_proposeur_ne_peut_pas_approuver_sa_propre_proposition() {
         agent.clone(),
         Mode::Assisted,
         18,
-        change(),
+        diff(),
         justification(),
         &index(),
     )
@@ -396,7 +571,7 @@ fn le_mode_par_defaut_interdit_a_un_agent_de_proposer() {
         Author::Agent(id::<Agent>(7)),
         Mode::Observed,
         18,
-        change(),
+        diff(),
         justification(),
         &index(),
     )
@@ -424,7 +599,7 @@ fn le_refus_de_mode_ne_revele_pas_ce_que_l_index_contient() {
         Author::Agent(id::<Agent>(7)),
         Mode::Observed,
         18,
-        change(),
+        diff(),
         Justification::new("high_uncertainty", revision(99)).expect("déclencheur non vide"),
         &index(),
     )

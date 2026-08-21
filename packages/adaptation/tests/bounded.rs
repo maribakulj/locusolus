@@ -10,8 +10,8 @@ use std::fmt::Write as _;
 
 use locus_adaptation::{Ceiling, Denial, Operator, OperatorError, RiskClass, autonomously};
 use locus_coordination::{
-    ApprovalMode, Author, Diff, Digest, Invariant, Mode, Operation, Refusal, Region, Relation,
-    RelationKind, Verdict, Version,
+    ApprovalMode, Author, CoordinationMode, Diff, Digest, Invariant, Mode, Operation, Refusal,
+    Region, Relation, RelationKind, Verdict, Version,
 };
 use locus_domain::ContentHash;
 use locus_policy::{Outcome, Verb};
@@ -78,7 +78,14 @@ impl Digest for Fnv {
 }
 
 fn base() -> Version {
-    Version::root(&[agent(1), agent(2), agent(3)], &[], &Fnv).expect("la fixture est acyclique")
+    Version::root(
+        &[agent(1), agent(2), agent(3)],
+        &[],
+        CoordinationMode::Blackboard,
+        None,
+        &Fnv,
+    )
+    .expect("la fixture est acyclique")
 }
 
 fn diff_of(base: &Version, operations: Vec<Operation>) -> Diff {
@@ -398,6 +405,8 @@ fn a_vetoed_batch_does_not_become_autonomous() {
     let base = Version::root(
         &[agent(1), agent(2), agent(3), agent(4)],
         &[reviews(agent(2), agent(4)), reviews(agent(4), agent(1))],
+        CoordinationMode::Blackboard,
+        None,
         &Fnv,
     )
     .expect("la fixture est acyclique");

@@ -18,5 +18,6 @@ locus-budget = { path = "../budget" }
 locus-coordination = { path = "../coordination" }
 locus-domain = { path = "../domain" }
 locus-environments = { path = "../environments" }
+locus-memory = { path = "../memory" }
 locus-policy = { path = "../policy" }
 locus-protocol = { path = "../protocol" }

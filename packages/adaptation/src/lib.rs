@@ -25,6 +25,7 @@ pub mod acceptance;
 pub mod admission;
 pub mod bounded;
 pub mod fast;
+pub mod observation;
 pub mod slow;
 pub mod spawn;
 
@@ -32,6 +33,7 @@ pub use acceptance::{CancellationRate, Ratio};
 pub use admission::{Admission, AdmissionError, Extension, admit};
 pub use bounded::{Autonomy, Ceiling, Denial, Operator, OperatorError, RiskClass, autonomously};
 pub use fast::{Adaptation, Adjustment, Fast, FastError};
+pub use observation::{Observation, ObservationError, ObservationKind, Sensor, observe_all};
 pub use spawn::{
     Admitted, Disposition, Draft, SpawnError, SpawnProposal, Trigger, Undecided, dispose,
 };

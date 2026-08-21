@@ -20,7 +20,10 @@
 
 pub mod compaction;
 pub mod dedup;
+pub mod genre;
 pub mod level;
+pub mod plan;
+pub mod receipt;
 pub mod retrieval;
 pub mod separated;
 
@@ -29,7 +32,13 @@ pub use dedup::{
     Candidate as DuplicateCandidate, DedupError, Entity, ExactDuplicates, Resolution, Verdict,
     exact_duplicates,
 };
+pub use genre::{Genre, GenreOracle, Unknowing};
 pub use level::{Entry, Level, MemoryError, Shelf, Substance};
+pub use plan::{
+    Channel, Escalation, Intent, Plan, PlanError, PremiseShapes, Provenance, RankingIdentity,
+    RegionRef, Stop, StructuralChannel,
+};
+pub use receipt::{Coverage, Exclusion, ReceiptError, RetrievalReceipt};
 pub use retrieval::{Candidate, Excluded, Ranking, Results, RetrievalError, Signal, retrieve};
 pub use separated::{
     EpistemicEntry, EpistemicHit, OrganisationalEntry, OrganisationalHit, epistemic, organisational,

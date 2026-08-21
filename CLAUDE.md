@@ -40,6 +40,15 @@ frontières inter-repos.
   `MutationGrant`, pas de `TopologyNode`, pas d'échelle d'autorité à cinq barreaux (ADR 0016). Une
   sorte de relation de coordination n'entre dans son énumération que lorsqu'un consommateur
   exécutable et testé existe.
+- **On ne livre jamais une promesse ; on livre toujours une capacité** (ADR 0022, décision 0). Une
+  *promesse* est un type qui annonce un effet qui n'a pas lieu — une arête `message` qu'aucun routeur
+  n'honore ment à qui croit l'avoir posée, et la règle précédente la refuse toujours. Une *capacité*
+  est un sous-système complet et testé dont personne n'a encore eu besoin ; elle est finie.
+  « Aucun appelant ne l'utilise encore » **n'est donc pas un motif de report** : les deux seuls
+  motifs admis sont une dépendance technique nommée et un hôte externe absent. La règle du dessus
+  vaut pour une **valeur d'énumération**, qui affirme qu'un effet existe ; elle n'a jamais valu pour
+  un module, qui n'affirme rien tant qu'on ne l'appelle pas, et c'est cette généralisation-là que
+  l'ADR 0022 corrige.
 
 ## Frontières vérifiées par la CI
 

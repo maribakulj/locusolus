@@ -6,7 +6,9 @@
 
 use std::fmt::Write as _;
 
-use locus_coordination::{Digest, Metrics, Relation, RelationKind, Version};
+use locus_coordination::{
+    CoordinationMode, Digest, Metrics, Relation, RelationKind, Version, VersionError,
+};
 use locus_domain::ContentHash;
 use locus_protocol::{Id, IdKind, Timestamp, id::Agent};
 
@@ -63,7 +65,14 @@ impl Digest for Fnv {
 
 fn version(members: &[u8], relations: &[Relation]) -> Version {
     let members: Vec<Id<Agent>> = members.iter().map(|seed| agent(*seed)).collect();
-    Version::root(&members, relations, &Fnv).expect("la fixture est licite")
+    Version::root(
+        &members,
+        relations,
+        CoordinationMode::Blackboard,
+        None,
+        &Fnv,
+    )
+    .expect("la fixture est licite")
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -240,10 +249,14 @@ fn no_metric_carries_a_threshold_or_a_verdict() {
 /// qu'aucune transition n'a gardé.
 #[test]
 fn a_root_version_can_carry_the_mutual_review_the_veto_forbids() {
-    let mutual = Version::root(&[agent(1), agent(2)], &[reviews(1, 2), reviews(2, 1)], &Fnv)
-        .expect(
-            "`root` ne vérifie pas l'acyclicité — seul le veto de `region` le fait, sur un diff",
-        );
+    let mutual = Version::root(
+        &[agent(1), agent(2)],
+        &[reviews(1, 2), reviews(2, 1)],
+        CoordinationMode::Blackboard,
+        None,
+        &Fnv,
+    )
+    .expect("`root` ne vérifie pas l'acyclicité — seul le veto de `region` le fait, sur un diff");
     assert_eq!(Metrics::of(&mutual).mutual_review_pairs(), 1);
 }
 
@@ -286,8 +299,14 @@ fn the_depth_terminates_on_a_cyclic_version() {
     let ring = version(&[1, 2, 3], &[reviews(1, 2), reviews(2, 3), reviews(3, 1)]);
     assert_eq!(Metrics::of(&ring).review_depth(), 3);
 
-    let mutual = Version::root(&[agent(1), agent(2)], &[reviews(1, 2), reviews(2, 1)], &Fnv)
-        .expect("`root` accepte l'aller-retour");
+    let mutual = Version::root(
+        &[agent(1), agent(2)],
+        &[reviews(1, 2), reviews(2, 1)],
+        CoordinationMode::Blackboard,
+        None,
+        &Fnv,
+    )
+    .expect("`root` accepte l'aller-retour");
     assert_eq!(Metrics::of(&mutual).review_depth(), 2);
 }
 
@@ -319,18 +338,35 @@ fn the_five_are_rendered_together() {
     assert!(constructions >= 1);
 }
 
-/// Une version vide se mesure sans cas particulier.
+/// **Une version vide n'existe plus**, et ce test dit pourquoi il a changé de propriété.
+///
+/// Il vérifiait qu'« une version vide se mesure sans cas particulier ». La propriété était vraie et
+/// n'a plus d'objet : l'ADR 0021 fait vivre dans la version la structure que `Team` stockait en
+/// double, et §14.3 dit qu'une équipe sans membre ne coordonne rien. `Team::new` le refusait déjà ;
+/// ce qui change est l'endroit du refus, pas la règle.
+///
+/// Remplacé plutôt que supprimé : un test qui disparaît pendant un refactor ne laisse aucune trace
+/// de ce qu'il tenait, et le lecteur suivant ne peut pas distinguer « la règle a changé » de « la
+/// vérification a été perdue en route ».
 #[test]
-fn an_empty_organisation_measures_as_zero() {
-    let empty = Version::root(&[], &[], &Fnv).expect("une organisation sans membre est licite");
-    let measured = Metrics::of(&empty);
-    assert_eq!(measured.members(), 0);
+fn an_empty_organisation_cannot_be_built_at_all() {
+    assert_eq!(
+        Version::root(&[], &[], CoordinationMode::Blackboard, None, &Fnv)
+            .expect_err("§14.3 : une équipe sans membre ne coordonne rien"),
+        VersionError::NoMembers
+    );
+
+    // Ce que l'ancien test protégeait vraiment — aucun cas particulier dans le calcul — se vérifie
+    // sur le plus petit graphe qui existe désormais : un membre, aucune arête.
+    let seul = version(&[1], &[]);
+    let measured = Metrics::of(&seul);
+    assert_eq!(measured.members(), 1);
     assert_eq!(measured.reviewed_members(), 0);
     assert_eq!(measured.review_depth(), 0);
     assert_eq!(measured.busiest_reviewer_load(), 0);
     assert_eq!(measured.review_edges(), 0);
     assert_eq!(measured.mutual_review_pairs(), 0);
-    assert_eq!(measured.blind_members(), 0);
+    assert_eq!(measured.blind_members(), 1);
 }
 
 /// Deux mesures de la même version sont identiques.

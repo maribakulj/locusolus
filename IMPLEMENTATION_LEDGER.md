@@ -9767,3 +9767,646 @@ duplication ou réécrit un schéma sans que personne ne l'ait demandé.
 d'être promis.
 
 **Prochain item.** `W17.i`, dès que l'arbitrage ci-dessus est rendu.
+
+## 2026-08-20 — W13.h — ADR 0021 : une seule grammaire, et la structure là où elle est lue
+
+**Périmètre.** `docs/adr/0021-une-seule-grammaire-de-mutation.md` ; `docs/10_V1_ROADMAP.md` — trois
+lignes neuves, `W13.h` à `W13.j` ; `packages/coordination/src/version.rs` — le mode, le
+coordinateur, `SET_MODE`, `SET_COORDINATOR`, huit variantes d'erreur, `check_composition` ;
+`region.rs` — les deux matchs exhaustifs ; onze fichiers de tests, quarante-six appels de
+`Version::root` réécrits.
+
+**Tests exécutés.** `npm run check` — les douze gardes. `cargo clippy --workspace --all-targets` et
+`cargo test --workspace` : verts. Quarante-trois tests dans `coordination/tests/version.rs`.
+
+**L'arbitrage, et pourquoi le tableau était trompeur.** Deux énumérations décrivaient le même acte
+sur le chemin qui se dit unique — `proposal::Change` et `version::Operation`. Le tableau de l'ADR
+les fait paraître symétriques. Les **consommateurs** disent autre chose : `Operation` est honorée
+par `Version::apply`, `Diff`, `region::threatens`, `Barriers::admits`, `metrics` et `DiffView` dans
+le démon ; `Change` a sept sites d'usage dont cinq dans son propre test, et `commit()` ne l'applique
+à rien. Une proposition qui déclarait `AddMember` puis commitait laissait le système exactement dans
+l'état où elle l'avait trouvé.
+
+`Team` n'était pas mieux loti — mais pas pour la raison d'abord écrite. **Rectification :** cette
+entrée affirmait que `Team` n'exposait que `new()` et `title()`. C'est faux, il expose neuf
+accesseurs ; le `grep` qui l'avait conclu portait sur `pub fn` et ne voyait pas les `pub const fn`.
+Ce qui reste vrai est l'argument : `Team` n'a **aucune méthode de mutation** — sa `revision` vaut
+`1` à jamais — son unique consommateur est son propre fichier de test, et `Team.members` double
+`Version.members` dans le même crate.
+
+La question n'était donc pas « laquelle garder » mais « qu'est-ce qui manque pour qu'il n'y en ait
+qu'une ».
+
+**Ce que W13.h livre.** La `Version` porte désormais le mode et le coordinateur, et les trois règles
+de §14.3 refusent depuis elle — équipe sans membre, coordinateur non membre, mode `coordinator` sans
+coordinateur. Elles n'ont pas changé : elles ont déménagé avec la structure, ce qui est le point.
+
+Trois décisions prises en chemin, et écrites parce qu'elles se défendent :
+
+- **`check_composition` s'exécute après _chaque_ application**, pas seulement dans les deux
+  opérations attributaires. `REMOVE_NODE` et `SPLIT_NODE` changent l'appartenance sans rien savoir
+  du coordinateur ; une règle vérifiée seulement là où l'on pense qu'elle peut casser est une règle
+  qu'on croit tenir.
+- **Retirer le nœud coordinateur est refusé**, pour la raison exacte qui refuse de retirer un nœud
+  qui porte un rôle : la charge est une information que le nœud emporte, et `ADD_NODE` ne saurait
+  pas la rendre. **Le remplacer**, en revanche, l'emporte avec l'identité — un remplacement est un
+  isomorphisme, rien ne s'y perd.
+- **Les deux opérations entrent ensemble.** Si `SET_MODE` avait pu entrer seule, on aurait pu poser
+  le mode `coordinator` sans coordinateur puis réparer au coup suivant — un état que §14.3 déclare
+  impossible, atteint transitoirement. Un test tient l'ordre qui marche : désigner d'abord.
+
+**Un test remplacé, et il est dit pourquoi.** `an_empty_organisation_measures_as_zero` vérifiait
+qu'une version vide se mesure sans cas particulier. La propriété était vraie et n'a plus d'objet.
+Remplacée par le refus, plus la même vérification sur le plus petit graphe qui existe désormais — un
+test supprimé pendant un refactor ne laisse aucune trace de ce qu'il tenait, et le lecteur suivant
+ne peut pas distinguer « la règle a changé » de « la vérification a été perdue ».
+
+**Les gardes ont fait leur travail.** Les deux matchs exhaustifs de `region.rs` ont refusé de
+compiler dès l'ajout des variantes, et ont obligé à répondre pour chacune : ni `SET_MODE` ni
+`SET_COORDINATOR` ne menace l'acyclicité de revue — le mode `coordinator` concentre la charge, ce
+qui est une question de dépendance, pas de cycle. Nommer là l'invariant de revue aurait fait
+relâcher une barrière pour une menace qui n'est pas celle-là. Et `touched` rend les **deux**
+identifiants d'un changement de coordinateur : une région qui ne contiendrait pas le sortant
+pourrait le démettre depuis l'extérieur.
+
+**Deux ajouts locaux, signalés.** `Operation::NAMES` passe de huit à dix, et le commentaire dit que
+`docs/13` ne nomme ni `SET_MODE` ni `SET_COORDINATOR` — les fondre ferait passer un ajout pour une
+lecture de la spec. Même discipline que le namespace `message` de l'ADR 0019.
+
+**Écart avec la spec.** Aucun pour l'instant : §7.1 garde `member_ids` et `coordination_mode` sur
+`Team`, et c'est `W13.j` qui les servira depuis la version courante — « graphe réalisé comme
+projection », `docs/13` §3. Tant que `W13.j` n'est pas livré, `Team` stocke encore ce que la version
+porte, et le double subsiste. C'est une dette **datée**, pas un oubli.
+
+**Prochain item.** `W13.i` — `Proposal` porte un `Diff`, `Change` est retirée, `commit()` rend une
+`Version`.
+
+## 2026-08-20 — W13.i — la proposition porte un diff, et le commit produit une version
+
+**Périmètre.** `packages/coordination/src/proposal.rs` — `Change` retirée, `Proposal.diff`,
+`commit()` à quatre arguments, `Committed.version`, `ProposalError::Inapplicable` ; `diff.rs` —
+`Diff::inverse` et `DiffError::NotInvertible` ; `lib.rs` ; `packages/coordination/tests/proposal.rs`
+— quinze tests ; `packages/adaptation/tests/loops.rs` et `src/slow.rs`.
+
+**Tests exécutés.** `npm run check` — les douze gardes.
+`cargo clippy --workspace --all-targets --all-features -- -D warnings` et `cargo test --workspace` :
+verts.
+
+**Ce que le commit faisait, et ne fait plus.** `commit()` recevait une `Change`, ne l'appliquait à
+rien, et rendait `revision + 1`. Il rejoue désormais le diff sur la version courante et rend la
+version produite. Le chemin de mutation de `docs/13` — « PROPOSE → VALIDATE → SHADOW → COMMIT →
+OBSERVE » — a enfin un COMMIT qui commite.
+
+**Deux vérifications, et aucune ne couvre l'autre.** La révision dit que personne n'a écrit
+entre-temps ; le rejeu dit que ce qu'on applique est bien ce qui a été approuvé. Un test construit
+le cas où elles divergent : la révision **correspond** et le diff ne s'applique pourtant pas, parce
+qu'il a été écrit sur une autre lignée — un contenu revenu à l'identique après un aller-retour, donc
+même `content_hash` et autre `VersionId`. Un système qui n'aurait que le CAS aurait commité en
+croyant avoir vérifié. D'où `ProposalError::Inapplicable`, distincte de `Stale` : une base périmée
+se rebase, une opération inapplicable se réécrit, et fondre les deux perdrait la consigne.
+
+**`Diff::inverse` inverse _et_ renverse.** Défaire `[a, b, c]` est faire `[c⁻¹, b⁻¹, a⁻¹]`, et
+l'ordre n'est pas un détail : retirer une arête puis son nœud se défait en remettant le nœud
+**puis** l'arête. L'ordre naïf produirait une arête pendante, que `Version::apply` refuse. Un test
+le vérifie sur une suite où les deux ordres ne sont pas interchangeables.
+
+**Ce qui ne s'inverse pas le déclare.** `Change::inverse` était **total** — les cinq changements
+s'inversaient — et c'était faux par omission : la fusion perd la partition, et aucune scission ne
+saurait dire laquelle était laquelle. `DiffError::NotInvertible` nomme l'opération, et l'appelant
+écrit lui-même ce qu'il compense. C'est l'ADR 0016 décision 5 rendue exécutable : « une modification
+non inversible ne peut être que compensée, et elle le déclare à la proposition ». Le test vérifie
+aussi que le refus **ne demande pas de rebaser** — ce n'est pas un conflit de base, et une consigne
+inapplicable est pire que pas de consigne.
+
+**Un test d'absence conservé exprès.** `the_fast_loop_names_no_structural_type` liste toujours
+`"Change"` parmi les noms interdits dans `adaptation/src/fast.rs`, alors que le type n'existe plus.
+Gardé : un doublon retiré qui revient par une autre porte est un doublon, et la garde coûte une
+ligne.
+
+**Écart avec la spec.** Aucun. §22.3 nomme la commande `team.modify` sans donner son payload ; l'ADR
+0016 décision 3 énumère ce que la proposition en garde — `trigger`, `rationale`, `evidence_refs`,
+`proposer.kind` — et aucun de ces quatre ne bouge.
+
+**Ce qui reste dû.** `W13.j` — `Team` projette la version courante au lieu de la stocker. Tant qu'il
+n'est pas livré, `Team` garde `members`, `mode` et `coordinator` en propre, et le double subsiste.
+Dette datée, déjà consignée par `W13.h`.
+
+**Prochain item.** `W13.j`.
+
+## 2026-08-20 — W13.j — `Team` projette la version au lieu de la stocker
+
+**Périmètre.** `packages/coordination/src/team.rs` — trois champs retirés, `version: VersionId`
+ajouté, quatre accesseurs qui prennent la version en argument, `TeamError::WrongVersion` ;
+`packages/coordination/tests/aggregates.rs`. Dernier item de l'ADR 0021.
+
+**Tests exécutés.** `npm run check` — les douze gardes.
+`cargo clippy --workspace --all-targets --all-features -- -D warnings` et `cargo test --workspace` :
+verts. Vingt tests dans `tests/aggregates.rs`.
+
+**La dette datée par `W13.h` est payée.** `Team.members`, `Team.mode` et `Team.coordinator`
+stockaient ce que la version portait déjà : deux stockages du même fait dans le même crate, donc
+deux vérités. §7.1 garde ses trois champs — `member_ids`, `coordination_mode`, `coordinator_id` sont
+toujours servis, sous leur nom — mais **depuis la version courante**. C'est la taxonomie de
+`docs/13` §3 appliquée : la version est le canonique, l'équipe est le « graphe réalisé comme
+projection ».
+
+**La version voyage avec l'appel, pas dans le champ.** `Team` retient la `VersionId`, pas la
+`Version` : la retenir en entier reconstituerait le doublon sous un autre nom. Les accesseurs
+prennent donc la version en argument, et **refusent celle qui n'est pas la sienne**. C'est la moitié
+qui compte : sans ce refus, présenter la version d'une autre équipe — ou un autre instant de la
+sienne — rendrait des membres **plausibles**, et rien dans la réponse ne le dirait. Même mode
+d'échec que le cursor présenté à la mauvaise collection (`W20.e`), au même endroit du raisonnement.
+
+Un test vérifie que **les quatre** accesseurs refusent, et pas seulement celui auquel on a pensé.
+
+**Trois validations déménagées, pas perdues.** `NoMembers`, `CoordinatorNotAMember` et
+`CoordinatorRequired` ont quitté `TeamError` : elles vivent dans `VersionError` depuis `W13.h`, où
+elles sont vérifiées sur toute version. Les garder aux deux endroits aurait été une seconde
+définition de la même règle, et deux définitions divergent. Le test qui les tenait ici est
+**remplacé**, avec la phrase qui dit où elles sont parties.
+
+**Rectification consignée.** L'entrée de `W13.h` affirmait que `Team` n'exposait que `new()` et
+`title()`. C'était faux — neuf accesseurs. Le `grep` qui l'avait conclu portait sur `pub fn` et ne
+voyait pas les `pub const fn`. L'ADR 0021 porte la même correction, à l'endroit où l'argument est
+écrit. Ce qui restait vrai, et qui était l'argument : aucune méthode de mutation, aucun consommateur
+hors de son propre test, et le doublon de structure.
+
+**Écart avec la spec.** Aucun. §7.1 est servi entièrement, et mieux qu'avant : ses champs ne peuvent
+plus contredire la version dont ils viennent.
+
+**Prochain item.** `W17.i` — le commit d'une version de coordination écrit un fait, débloqué par
+l'ADR 0021 et par `W13.i` qui lui donne la `Version` à écrire.
+
+## 2026-08-20 — ADR 0022 et 0023 — la mémoire à deux dimensions, et l'ontologie en coprocesseur
+
+**Périmètre.** `docs/adr/0022-la-memoire-a-deux-dimensions.md` et
+`docs/adr/0023-coprocesseur-d-ontologie.md`, neufs ; sept lignes dans `docs/10_V1_ROADMAP.md` —
+`W17.k` à `W17.n`, `W18.g`, `W18.h`, `W14.e`, `W9.e`, `W6.g`, `W8.j` ; un alinéa dans `CLAUDE.md`.
+**Aucun code de domaine.**
+
+**Tests exécutés.** `npm run check` — les douze gardes. `check:roadmap` accepte les sept lignes et
+rend la frontière élargie.
+
+**Origine.** Une spécification externe proposant deux ADR, sept items et des notes d'implémentation.
+Elle a été **instruite dans le code avant d'être retenue**, et non transcrite. Ce qu'elle affirmait
+est exact sur l'essentiel — `Published`, les dix `Signal`, `minimal_premise_sets`, `Support`, les
+onze `Trigger`, `Choice`, les ancres de roadmap. Six points ne passaient pas la vérification, et
+deux sont structurels. Ils sont corrigés **dans** les décisions, à leur place.
+
+**Ce qui a été trouvé, par ordre de coût si on l'avait ignoré.**
+
+1. **La jonction n'existe pas.** La décision « chaque construction de `ContextView` produit un reçu
+   » suppose un chemin entre retrieval et vue de contexte. Il n'y en a aucun : `ContextView` vit
+   dans `packages/review`, `retrieve` dans `packages/memory`, **les deux `Cargo.toml` montrent que
+   les crates ne se connaissent pas**, et `ContextView::build` prend des `ContextItem` clés par
+   `RevisionId` quand `retrieve` rend des `Candidate` clés par `String`. `W17.n` n'est donc pas un
+   type à ajouter mais la jonction elle-même, avec une dépendance de crate à décider — décidée :
+   `review` → `memory`, parce qu'une vue se construit depuis un retrieval et jamais l'inverse.
+2. **Le genre aurait été la quatrième représentation du résultat négatif.** Existent déjà
+   `CoreObjectType::NegativeResult` (§7.3), l'agrégat `NegativeResult` (§18.7, avec `Power` et
+   `Exclusion`), et `Candidate.is_negative`. C'est exactement ce que l'ADR 0021 vient de retirer
+   pour `proposal::Change`. Trois autres genres recoupent des types existants — `Formal` /
+   `FormalizationStatus`, `Computational` / `reproducibility`, `Coordination` / le crate entier.
+   D'où la décision 1 bis : le genre reste **déclaré**, mais un désaccord avec un type résolu est un
+   **refus** et jamais un silence, par un port fourni par l'appelant.
+3. **`Plan::default()` et la réserve de négatifs ne pouvaient pas être vrais ensemble.** `retrieve`
+   coupe au rang — `position >= budget` — et **ne lit jamais `is_negative`** dans ce chemin. Mettre
+   la réserve dans le genre changeait silencieusement du code livré. Elle est donc dans le `Plan`,
+   sa valeur vient de la `negative_result_policy` de §16.2, et le reçu l'écrit **même à zéro**.
+4. **Le reçu promettait un rejeu sur une entrée qu'il n'enregistrait pas.** `Ranking::of` reçoit des
+   flottants calculés par l'appelant. Sans l'identité de la fonction de classement, « rejouer rend
+   la même `ContextView` » est une propriété que personne ne tient — et le test passerait, une
+   fixture étant déterministe par construction, c'est-à-dire qu'il ne testerait rien.
+5. **`memory::Kind` est déjà pris** par `compaction::Kind`. Le type s'appelle `Genre`. Ce crate
+   avait déjà résolu la même collision dans le même sens avec `DuplicateCandidate`.
+6. **Le refus `(Formal, Vector)` coûte une rupture d'API.** `Ranking::of` peut rester inchangé, ce
+   qui était l'analyse d'origine ; mais `Candidate` n'a **pas de constructeur** — quatre champs
+   `pub`, construction par littéral. Le refus « à la construction » exige de privatiser et d'ajouter
+   un constructeur faillible. Le choix reste le bon ; il est désormais chiffré.
+
+Deux points mineurs : le canal `Structural` a besoin d'un oracle `RevisionId → ObjectType` que rien
+ne fournit — `Graph` ne détient que `relations` et `inferences` — et `W8.j` énonçait comme une seule
+propriété deux choses incompatibles, d'où deux tests.
+
+**Ce que la décision 0 amende, et pourquoi elle est ici.** « On ne livre jamais une promesse ; on
+livre toujours une capacité. » L'ADR 0016 décision 4 tient mot pour mot pour ce qu'elle vise — une
+sorte de relation sans consommateur reste interdite. Ce qui est amendé est sa **généralisation** à
+des sous-systèmes entiers, faite par des sessions ultérieures et jamais décidée. `CLAUDE.md` porte
+l'alinéa, parce qu'il cite la règle : le laisser diverger aurait donné deux règles au dépôt, ce qui
+est le défaut que ce commit existe pour éviter.
+
+Deux endroits redeviennent recevables **sans devenir obligatoires** : les verbes `message.*` de
+l'ADR 0019, et les trois opérations attributaires de `version.rs`. Chacune garde son propre examen.
+
+**Ce qui n'a pas été créé, délibérément.** Pas de troisième ADR pour les corrections — un ADR qui
+renverrait ailleurs pour savoir ce qu'il décide est le début de la dispersion. Pas de fichier pour
+les notes d'implémentation : les tests de sortie de `docs/10` portent déjà ce rôle. Pas de fichier
+pour les prompts de session : c'est de la conduite de session, et sa place est ici.
+
+**Écart avec la spec.** Aucun. §16 n'est pas amendé : les sept niveaux et les dix signaux sont
+repris tels quels, et `W17.m` tient leur nombre et leurs noms par un test.
+
+**Non instruit, et signalé comme tel.** §18.3 à §18.6 — la fusion de branches interagit avec la
+mémoire de branche de §16.1 et avec les propositions d'alignement. À lire avant `W14.e`, et le test
+de sortie de l'item le dit.
+
+**Prochain item.** `W17.i`, la frontière courante, puis `W17.j` ; les items neufs viennent après,
+dans l'ordre `W17.k → l → m → n`, `W18.g`, `W18.h`, `W14.e`, les trois indépendants ensuite.
+
+## 2026-08-20 — W17.i — le commit d'une version de coordination écrit un fait
+
+**Périmètre.** `packages/coordination/src/version.rs` — `Operation::parse` et `ParseOperationError`,
+plus l'en-tête du module remis à jour ; `apps/locusd/src/organisation.rs`, neuf — `Commit`,
+`OrganisationContext`, `replay`, `ReplayError`, `stream_of` ; les deux `lib.rs` ;
+`packages/coordination/tests/version.rs` et `apps/locusd/tests/organisation.rs`.
+
+**Tests exécutés.** `npm run check` — les douze gardes. Quarante-sept tests dans
+`coordination/tests/version.rs`, six dans `locusd/tests/organisation.rs`.
+
+**Ce que l'item ferme.** `packages/coordination` savait produire une `Version` et rien n'écrivait le
+résultat : un commit rendait une valeur que l'appelant gardait pour lui. Le journal n'en portait
+aucune trace, donc aucun résolveur ne pouvait relire une `VersionId`, et `/branches/{id}/diff`
+n'avait pas de quoi répondre. `W17.j` en dépendait directement.
+
+**La forme canonique est devenue la forme de transport, et ce n'est pas une économie.** Les octets
+écrits dans le journal sont **exactement** ceux sur lesquels le condensat a été calculé : un lecteur
+relit ce qui a été signé, et non une seconde représentation dont il faudrait prouver qu'elle dit la
+même chose. Une sérialisation dérivée aurait fait de la forme d'un `derive` un contrat de journal
+sans que personne ne le décide.
+
+**Ce choix n'était pas disponible il y a trois heures.** La forme canonique n'était pas analysable
+sans ambiguïté : un rôle portant une tabulation forgeait un champ, et un rôle nommé `-` était
+indistinguable d'une absence. Le durcissement contre l'injection — corrigé pour une tout autre
+raison — l'a rendue non ambiguë, et `Operation::parse` en est le bénéficiaire direct. Une correction
+de défaut a ouvert une voie qu'elle ne cherchait pas ; c'est assez rare pour être noté.
+
+**Les dix opérations font l'aller-retour, pas un échantillon.** Une opération non couverte est
+précisément celle dont on découvrirait dans un an qu'elle ne se relit pas. Le test tient aussi le
+compte contre l'énumération, et le cas que le champ vide piège : une scission sans arête partagée
+rend un champ vide, que `split(' ')` rend comme un unique élément vide — sans filtre, la relecture
+aurait inventé une arête illisible et refusé une opération valide.
+
+**Aucun magasin, et la révision vient du journal.** ADR 0016 décision 5 : « aucun compteur, aucun
+magasin, aucun bus n'est créé ». La révision d'une version **est** la révision de stream, et un
+commit sur une base périmée est refusé par le mécanisme de toute autre commande — pas par une
+vérification que ce module aurait ajoutée. C'est le point : il n'y avait rien à ajouter.
+
+**La racine est fournie, et la lacune est nommée.** Rejouer part d'une racine que l'appelant donne,
+parce que la racine d'une organisation est ce que produit `team.create` — une commande de §22.3 qui
+n'est pas cet item. L'inventer aurait demandé de choisir un mode de coordination par défaut, et
+§14.3 n'en donne aucun : les cinq sont obligatoires et aucun n'est le repli des autres. Un défaut
+choisi en passant se serait lu comme une décision de §14.3 et aurait faussé la comparaison entre
+campagnes que cette section annonce. Même discipline que `BranchContext` pour les identifiants.
+
+**Le stream est `organisation/{branch_id}`**, et l'argument est la route qui a motivé la chaîne :
+§22.4 sert `/branches/{id}/diff`, donc le graphe comparé est celui d'une branche. Le ranger ailleurs
+obligerait cette route à une jointure pour retrouver ce qu'elle a déjà dans son chemin.
+
+**Corrigé en passant.** L'en-tête de `version.rs` disait encore « huit opérations » et « sept des
+huit ont un inverse exact » depuis que `W13.h` en a ajouté deux. Dix et neuf.
+
+**Écart avec la spec.** Aucun. §10.3 donne `team` comme famille et §22.3 `team.modify` comme
+commande ; l'événement est ce que la commande produit, au passé, comme `branch.validated` l'est de
+`branch.merge.apply`.
+
+**Prochain item.** `W17.j` — le résolveur de versions et la liaison HTTP du diff et de la preview,
+que cet item vient de rendre possible.
+
+## 2026-08-20 — W17.j — le résolveur de versions et la liaison HTTP du diff
+
+**Périmètre.** `packages/coordination/src/version.rs` — `VersionId::parse` ;
+`apps/locusd/src/organisation.rs` — `Create`, `created_event`, `root_from`, `resolve`, `resolve_at`,
+`apply_from`, `ReplayError::{Empty, UnknownVersion}` ; `apps/locusd/src/branch.rs` —
+`Runtime::organisation_diff` ; `apps/locusd/src/http.rs` — la route `GET /branches/{id}/diff` et
+`probleme` ; `apps/locusd/tests/http.rs`.
+
+**Tests exécutés.** `npm run check` — les douze gardes. Vingt tests dans `locusd/tests/http.rs`,
+dont trois neufs servis sur un socket réel.
+
+**La lacune de `W17.i` se comble ici, et par le seul moyen qui n'invente rien.** `W17.i` recevait sa
+racine de l'appelant, en refusant de choisir un mode de coordination par défaut que §14.3 ne donne
+pas. Une route HTTP n'a qu'un identifiant de branche dans son chemin : elle n'aurait eu nulle part
+où prendre cette racine. `team.created` la met dans le journal — **quelqu'un déclare** la
+composition initiale, et cette déclaration est un fait. Le mode vient de qui fonde l'organisation,
+pas d'un défaut de module.
+
+**Deux formes de charge, et l'asymétrie est délibérée.** Une opération voyage sous sa forme
+canonique ; une racine voyage en clair — membres, relations, mode, coordinateur. La forme canonique
+d'un **contenu** est un texte à lignes trié, dont la relecture demanderait un second analyseur pour
+un seul usage, quand les opérations se relisent par milliers. Le condensat accompagne la composition
+et **est vérifié** : une racine reconstruite qui n'est pas celle que le fait annonce est refusée,
+parce que reconstruire un contenu qu'on ne peut pas reconnaître ne prouve rien.
+
+**`resolve_at` s'arrête sur la version demandée** plutôt que d'aller au bout du stream : une
+`VersionId` désigne un point de l'histoire, et rendre l'état final pour une version intermédiaire
+serait répondre à une autre question.
+
+**Trois refus qui ne se confondent pas.** `Empty` — aucune organisation fondée, et une organisation
+**absente** n'est pas une organisation **vide** : rendre une racine sans membre ferait afficher une
+équipe vide là où il n'y a pas d'équipe. `UnknownVersion` — `404`, jamais une racine plausible, ce
+que `W17.j` interdit nommément et qui est le mode d'échec des cursors de `W20.e`. `Unreadable` —
+`500`, parce qu'un journal illisible est une faute du serveur et que le dire autrement enverrait le
+client corriger ce qu'il n'a pas écrit. Un test vérifie qu'une version inconnue ne rend **aucune**
+opération : un diff vide aurait été la réponse plausible.
+
+**Un test de `W17.g` a été remplacé, et le remplacement dit pourquoi.** Il refusait les trois routes
+restantes en notant « il tombera le jour où le résolveur existera, et c'est exactement ce qu'on lui
+demande ». Ce jour est arrivé. Il en tient maintenant deux — preview et ombre —, avec les raisons
+inchangées : la preview demande les `Barriers` en vigueur, que rien ne matérialise depuis le journal
+; l'ombre demande un plan et un environnement, qu'un `GET` ne porte pas. Et il nomme désormais les
+routes **présentes**, faute de quoi il passerait aussi sur un routeur vide.
+
+**Une lecture d'opération, écrite une fois.** `apply_from` est appelée par `replay`, `resolve` et
+`resolve_at` ; trois lectures séparées auraient fini par diverger, et la troisième aurait été celle
+qu'on ne relit jamais.
+
+**Écart avec la spec.** Aucun. §22.4 sert `/branches/:id/diff` et la route rend les opérations **et
+leur nature** — la propriété que deux mutants de `W17.f` avaient traversée.
+
+**Prochain item.** `W17.k` — `memory::Genre`, le premier des items ouverts par l'ADR 0022.
+
+## 2026-08-20 — W17.k — le genre, seconde dimension de la mémoire
+
+**Périmètre.** `packages/memory/src/genre.rs`, neuf — `Genre`, `GenreOracle`, `Unknowing` ;
+`level.rs` — `Entry` et `Shelf::store` gagnent le genre, `store_checked` et
+`MemoryError::GenreContradicted` ; `retrieval.rs` — `Candidate` perd ses champs publics au profit de
+`Candidate::new`, et `RetrievalError::VectorOnFormal` ; `separated.rs` ; le `lib.rs` ; les tests
+`genre.rs`, `retrieval.rs` et `level.rs`.
+
+**Tests exécutés.** `npm run check` — les douze gardes. Neuf tests dans `tests/genre.rs`.
+
+**Le nom.** `Genre` et non `Kind`, que `compaction` occupe. Un test importe les deux dans un même
+`use` sans renommage : si le genre s'était appelé `Kind`, cette ligne ne compilerait pas et chaque
+appelant aurait renommé à l'import — la duplication de vocabulaire sous une autre forme. Ce crate
+avait déjà tranché la même collision dans le même sens avec `DuplicateCandidate`.
+
+**Le recoupement est vérifié, pas dupliqué.** Quatre genres recouvrent des distinctions encodées
+ailleurs, et `Genre::Negative` aurait été la quatrième représentation du résultat négatif — ce que
+l'ADR 0021 vient de retirer pour `proposal::Change`. Le genre reste **déclaré**, parce qu'une
+`Entry` doit être auto-descriptive ; mais là où un oracle connaît la clé, le désaccord est un
+**refus qui nomme les deux**. Une clé qu'aucun oracle ne résout est **acceptée** : l'ignorance n'est
+pas un démenti, et la faute symétrique — refuser tout ce qu'on ne sait pas confirmer — rendrait la
+mémoire inutilisable partout où le résolveur n'a rien à dire.
+
+**`Candidate.is_negative` a disparu**, et c'est une conséquence non prévue de la décision 1 bis. Un
+booléen qui pouvait contredire le genre était une seconde source de vérité pour la même question ;
+`is_negative()` lit désormais le genre. La dimension a donc **retiré** un champ au lieu d'en ajouter
+un — l'inverse de ce qu'on attend d'un ajout de dimension.
+
+**Le refus `(Formal, Vector)` coûte ce qui était annoncé.** `Ranking::of` est inchangé, comme
+l'analyse le prévoyait ; mais `Candidate` n'avait pas de constructeur, et ses quatre champs étaient
+`pub`. Ils cessent de l'être, faute de quoi un littéral de structure contournerait la vérification
+sans qu'aucun test ne s'en aperçoive. Un test vérifie les trois cas : le couple refusé, le même
+score sur un objet sémantique accepté, et un objet formel classé autrement accepté — l'interdit vise
+le **couple**, il ne bannit pas le genre du retrieval.
+
+**Un genre déduit à la frontière, et le choix est dit.** `separated.rs` ne connaît que `is_negative`
+: le genre s'y déduit — `Negative` sinon `Semantic` côté épistémique, `Negative` sinon
+`Coordination` côté organisationnel. Faire porter le genre à `EpistemicEntry` serait plus juste et
+demanderait de le remonter jusqu'aux appelants : un item, pas une correction de passage. Les deux
+`expect` qui en découlent portent une section `# Panics` qui dit pourquoi ils ne peuvent pas tirer.
+
+**Un premier test d'absence comptait la mauvaise chose.** Il comptait le jeton `Entry {`, qui
+attrape aussi la déclaration et le bloc `impl` — trois occurrences pour une seule construction. La
+forme visée est `= Entry {`. Un compte qui ramasse trois choses différentes ne dit rien de ce qu'on
+voulait savoir.
+
+**Écart avec la spec.** Aucun. §16.1 garde ses sept niveaux et §16.3 ses dix signaux, inchangés.
+
+**Prochain item.** `W17.l` — `Intent`, `Plan`, `Escalation`, et `retrieve` qui prend un plan.
+
+## 2026-08-20 — W17.l — le retrieval est un plan
+
+**Périmètre.** `packages/memory/src/plan.rs`, neuf — `Intent`, `Channel`, `Stop`, `RankingIdentity`,
+`Escalation`, `Provenance`, `Plan`, `PlanError` ; `retrieval.rs` — `retrieve` prend un plan,
+`Candidate` gagne sa provenance et `obtained_after` ; `separated.rs` ; le `lib.rs` ; les tests
+`plan.rs` et `retrieval.rs`.
+
+**Tests exécutés.** `npm run check` — les douze gardes. Douze tests dans `tests/plan.rs`.
+
+**Deux axes, deux types.** `Channel` produit, `Signal` classe. Les dix signaux de §16.3 mélangent
+des routes, des filtres et des objectifs ; c'est fidèle à la spec et il ne faut pas y toucher, mais
+ajouter les canaux à cette énumération aurait perpétué la confusion **et** modifié une liste
+normative. Un test tient les dix par leur nombre et leurs noms.
+
+**`Plan::compatible` plutôt que `Plan::default`.** La ligne de roadmap disait `default()`, et le
+`Default` de Rust ne prend pas de paramètre : le budget devait y entrer. Un `Default` qui aurait
+inventé un budget aurait été une politique non écrite. Le constructeur est donc nommé, prend le
+budget, et la ligne de roadmap est corrigée — la roadmap suit le code quand le code a raison.
+
+**La réserve de négatifs est nulle par défaut, et c'est ce qui rend l'item additif.** `retrieve`
+d'avant ne lisait **jamais** `is_negative` dans le chemin du budget. Les deux moitiés sont testées :
+sans réserve, un négatif mal classé est exclu comme les autres ; avec réserve, il tient sa place et
+l'exclusion tombe ailleurs.
+
+**`caller-supplied` déclare une absence au lieu de la taire.** `Ranking::of` reçoit des flottants
+calculés par l'appelant : ce crate ne produit aucun score. Une identité de classement qui manquerait
+laisserait un reçu promettre un rejeu qu'il ne peut pas garantir, et le test passerait quand même —
+une fixture étant déterministe par construction, il ne testerait rien. `is_replayable()` rend la
+distinction lisible, comme `None` contre `Some(0.0)` pour une couverture.
+
+**Clippy a trouvé une vraie faute de conception.** `Intent::Explanatory` et `Intent::Global`
+partaient du même ordre de canaux, et l'avertissement « ces bras ont des corps identiques » disait
+quelque chose de juste : une intention globale **ne part pas d'un nœud**. « Que dit l'ensemble du
+dossier » n'a pas de point de départ dans le graphe, donc elle balaie d'abord largement, quand
+l'explicative part d'une contradiction précise. Le lint a corrigé le routage, pas la mise en forme.
+
+**Une propriété non demandée mais gratuite.** `Intent::Formal` n'emprunte pas le canal vectoriel :
+le refus existait déjà à la construction du candidat, et le porter aussi dans l'ordre des canaux
+évite de payer une route dont on refusera le résultat.
+
+**Écart avec la spec.** Aucun. §16.3 n'est pas amendé.
+
+**Prochain item.** `W17.m` — les quatre canaux nouveaux, dont `Structural`, qui attend un port
+`RevisionId → ObjectType` que `packages/graph` ne détient pas.
+
+## 2026-08-20 — W17.m — les quatre canaux nouveaux
+
+**Périmètre.** `packages/memory/src/plan.rs` — `Channel` passe de quatre à huit, `PremiseShapes`,
+`StructuralChannel`, `RegionRef`, et les ordres de canaux des cinq intentions concernées ; le
+`lib.rs` ; `packages/memory/tests/plan.rs`.
+
+**Tests exécutés.** `npm run check` — les douze gardes. Dix-sept tests dans `tests/plan.rs`.
+
+**Le port de formes de prémisses est nommé, pas supposé.** La forme d'une inférence est le
+multiensemble des **types** de ses prémisses ; `Graph` ne contient que `relations` et `inferences`,
+et `minimal_premise_sets` rend des `RevisionId`. La résolution `RevisionId → ObjectType` n'existe
+nulle part, et `packages/memory` ne connaît ni `graph` ni `domain` — le port est donc la seule forme
+honnête. C'est l'ADR 0022 décision 5 qui l'avait déjà relevé ; l'item le livre.
+
+**La fixture est ce qui rend le test décidable.** Trois inférences : deux qui partagent la
+**structure** sans le contenu, une qui partage le **contenu** sans la structure. Sans les trois, le
+test ne distinguerait rien — n'importe quel appariement passerait, y compris un appariement par
+identité de prémisse, qui est exactement ce que ce canal n'est pas.
+
+**Une inférence sans prémisse n'est pas une inférence inconnue.** `Some(vec![])` contre `None`. Les
+fondre aurait apparié l'inconnue avec toutes les vides — une réponse plausible prise au mauvais
+endroit, que rien dans la réponse ne signale. Même famille que `unverified` contre `broken`, et que
+`None` contre `Some(0.0)` pour une couverture.
+
+**`Regional` tient par l'absence de type.** `RegionRef` n'a que deux champs textuels, et un test
+refuse `Vec<u8>`, `ObjectStore`, `bytes`, `fn fetch` dans tout le module. Le graphe tient l'identité
+et la boîte, l'artefact tient les octets.
+
+**`Community` n'est jamais un défaut**, et le test l'exerce sur les six intentions plutôt que sur la
+seule `Global` : vérifier qu'une intention l'emprunte ne dit rien tant qu'on n'a pas vérifié que les
+cinq autres ne l'empruntent pas.
+
+**Une assertion de `W17.l` a été mise à jour.** Elle tenait le premier canal de l'intention globale
+— `Lexical` —, et `Community` le précède désormais. Le commentaire dit pourquoi, plutôt que de
+laisser croire à un ajustement de confort.
+
+**Un test de séparation en prime.** Aucun canal ne porte le nom d'un signal qui n'est pas une route
+: les quatre routes de §16.3 se retrouvent des deux côtés, les six autres signaux d'aucun. La
+frontière entre « produire » et « classer » est ainsi tenue par une correspondance, pas par une
+intention.
+
+**Écart avec la spec.** Aucun. §16.3 garde ses dix signaux ; les canaux sont un axe distinct.
+
+**Prochain item.** `W17.n` — le reçu de retrieval, et la jonction `Results → ContextView` qui
+n'existe pas : `packages/review` gagnera une dépendance sur `packages/memory`.
+
+## 2026-08-20 — W17.n — le reçu de retrieval, et la jonction qui n'existait pas
+
+**Périmètre.** `packages/memory/src/receipt.rs`, neuf — `RetrievalReceipt`, `Exclusion`, `Coverage`,
+`ReceiptError` ; `packages/review/Cargo.toml` gagne `locus-memory` ;
+`packages/review/src/from_retrieval.rs`, neuf — `view_from_retrieval`, `replay_receipt`,
+`JunctionError` ; les deux `lib.rs` ; `packages/review/tests/from_retrieval.rs`.
+
+**Tests exécutés.** `npm run check` — les douze gardes. Neuf tests dans
+`review/tests/from_retrieval.rs`.
+
+**Ce n'était pas un type à ajouter.** L'audit de l'ADR 0022 l'avait établi et le code l'a confirmé :
+`ContextView` vit dans `packages/review`, `retrieve` dans `packages/memory`, les deux crates ne se
+connaissaient pas, et `ContextView::build` prend des `ContextItem` clés par `RevisionId` quand
+`retrieve` rend des `Candidate` clés par `String`. Aucun chemin ne menait de l'un à l'autre. Le reçu
+est ce qui **relie**, et le premier test de sortie est la preuve que le chemin existe : il n'aurait
+pas compilé avant cet item.
+
+**La direction de la dépendance se justifie.** `review` → `memory`, parce qu'une vue de contexte se
+construit **depuis** un retrieval et jamais l'inverse. Un troisième crate pour un seul type avait
+été écarté par l'ADR : c'est la dispersion appliquée au code.
+
+**Le condensat est calculé, plus fourni.** `ContextView::build` reçoit son `ContentHash` en
+paramètre. Tant que personne ne le calculait, « deux constructions rendent la même vue » était une
+affirmation sur l'appelant, pas une propriété. La jonction le calcule depuis une forme canonique des
+révisions retenues — **dans l'ordre**, l'ordre des inclusions étant le classement —, et le rejeu se
+compare par égalité stricte.
+
+**Le reçu ne promet pas ce qu'il ne peut pas tenir.** `promises_replay()` lit l'identité de
+classement : sous un plan compatible elle vaut `caller-supplied`, donc le reçu dit lui-même que le
+rejeu du **classement** n'est pas garanti. Ce que le rejeu prouve est plus étroit et vérifiable : le
+reçu suffit à reconstituer la même vue, donc il n'a rien caché de ce qui a été retenu.
+
+**Un rejeu sur un corpus amputé refuse.** Rendre une vue plus courte aurait rendu une vue plausible
+et fausse, sans que rien dans la réponse ne dise qu'il manque quelque chose — le mode d'échec des
+cursors de `W20.e`, une troisième fois.
+
+**Deux distinctions écrites, jamais tues.** La couverture : `None` « non mesurée », `Some(0.0)` «
+mesurée et nulle » — et les deux formes canoniques diffèrent, donc les deux condensats aussi, ce qui
+est le seul endroit où la distinction compte. La réserve de négatifs : écrite même à zéro.
+
+**Le durcissement de `W17.h` s'étend à la cinquième forme canonique.** Un motif d'exclusion qui
+forgerait une ligne insérerait une exclusion que personne n'a écrite — dans le document même qui
+existe pour rendre les exclusions lisibles.
+
+**Une garde d'absence trop large, corrigée.** Elle interdisait le mot « document » dans
+`receipt.rs`, où la documentation l'emploie pour dire exactement ce que la garde veut obtenir. Les
+motifs visent désormais des **déclarations de champ** — `body:`, `payload:`, `content:`,
+`document:`. Une garde qui se déclenche sur sa propre justification est une garde qu'on finit par
+assouplir.
+
+**Écart avec la spec.** Aucun. §16.2 garde une `ContextView` immuable et adressée par hash ; la
+contestation vise le reçu, et un test tient par l'absence qu'aucun chemin ne rend une vue
+modifiable.
+
+**Prochain item.** `W18.g` — le producteur d'observations, que `W17.n` vient de débloquer : la
+lacune de domaine se lit désormais dans un reçu au lieu d'être affirmée par un agent.
+
+## 2026-08-20 — W18.g — le producteur d'observations
+
+**Périmètre.** `packages/adaptation/src/observation.rs`, neuf — `Observation`, `ObservationKind`,
+`Sensor`, `observe_all`, `ObservationError` ; le `lib.rs` ; `Cargo.toml` gagne `locus-memory` ;
+`packages/adaptation/tests/observation.rs`.
+
+**Tests exécutés.** `npm run check` — les douze gardes. Sept tests dans `tests/observation.rs`.
+
+**Ce qui manquait, exactement.** Les onze `Trigger` de §14.5 existaient, et **rien ne disait quand
+ils se déclenchent**. Un agent affirmait « il y a une lacune de domaine » et le système le croyait.
+Une observation remplace l'affirmation par une mesure : une valeur recalculable depuis le journal,
+qui **cite** ce dont elle est tirée.
+
+**Le test central est un test d'absence.** Aucun chemin de type ne mène d'une `Observation` à un
+`Trigger` : pas de `From`, pas de méthode, pas de fonction. La correspondance « telle mesure
+déclenche tel trigger » est une **décision**, elle vit dans une politique versionnée avec ses
+seuils. La figer dans le code aurait obligé à recompiler pour la changer.
+
+**Un seuil n'a nulle part où s'écrire**, et c'est le corollaire : « à partir de combien de conflits
+ouverts faut-il agir » n'a pas de réponse dans les données. Un capteur qui porterait ce seuil
+trancherait la question en silence.
+
+**Une source muette rend `None`, jamais `Some(0.0)`.** « Aucun conflit ouvert » et « la source n'a
+pas répondu » sont deux états qu'une politique traite différemment, et les fondre ferait lire un
+silence comme une bonne nouvelle. `observe_all` rend donc un compte rendu **plus court** quand une
+source se tait : une politique qui reçoit cinq observations sur six sait qu'il lui en manque une.
+
+**Le nom, pour la seconde fois de la série.** `Observation` et non `Signal`, que `memory::retrieval`
+occupe pour un facteur de classement — même collision que `Genre` contre `Kind`, résolue de la même
+façon, et un test importe les deux sans renommage.
+
+**Le watermark n'est pas décoratif**, et le test s'en assure : deux mesures au même préfixe sont
+égales, et une mesure à un préfixe plus long diffère. Sans ce second assert, un capteur qui
+ignorerait le préfixe passerait le premier.
+
+**Quatrième garde trop large de la série, corrigée.** Elle interdisait le mot `Trigger` dans un
+module dont la documentation l'emploie pour dire précisément ce que la garde veut obtenir. Elle vise
+désormais des **imports et des signatures** — `use crate::Trigger`, `-> Trigger`, `: Trigger`. Le
+motif se répète assez pour mériter d'être noté : un test d'absence vise une **forme de code**,
+jamais un mot.
+
+**Écart avec la spec.** Aucun. §14.5 garde ses onze déclencheurs, et une observation nouvelle
+alimente un déclencheur existant par la politique — pas de douzième.
+
+**Prochain item.** `W18.h` — le raisonneur d'ontologie comme première capacité réellement admise, ou
+`W9.e` / `W6.g` / `W8.j`, qui sont indépendants. `W14.e` attend la lecture de §18.3 à §18.6, que son
+test de sortie exige.
+
+## 2026-08-20 — Mutation testing rétroactif sur W17.k → W18.g
+
+**Périmètre.** `packages/review/tests/from_retrieval.rs` — un test de plus. Aucun code de domaine.
+
+**Tests exécutés.** `npm run check`. Vingt-six mutants sur `genre.rs`, `level.rs`, `retrieval.rs`,
+`plan.rs`, `receipt.rs`, `from_retrieval.rs` et `observation.rs` : **26 tués, 0 survivant**.
+
+**Pourquoi rétroactivement.** La pratique du dépôt veut un passage de mutation après chaque item.
+Sept items ont été livrés d'affilée sans, parce que la CI ne rendait aucun verdict et que
+j'accumulais des livraisons plutôt que de vérifier celles déjà faites. Ajouter un huitième item à
+une PR invérifiable valait moins que d'éprouver les sept premiers.
+
+**Un survivant réel, et c'est le motif récurrent de la session.** Le mutant « le condensat d'une vue
+ignore l'ordre des inclusions » a survécu à toute la suite. La documentation de la jonction dit
+pourtant que l'ordre compte — « l'ordre des inclusions est le classement, et deux vues qui
+retiennent les mêmes révisions dans un autre ordre ne servent pas la même chose au lecteur ». Rien
+ne le tenait. C'est la cinquième fois de cette session qu'une phrase qui explique **pourquoi** une
+propriété compte se révèle être une propriété que personne ne vérifie.
+
+Le test ajouté tient les deux moitiés : deux condensats différents, **et** le même ensemble de
+révisions des deux côtés — sans ce second assert, il passerait aussi si l'une des deux vues perdait
+un élément, ce qui serait un autre défaut sous le même verdict.
+
+**Trois faux survivants, et le harnais était en cause.** Deux mutants de `receipt.rs` tournaient
+sous `-p locus-memory` seul, alors que les tests qui les tuent vivent dans `locus-review` : le
+harnais lisait « les tests passent » d'une suite qui n'avait pas été exécutée. C'est exactement la
+règle du dépôt — « un compteur qui n'a rien lu ne vaut pas zéro » — appliquée à l'outillage, et elle
+s'est vérifiée ici sur mon propre outil.
+
+Le troisième n'était pas un survivant mais un **mutant inerte** : il remplaçait une source muette
+par une observation de valeur nulle citant un vecteur vide, or `Observation::measured` refuse un
+`cites` vide et le `.ok()` rendait `None` — le comportement était inchangé. La faute que je voulais
+éprouver était donc **inexprimable**, ce qui est une bonne nouvelle mal étiquetée. Le mutant corrigé
+cite une révision feinte, et il est tué.
+
+**Écart avec la spec.** Aucun.
+
+**Prochain item.** `W18.h`, `W9.e`, `W6.g` ou `W8.j` — les quatre sont indépendants. `W14.e` attend
+la lecture de §18.3 à §18.6.

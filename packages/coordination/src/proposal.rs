@@ -23,7 +23,8 @@ use locus_protocol::{
     id::{Agent, provisional::Approval, provisional::Decision as DecisionKind},
 };
 
-use crate::team::CoordinationMode;
+use crate::diff::Diff;
+use crate::version::{Digest, Version};
 
 /// Les sortes de relation de coordination qui existent.
 ///
@@ -92,48 +93,6 @@ pub struct Relation {
     pub to: Id<Agent>,
     /// De quelle sorte.
     pub kind: RelationKind,
-}
-
-/// Ce qu'une proposition change — le payload de `team.modify` (§22.3).
-///
-/// Chaque variante a son inverse exact, et c'est ce qui rend l'annulation possible **sans rien
-/// supprimer** (décision 5).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Change {
-    /// Ajouter un membre à l'équipe.
-    AddMember(Id<Agent>),
-    /// Retirer un membre.
-    RemoveMember(Id<Agent>),
-    /// Ajouter une relation de coordination.
-    AddRelation(Relation),
-    /// Retirer une relation.
-    RemoveRelation(Relation),
-    /// Changer le mode de coordination.
-    SetMode {
-        /// Celui d'avant, pour que l'inverse existe.
-        from: CoordinationMode,
-        /// Celui d'après.
-        to: CoordinationMode,
-    },
-}
-
-impl Change {
-    /// Le changement qui défait celui-ci.
-    ///
-    /// Une annulation est le **commit d'un changement inverse**, produisant une nouvelle version
-    /// dont le parent est la version courante (décision 5). Retirer une version rendrait
-    /// l'histoire fausse : on ne pourrait plus dire qu'une mission a tourné sous une organisation
-    /// qui, désormais, n'aurait jamais existé.
-    #[must_use]
-    pub const fn inverse(self) -> Self {
-        match self {
-            Self::AddMember(agent) => Self::RemoveMember(agent),
-            Self::RemoveMember(agent) => Self::AddMember(agent),
-            Self::AddRelation(relation) => Self::RemoveRelation(relation),
-            Self::RemoveRelation(relation) => Self::AddRelation(relation),
-            Self::SetMode { from, to } => Self::SetMode { from: to, to: from },
-        }
-    }
 }
 
 /// Qui écrit la proposition.
@@ -228,7 +187,7 @@ pub struct Proposal {
     id: Id<DecisionKind>,
     author: Author,
     base_revision: u64,
-    change: Change,
+    diff: Diff,
     justification: Justification,
     cancels: Option<Id<DecisionKind>>,
 }
@@ -251,7 +210,7 @@ impl Proposal {
         author: Author,
         mode: Mode,
         base_revision: u64,
-        change: Change,
+        diff: Diff,
         justification: Justification,
         index: &impl EpistemicIndex,
     ) -> Result<Self, ProposalError> {
@@ -270,7 +229,7 @@ impl Proposal {
             id,
             author,
             base_revision,
-            change,
+            diff,
             justification,
             cancels: None,
         })
@@ -278,8 +237,11 @@ impl Proposal {
 
     /// Déclarer que cette proposition en annule une autre.
     ///
-    /// Le changement porté doit être l'inverse de celui qu'elle annule ; l'appelant le compose
-    /// avec [`Change::inverse`].
+    /// Le diff porté doit être celui qui défait la proposition annulée ; l'appelant le compose avec
+    /// [`Diff::inverse`], qui **refuse** quand une opération n'a pas d'inverse exact. ADR 0016
+    /// décision 5 : « une modification non inversible ne peut être que compensée, et elle le déclare
+    /// à la proposition » — c'est l'appelant qui écrit alors ce qu'il compense, parce que lui seul
+    /// sait ce qu'il veut compenser.
     #[must_use]
     pub const fn cancelling(mut self, cancelled: Id<DecisionKind>) -> Self {
         self.cancels = Some(cancelled);
@@ -304,10 +266,14 @@ impl Proposal {
         self.base_revision
     }
 
-    /// Ce qu'elle change.
+    /// Ce qu'elle change — un diff d'opérations, ADR 0021 décision 1.
+    ///
+    /// C'était une `Change`, une énumération que rien n'appliquait : `commit()` la recevait et
+    /// rendait `revision + 1`. Une proposition qui déclarait « ajouter ce membre » laissait le
+    /// système exactement dans l'état où elle l'avait trouvé. Le diff, lui, se rejoue.
     #[must_use]
-    pub const fn change(&self) -> Change {
-        self.change
+    pub const fn diff(&self) -> &Diff {
+        &self.diff
     }
 
     /// Ce qui la motive.
@@ -465,12 +431,20 @@ pub fn approve(
 }
 
 /// Ce qu'un commit produit.
+///
+/// **Trois choses, et les deux premières ne se remplacent pas.** La `revision` est la concurrence
+/// optimistique de §22.2 — elle dit que personne n'a écrit entre-temps. La `version` est l'identité
+/// de contenu de `docs/13` §3 — elle dit *quoi*. Un système qui n'aurait que la révision ne saurait
+/// pas dire ce qu'il a commité ; un système qui n'aurait que le contenu ne saurait pas dire qu'il
+/// était seul à écrire.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Committed {
     /// La proposition commitée.
     pub proposal: Proposal,
     /// La révision produite.
     pub revision: u64,
+    /// La version produite, dont le parent est celle sur laquelle le diff était écrit.
+    pub version: Version,
 }
 
 /// Commiter une proposition approuvée, par comparaison de révision.
@@ -483,10 +457,24 @@ pub struct Committed {
 /// dit quoi faire**, parce qu'un « conflit » sans consigne laisse l'appelant réessayer à
 /// l'identique jusqu'à ce que quelqu'un lise le code.
 ///
+/// # Deux vérifications, et aucune ne couvre l'autre
+///
+/// La révision dit que personne n'a écrit entre-temps ; le rejeu du diff dit que ce qu'on applique
+/// est bien ce qui a été approuvé. Une base de révision peut correspondre alors que le diff a été
+/// écrit sur une **autre lignée** de versions — c'est [`Diff::replay`] qui l'attrape, et son refus
+/// dit lui aussi qu'il faut rebaser.
+///
 /// # Errors
 ///
-/// [`ProposalError::Stale`] quand la base ne correspond plus.
-pub fn commit(approved: Approved, current_revision: u64) -> Result<Committed, ProposalError> {
+/// [`ProposalError::Stale`] quand la base de révision ne correspond plus, et
+/// [`ProposalError::Inapplicable`] quand le diff ne se rejoue pas sur la version courante — en
+/// portant le refus du diff, qui nomme l'opération fautive et sa position.
+pub fn commit(
+    approved: Approved,
+    current_revision: u64,
+    current: &Version,
+    digest: &impl Digest,
+) -> Result<Committed, ProposalError> {
     let base = approved.proposal().base_revision();
     if base != current_revision {
         return Err(ProposalError::Stale {
@@ -494,9 +482,18 @@ pub fn commit(approved: Approved, current_revision: u64) -> Result<Committed, Pr
             actual: current_revision,
         });
     }
+    let version = approved
+        .proposal()
+        .diff()
+        .replay(current, digest)
+        .map_err(|because| ProposalError::Inapplicable {
+            detail: because.to_string(),
+            rebase: because.needs_rebase(),
+        })?;
     Ok(Committed {
         proposal: approved.proposal,
         revision: current_revision + 1,
+        version,
     })
 }
 
@@ -516,6 +513,17 @@ pub enum ProposalError {
         mode: Mode,
         /// L'auteur.
         author: String,
+    },
+    /// Le diff ne se rejoue pas sur la version courante.
+    ///
+    /// Distincte de [`ProposalError::Stale`], et les fondre perdrait la consigne : une base de
+    /// révision périmée se rebase, une opération inapplicable se réécrit. `rebase` porte ce que le
+    /// diff en a dit plutôt que de le redéduire — la consigne appartient à celui qui sait.
+    Inapplicable {
+        /// Ce que le diff a répondu.
+        detail: String,
+        /// Vrai quand rebaser suffit.
+        rebase: bool,
     },
     /// Un auteur qui approuve sa propre proposition.
     SelfApproval {
@@ -556,6 +564,17 @@ impl fmt::Display for ProposalError {
                 formatter,
                 "en mode « {mode} », {author} signale un besoin mais ne propose pas"
             ),
+            Self::Inapplicable { detail, rebase } => {
+                let consigne = if *rebase {
+                    "rebaser puis retenter"
+                } else {
+                    "réécrire le diff"
+                };
+                write!(
+                    formatter,
+                    "le diff ne s'applique pas : {detail} — {consigne}"
+                )
+            }
             Self::SelfApproval { author } => write!(
                 formatter,
                 "{author} ne peut pas approuver sa propre proposition"

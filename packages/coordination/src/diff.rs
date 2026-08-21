@@ -44,7 +44,7 @@ use std::fmt::Write as _;
 
 use locus_domain::ContentHash;
 
-use crate::version::{Digest, Operation, Version, VersionError, VersionId};
+use crate::version::{Digest, Operation, Undo, Version, VersionError, VersionId};
 
 /// La ligne d'en-tête de la forme canonique d'un diff.
 const DIFF_MAGIC: &str = "coordination-diff/1";
@@ -175,6 +175,32 @@ impl Diff {
         canonical
     }
 
+    /// Le diff qui défait celui-ci, écrit sur la version qu'il a produite.
+    ///
+    /// Les opérations sont **inversées puis renversées** : défaire `[a, b, c]` est faire
+    /// `[c⁻¹, b⁻¹, a⁻¹]`. L'ordre compte — retirer une arête puis son nœud se défait en remettant le
+    /// nœud **puis** l'arête, et l'ordre inverse serait une arête pendante.
+    ///
+    /// # Errors
+    ///
+    /// [`DiffError::NotInvertible`] si une opération n'a pas d'inverse exact, en la nommant ;
+    /// [`DiffError::Inapplicable`] si l'inverse ne se rejoue pas sur `applied` — ce qui ne devrait
+    /// pas arriver et n'est donc pas supposé : une garantie qu'on croit tenir sans la vérifier est
+    /// exactement ce que ce dépôt refuse.
+    pub fn inverse(&self, applied: &Version, digest: &impl Digest) -> Result<Self, DiffError> {
+        let mut undone = Vec::with_capacity(self.operations.len());
+        for (position, operation) in self.operations.iter().enumerate().rev() {
+            let Undo::Exact(inverse) = operation.undo() else {
+                return Err(DiffError::NotInvertible {
+                    position,
+                    operation: operation.canonical(),
+                });
+            };
+            undone.push(inverse);
+        }
+        Self::declaring(applied, undone, digest)
+    }
+
     /// Rejouer le diff sur sa base.
     ///
     /// # Errors
@@ -249,6 +275,19 @@ pub enum DiffError {
         /// Ce que la version en a dit.
         because: VersionError,
     },
+    /// Une opération de la suite n'a pas d'inverse exact — elle ne peut être que compensée.
+    ///
+    /// ADR 0016 décision 5 : « une modification non inversible ne peut être que **compensée**, et
+    /// elle le déclare à la proposition ». La fusion est la seule dans ce cas, et pour une raison
+    /// qui se lit dans sa définition : elle perd la partition. Rendre ici une scission plausible
+    /// ferait passer une compensation pour une annulation — le refus nomme donc l'opération, et
+    /// l'appelant écrit lui-même ce qu'il compense.
+    NotInvertible {
+        /// Sa position dans la suite.
+        position: usize,
+        /// Sa forme canonique.
+        operation: String,
+    },
     /// La suite ne produit pas ce que le diff annonçait.
     ContentMismatch {
         /// Ce que le document déclarait.
@@ -284,6 +323,15 @@ impl fmt::Display for DiffError {
             } => write!(
                 formatter,
                 "opération {position} « {operation} » ne s'applique pas : {because}"
+            ),
+            Self::NotInvertible {
+                position,
+                operation,
+            } => write!(
+                formatter,
+                "opération {position} « {operation} » n'a pas d'inverse exact : elle ne peut être \
+                 que compensée, et la compensation s'écrit — rendre ici une opération plausible \
+                 ferait passer une compensation pour une annulation"
             ),
             Self::ContentMismatch {
                 announced,

@@ -8,6 +8,8 @@ use locus_protocol::{
     id::{Agent, Branch, provisional::Team as TeamKind},
 };
 
+use crate::version::{Version, VersionId};
+
 /// Les cinq modes obligatoires de §14.3.
 ///
 /// Fermé : §14.3 dit « modes **obligatoires** » et « le mode est enregistré et peut être comparé
@@ -82,14 +84,37 @@ impl fmt::Display for CoordinationMode {
 }
 
 /// Une équipe — §14.2 : « `Team` définit coordination et partage d'information ».
+///
+/// L'agrégat de §7.1 — **son identité et son état, pas sa structure**.
+///
+/// # Ce qu'il ne stocke plus, et pourquoi (ADR 0021, décision 3)
+///
+/// `member_ids`, `coordination_mode` et `coordinator_id` sont des champs de §7.1, et ils y restent :
+/// [`Team::members`], [`Team::mode`] et [`Team::coordinator`] les servent. Ce qui change est qu'ils
+/// sont **servis depuis la version courante** au lieu d'être recopiés ici.
+///
+/// Les recopier, c'était deux stockages du même fait dans le même crate — donc deux vérités, qui
+/// divergent le jour où l'une est corrigée. C'est l'argument par lequel l'ADR 0019 a écarté le
+/// courtier de messages, et il ne dépend pas du sujet.
+///
+/// `docs/13` §3 nomme la taxonomie qui l'autorise : « version canonique immuable avec hash et
+/// parent, **graphe réalisé comme projection**, trace comme histoire ». La [`Version`] est le
+/// canonique ; `Team` est le réalisé.
+///
+/// # Pourquoi la version voyage avec l'appel plutôt que dans le champ
+///
+/// `Team` retient la **`VersionId`** de sa structure, pas la `Version` elle-même : la retenir en
+/// entier reconstituerait le doublon sous un autre nom. Les accesseurs prennent donc la version en
+/// argument et **refusent** celle qui n'est pas la sienne. Un accesseur qui l'accepterait sans
+/// vérifier rendrait des membres plausibles — ceux d'une autre équipe, ou d'un autre instant de
+/// celle-ci — et rien dans la réponse ne le dirait. C'est le mode d'échec de `W20.e` sur les
+/// cursors, au même endroit du raisonnement.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Team {
     id: Id<TeamKind>,
     branch_id: Id<Branch>,
     title: String,
-    mode: CoordinationMode,
-    members: BTreeSet<Id<Agent>>,
-    coordinator: Option<Id<Agent>>,
+    version: VersionId,
     revision: u64,
 }
 
@@ -107,32 +132,38 @@ impl Team {
         id: Id<TeamKind>,
         branch_id: Id<Branch>,
         title: &str,
-        mode: CoordinationMode,
-        members: BTreeSet<Id<Agent>>,
-        coordinator: Option<Id<Agent>>,
+        structure: &Version,
     ) -> Result<Self, TeamError> {
         if title.trim().is_empty() {
             return Err(TeamError::EmptyTitle);
         }
-        if members.is_empty() {
-            return Err(TeamError::NoMembers);
-        }
-        match coordinator {
-            Some(coordinator) if !members.contains(&coordinator) => {
-                return Err(TeamError::CoordinatorNotAMember);
-            }
-            None if mode.needs_coordinator() => return Err(TeamError::CoordinatorRequired),
-            _ => {}
-        }
+        // Les trois règles de §14.3 ne sont plus vérifiées ici : elles le sont par `Version::root`
+        // et après chaque application, donc une version qui existe les respecte déjà. Les revérifier
+        // serait une seconde définition de la même règle, et deux définitions divergent.
         Ok(Self {
             id,
             branch_id,
             title: title.to_owned(),
-            mode,
-            members,
-            coordinator,
+            version: structure.id().clone(),
             revision: 1,
         })
+    }
+
+    /// La version dont sa structure est faite.
+    #[must_use]
+    pub const fn version(&self) -> &VersionId {
+        &self.version
+    }
+
+    /// Vérifie que cette version est bien la sienne.
+    fn owning<'a>(&self, at: &'a Version) -> Result<&'a Version, TeamError> {
+        if at.id() != &self.version {
+            return Err(TeamError::WrongVersion {
+                expected: self.version.to_string(),
+                given: at.id().to_string(),
+            });
+        }
+        Ok(at)
     }
 
     /// Son identifiant.
@@ -153,22 +184,31 @@ impl Team {
         &self.title
     }
 
-    /// Son mode de coordination.
-    #[must_use]
-    pub const fn mode(&self) -> CoordinationMode {
-        self.mode
+    /// Son mode de coordination — §7.1 `coordination_mode`, servi depuis la version.
+    ///
+    /// # Errors
+    ///
+    /// [`TeamError::WrongVersion`] quand la version présentée n'est pas la sienne.
+    pub fn mode(&self, at: &Version) -> Result<CoordinationMode, TeamError> {
+        Ok(self.owning(at)?.mode())
     }
 
-    /// Ses membres.
-    #[must_use]
-    pub const fn members(&self) -> &BTreeSet<Id<Agent>> {
-        &self.members
+    /// Ses membres — §7.1 `member_ids`, servis depuis la version.
+    ///
+    /// # Errors
+    ///
+    /// [`TeamError::WrongVersion`] quand la version présentée n'est pas la sienne.
+    pub fn members<'a>(&self, at: &'a Version) -> Result<&'a BTreeSet<Id<Agent>>, TeamError> {
+        Ok(self.owning(at)?.members())
     }
 
-    /// Son coordinateur, quand le mode en a un.
-    #[must_use]
-    pub const fn coordinator(&self) -> Option<Id<Agent>> {
-        self.coordinator
+    /// Son coordinateur — §7.1 `coordinator_id`, servi depuis la version.
+    ///
+    /// # Errors
+    ///
+    /// [`TeamError::WrongVersion`] quand la version présentée n'est pas la sienne.
+    pub fn coordinator<'a>(&self, at: &'a Version) -> Result<Option<&'a Id<Agent>>, TeamError> {
+        Ok(self.owning(at)?.coordinator())
     }
 
     /// Sa révision, pour le CAS de W13.e.
@@ -181,36 +221,43 @@ impl Team {
     ///
     /// La question que l'invariant 11 pose, formulée une seule fois plutôt que réécrite partout où
     /// on en a besoin.
-    #[must_use]
-    pub const fn shares_before_delivery(&self) -> bool {
-        !self.mode.withholds_sharing()
+    /// # Errors
+    ///
+    /// [`TeamError::WrongVersion`] quand la version présentée n'est pas la sienne.
+    pub fn shares_before_delivery(&self, at: &Version) -> Result<bool, TeamError> {
+        Ok(!self.mode(at)?.withholds_sharing())
     }
 }
 
 /// Ce qui empêche une équipe d'exister.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TeamError {
     /// Un titre vide.
     EmptyTitle,
-    /// Aucun membre.
-    NoMembers,
-    /// Un coordinateur qui n'est pas membre.
-    CoordinatorNotAMember,
-    /// Le mode `coordinator` sans coordinateur.
-    CoordinatorRequired,
+    /// La version présentée n'est pas celle dont l'équipe tient sa structure.
+    ///
+    /// Le refus nomme les deux, parce qu'un appelant qui présente la mauvaise version a besoin de
+    /// savoir laquelle il tenait. Sans ce refus, l'accesseur rendrait des membres **plausibles** —
+    /// ceux d'une autre équipe, ou d'un autre instant de celle-ci — et rien dans la réponse ne le
+    /// dirait. Même mode d'échec que le cursor présenté à la mauvaise collection (`W20.e`).
+    WrongVersion {
+        /// Celle dont l'équipe tient sa structure.
+        expected: String,
+        /// Celle qu'on lui présente.
+        given: String,
+    },
 }
 
 impl fmt::Display for TeamError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let message = match self {
-            Self::EmptyTitle => "une équipe sans titre ne se désigne pas",
-            Self::NoMembers => "une équipe sans membre ne coordonne rien",
-            Self::CoordinatorNotAMember => "le coordinateur doit être membre de l'équipe",
-            Self::CoordinatorRequired => {
-                "le mode « coordinator » suppose un coordinateur, sinon personne ne coordonne"
-            }
-        };
-        formatter.write_str(message)
+        match self {
+            Self::EmptyTitle => formatter.write_str("une équipe sans titre ne se désigne pas"),
+            Self::WrongVersion { expected, given } => write!(
+                formatter,
+                "l'équipe tient sa structure de {expected} ; on lui présente {given} : une version \
+                 n'a pas le même contenu d'une équipe à l'autre"
+            ),
+        }
     }
 }
 
