@@ -10454,3 +10454,45 @@ l'identité, le type et le hash — et que la suggestion ne change **aucune** tr
 opposable au moment où elle compte, la promotion.
 
 **Prochain item.** `W8.j`, `W9.e`, `W14.e` ou `W18.h`.
+
+## 2026-08-21 — W9.e — la scène 3D du graphe épistémique
+
+**Périmètre.** `apps/web/src/scene3d.ts`, neuf — `render`, `Scene`, `Vertex`, `Link`, `SceneRefused`
+; `apps/web/src/index.ts` ; `tests/web/scene3d.test.ts`.
+
+**Tests exécutés.** `npm run check` — les douze gardes. Neuf tests dans `tests/web/scene3d.test.ts`.
+Vérifié **rouge puis vert** : la table des refus neutralisée, le test de coordination tombe.
+
+**Une hyperarête se lit dans la structure, jamais dans un pixel.** Le test de sortie demandait
+qu'elle se distingue « sur la structure rendue et non sur des pixels », ce qui a décidé de la forme
+: une relation binaire est un `segment`, une hyperarête est un `bundle` — plusieurs sources, un
+point de jonction, un segment vers la conclusion. Une couleur ou une épaisseur auraient été
+indémontrables sans comparer des images.
+
+**La structure ne s'infère pas.** Le schéma de §23.3 ne porte que des arêtes binaires ; les
+faisceaux viennent de l'appelant. Deviner un faisceau depuis la forme des arêtes ferait lire une
+structure que personne n'a écrite — la même règle que `Diff::between`, qui refuse d'inventer un
+`REPLACE_NODE`. Un test le tient : sans hyperarête déclarée, **tout** est segment.
+
+**Aucun segment ne double un faisceau.** Les arêtes absorbées par un faisceau ne sont pas dessinées
+une seconde fois : un lecteur y verrait une redondance qui n'existe pas dans le graphe.
+
+**Le refus de la coordination est une table, pas une condition.** Le jour où une seconde sorte de
+vue se révèle plate, elle s'y ajoute **avec son motif**, et le refus reste lisible au lieu de
+devenir un `if` composé. Le message nomme la sorte de vue et la raison — un motif absent ferait
+chercher un bug là où il y a une décision.
+
+**Le refus vise la sorte, pas la taille**, et un test l'exerce sur un graphe épistémique minuscule.
+Un seuil de taille aurait fait basculer un graphe d'un mode à l'autre au gré d'un ajout, ce qu'aucun
+lecteur n'aurait pu anticiper.
+
+**Deux tests que l'item n'exigeait pas et qui l'ont sauvé d'être faux.** Le premier vérifie que les
+profondeurs ne sont pas toutes égales : une disposition qui aurait laissé `z` à zéro aurait rendu
+une scène identique à la 2D et fait passer l'item pour livré. Le second compare deux rendus **après
+un aller-retour JSON** : sans l'arrondi au millionième, le déterminisme revendiqué aurait dépendu du
+dernier bit d'un flottant, donc aurait été vrai en pratique et faux en droit.
+
+**Écart avec la spec.** Aucun. §23.2 demande la scène de référence ; `W9.d` avait livré la 2D,
+celui-ci ajoute la profondeur là où elle paie et la refuse là où elle coûte.
+
+**Prochain item.** `W8.j`, `W14.e` ou `W18.h`.
