@@ -27,6 +27,7 @@ pub mod capability;
 pub mod churn;
 pub mod decision;
 pub mod diff;
+pub mod edit;
 pub mod lifecycle;
 pub mod messaging;
 pub mod metrics;
@@ -46,6 +47,7 @@ pub use capability::{Capability, CapabilityError, Source, Sources, capabilities}
 pub use churn::EdgeChurn;
 pub use decision::{ApprovalRequest, ApprovalState, Decision, DecisionError, DecisionState};
 pub use diff::{Diff, DiffError};
+pub use edit::AppliedEdit;
 pub use lifecycle::{
     Command, Lifecycle, LifecycleError, Outcome, Quiescence, may_leave_the_version,
 };

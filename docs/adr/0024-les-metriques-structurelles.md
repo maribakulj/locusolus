@@ -91,6 +91,25 @@ C'est la même distinction que `edge_churn` fait à l'intérieur d'une fenêtre 
 un churn nul — remontée d'un niveau. Aucune des deux ne se déduit de l'autre, et les fondre
 supprimerait la seule mesure du travail inutile que cette famille contient.
 
+**Amendement du 2026-08-21, apporté par `W21.c`.** Le paragraphe ci-dessus énonce le détour comme un
+**écart**, ce qui suppose que le chemin est toujours au moins aussi long que le diff. C'est faux, et
+l'implémentation l'a mesuré plutôt que déduit.
+
+`Diff::between` n'émet que **quatre** sortes d'opérations et n'infère jamais un `REPLACE_NODE`, un
+`SPLIT_NODE` ni un `MERGE_NODES` : au niveau des états, un remplacement est indiscernable d'un
+retrait suivi d'un ajout, et deviner ferait lire à un approbateur une intention que personne n'a
+écrite. Un remplacement de nœud coûte donc **une** opération au chemin et **quatre** au diff.
+
+La soustraction change alors de signe, et un détour de `-3` serait affiché comme une quantité alors
+qu'il signifie « ces deux mesures ne comptent pas dans le même vocabulaire ». `detour_from` rend donc
+`None` dans ce cas, jamais un entier signé — et `Some(0)` reste distinct de `None`, parce que « il
+n'y a pas eu de détour » et « la comparaison n'a pas de sens ici » sont deux constats différents.
+
+Ce que le paragraphe d'origine décrit reste juste **tant que le chemin s'exprime dans le vocabulaire
+du diff**, ce qui est le cas courant. Il lui manquait sa condition, et c'est l'implémentation qui l'a
+nommée : la borne supérieure de la décision 2 vaut contre le vocabulaire du diff, pas contre les dix
+opérations.
+
 ## Décision 4 — Un taux dont le dénominateur contient l'indécis est faux
 
 `accepted_mutation_rate` a pour dénominateur les propositions **parvenues à une décision terminale**,
