@@ -29,21 +29,40 @@ fn politique() -> Policy {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Les seize catégories de §20.1
+// Les seize catégories de §20.1, et l'ajout local qui les suit
 // ---------------------------------------------------------------------------------------------
 
+/// **Les seize de §20.1 sont intactes ; `W14.e` en a ajouté une dix-septième.**
+///
+/// Ce test comptait seize et a échoué en rouge quand la catégorie `Alignment` est entrée — c'est
+/// exactement ce qu'on lui demandait de faire. Une liste normative ne s'allonge pas sans que
+/// quelqu'un le lise, et le mettre à jour est un acte délibéré, pas un ajustement de confort.
+///
+/// Il tient désormais **deux** choses au lieu d'une : que les seize premières n'ont bougé ni en
+/// nombre, ni en ordre, ni en nom — c'est §20.1, elle ne se réécrit pas — et que ce qui suit est un
+/// ajout local assumé. Sans la première moitié, une réécriture de la spec passerait pour un ajout.
 #[test]
 fn les_seize_categories_existent_sous_leur_nom() {
-    assert_eq!(Category::ALL.len(), 16);
+    const NORMATIVES: usize = 16;
+    assert_eq!(
+        Category::ALL.len(),
+        NORMATIVES + 1,
+        "seize de §20.1, plus `alignment`"
+    );
+
     let slugs: Vec<&str> = Category::ALL.iter().map(|c: &Category| c.slug()).collect();
     assert_eq!(slugs[0], "spawn");
     assert_eq!(slugs[7], "secrets");
     assert_eq!(slugs[15], "human-escalation");
+    assert_eq!(
+        slugs[16], "alignment",
+        "l'ajout local vient après, jamais au milieu"
+    );
 
     let mut uniques = slugs.clone();
     uniques.sort_unstable();
     uniques.dedup();
-    assert_eq!(uniques.len(), 16, "seize noms distincts");
+    assert_eq!(uniques.len(), NORMATIVES + 1, "des noms distincts");
 
     for category in Category::ALL {
         assert_eq!(Category::from_slug(category.slug()), Some(category));
@@ -57,7 +76,11 @@ fn les_seize_categories_existent_sous_leur_nom() {
 fn la_couverture_nomme_ce_qu_aucune_politique_ne_couvre() {
     let partielle = Coverage::of(&[Category::Budget, Category::Review]);
     assert!(!partielle.is_complete());
-    assert_eq!(partielle.uncovered().len(), 14);
+    // Quinze depuis `W14.e` : les dix-sept moins les deux couvertes. Le compte suit la liste, et
+    // c'est voulu — une couverture qui ignorerait l'ajout local dirait « complète » alors qu'aucune
+    // politique d'alignement n'existe.
+    assert_eq!(partielle.uncovered().len(), 15);
+    assert!(partielle.uncovered().contains(&Category::Alignment));
     assert!(partielle.uncovered().contains(&Category::Secrets));
     assert!(partielle.to_string().contains("secrets"));
 }

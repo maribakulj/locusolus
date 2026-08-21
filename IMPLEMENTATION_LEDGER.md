@@ -10410,3 +10410,246 @@ cite une révision feinte, et il est tué.
 
 **Prochain item.** `W18.h`, `W9.e`, `W6.g` ou `W8.j` — les quatre sont indépendants. `W14.e` attend
 la lecture de §18.3 à §18.6.
+
+## 2026-08-21 — W6.g — formats d'artefact 3D, et la promotion qui se mérite
+
+**Périmètre.** `packages/artifacts/src/promotion.rs`, neuf — `promote`, `PromotionError` ; le
+`lib.rs` ; `packages/artifacts/tests/three_d.rs`.
+
+**Tests exécutés.** `npm run check` — les douze gardes. Six tests dans `tests/three_d.rs`. Vérifié
+**rouge puis vert** sur l'arbre réel : la garde de reproductibilité neutralisée, le test de
+promotion tombe ; rétablie, les six passent.
+
+**Deux tiers de l'item n'avaient besoin d'aucun code.** Un maillage est un artefact comme un autre :
+`ArtifactManifest::declare` accepte les types `model/*`, le hash se déclare avant l'upload, et
+`Integrity` s'y consigne. L'item ne construit pas de chemin 3D — il **vérifie qu'il n'y en a pas
+besoin**, ce qui est une conclusion et non une absence de travail.
+
+**Ce qui manquait vraiment.** `state::transition` savait dire qu'une transition est **permise** ;
+rien ne disait qu'elle est **méritée**. Un artefact produit par un run pouvait passer à `Promoted` —
+« il peut être cité, servi, dérivé » — sans qu'aucune reproductibilité ne le soutienne, alors que
+l'invariant 4 exige le contraire. `promote` joint la machine à états et l'`Assessment`, qui
+existaient tous deux sans se connaître.
+
+**Le gate ne s'applique pas à tout, et la frontière était déjà écrite.** Un artefact déposé par un
+humain n'a aucun run à reproduire ; lui reprocher `Missing::Inputs` serait lui reprocher de ne pas
+être ce qu'il n'a jamais prétendu être. Ce qui distingue les deux est `ProducedBy::run_id` — un
+artefact qui nomme un run **affirme** venir d'une exécution, et c'est cette affirmation qui se
+vérifie. La 3D est l'occasion de l'item, pas sa portée : rien ne justifierait qu'un maillage soit
+tenu à une exigence que les autres artefacts générés n'ont pas.
+
+**L'ordre des deux refus compte.** La machine à états parle en premier : un artefact en quarantaine
+n'a pas à être évalué pour être refusé, et lui rendre un motif de reproductibilité masquerait la
+vraie raison — envoyant son auteur corriger ce qui n'est pas en cause. Un test le tient sur un
+artefact en quarantaine dont l'évaluation est **parfaite**.
+
+**Le refus rend tous les manques**, pas le premier : un appelant qui corrigerait l'un pour buter sur
+le suivant ferait autant d'allers-retours qu'il y a de causes.
+
+**L'invariant 10 est exercé par le client qui ignore la suggestion.** Vérifier qu'un `ViewerHints`
+se lit ne dit rien ; ce qui le dit est qu'un client qui ne le regarde pas obtienne malgré tout
+l'identité, le type et le hash — et que la suggestion ne change **aucune** transition d'état.
+
+**Écart avec la spec.** Aucun. §19 exige la reproductibilité d'un résultat majeur ; cet item la rend
+opposable au moment où elle compte, la promotion.
+
+**Prochain item.** `W8.j`, `W9.e`, `W14.e` ou `W18.h`.
+
+## 2026-08-21 — W9.e — la scène 3D du graphe épistémique
+
+**Périmètre.** `apps/web/src/scene3d.ts`, neuf — `render`, `Scene`, `Vertex`, `Link`, `SceneRefused`
+; `apps/web/src/index.ts` ; `tests/web/scene3d.test.ts`.
+
+**Tests exécutés.** `npm run check` — les douze gardes. Neuf tests dans `tests/web/scene3d.test.ts`.
+Vérifié **rouge puis vert** : la table des refus neutralisée, le test de coordination tombe.
+
+**Une hyperarête se lit dans la structure, jamais dans un pixel.** Le test de sortie demandait
+qu'elle se distingue « sur la structure rendue et non sur des pixels », ce qui a décidé de la forme
+: une relation binaire est un `segment`, une hyperarête est un `bundle` — plusieurs sources, un
+point de jonction, un segment vers la conclusion. Une couleur ou une épaisseur auraient été
+indémontrables sans comparer des images.
+
+**La structure ne s'infère pas.** Le schéma de §23.3 ne porte que des arêtes binaires ; les
+faisceaux viennent de l'appelant. Deviner un faisceau depuis la forme des arêtes ferait lire une
+structure que personne n'a écrite — la même règle que `Diff::between`, qui refuse d'inventer un
+`REPLACE_NODE`. Un test le tient : sans hyperarête déclarée, **tout** est segment.
+
+**Aucun segment ne double un faisceau.** Les arêtes absorbées par un faisceau ne sont pas dessinées
+une seconde fois : un lecteur y verrait une redondance qui n'existe pas dans le graphe.
+
+**Le refus de la coordination est une table, pas une condition.** Le jour où une seconde sorte de
+vue se révèle plate, elle s'y ajoute **avec son motif**, et le refus reste lisible au lieu de
+devenir un `if` composé. Le message nomme la sorte de vue et la raison — un motif absent ferait
+chercher un bug là où il y a une décision.
+
+**Le refus vise la sorte, pas la taille**, et un test l'exerce sur un graphe épistémique minuscule.
+Un seuil de taille aurait fait basculer un graphe d'un mode à l'autre au gré d'un ajout, ce qu'aucun
+lecteur n'aurait pu anticiper.
+
+**Deux tests que l'item n'exigeait pas et qui l'ont sauvé d'être faux.** Le premier vérifie que les
+profondeurs ne sont pas toutes égales : une disposition qui aurait laissé `z` à zéro aurait rendu
+une scène identique à la 2D et fait passer l'item pour livré. Le second compare deux rendus **après
+un aller-retour JSON** : sans l'arrondi au millionième, le déterminisme revendiqué aurait dépendu du
+dernier bit d'un flottant, donc aurait été vrai en pratique et faux en droit.
+
+**Écart avec la spec.** Aucun. §23.2 demande la scène de référence ; `W9.d` avait livré la 2D,
+celui-ci ajoute la profondeur là où elle paie et la refuse là où elle coûte.
+
+**Prochain item.** `W8.j`, `W14.e` ou `W18.h`.
+
+## 2026-08-21 — W8.j — Emacs auteur, et les deux formes qu'il ne faut pas confondre
+
+**Périmètre.** `apps/emacs/locus-author.el`, neuf — `locus-author-parse`, `locus-author-canonical`,
+`locus-author-write`, `locus-author-proposal-from-buffer` ; `apps/emacs/test/locus-author-test.el`.
+
+**Tests exécutés.** `npm run check` — les douze gardes, dont `emacs-tests` et la séparation
+`emacs -Q`. Onze tests dans `locus-author-test.el`.
+
+**Deux formes, et les confondre coûterait la signature.** La forme d'**écriture** est ce qu'un
+humain tape ; la forme **canonique** est ce sur quoi porte le condensat, donc ce qu'une approbation
+signe. Si les deux étaient le même objet, il faudrait choisir entre deux maux : un commentaire
+ajouté changerait ce qu'une approbation signe, ou la canonicalisation devrait **dépouiller** la
+forme d'écriture — et le dépouillement est exactement l'endroit où vivaient les forgeries que
+`W17.h` a découvertes.
+
+**Deux propriétés, deux tests, et la formule naïve est fausse.** `canonical(parse(t))` est
+invariante par commentaire et par réordonnancement ; `parse(write(p))` rend la **valeur** `p`. Ce
+qu'on écrirait spontanément — `parse(write(t)) = t` sur le **texte** — ne tient pas, puisque `write`
+ne restitue ni les commentaires ni l'ordre. Un test nomme cette fausseté au lieu de la laisser
+découvrir : sans lui, quelqu'un l'écrirait, la verrait échouer pour une raison saine, et
+l'affaiblirait au lieu de la comprendre.
+
+**Deux défauts de test, tous deux dans mon propre montage.**
+
+Le premier assertait `(should-not (buffer-modified-p))` après avoir lui-même inséré le texte : il
+testait son `insert`, pas la commande, et aurait échoué même sur une commande parfaitement inerte.
+Un test qui ne peut pas passer ne garde rien. Corrigé par une remise à zéro explicite avant l'appel.
+
+Le second lisait `load-file-name` **dans le corps du test**, où il n'est pas lié —
+`expand-file-name` échouait alors sur un type au lieu de dire ce qui manquait. Le chemin est
+désormais capturé dans un `defconst`, au chargement.
+
+**Cinquième garde d'absence de la série, écrite précise du premier coup.** Elle vise des **appels**
+— `(locus-command-submit`, `(write-region`, `(save-buffer` — et non des mots, parce que la
+documentation du module emploie « soumettre » pour dire précisément ce qu'il ne fait pas. La leçon
+des quatre précédentes a servi.
+
+**Un point-virgule échappé est une donnée.** Le point-virgule ouvre un commentaire ; sans échappée,
+un champ ne pourrait pas en contenir, et personne ne le devinerait avant d'y perdre du texte — le
+genre de perte qui ne se voit qu'une fois le document approuvé.
+
+**Écart avec la spec.** Aucun. §20 et §22.3 gardent leurs objets ; ce module ajoute une façade
+d'écriture côté client, ce que l'ADR 0020 laissait ouvert.
+
+**Prochain item.** `W14.e` — qui exige la lecture de §18.3 à §18.6 — ou `W18.h`.
+
+## 2026-08-21 — W14.e — l'alignement d'ontologies comme proposition
+
+**Périmètre.** `packages/policy/src/alignment.rs`, neuf — `AlignmentProposal`, `approve`,
+`ApprovedAlignment`, `Alignments`, `Equivalence`, `AlignmentError` ; `category.rs` — la dix-septième
+catégorie ; le `lib.rs` ; `packages/policy/tests/alignment.rs`.
+
+**Tests exécutés.** `npm run check` — les douze gardes. Neuf tests dans `tests/alignment.rs`.
+
+**§18 a été lu avant d'écrire, comme le test de sortie l'exigeait — et il renforce l'item.** §18.4
+point 4 : « ne jamais fusionner automatiquement deux concepts sur seule similarité vectorielle ».
+C'est exactement l'argument de l'ADR 0023 décision 6, arrivé par un autre chemin — la spec le pose
+pour la fusion de branches, l'ADR pour l'alignement d'ontologies, et aucun des deux textes n'a été
+écrit en connaissance de l'autre. La vérification demandée cherchait une contradiction et a trouvé
+une confirmation.
+
+**Le refus nomme la contrainte, jamais un score.** C'est ce que l'ablation mesure : retirer
+l'appariement un-à-un fait chuter le F1 de 0,829 à 0,728, quand cinq pondérations de similarité
+s'écartent de 0,0033. Un refus qui rendrait « 0,62 » enverrait son lecteur chercher un seuil, alors
+que le problème n'en est pas un — aucune confiance supplémentaire ne libérerait un terme déjà
+apparié. Le test l'exige des deux côtés : la contrainte nommée **et** l'absence de chiffre dans le
+message.
+
+**La proposition ne porte aucun score**, et un test le vérifie sur son rendu `Debug`. En porter un
+inviterait à la trancher en le comparant à un seuil, c'est-à-dire à décider par similarité — ce que
+le module entier existe pour empêcher.
+
+**L'ordre des deux refus compte, encore.** Le CAS parle en premier : une proposition écrite sur une
+base périmée reçoit `Stale` et la consigne de rebaser, pas `AlreadyMatched`, qui ferait croire à son
+auteur que sa paire est mauvaise alors qu'elle est seulement en retard. Un test rebase la même paire
+et la voit passer.
+
+**La dix-septième catégorie est signalée, pas fondue.** §20.1 en énumère seize ; l'inscrire sans le
+dire ferait passer un ajout pour une lecture de la spec — même discipline que les namespaces
+`projection` et `migration`. Aucune des seize ne couvrait le cas : `Federation` porte l'échange
+entre pairs, `Validation` le statut épistémique d'un claim, et ranger l'alignement sous l'une des
+deux aurait fait décider une identité par une politique écrite pour autre chose. Un test tient les
+seize par leur ordre et leurs noms.
+
+**Trois équivalences, non interchangeables.** `SameAs` porte sur des individus et se propage par
+transitivité, `EquivalentClass` sur des classes, `ExactMatch` est une correspondance de vocabulaire
+qui ne promet **aucune** inférence. Les confondre ferait tirer d'un rapprochement de thésaurus des
+conclusions logiques que personne n'a autorisées.
+
+**Deux tests existants sont tombés en rouge, et c'est ce qu'on leur demandait.** `category.rs`
+comptait seize catégories et quatorze absentes ; l'ajout les a fait échouer. Les mettre à jour est
+un acte délibéré, pas un ajustement de confort — c'est le sens de la phrase de l'ADR 0019 : « une
+liste normative ne s'allonge pas sans que quelqu'un le lise ».
+
+Le premier tient désormais **deux** choses au lieu d'une : que les seize premières n'ont bougé ni en
+nombre, ni en ordre, ni en nom, et que ce qui suit est un ajout local. Sans la première moitié, une
+réécriture de la spec passerait pour un ajout. Le second vérifie en plus que `Alignment` figure
+parmi les non couvertes : une couverture qui l'ignorerait dirait « complète » alors qu'aucune
+politique d'alignement n'existe.
+
+**Écart avec la spec.** Une catégorie de politique en plus des seize de §20.1, assumée et signalée.
+
+**Prochain item.** `W18.h` — le raisonneur d'ontologie comme première capacité réellement admise.
+
+## 2026-08-21 — W18.h — le raisonneur d'ontologie, première capacité réellement admise
+
+**Périmètre.** `packages/adaptation/src/reasoner.rs`, neuf — `Verdict`, `Provenance`,
+`ProposedClaim`, `Reasoners`, `ReasonerError` ; le `lib.rs` ;
+`packages/adaptation/tests/reasoner.rs`.
+
+**Tests exécutés.** `npm run check` — les douze gardes. Sept tests dans `tests/reasoner.rs`.
+
+**Les trois réserves de l'ADR 0023, inscrites avant l'admission et non après.** Le test de sortie
+l'exigeait dans cet ordre, et l'ordre est le sujet : une réserve écrite après coup est une
+justification, pas une condition.
+
+1. **Le magasin du raisonneur candidat est un `Mutex<Store>` unique.** Cela disqualifie l'usage «
+   mémoire partagée » — plusieurs agents interrogeant simultanément se sérialiseraient — et **pas**
+   l'usage « un agent pose une question de classification », qui est celui que cet item ouvre.
+2. **Son registre n'a qu'un emplacement d'ontologie actif.** Suffisant ici, où une question porte
+   sur une ontologie à la fois ; insuffisant le jour où un alignement devra interroger les deux
+   côtés dans la même session, et c'est `W14.e` qui butera dessus en premier.
+3. **Ses résultats d'alignement sont publiés comme inférieurs aux baselines** — rang 9 sur 13, gain
+   de +0,063 F1 sur une égalité de chaînes, avec un échec en **rappel** et non en précision. C'est
+   une raison de plus pour la décision 6 : un matcher propose, il ne décide pas.
+
+**Le troisième verdict refuse la confiance.** `Undetermined` n'est pas un `Consistent` atténué : un
+échec à dériver une contradiction n'est pas une cohérence, et l'hypothèse de monde ouvert rend la
+conversion systématiquement fausse. `supports_a_claim()` rend la distinction interrogeable sans que
+l'appelant ait à se souvenir lequel des trois est l'ignorance — même discipline que `W4.b`, où « une
+sonde non exécutée est un troisième verdict ».
+
+**La résolution se fait par identité, et le motif est un mode d'échec silencieux.** Le registre est
+clé par le **digest d'image** que l'admission porte. Un provider activé par nom qu'on masque «
+redirigerait silencieusement la mémoire de l'agent au lieu de simplement remplacer un outil » — et
+une substitution de source de connaissance ne produit pas d'erreur, elle produit des réponses
+plausibles fondées sur autre chose. Deux capacités homonymes sont donc deux entrées, et un test le
+vérifie ; la **même** identité deux fois est refusée.
+
+**Sixième garde trop large, et celle-ci mérite d'être dite.** J'avais écrit dans le commentaire du
+test « les motifs visent des types et des signatures, pas des mots », puis j'ai listé `Inference` et
+`Support` nus deux lignes plus bas — et la garde s'est déclenchée sur la documentation du module,
+qui les emploie pour dire exactement ce qu'elle veut obtenir. Énoncer une règle ne suffit pas à
+l'appliquer, même dans le paragraphe qui la formule. Les motifs visent désormais `: Inference`,
+`-> Support`, `use locus_graph`.
+
+**Ce que cet item éprouve pour la première fois.** `W18.d` avait construit le chemin d'admission
+sans qu'aucun artefact réel ne le traverse. Celui-ci le traverse de bout en bout : `Locked` →
+`Built` → `Inventoried` → `Scanned` → `Tested` → `Published` → `admit` → registre. Le chemin de
+gouvernance ne demande pas d'hôte `S3`/`S4` — c'est son **exercice** contre un hôte réel qui attend,
+et il attend déjà sous `W18.f`.
+
+**Écart avec la spec.** Aucun. Aucun crate n'acquiert de dépendance RDF, et `packages/graph` n'est
+pas touché.
+
+**Prochain item.** La frontière de `check:roadmap` après cet item.

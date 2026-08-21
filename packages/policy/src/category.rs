@@ -57,11 +57,23 @@ pub enum Category {
     DisciplinaryCompliance,
     /// Escalade humaine.
     HumanEscalation,
+    /// **Alignement d'ontologies** — ADR 0023 décision 6.
+    ///
+    /// §20.1 en énumère seize ; celle-ci est la dix-septième, et elle est signalée comme **ajout
+    /// local** plutôt que fondue dans la liste normative — au même titre que les namespaces
+    /// `projection` et `migration` de l'event store.
+    ///
+    /// Elle entre parce qu'une équivalence entre deux régimes descriptifs est une modification
+    /// structurelle qui doit passer par une décision, et qu'aucune des seize ne la couvrait :
+    /// `Federation` porte l'échange entre pairs, `Validation` le statut épistémique d'un claim, et
+    /// ranger l'alignement sous l'une des deux aurait fait décider une identité par une politique
+    /// écrite pour autre chose.
+    Alignment,
 }
 
 impl Category {
     /// Les seize, dans l'ordre où §20.1 les énumère.
-    pub const ALL: [Self; 16] = [
+    pub const ALL: [Self; 17] = [
         Self::Spawn,
         Self::ModelRouting,
         Self::TeamCoordination,
@@ -78,6 +90,7 @@ impl Category {
         Self::Federation,
         Self::DisciplinaryCompliance,
         Self::HumanEscalation,
+        Self::Alignment,
     ];
 
     /// Son nom.
@@ -100,6 +113,7 @@ impl Category {
             Self::Federation => "federation",
             Self::DisciplinaryCompliance => "disciplinary-compliance",
             Self::HumanEscalation => "human-escalation",
+            Self::Alignment => "alignment",
         }
     }
 
