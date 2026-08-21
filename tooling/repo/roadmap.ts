@@ -18,6 +18,26 @@ import type { Finding } from "../lib/findings.ts";
  * tableau ne dit pas ce qui est terminé. Une session qui la suit refait du travail déjà livré, ou
  * saute par-dessus un item ouvert en le croyant clos.
  *
+ * # Les deux familles, et le jour où le garde n'en lisait qu'une
+ *
+ * Le plan porte deux familles d'identifiants : les `W<phase>.<item>` du chemin critique, et les
+ * `R<n>` de recherche. Le garde ne connaissait que la première — dans les **deux** documents à la
+ * fois, puisque le même alphabet ancrait le titre d'entrée et la ligne de tableau.
+ *
+ * Les six items de recherche ont été livrés le 2026-08-18 : `packages/graph/src/consensus.rs`,
+ * `credit.rs`, `regret.rs`, `metrics.rs`, `counterfactual.rs`, `evolution.rs`, chacun avec ses tests
+ * et sa passe de mutants, chacun avec son entrée au registre sous la forme qui atteste. Le garde a
+ * répondu `frontière vide` et `ok` par-dessus, et la section « Recherche » a continué de les décrire
+ * au présent comme des travaux à considérer. C'est le premier des deux sens — la roadmap
+ * sous-estime, et une session refait —, et il a failli s'exercer : la session qui écrit ceci a lu
+ * « le moins cher des items de recherche, publiable seul » et s'apprêtait à écrire une détection de
+ * consensus circulaire qui existe depuis trois jours.
+ *
+ * Ce n'est **pas** l'angle mort documenté plus bas. Celui-là est un silence commun : ni entrée, ni
+ * marque, et rien à en conclure. Ici le registre parlait, dans la forme exacte que le garde exige,
+ * et le garde ne l'entendait pas. Un angle mort qu'une garde énonce est une limite ; un angle mort
+ * dans son alphabet est un défaut, et il se répare.
+ *
  * # Pourquoi une garde et pas une consigne
  *
  * Marquer la ligne après chaque merge est une **discipline**, c'est-à-dire quelque chose qui tient
@@ -56,8 +76,18 @@ import type { Finding } from "../lib/findings.ts";
 /** Les dépôts voisins où un item de la roadmap peut avoir été livré. */
 const SIBLINGS = ["canterel", "xiiif", "emacs-config"] as const;
 
+/**
+ * Un identifiant d'item, des deux familles : `W5.q` du chemin critique, `R1` de recherche.
+ *
+ * Écrit une fois et partagé par les quatre motifs. Les avoir écrits quatre fois est précisément ce
+ * qui a permis à une famille entière d'échapper aux quatre en même temps : une alternance ajoutée à
+ * trois motifs sur quatre laisserait le garde lire les lignes sans lire les entrées, ou l'inverse,
+ * et il conclurait alors « livré nulle part » sur six items livrés.
+ */
+const ITEM = String.raw`(?:W\d+\.[a-z0-9]+|R\d+)`;
+
 /** Le motif d'un titre d'entrée de ledger : `## 2026-08-19 — W5.q — …`. */
-const ledgerHeading = /^## \d{4}-\d{2}-\d{2} — (W\d+\.[a-z0-9]+)\b([^\n]*)$/gm;
+const ledgerHeading = new RegExp(String.raw`^## \d{4}-\d{2}-\d{2} — (${ITEM})\b([^\n]*)$`, "gm");
 
 /**
  * Le motif d'une entrée qui consigne une **décision**, pas une livraison.
@@ -92,10 +122,10 @@ const ledgerHeading = /^## \d{4}-\d{2}-\d{2} — (W\d+\.[a-z0-9]+)\b([^\n]*)$/gm
 const decisionHeading = /—\s*(Bloqué|Reporté|Partiel)(?!\p{L})/u;
 
 /** Le motif d'une ligne d'item de roadmap : `| W5.q `[R]` **fait** | … |`. */
-const roadmapRow = /^\| (W\d+\.[a-z0-9]+) ([^|]*)\|/gm;
+const roadmapRow = new RegExp(String.raw`^\| (${ITEM}) ([^|]*)\|`, "gm");
 
 /** La ligne entière, pour lire la raison d'un blocage — le troisième champ. */
-const wholeRow = /^\| (W\d+\.[a-z0-9]+) [^|]*\|([^\n]*)$/gm;
+const wholeRow = new RegExp(String.raw`^\| (${ITEM}) [^|]*\|([^\n]*)$`, "gm");
 
 /**
  * Ce qu'une ligne bloquée déclare attendre, sous une forme que le garde sait lire.
@@ -116,7 +146,21 @@ const wholeRow = /^\| (W\d+\.[a-z0-9]+) [^|]*\|([^\n]*)$/gm;
  * D'où `attend:<quoi>`, écrit exprès. `attend:externe` dit « rien dans ce plan ne le débloquera » et
  * ne se vérifie pas ; `attend:W20` se vérifie, et se périme tout seul.
  */
-const awaits = /attend:(W\d+(?:\.[a-z0-9]+)?|externe)/g;
+const awaits = new RegExp(String.raw`attend:(W\d+(?:\.[a-z0-9]+)?|R\d+|externe)`, "g");
+
+/**
+ * Un item de recherche est un **item**, jamais une phase.
+ *
+ * `satisfied` tranche sur la présence d'un point : `W15.f` est un item, `W20` est une phase dont il
+ * faut regarder toutes les lignes. `R1` n'a pas de point et n'est pas une phase pour autant — sans
+ * cette règle il partait chercher des lignes `R1.<quelque chose>`, n'en trouvait aucune, et
+ * `attend:R1` devenait insatisfiable **à jamais**.
+ *
+ * C'est pour cela que la famille entre dans `awaits` et dans `satisfied` du même geste. Un marqueur
+ * qui s'analyse mais ne peut jamais être satisfait est pire que les deux états qu'il départage : la
+ * ligne qui le porte reste bloquée sans que rien ne le dise, et le garde a l'air de la vérifier.
+ */
+const research = /^R\d+$/;
 
 /**
  * Ce que les deux documents affirment, et ce qui n'a pas pu être lu.
@@ -254,7 +298,7 @@ function satisfied(what: string, state: Reconciliation): boolean {
   if (what === "externe") {
     return false;
   }
-  if (what.includes(".")) {
+  if (what.includes(".") || research.test(what)) {
     return state.marked.has(what) || state.decided.has(what);
   }
   const rows = [...state.planned].filter((item) => item.startsWith(`${what}.`));

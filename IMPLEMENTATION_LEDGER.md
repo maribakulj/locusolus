@@ -10701,3 +10701,93 @@ s'appelle `as_str()`. Corrigés, les trois tuent.
 
 **Prochain item.** Aucun : la frontière de `check:roadmap` est vide. Restent `W16.d` et `W18.f`,
 tous deux `attend:externe`.
+
+## 2026-08-21 — W0.17 — Le garde ne lisait qu'une famille d'identifiants sur deux
+
+**Périmètre.** `tooling/repo/roadmap.ts`, `tests/repo/roadmap.test.ts`,
+`docs/10_V1_ROADMAP.md` (section « Recherche » tabulée, ligne `W0.17`, cellule manquante de
+`W0.16`). Aucun code de domaine.
+
+**Tests exécutés.** `npm run check` — les douze portes. `node --test tests/repo/roadmap.test.ts` :
+23 tests, dont deux neufs. Mutation : quatre mutants, **quatre tués** — l'alphabet privé de la
+famille `R<n>`, le marqueur `attend:` privé de la même, la branche de `satisfied` qui distingue un
+item d'une phase, et son inverse (`/^[RW]\d+$/`, qui ferait d'une phase un item et casse le test de
+`attend:W20`).
+
+**Le défaut.** Le plan porte deux familles d'identifiants : les `W<phase>.<item>` du chemin critique
+et les `R<n>` de recherche. Le garde de `W0.11` ne connaissait que la première, dans les **deux**
+documents à la fois, puisque le même alphabet ancrait le titre d'entrée de registre et la ligne de
+tableau.
+
+Les six items de recherche ont été livrés le 2026-08-18 — `packages/graph/src/consensus.rs`,
+`credit.rs`, `regret.rs`, `metrics.rs`, `counterfactual.rs`, `evolution.rs` —, chacun avec ses tests
+et sa passe de mutants, chacun avec son entrée au registre sous la forme exacte qui atteste une
+livraison. `check:roadmap` a répondu `frontière vide — toute ligne du plan est faite` et `ok`
+par-dessus, trois jours durant, sans se tromper une seule fois sur ce qu'il regardait.
+
+**Ce n'est pas l'angle mort que la garde documente.** Celui-là est un silence commun — ni entrée, ni
+marque, rien à conclure — et il est irréductible. Ici le registre parlait, dans la forme que le
+garde exige, et le garde ne l'entendait pas. Un angle mort qu'une garde énonce est une limite ; un
+angle mort dans son alphabet est un défaut.
+
+**Comment il a été trouvé, ce qui est la partie utile.** Pas par une revue du garde : en butant
+dessus. La frontière était vide, les deux items restants sont `attend:externe`, et la boucle de
+session n'avait plus d'entrée. En vérifiant qu'il ne restait vraiment rien, j'ai lu la section
+« Recherche » — « `R1` **consensus circulaire** [...] le moins cher des items de recherche,
+publiable seul » — et je m'apprêtais à l'écrire. `packages/graph/src/consensus.rs` existait depuis
+trois jours. C'est mot pour mot le premier des deux sens que `W0.11` énumère : « la roadmap
+sous-estime l'avancement, et une session refait le travail ». Il ne manquait que le dernier pas.
+
+**Deux moitiés d'un même défaut, et l'une sans l'autre ne répare rien.** Élargir les motifs ne
+change rien tant que la section reste de la prose : `livre-non-marque` exige que l'item soit **au
+plan**, et six items livrés hors tableau restent le cas normal d'un item que la roadmap ne connaît
+pas — que la garde se refuse à juger, à bon droit. Vérifié en passant : motifs élargis, section
+encore en prose, verdict `ok`. La section est donc passée en lignes le même jour. Un tableau n'est
+pas ici une préférence de mise en page, c'est la seule forme que le garde sait confronter au
+registre.
+
+**Rouge puis vert, sur l'arbre réel.** Les six lignes ont d'abord été écrites **sans** marque,
+c'est-à-dire disant exactement ce que la prose disait : six `livre-non-marque`, et une frontière qui
+les nomme enfin. Puis marquées : `ok`. Le message que le garde imprime dans l'intervalle est celui
+qu'il fallait lire trois jours plus tôt — « sinon une session le refera ».
+
+**L'alphabet est écrit une fois.** `ITEM` est partagé par les quatre motifs. Les avoir écrits quatre
+fois est précisément ce qui a permis à une famille entière d'échapper aux quatre en même temps, et
+une alternance ajoutée à trois motifs sur quatre ferait lire les lignes sans lire les entrées — le
+garde conclurait alors « livré nulle part » sur six items livrés, ce qui est la faute inverse et
+tout aussi coûteuse.
+
+**`attend:R<n>` entre dans le marqueur et dans `satisfied` du même geste.** `satisfied` tranche sur
+la présence d'un point : `W15.f` est un item, `W20` une phase dont il faut regarder toutes les
+lignes. `R1` n'a pas de point et n'est pas une phase pour autant — sans la règle qui le dit, il
+partait chercher des lignes `R1.<quelque chose>`, n'en trouvait aucune, et `attend:R1` devenait
+insatisfiable **à jamais**. C'est le pire des trois états possibles : la ligne resterait bloquée
+sans que rien ne le dise, et le garde aurait l'air de la vérifier. Élargir le marqueur sans corriger
+`satisfied` aurait donc été strictement pire que ne pas l'élargir du tout.
+
+**Un test qui prouve que les deux motifs ont bougé.** Si seul le motif de registre avait été élargi,
+`R1` ne serait pas au plan et aucun constat ne sortirait ; si seul celui du tableau l'avait été,
+`R1` ne serait pas livré et aucun constat ne sortirait non plus. Le constat n'apparaît que lorsque
+les deux lisent la même famille, et c'est ce que le test assied — un motif élargi à moitié le fait
+échouer dans les deux sens.
+
+**Une cellule manquante, corrigée en passant.** La ligne de `W0.16` portait trois cellules dans un
+tableau qui en déclare quatre : sa raison occupait la colonne « Dépôt ». Le garde ne l'a jamais vu —
+son motif s'arrête au premier séparateur — mais un lecteur humain lisait « locusolus » là où il
+fallait lire un test de sortie.
+
+**Ce que la frontière vide veut dire maintenant.** Elle couvre **166** lignes au lieu de 159 : 164
+marquées, deux décidées, aucune ouverte. Les six items de recherche y sont, et deux items restent
+hors d'atteinte : `W16.d` et `W18.f`, tous deux `attend:externe`, tous deux hors de ce que du code
+peut lever.
+
+Le chiffre est lu de `readReconciliation`, pas compté à la main : la première rédaction de cette
+entrée annonçait « 162 au lieu de 155 », tirés d'un `grep` qui n'attrapait que les lignes portant un
+statut en gras et manquait donc toutes les autres. Un compteur qui n'a pas lu ce qu'il prétend
+compter est la faute que `CLAUDE.md` retient du premier réveil de cette session, et elle se glisse
+aussi bien dans une phrase de bilan que dans un script d'attente.
+
+**Écart avec la spec.** Aucun.
+
+**Prochain item.** Aucun dans le plan. La frontière est vide et, cette fois, elle a lu la totalité du
+tableau.
