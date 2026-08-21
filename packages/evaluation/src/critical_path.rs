@@ -154,6 +154,83 @@ impl Dependencies {
             steps: steps.values().copied().max().unwrap_or(0),
         })
     }
+
+    /// Le parallélisme moyen — `average_parallelism` proprement dit. `W21.h`, ADR 0024.
+    ///
+    /// Travail total — le nombre de nœuds — divisé par la longueur du chemin critique.
+    ///
+    /// # Errors
+    ///
+    /// [`CriticalPathError::Cycle`], propagée depuis [`Self::critical_path`] : sans chemin, il n'y a
+    /// rien à diviser. Rendre une valeur quand même obligerait à inventer un dénominateur.
+    pub fn average_parallelism(&self) -> Result<AverageParallelism, CriticalPathError> {
+        let steps = self.critical_path()?.steps();
+        if steps == 0 {
+            return Ok(AverageParallelism::NoWork);
+        }
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "un nombre de nœuds et une longueur de chemin ne franchissent pas 2^53"
+        )]
+        let value = self.nodes().len() as f64 / steps as f64;
+        Ok(AverageParallelism::Measured(value))
+    }
+}
+
+/// Le parallélisme moyen, ou la raison pour laquelle il n'y en a pas.
+///
+/// # Ce n'est pas le nombre d'agents qui tournaient
+///
+/// C'est une propriété **du graphe** : combien de travail, en moyenne, chaque étape du chemin
+/// critique porte. Une organisation qui n'aurait qu'un seul agent obtiendrait la même valeur, parce
+/// que la mesure ne regarde pas les exécutants — et elle ne peut pas : rien de ce module ne connaît
+/// d'agent.
+///
+/// Ce n'est pas non plus la **largeur maximale**. Un graphe dont le niveau le plus large porte dix
+/// nœuds peut avoir un parallélisme moyen de cinq et demi : la moyenne lisse ce que le pic montre.
+/// Les deux répondent à deux questions — « combien pourrait avancer de front au mieux » et
+/// « combien avance de front en moyenne » — et un test les sépare sur la même fixture.
+///
+/// # Et surtout, ce n'est pas un plafond
+///
+/// `Dimension::Parallelism` de §7.2 est une **limite qu'on fixe** ; ceci est un **constat**. « Le
+/// parallélisme vaut 4 » ne dirait plus lequel des deux, et c'est exactement la confusion que le
+/// renommage de la décision 2 de l'ADR 0024 évite. `locus-evaluation` n'a aucune dépendance, donc
+/// ce module ne peut pas même voir `locus-budget` : la séparation est tenue par le graphe de
+/// paquets, et un test lit le manifeste.
+///
+/// # Aucun arrondi, contrairement à `degree_entropy`
+///
+/// L'entropie somme des termes et accumule de l'erreur ; ici il n'y a qu'une **division de deux
+/// entiers exacts**, donc deux graphes de même forme rendent déjà bit pour bit la même valeur.
+/// Arrondir sans nécessité aurait recopié une décision au lieu de la reprendre.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum AverageParallelism {
+    /// La valeur : travail total divisé par la longueur du chemin critique.
+    Measured(f64),
+    /// Aucun nœud — ni travail, ni chemin. Le seul cas où la division n'a pas lieu, et il est rendu
+    /// plutôt que calculé : `0 / 0` produirait un `NaN`, qui ne se compare à rien.
+    NoWork,
+}
+
+impl AverageParallelism {
+    /// La valeur, si elle existe.
+    #[must_use]
+    pub const fn value(self) -> Option<f64> {
+        match self {
+            Self::Measured(value) => Some(value),
+            Self::NoWork => None,
+        }
+    }
+}
+
+impl fmt::Display for AverageParallelism {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Measured(value) => write!(formatter, "{value:.2}"),
+            Self::NoWork => formatter.write_str("aucun travail"),
+        }
+    }
 }
 
 /// La plus longue chaîne, en étapes.
