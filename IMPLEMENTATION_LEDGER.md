@@ -10542,3 +10542,61 @@ genre de perte qui ne se voit qu'une fois le document approuvé.
 d'écriture côté client, ce que l'ADR 0020 laissait ouvert.
 
 **Prochain item.** `W14.e` — qui exige la lecture de §18.3 à §18.6 — ou `W18.h`.
+
+## 2026-08-21 — W14.e — l'alignement d'ontologies comme proposition
+
+**Périmètre.** `packages/policy/src/alignment.rs`, neuf — `AlignmentProposal`, `approve`,
+`ApprovedAlignment`, `Alignments`, `Equivalence`, `AlignmentError` ; `category.rs` — la dix-septième
+catégorie ; le `lib.rs` ; `packages/policy/tests/alignment.rs`.
+
+**Tests exécutés.** `npm run check` — les douze gardes. Neuf tests dans `tests/alignment.rs`.
+
+**§18 a été lu avant d'écrire, comme le test de sortie l'exigeait — et il renforce l'item.** §18.4
+point 4 : « ne jamais fusionner automatiquement deux concepts sur seule similarité vectorielle ».
+C'est exactement l'argument de l'ADR 0023 décision 6, arrivé par un autre chemin — la spec le pose
+pour la fusion de branches, l'ADR pour l'alignement d'ontologies, et aucun des deux textes n'a été
+écrit en connaissance de l'autre. La vérification demandée cherchait une contradiction et a trouvé
+une confirmation.
+
+**Le refus nomme la contrainte, jamais un score.** C'est ce que l'ablation mesure : retirer
+l'appariement un-à-un fait chuter le F1 de 0,829 à 0,728, quand cinq pondérations de similarité
+s'écartent de 0,0033. Un refus qui rendrait « 0,62 » enverrait son lecteur chercher un seuil, alors
+que le problème n'en est pas un — aucune confiance supplémentaire ne libérerait un terme déjà
+apparié. Le test l'exige des deux côtés : la contrainte nommée **et** l'absence de chiffre dans le
+message.
+
+**La proposition ne porte aucun score**, et un test le vérifie sur son rendu `Debug`. En porter un
+inviterait à la trancher en le comparant à un seuil, c'est-à-dire à décider par similarité — ce que
+le module entier existe pour empêcher.
+
+**L'ordre des deux refus compte, encore.** Le CAS parle en premier : une proposition écrite sur une
+base périmée reçoit `Stale` et la consigne de rebaser, pas `AlreadyMatched`, qui ferait croire à son
+auteur que sa paire est mauvaise alors qu'elle est seulement en retard. Un test rebase la même paire
+et la voit passer.
+
+**La dix-septième catégorie est signalée, pas fondue.** §20.1 en énumère seize ; l'inscrire sans le
+dire ferait passer un ajout pour une lecture de la spec — même discipline que les namespaces
+`projection` et `migration`. Aucune des seize ne couvrait le cas : `Federation` porte l'échange
+entre pairs, `Validation` le statut épistémique d'un claim, et ranger l'alignement sous l'une des
+deux aurait fait décider une identité par une politique écrite pour autre chose. Un test tient les
+seize par leur ordre et leurs noms.
+
+**Trois équivalences, non interchangeables.** `SameAs` porte sur des individus et se propage par
+transitivité, `EquivalentClass` sur des classes, `ExactMatch` est une correspondance de vocabulaire
+qui ne promet **aucune** inférence. Les confondre ferait tirer d'un rapprochement de thésaurus des
+conclusions logiques que personne n'a autorisées.
+
+**Deux tests existants sont tombés en rouge, et c'est ce qu'on leur demandait.** `category.rs`
+comptait seize catégories et quatorze absentes ; l'ajout les a fait échouer. Les mettre à jour est
+un acte délibéré, pas un ajustement de confort — c'est le sens de la phrase de l'ADR 0019 : « une
+liste normative ne s'allonge pas sans que quelqu'un le lise ».
+
+Le premier tient désormais **deux** choses au lieu d'une : que les seize premières n'ont bougé ni en
+nombre, ni en ordre, ni en nom, et que ce qui suit est un ajout local. Sans la première moitié, une
+réécriture de la spec passerait pour un ajout. Le second vérifie en plus que `Alignment` figure
+parmi les non couvertes : une couverture qui l'ignorerait dirait « complète » alors qu'aucune
+politique d'alignement n'existe.
+
+**Écart avec la spec.** Une catégorie de politique en plus des seize de §20.1, assumée et signalée.
+
+**Prochain item.** `W18.h` — le raisonneur d'ontologie comme première capacité réellement admise.
