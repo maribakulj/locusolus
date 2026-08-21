@@ -31,8 +31,24 @@
 | Endurance | campagne longue avec redémarrages et workers perdus |
 | Modes d'autorité | en `observed`, aucun chemin de code ne permet à un agent de produire une proposition de coordination ; le changement de mode est journalisé comme un acte, avec son auteur ; le proposeur ne peut jamais approuver sa propre proposition |
 | Mémoire | sept niveaux distincts ; le ranking du retrieval expose ses facteurs ; aucun embedding ne contourne une ACL ; aucune fusion automatique de quasi-duplicat ; un cycle de citations sans ancrage externe est détecté |
-| Métriques structurelles | `mutations_per_run`, `accepted_mutation_rate`, `rollback_rate`, `graph_edit_distance`, `edge_churn`, `agent_lifetime`, `topology_entropy`, `critical_path_length`, `parallelism`, `communication_tokens`, `state_transfer_volume`, `failure_recovery_time`, `structural_regret` — calculées depuis le seul journal |
+| Métriques structurelles | Les treize de l'**ADR 0024**, qui les définit une par une — formule, numérateur, dénominateur, et ce que chacune ne prétend pas dire : `mutations_per_run`, `edge_churn`, `applied_edit_length`, `accepted_mutation_rate`, `rollback_rate`, `structural_regret`, `degree_entropy`, `critical_path_length`, `average_parallelism`, `communication_tokens`, `handed_over_attempts`, `agent_lifetime`, `failure_recovery_time`. Toutes calculées depuis le seul journal, et rejouables à l'identique sur le même préfixe ; aucune ne porte de seuil, de note ni de verdict, un seuil étant une décision de politique et non un fait mesuré. Quatre noms ont été arrêtés différemment de la première rédaction, chacun parce qu'il promettait plus que son calcul — voir la décision 2 de l'ADR |
 | Gouvernance mesurée | taux de contestation des décisions de coordination, et taux d'annulation humaine des adaptations proposées par les agents |
 
-Les quatre dernières lignes n'ont de producteur qu'après W15 et W17. Elles s'écrivent maintenant comme
-la ligne `Sandbox` l'a fait avant W4.b : la matrice décrit ce qui sera exigé, pas ce qui est mesuré.
+Les quatre dernières lignes attendaient W15 et W17, qui sont faits. Elles ne sont plus dans le même
+état, et les confondre ferait relire cette note comme une excuse valable pour les quatre :
+
+- **Modes d'autorité** et **Mémoire** ont leurs producteurs. Le mode `observed` et le journal du
+  changement de mode viennent de W13/W15 ; les sept niveaux, les facteurs de ranking, l'ACL et le
+  refus de fusion automatique viennent de W17.k à W17.n, et la détection d'un cycle de citations sans
+  ancrage externe de `R1`.
+- **Gouvernance mesurée** a la moitié qui la concerne : le taux d'annulation humaine des adaptations
+  est livré par W18.e, qui compte les annulations humaines seulement et déclare **hors mesure** ce
+  que personne n'a regardé.
+- **Métriques structurelles** est la seule qui reste à produire, et c'est la phase W21. Une seule des
+  treize existe — `structural_regret`, livrée par `R3`. L'ADR 0024 a arrêté les douze autres avant
+  qu'aucune ne s'écrive, parce qu'elles étaient nommées sans être définies, et qu'un nombre publié
+  sous un nom qu'on n'a pas défini sera lu, cité et suivi sans que personne sache ce qu'il compte.
+
+Ce que la note d'origine disait reste vrai de cette dernière ligne, et d'elle seule : la matrice
+décrit ce qui sera exigé, pas ce qui est déjà mesuré. Elle l'a dit des quatre pendant trois jours de
+plus qu'il ne fallait, ce que `W0.17` a constaté un document plus loin.

@@ -10799,3 +10799,90 @@ Réparé en une tentative.
 
 **Prochain item.** Aucun dans le plan. La frontière est vide et, cette fois, elle a lu la totalité
 du tableau.
+
+## 2026-08-21 — ADR 0024 + phase W21 — Treize grandeurs nommées, aucune définie
+
+**Périmètre.** `docs/adr/0024-les-metriques-structurelles.md` (neuf décisions),
+`docs/11_ACCEPTANCE_MATRIX.md` (ligne « Métriques structurelles » et note de clôture),
+`docs/10_V1_ROADMAP.md` (phase `W21`, treize items). **Aucun code** — c'est l'objet de la
+décision 1.
+
+**Tests exécutés.** `npm run check` — les douze portes. `check:roadmap` : frontière de douze
+(`W21.a` à `W21.k`, `W21.m`), `W21.l` déclaré bloqué avec `attend:W21.m` lu par le garde. Pas de
+passe de mutants : un ADR n'a pas d'exécutable à muter, et le dire vaut mieux que de laisser
+l'absence se lire comme un oubli.
+
+**Ce que l'audit a trouvé.** La matrice d'acceptation V1 exige treize métriques structurelles «
+calculées depuis le seul journal ». Une seule a un producteur — `structural_regret`, livrée par
+`R3`. Les cinq métriques que `R3` a livrées dans `coordination/src/metrics.rs` sont bonnes et
+motivées, mais aucune n'est l'une des treize : elles parlent toutes de la structure de **revue**.
+
+Et le fait qui commande tout : **aucune des treize n'est définie**. Les treize noms ont été cherchés
+dans l'ensemble de `docs/` ; ils n'apparaissent qu'à cette ligne. Ni formule, ni numérateur, ni
+dénominateur — seulement des intitulés.
+
+**Pourquoi l'ADR avant le code, et non par prudence.** Une métrique implémentée depuis un nom non
+défini est **pire qu'une métrique absente**. L'absente n'induit personne en erreur : elle manque, et
+son absence se voit. Un nombre affiché sera lu, cité, mis dans un tableau de bord, et finira par
+orienter une décision — sans que personne sache ce qu'il compte, parce que rien dans son apparence
+ne distingue un nombre bien défini d'un nombre mal défini. C'est le motif de chaque passe de mutants
+d'un cran plus haut : une propriété décrite sans être testée est une propriété qu'on croit tenir ;
+une grandeur nommée sans être définie est une grandeur qu'on croira mesurer.
+
+**Quatre renommages, chacun parce que le nom promettait plus que le calcul.**
+
+_`graph_edit_distance` → `applied_edit_length`._ La distance d'édition est le nombre **minimal**
+d'opérations, et son calcul est NP-difficile. Ce que le dépôt possède est le `diff` de `W17.h` : une
+suite qui mène de `a` à `b`, sans garantie de minimalité. Publier cette longueur sous le nom de «
+distance » affirmerait une propriété qu'aucun code ne calcule. Le nom retenu dit ce que c'est, et la
+définition ajoute qu'elle en est une **borne supérieure**.
+
+_`parallelism` → `average_parallelism`._ `Dimension::Parallelism` existe déjà : c'est l'une des six
+dimensions de budget de §7.2, donc un **plafond qu'on fixe**. Une métrique homonyme serait une
+mesure de ce qui s'est produit, et « le parallélisme vaut 4 » ne dirait plus si c'est la limite ou
+le constat. C'est le vocabulaire parallèle que `CLAUDE.md` refuse, dans le cas le plus vicieux :
+celui où l'une des deux choses borne l'autre.
+
+_`state_transfer_volume` → `handed_over_attempts`._ Le mot appelle des octets, et l'ADR 0019
+condition 3 interdit délibérément la copie qui en produirait — `docs/13` fixe « nouvel attempt,
+nouvelle vue, nouveau hash ». Une métrique de volume aurait donc deux issues, toutes deux mauvaises
+: valoir zéro en permanence, jusqu'à ce qu'on la croie cassée plutôt que juste ; ou faire ajouter la
+copie pour avoir quelque chose à mesurer, et **créer le coût qu'elle prétend observer**.
+
+_`topology_entropy` → `degree_entropy`._ Le nom ne disait pas de quelle distribution, alors qu'au
+moins quatre candidates existent et qu'elles ne classent pas dans le même ordre. Il faisait en outre
+écho à `TopologyNode`, que `CLAUDE.md` proscrit — une mesure ne crée pas de vocabulaire d'objet
+parallèle, mais un nom qui oblige à refaire ce raisonnement à chaque relecture est mal choisi.
+
+**Une redondance qui n'en était pas.** La première rédaction s'apprêtait à supprimer
+`mutations_per_run` ou `applied_edit_length`, qui rendent le même nombre sur une exécution sans
+retour en arrière. Elles diffèrent exactement là où c'est intéressant : ajouter une arête puis la
+retirer coûte deux au chemin et zéro à la destination. Leur **écart est le détour** — le travail de
+coordination qui n'a laissé aucune trace. C'est la distinction `churn` / solde, remontée d'un
+niveau, et les fondre aurait supprimé la seule mesure du travail inutile de la famille.
+
+**Un seul report, et il est régulier.** `communication_tokens` demande de séparer les tokens de
+coordination de ceux de travail. Le dépôt sait **compter** les tokens (`Dimension::Tokens`, ledger
+de `packages/budget`) mais pas les **classer** : `EntryKind` distingue le mouvement — allocation,
+réservation, libération, consommation, ajustement, remboursement — jamais son objet. Ce qui reste
+est le champ `reason`, du texte libre, et un classificateur qui le lirait rendrait un nombre dont la
+justesse dépendrait de la rédaction de chaque appelant. Le blocage est donc une **dépendance
+technique nommée**, l'un des deux seuls motifs qu'admet la décision 0 de l'ADR 0022 — et non «
+personne ne l'utilise encore », qui n'en est pas un.
+
+**Le marqueur était inerte, et je ne l'ai su qu'en le regardant.** `W21.l` portait `attend:W21.m`
+dans sa colonne de test, et la ligne est sortie **sur la frontière** au premier passage. Le garde ne
+peuple `awaiting` que pour les lignes **décidées** : un marqueur posé sur une ligne sans statut ne
+s'exécute pas. Corrigé en déclarant la ligne bloquée, et vérifié en lisant `awaiting.get("W21.l")`
+plutôt qu'en supposant — la règle du dépôt appliquée à ma propre écriture de plan. Le blocage se
+périmera tout seul quand `W21.m` sera marqué, ce que `W0.16` a construit exactement pour ça.
+
+**Ce que la phase ne contiendra pas.** Aucun seuil, aucune note, aucun verdict, dans aucun des onze
+modules. La décision 9 étend à toute la famille la règle que `R3` avait posée pour ses cinq : un
+seuil écrit en Rust a l'apparence d'un fait mesuré alors que c'est une décision de politique, et l'y
+inscrire le soustrait à la discussion tout en le rendant invisible à qui lit le nombre.
+
+**Écart avec la spec.** L'ADR **amende** `docs/11`, sous son propre statut. Les familles §28.2
+(système) et §28.3 (scientifiques) de `SPEC_V1.md` sont distinctes et ne sont pas touchées.
+
+**Prochain item.** `W21.a` — `mutations_per_run`.
