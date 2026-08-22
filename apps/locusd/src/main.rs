@@ -17,8 +17,17 @@
 use std::process::ExitCode;
 use std::sync::Arc;
 
+use locus_broker::unix::UnixSocketBroker;
+use locusd::broker::Standing;
 use locusd::composition::Runtime;
 use locusd::http::{DEFAULT_BIND, router, served};
+
+/// Où le broker est attendu quand rien ne le dit.
+///
+/// Un chemin par défaut plutôt qu'une configuration obligatoire : le profil `personal-local` de
+/// §27.1 met les deux binaires sur la même machine, et exiger un réglage pour le cas le plus courant
+/// ferait échouer la première mise en service sur une variable d'environnement oubliée.
+const DEFAULT_BROKER_SOCKET: &str = "/tmp/locus/broker.sock";
 
 fn main() -> ExitCode {
     let mut runtime = Runtime::in_memory();
@@ -31,6 +40,18 @@ fn main() -> ExitCode {
             readiness.quarantined().join(", ")
         );
         return ExitCode::FAILURE;
+    }
+
+    // `W4.h` : l'état du lien vers `locus-execd` se dit **au démarrage**, et le daemon démarre quand
+    // même. Le déclarer seulement au moment où quelqu'un bute dessus produirait un `locusd` qui a
+    // l'air d'aller bien et qui échoue à la première mission réelle — ADR 0028 décision 4.
+    let broker = UnixSocketBroker::at(
+        std::env::var("LOCUSD_BROKER_SOCKET").unwrap_or_else(|_| DEFAULT_BROKER_SOCKET.to_owned()),
+    );
+    let standing = Standing::probe(&broker);
+    println!("locusd : {standing}");
+    if let Some(refus) = standing.refusal() {
+        eprintln!("locusd : {refus}");
     }
 
     let adresse = std::env::var("LOCUSD_BIND").unwrap_or_else(|_| DEFAULT_BIND.to_owned());

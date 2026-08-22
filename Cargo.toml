@@ -5,6 +5,7 @@ members = [
     "apps/locusd",
     "packages/adaptation",
     "packages/artifacts",
+    "packages/broker",
     "packages/budget",
     "packages/coordination",
     "packages/deployment",

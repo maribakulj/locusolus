@@ -29,6 +29,7 @@
 
 pub mod admission;
 pub mod build;
+pub mod link;
 pub mod linux;
 pub mod macos;
 pub mod placement;
@@ -41,6 +42,7 @@ pub use admission::{
     AcceleratorReach, Admission, DiskQuota, HostCapabilities, RefusalReason, admit,
 };
 pub use build::{BuildContext, BuildDriver, BuildDriverError, build_arguments};
+pub use link::{serve, verdict};
 pub use linux::Missing;
 pub use linux::{ConfinementPlan, HostFacts, PlanError, PodmanBackend, Workload, plan};
 pub use linux::{NO_STORAGE_DECLARED, PROJECT_QUOTA_OPTIONS, QUOTA_CAPABLE_FILESYSTEMS, Support};

@@ -12159,3 +12159,99 @@ livrer serait la faute symétrique de celle que `W22` vient de réparer.
 
 **Prochain item.** `W4.h` — la surface du broker. Il demande un ADR de transport, donc un arbitrage
 présenté avant d'être écrit.
+
+---
+
+## 2026-08-22 — W4.h — Le couloir entre les deux binaires, et le proxy d'une garde qui a expiré
+
+**Ce qui est livré.** `packages/broker` — port, protocole, cadre, socket —, le serveur dans
+`apps/locus-execd`, le client dans `apps/locusd`, et un test qui fait parler les deux vrais
+binaires. `docs/adr/0028-le-lien-vers-le-broker.md` arbitre. Le quatrième maillon de la fermeture
+verticale est posé : `W22.c` avait constaté qu'aucun code du dépôt ne construisait de client vers
+`locus-execd` et que le broker n'écoutait rien.
+
+**Ce que ce lien coûte : rien.** `serde` et `serde_json` sont autorisés en portée `*` depuis l'ADR
+0011, `packages/lep` est du dépôt, et la socket vient de la bibliothèque standard. `check:deps` le
+confirme sans entrée nouvelle — 30 manifestes, 5 crates externes, inchangé. Les deux chiffres qui
+ont décidé, mesurés avant d'être invoqués : `locusd` porte **53** paquets externes, `locus-execd`
+**11**. Un transport HTTP aurait porté le second autour de 53 à son tour, c'est-à-dire **quintuplé
+la surface de code tiers du seul processus privilégié** pour un confort de format.
+
+**Ce que l'arbitrage a écarté.** HTTP dans la socket locale : le coût de l'option distante sans son
+bénéfice, aucune version acceptable. HTTP sur TCP avec certificats : la seule qui couvre
+`distributed-hybrid`, mais elle rend le broker **joignable depuis le réseau** avant qu'un seul
+déploiement en ait besoin — elle est conditionnée, pas refusée, et la condition est écrite. Le
+sous-processus par entrée/sortie : écarté par deux décisions déjà prises, `dependencies.json`
+interdisant `tokio/full` pour `process` et l'ADR 0004 refusant que le non-privilégié soit le parent
+du privilégié.
+
+**La recommandation 2 était fausse sur ses deux moitiés, et c'est l'écriture qui l'a montré.** Elle
+promettait une créance de pair « gratuite » et « la vraie protection ». Ni l'un ni l'autre :
+`UnixStream::peer_cred` est **instable** sur Rust stable, et `unsafe_code = "forbid"` ne se
+contourne ni par `allow` ni par `expect` — c'est le sens de `forbid` —, donc l'obtenir demande un
+crate externe dans le processus privilégié. Et surtout, la politique envisagée — « le même
+utilisateur que le broker » — admet **exactement l'ensemble que `0600` admet déjà** : deux barrières
+qui laissent passer les mêmes appelants ne sont pas une défense en profondeur.
+
+Ce qui est livré est donc ce qui protège réellement : socket `0600` dans un répertoire `0700`, les
+deux vérifiés **sur le système de fichiers** et non sur la constante. La créance devient `W4.i`,
+dont le test de sortie est précisément que les deux barrières admettent des ensembles **différents**
+— socket `0660`, groupe partagé, appelant admis par les permissions et refusé par la politique. Une
+barrière qui ne sépare rien n'a pas de test de sortie, et c'est ce qui la datait.
+
+**Le proxy d'une garde a expiré, et c'est la onzième fois de ce chantier.** `admission.rs` balaie
+l'arbre pour vérifier que personne hors de `locus-execd` ne parle à un runtime, et cherchait
+`UnixStream::connect` et `os::unix::net` **nus** comme proxy de « socket de runtime ». Le proxy
+tenait tant qu'aucune socket Unix légitime n'existait. `W4.h` en a créé une, et la garde s'est mise
+à accuser **le crate dont la raison d'être est de tenir `locusd` loin du runtime**.
+
+La réparation n'est ni une exemption nominative ni un retour aux chemins — la garde avait **déjà**
+essayé les chemins et les avait retirés, parce que `packages/execution` les nomme pour les
+_refuser_. Le découpage juste est celui que le proxy approximait : **ouvrir une socket Unix n'est
+pas parler à un runtime ; ce qui identifie un runtime est la façon dont on le trouve.** Trois façons
+étaient déjà couvertes — lier son SDK, lire son adresse dans l'environnement, lancer sa CLI —, et la
+quatrième, le chemin en dur, exige désormais **l'acte et la cible sur la même ligne**. Le chemin
+seul reste une donnée, donc la politique de sécurité peut continuer à les refuser sans se faire
+accuser de les appeler. Vérifié rouge sur une vraie connexion `docker.sock` injectée dans un vrai
+fichier, vert après retrait, et un test neuf tient l'autre moitié pour que le proxy ne soit pas
+remis « pour être sûr ».
+
+Ce que la garde ne verra pas est écrit plutôt que supposé : un chemin de runtime tenu dans une
+variable. Elle ne le voit pas davantage pour `Command::new(variable)`, et aucune lecture de texte ne
+le verra. Ce qui l'attrape est le graphe de paquets et la revue.
+
+**La quatrième frontière tient, et sur davantage de fichiers.** La règle 4 de `boundaries.json`
+passe de **25 à 27 fichiers examinés**, et un import interdit injecté dans le fichier neuf la fait
+rougir — vérifié, puis retiré. `apps/locusd` ne dépend **pas** de `apps/locus-execd` : les deux
+dépendent du crate de protocole. La flèche inverse existe en dev seulement, pour le test de bout en
+bout, et elle ne met rien dans le graphe du daemon.
+
+**Trois issues, tenues par le type et non par une phrase.** Une réponse, un broker injoignable, un
+broker qui refuse. Une quatrième distinction est apparue à l'écriture : un broker **illisible** — un
+écart de version — est _joignable_, et le classer injoignable enverrait démarrer un service qui
+tourne déjà. C'est la faute de la décision 4 rencontrée un cran plus loin, et un test la tient.
+
+**Sept survivants à la première passe de mutants, et deux étaient graves.** Le test de permissions
+comparait le mode lu à `SOCKET_MODE` : muter la constante mutait **les deux côtés**, et ouvrir la
+socket à tous laissait le test vert. Un test qui s'appuie sur ce qu'il vérifie ne vérifie rien —
+c'est la forme la plus trompeuse du motif que `W22.f` avait relevée trois fois d'un coup. Les modes
+s'assertent désormais en littéraux, et les constantes sont vérifiées à part.
+
+Les cinq autres étaient des propriétés **décrites et non éprouvées** : une fermeture n'est pas un
+cadre illisible ; un broker qui meurt en cours d'échange est injoignable ; le client refuse une
+réponse d'une autre version comme le serveur refuse une requête ; et surtout la traduction des
+manques côté broker, qui porte la distinction de `W5.h` — « l'hôte ne l'offre pas » contre « on n'a
+pas pu l'établir » — que l'entrée ci-dessus affirme conserver de bout en bout et que rien
+n'exerçait.
+
+Le dernier a demandé un outil. « La borne compte ce qui précède le dernier morceau » ne se tue ni
+sur une socket, qui découpe comme elle veut, ni sur un `Cursor`, qui rend tout d'un coup et fait
+franchir la borne au premier morceau : il faut un tampon **déjà rempli** au moment où le saut de
+ligne apparaît. Un lecteur à découpage choisi le rend atteignable. Seconde passe : **15 mutants, 15
+tués.**
+
+**Écart avec la spec.** Aucun sur §22 ni §21. L'ADR 0028 décision 6 note que `distributed-hybrid` de
+§27.1 n'est **pas** couvert, avec la condition nommée qui ouvrira son second backend.
+
+**Prochain item.** `W20.h` — la sérialisation des écritures, dont `main.rs` de `locusd` nomme
+lui-même le blocage. C'est une décision avant d'être du code, donc un ADR.

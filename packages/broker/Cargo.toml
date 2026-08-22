@@ -1,0 +1,21 @@
+[package]
+name = "locus-broker"
+description = "Le lien entre locusd et locus-execd : port, protocole et socket locale (ADR 0028)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+# Aucune dépendance externe nouvelle, et c'est la propriété principale de l'ADR 0028 : `serde` et
+# `serde_json` sont autorisés en portée `*` depuis l'ADR 0011, et la socket vient de la
+# bibliothèque standard. `check:deps` le vérifie sans qu'on lui ajoute une entrée.
+locus-lep = { path = "../lep" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
