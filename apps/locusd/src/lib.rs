@@ -39,6 +39,7 @@
 //! que la combler en passant.
 
 pub mod branch;
+pub mod broker;
 pub mod command;
 pub mod composition;
 pub mod cursor;

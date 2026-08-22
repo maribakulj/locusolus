@@ -41,7 +41,8 @@ const PROTOCOL: &str = "lep/1.1";
 ///
 /// Exhaustif lui aussi : un niveau nouveau dans `locus_execution` n'a pas de code de fil tant que
 /// personne ne le lui donne, et le compilateur le dit.
-fn level(level: SandboxLevel) -> WireLevel {
+#[must_use]
+pub fn level(level: SandboxLevel) -> WireLevel {
     match level {
         SandboxLevel::S0 => WireLevel::S0,
         SandboxLevel::S1 => WireLevel::S1,

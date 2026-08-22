@@ -274,6 +274,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "locus-broker"
+version = "0.0.0"
+dependencies = [
+ "locus-lep",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "locus-budget"
 version = "0.0.0"
 dependencies = [
@@ -333,9 +342,11 @@ dependencies = [
 name = "locus-execd"
 version = "0.0.0"
 dependencies = [
+ "locus-broker",
  "locus-environments",
  "locus-execution",
  "locus-lep",
+ "locusd",
  "serde",
  "serde_json",
 ]
@@ -465,9 +476,11 @@ name = "locusd"
 version = "0.0.0"
 dependencies = [
  "axum",
+ "locus-broker",
  "locus-coordination",
  "locus-domain",
  "locus-event-store",
+ "locus-lep",
  "locus-policy",
  "locus-projections",
  "locus-protocol",

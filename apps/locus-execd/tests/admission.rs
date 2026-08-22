@@ -225,6 +225,30 @@ fn un_accelerateur_demande_et_present_ne_refuse_pas() {
 /// paquet qui écrit la politique de sécurité — c'est-à-dire à trouer la garde là où elle sert le
 /// plus.
 ///
+/// # Le proxy qui a expiré — `W4.h`
+///
+/// Cette table a longtemps porté `UnixStream::connect` et `os::unix::net` **nus**, comme proxy de
+/// « socket de runtime ». Le proxy tenait tant que le dépôt n'avait aucune socket Unix légitime.
+/// `W4.h` en a créé une — le lien de l'ADR 0028 entre `locusd` et ce broker-ci —, et le proxy s'est
+/// mis à signaler le crate dont la raison d'être est précisément de tenir `locusd` **loin** du
+/// runtime.
+///
+/// C'est la même expiration que celle du motif d'identifiant de la garde de roadmap en `W22.a` : une
+/// approximation juste au moment où elle est écrite, et fausse dès qu'un cas légitime apparaît. Et
+/// c'est la même leçon que `W22.d` : une garde qui crie sur ce qui est juste se fait désactiver.
+///
+/// La distinction retenue est celle que le proxy approximait : **ouvrir une socket Unix n'est pas
+/// parler à un runtime ; ce qui identifie un runtime est la façon dont on le trouve.** Les trois
+/// façons sont couvertes — lier son SDK, lire son adresse dans l'environnement, lancer sa CLI — et
+/// [`connects_to_runtime_socket`] couvre la quatrième, le chemin en dur, en exigeant l'acte **et**
+/// la cible sur la même ligne. Le chemin seul reste une donnée, donc `packages/execution` continue
+/// de pouvoir les refuser sans se faire accuser de les appeler.
+///
+/// **Ce que la garde ne verra pas**, et qui est écrit plutôt que supposé : un chemin de runtime
+/// tenu dans une variable, puis passé à `connect`. Elle ne le voit pas davantage pour
+/// `Command::new(variable)`, et aucune lecture de texte ne le verra jamais. Ce qui l'attrape est le
+/// graphe de paquets — `apps/locusd` ne dépend pas de ce crate — et la revue.
+///
 /// Assemblés par `concat!` : le balayage passe aussi sur ce fichier, et une table écrite d'un bloc
 /// se signalerait elle-même. Même précaution qu'en W3.a et W4.a.
 fn runtime_markers() -> Vec<String> {
@@ -233,13 +257,38 @@ fn runtime_markers() -> Vec<String> {
         concat!("shiplift", "::").to_owned(),
         concat!("DOCKER_", "HOST").to_owned(),
         concat!("CONTAINER_", "HOST").to_owned(),
-        concat!("UnixStream", "::connect").to_owned(),
-        concat!("os::unix", "::net").to_owned(),
         concat!("Command::new(\"", "docker").to_owned(),
         concat!("Command::new(\"", "podman").to_owned(),
         concat!("Command::new(\"", "buildah").to_owned(),
         concat!("Command::new(\"", "nerdctl").to_owned(),
     ]
+}
+
+/// Les chemins où un runtime de containers écoute.
+///
+/// Assemblés par `concat!` pour la même raison que la table d'actes : le balayage passe sur ce
+/// fichier.
+fn runtime_socket_paths() -> Vec<String> {
+    vec![
+        concat!("docker", ".sock").to_owned(),
+        concat!("podman", ".sock").to_owned(),
+        concat!("containerd", ".sock").to_owned(),
+        concat!("crio", ".sock").to_owned(),
+    ]
+}
+
+/// Vrai quand une ligne **ouvre** une connexion **vers** un runtime.
+///
+/// Les deux sont exigés ensemble : le chemin seul est une donnée que `packages/execution` refuse
+/// légitimement, et l'ouverture seule est ce que le lien de l'ADR 0028 fait vers une socket que ce
+/// dépôt crée lui-même. Seule leur conjonction dit qu'on parle à un runtime.
+fn connects_to_runtime_socket(line: &str) -> Option<String> {
+    if !line.contains(concat!("connect", "(")) {
+        return None;
+    }
+    runtime_socket_paths()
+        .into_iter()
+        .find(|path| line.contains(path.as_str()))
 }
 
 fn rust_sources(directory: &Path) -> Vec<(String, String)> {
@@ -311,6 +360,9 @@ fn aucun_autre_crate_ne_parle_a_un_runtime_de_containers() {
                         offenders.insert(format!("{location} : {marker}"));
                     }
                 }
+                if let Some(path) = connects_to_runtime_socket(line) {
+                    offenders.insert(format!("{location} : connexion vers {path}"));
+                }
             }
         }
     }
@@ -338,10 +390,6 @@ fn le_balayage_des_sockets_attrape_un_acte() {
             "let client = {}::Docker::connect_with_socket_defaults()?;",
             "bollard"
         ),
-        format!(
-            "let stream = {}::connect(\"/var/run/x.sock\")?;",
-            "UnixStream"
-        ),
         format!("let host = std::env::var(\"{}{}\")?;", "DOCKER_", "HOST"),
         format!(
             "{}{}\").arg(\"ps\").output()?;",
@@ -351,6 +399,55 @@ fn le_balayage_des_sockets_attrape_un_acte() {
         assert!(
             markers.iter().any(|marker| act.contains(marker.as_str())),
             "un acte réel doit être reconnu : {act}"
+        );
+    }
+
+    // La quatrième façon : le chemin en dur, exigeant l'acte **et** la cible.
+    for act in [
+        format!(
+            "let stream = {}::connect(\"/var/run/{}\")?;",
+            "UnixStream", "docker.sock"
+        ),
+        format!(
+            "{}::connect(\"/run/{}/{}\")",
+            "UnixStream", "podman", "podman.sock"
+        ),
+    ] {
+        assert!(
+            connects_to_runtime_socket(&act).is_some(),
+            "une connexion vers un runtime doit être reconnue : {act}"
+        );
+    }
+}
+
+/// **Ouvrir une socket Unix n'est pas parler à un runtime** — `W4.h`.
+///
+/// C'est la moitié que le proxy retiré confondait, et celle qui a fait crier la garde sur le crate
+/// dont la raison d'être est de tenir `locusd` loin du runtime. Sans ce test, rien n'empêcherait de
+/// remettre le proxy « pour être sûr », et la garde recommencerait à accuser ce qui est juste.
+#[test]
+fn ouvrir_une_socket_du_depot_n_est_pas_parler_a_un_runtime() {
+    let markers = runtime_markers();
+    for legitime in [
+        format!("let stream = {}::connect(&self.path)?;", "UnixStream"),
+        format!(
+            "use std::{}::{{UnixListener, UnixStream}};",
+            "os::unix::net"
+        ),
+        format!(
+            "{}::connect(\"/run/locus/{}\")",
+            "UnixStream", "broker.sock"
+        ),
+    ] {
+        assert!(
+            !markers
+                .iter()
+                .any(|marker| legitime.contains(marker.as_str())),
+            "le lien de l'ADR 0028 n'est pas un dialogue avec un runtime : {legitime}"
+        );
+        assert!(
+            connects_to_runtime_socket(&legitime).is_none(),
+            "aucune cible de runtime n'est nommée : {legitime}"
         );
     }
 }

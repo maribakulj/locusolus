@@ -19,8 +19,16 @@ name = "locus_execd"
 path = "src/lib.rs"
 
 [dependencies]
+# W4.h : le tube vers `locusd`. Aucune dépendance externe nouvelle — ADR 0028.
+locus-broker = { path = "../../packages/broker" }
 locus-environments = { path = "../../packages/environments" }
 locus-execution = { path = "../../packages/execution" }
 locus-lep = { path = "../../packages/lep" }
 serde = { workspace = true }
 serde_json = { workspace = true }
+
+[dev-dependencies]
+# W4.h : le test de bout en bout fait parler le vrai client de `locusd` au vrai serveur d'ici.
+# La flèche va dans ce sens et seulement en dev : `apps/locusd` ne dépend jamais de ce crate, qui
+# contient la seule fonction du dépôt exécutant `podman` — règle 4 de `boundaries.json`.
+locusd = { path = "../locusd" }
