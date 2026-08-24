@@ -91,6 +91,8 @@ where
         .route(EVENTS_PATH, post(worker_events::<S>))
         .route(RESULT_PATH, post(result::<S>))
         .route(ENROLL_PATH, post(enroll::<S>))
+        .route(PROPOSE_PATH, post(propose::<S>))
+        .route(QUEUE_PATH, post(queue::<S>))
         .with_state(Offload::new(runtime))
 }
 
@@ -414,6 +416,16 @@ pub const RESULT_PATH: &str = "/lep/v1/result";
 /// c'est celui par lequel on en obtient une.
 pub const ENROLL_PATH: &str = "/lep/v1/enroll";
 
+/// Les deux commandes de §22.3 — `W20.s`. **Hors** de `/lep/`, et ce n'est pas cosmétique.
+///
+/// `/lep/` est le protocole des **workers** : un worker y réclame, y remonte et y rend. Proposer une
+/// tâche et la mettre en file sont des commandes d'**administration**, sous une autorité que la
+/// créance d'un worker ne porte pas. Les loger sous le même préfixe aurait suggéré qu'une même
+/// créance ouvre les deux, ce qui est exactement ce que `W20.s` rend inexprimable.
+pub const PROPOSE_PATH: &str = "/commands/task/propose";
+/// Voir [`PROPOSE_PATH`].
+pub const QUEUE_PATH: &str = "/commands/task/queue";
+
 /// La créance portée par `Authorization: Bearer …`, si elle y est.
 ///
 /// Jamais journalisée, jamais renvoyée dans un refus : `CLAUDE.md` interdit de logger un token, et
@@ -652,6 +664,176 @@ async fn enroll<S: EventStore + Send + Sync + 'static>(
     }
 }
 
+/// La part commune aux deux commandes de §22.3 — `W20.s`.
+///
+/// Elle ne porte **aucune** autorité : ni workspace, ni principal. Les deux viennent du registre
+/// d'administration, résolus depuis la créance — un appelant qui les annoncerait écrirait dans le
+/// workspace de son choix, au nom de qui il veut. C'est la même règle que `W20.k` applique aux
+/// workers, et elle vaut d'autant plus ici que ces commandes **créent** du travail.
+#[derive(Debug, Deserialize)]
+struct CommandBody {
+    /// La clé d'idempotence de §22.5.
+    #[serde(default)]
+    idempotency_key: String,
+    /// Le projet auquel les faits appartiennent.
+    #[serde(default)]
+    project_id: Option<String>,
+}
+
+/// Ce que porte `POST /commands/task/propose`, et rien d'autre.
+///
+/// # `proposal` n'est **pas** un `Option`
+///
+/// Une proposition absente n'est pas un cas à gérer : c'est un corps qui n'est pas celui de cette
+/// commande. Le rendre obligatoire fait refuser serde, qui nomme le champ manquant lui-même ; le
+/// rendre optionnel obligeait chaque handler à s'en souvenir dans un `ok_or_else` — et un `if` que
+/// deux handlers doivent tenir se perd. Un passage de mutation l'a montré : effacer la garde de
+/// `task_id` ne cassait aucun test, parce que la chaîne vide qui la remplaçait finissait quand même
+/// par un refus — plus loin, après une lecture du journal, sous un message qui parlait d'une tâche
+/// inexistante au lieu d'un champ absent.
+#[derive(Debug, Deserialize)]
+struct ProposeBody {
+    #[serde(flatten)]
+    command: CommandBody,
+    /// Encadrée : `Proposal` porte une mission entière, et clippy relève à juste titre qu'une
+    /// variante ne doit pas peser dix fois les autres.
+    proposal: Box<crate::mission::Proposal>,
+}
+
+/// Ce que porte `POST /commands/task/queue`, et rien d'autre.
+///
+/// **Aucune proposition, aucun état de départ** : les deux se lisent du journal. Les faire renvoyer
+/// laisserait mettre en file autre chose que ce qui a été proposé, et déclarer l'état qui arrange —
+/// voir [`Runtime::lep_queue`]. Ici ce n'est pas une garde mais une absence de champ : une
+/// proposition glissée dans ce corps n'est pas rejetée, elle n'est *lue* nulle part.
+#[derive(Debug, Deserialize)]
+struct QueueBody {
+    #[serde(flatten)]
+    command: CommandBody,
+    task_id: String,
+}
+
+/// Ce que devient un corps que serde refuse — y compris un champ obligatoire absent.
+///
+/// Le message de serde est repris tel quel plutôt que reformulé : c'est lui qui sait **quel** champ
+/// manque, et le paraphraser en « corps invalide » perdrait le seul renseignement dont le client a
+/// besoin pour corriger sa requête.
+fn corps_illisible(error: &serde_json::Error) -> CommandError {
+    CommandError::Validation {
+        field: "body".to_owned(),
+        detail: format!("corps illisible : {error}"),
+    }
+}
+
+impl CommandBody {
+    fn submitted(&self, now: Timestamp) -> Result<Submitted, CommandError> {
+        let project = self
+            .project_id
+            .as_deref()
+            .ok_or_else(|| CommandError::Validation {
+                field: "project_id".to_owned(),
+                detail: "sans projet, un fait n'a pas d'endroit où appartenir".to_owned(),
+            })?;
+        Ok(Submitted {
+            idempotency_key: self.idempotency_key.clone(),
+            project_id: Id::parse(project).map_err(|error| CommandError::Validation {
+                field: "project_id".to_owned(),
+                detail: error.to_string(),
+            })?,
+            occurred_at: now,
+        })
+    }
+}
+
+/// `POST /commands/task/propose` — §22.3, `W20.s`.
+///
+/// # Une créance de worker n'ouvre pas ce chemin
+///
+/// L'autorité est résolue par [`crate::mission::Administrators`], un registre **distinct** de celui
+/// des workers. Une créance de worker n'y figure pas, donc elle n'y résout rien, donc elle est
+/// refusée — sans qu'aucune comparaison de rôle n'ait à s'en souvenir. Un worker qui pourrait se
+/// créer du travail choisirait le sien.
+async fn propose<S: EventStore + Send + Sync + 'static>(
+    State(desk): State<Offload<S>>,
+    headers: axum::http::HeaderMap,
+    body: String,
+) -> Response {
+    let Some(credential) = bearer(&headers) else {
+        return sans_creance();
+    };
+    let corps: ProposeBody = match serde_json::from_str(&body) {
+        Ok(lu) => lu,
+        Err(error) => return commande_refusee(&corps_illisible(&error)),
+    };
+    let credential = credential.to_owned();
+    let now = maintenant();
+    match hors_du_fil(&desk, move |runtime| {
+        let authority = authorite(runtime, &credential)?;
+        runtime.lep_propose(
+            &corps.proposal,
+            authority,
+            &corps.command.submitted(now)?,
+            now,
+        )
+    })
+    .await
+    {
+        Err(sature) => commande_refusee(&sature),
+        Ok(Ok(())) => StatusCode::ACCEPTED.into_response(),
+        Ok(Err(error)) => commande_refusee(&error),
+    }
+}
+
+/// `POST /commands/task/queue` — §22.3, `W20.s`.
+async fn queue<S: EventStore + Send + Sync + 'static>(
+    State(desk): State<Offload<S>>,
+    headers: axum::http::HeaderMap,
+    body: String,
+) -> Response {
+    let Some(credential) = bearer(&headers) else {
+        return sans_creance();
+    };
+    let corps: QueueBody = match serde_json::from_str(&body) {
+        Ok(lu) => lu,
+        Err(error) => return commande_refusee(&corps_illisible(&error)),
+    };
+    let credential = credential.to_owned();
+    let now = maintenant();
+    match hors_du_fil(&desk, move |runtime| {
+        let authority = authorite(runtime, &credential)?;
+        runtime.lep_queue(
+            &corps.task_id,
+            authority,
+            &corps.command.submitted(now)?,
+            now,
+        )
+    })
+    .await
+    {
+        Err(sature) => commande_refusee(&sature),
+        Ok(Ok(())) => StatusCode::ACCEPTED.into_response(),
+        Ok(Err(error)) => commande_refusee(&error),
+    }
+}
+
+/// L'autorité que porte cette créance, ou le refus **typé** qui dit qu'elle n'en porte aucune.
+///
+/// Jamais une trace : une créance sans autorité est une faute d'autorisation, et lui rendre `500`
+/// la ferait retenter à l'identique. La créance refusée n'est pas citée — `CLAUDE.md` interdit de
+/// journaliser un jeton, et un message d'erreur la ferait fuir dans le premier rapport de bug venu.
+fn authorite<S: EventStore>(
+    runtime: &Runtime<S>,
+    credential: &str,
+) -> Result<crate::mission::Authority, CommandError> {
+    runtime
+        .lep()
+        .administrators()
+        .authority(credential)
+        .ok_or_else(|| CommandError::Authorization {
+            action: "commander §22.3 sans autorité d'administration reconnue".to_owned(),
+        })
+}
+
 /// Le corps d'un enrôlement : la demande signée, et ce que tout worker envoie par ailleurs.
 #[derive(Debug, Deserialize)]
 struct EnrollmentBody {
@@ -771,7 +953,7 @@ pub const DEFAULT_BIND: &str = "127.0.0.1:8787";
 /// fichier : ajouter une route sans l'annoncer fait rougir, qu'elle soit une `Collection` ou non.
 /// Le déstructurage reste, pour ce qu'il couvre — un nom, pas seulement un nombre.
 #[must_use]
-pub fn served() -> [&'static str; 11] {
+pub fn served() -> [&'static str; 13] {
     let [timeline, workers, conflicts, events, history] = Collection::ALL.map(Collection::name);
     [
         timeline,
@@ -788,5 +970,8 @@ pub fn served() -> [&'static str; 11] {
         EVENTS_PATH,
         RESULT_PATH,
         ENROLL_PATH,
+        // Les deux de §22.3 — `W20.s`.
+        PROPOSE_PATH,
+        QUEUE_PATH,
     ]
 }

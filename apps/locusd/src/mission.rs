@@ -60,6 +60,76 @@ pub struct Authority {
     pub principal_id: locus_protocol::Id<locus_protocol::id::Agent>,
 }
 
+/// Qui a le droit de commander — §22.3, `W20.s`.
+///
+/// # Un **second** registre, et c'est toute la garantie
+///
+/// `WorkerRegistry` résout une créance vers un [`crate::lep::WorkerIdentity`] ; celui-ci résout une
+/// créance vers une [`Authority`]. Les deux ne se croisent jamais, et c'est ce qui rend inexprimable
+/// qu'un worker se crée du travail : sa créance n'est pas dans ce registre-ci, donc elle n'y résout
+/// rien, donc il est refusé — sans qu'aucun `if` n'ait à s'en souvenir.
+///
+/// Un registre unique porteur d'un rôle aurait tenu la même règle par une **comparaison**, et une
+/// comparaison se déplace, s'inverse, ou se perd dans un refactor. `W20.o` avait déjà séparé
+/// [`Authority`] de [`crate::lep::Submitted`] pour cette raison ; ceci en est la moitié manquante.
+///
+/// # Le défaut n'admet personne
+///
+/// Comme [`crate::lep::NoIdentities`] et comme un `MemoryRegistry` vide : un daemon dont personne
+/// n'a câblé l'administration refuse toutes les commandes de §22.3. C'est exact, et c'est ce qu'un
+/// daemon sans exploitant doit faire — l'inverse ferait de l'absence de configuration une
+/// autorisation.
+pub trait Administrators: Send + Sync {
+    /// L'autorité que porte cette créance, ou `None` si elle n'en porte aucune.
+    fn authority(&self, credential: &str) -> Option<Authority>;
+}
+
+/// Le registre par défaut : personne n'administre.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct NoAdministrators;
+
+impl Administrators for NoAdministrators {
+    fn authority(&self, _credential: &str) -> Option<Authority> {
+        None
+    }
+}
+
+/// Le registre de référence — en mémoire, rempli par qui le détient.
+///
+/// Ce qui le remplira en production est une commande d'administration de §22.3, nommée et non
+/// simulée — la même forme que `EnrollmentTokens` a prise en `W20.n`.
+#[derive(Debug, Default)]
+pub struct MemoryAdministrators {
+    known: std::sync::RwLock<Vec<(String, Authority)>>,
+}
+
+impl MemoryAdministrators {
+    /// Un registre vide — donc un daemon qui refuse toutes les commandes de §22.3.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Reconnaître une créance comme portant cette autorité.
+    pub fn admit(&self, credential: &str, authority: Authority) {
+        self.known
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .push((credential.to_owned(), authority));
+    }
+}
+
+impl Administrators for MemoryAdministrators {
+    fn authority(&self, credential: &str) -> Option<Authority> {
+        self.known
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .iter()
+            .find(|(known, _)| known == credential)
+            .map(|(_, authority)| *authority)
+    }
+}
+
 /// Vrai quand une tâche dans cet état peut être confiée à un worker.
 ///
 /// **Lu du tableau de §7.1**, jamais recopié : réclamable veut dire « `Leased` est atteignable
@@ -79,7 +149,7 @@ pub fn claimable(state: TaskState) -> bool {
 /// sandbox, ressources, budget et contrat de sortie sont ce qui rend une mission admissible ou
 /// refusable ». Une proposition qui laisserait le serveur inventer un budget produirait une mission
 /// que personne n'a bornée — l'invariant 6 pris à l'envers.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Proposal {
     /// La question, en clair — l'`objective.statement` de §15.4.
     pub statement: String,
@@ -205,6 +275,13 @@ impl Decide for Propose {
                 "state": TaskState::Proposed.to_string(),
                 "statement": self.proposal.statement,
                 "branch_id": self.proposal.branch_id,
+                // La proposition **entière** — `W20.s`. Sans elle, la mise en file devrait faire
+                // renvoyer la proposition par son appelant, et rien n'empêcherait de proposer une
+                // question et d'en mettre une autre en file sous le même identifiant de tâche : le
+                // fait écrit ne porterait pas de quoi constater la divergence. L'invariant 2 dit que
+                // le journal est la vérité institutionnelle ; il faut donc qu'il porte de quoi
+                // reconstruire ce qu'on y a proposé.
+                "proposal": self.proposal,
             }),
         )?])
     }
@@ -323,28 +400,97 @@ impl<S: EventStore> Runtime<S> {
     /// worker que le bail avait déjà désigné. Le bail est frappé à la réclamation, par
     /// [`Runtime::lep_claim`].
     ///
+    /// # La proposition et l'état viennent du **journal**, jamais de l'appelant — `W20.s`
+    ///
+    /// Cette fonction a pris une `&Proposal` et un `from: TaskState` de son appelant, et les deux
+    /// étaient des trous. Faire renvoyer la proposition permettait de proposer une question et d'en
+    /// mettre une autre en file sous le même identifiant de tâche — le fait écrit ne porte que
+    /// l'identifiant, donc rien n'aurait montré la divergence. Faire annoncer l'état laissait un
+    /// appelant déclarer celui qui l'arrange, et la garde de §7.1 aurait validé le mensonge.
+    ///
+    /// Les deux se lisent maintenant du stream de la tâche. C'est l'invariant 2 appliqué : « le
+    /// journal est la vérité institutionnelle », y compris pour décider de la commande suivante.
+    ///
     /// # Errors
     ///
-    /// [`CommandError`] — notamment `Policy` si §7.1 ne permet pas la transition depuis `from`.
+    /// [`CommandError::NotFound`] si aucune tâche n'a été proposée sous cet identifiant,
+    /// [`CommandError::Internal`] si le fait de proposition ne porte pas de proposition relisible,
+    /// `Policy` si §7.1 ne permet pas la transition depuis l'état courant.
     pub fn lep_queue(
         &self,
-        proposal: &Proposal,
-        from: TaskState,
+        task_id: &str,
         authority: Authority,
         submitted: &Submitted,
         now: Timestamp,
     ) -> Result<(), CommandError> {
+        let stream = stream_of_task(task_id);
+        let (proposal, from) = self.proposed(&stream, task_id)?;
         let queue = Queue {
-            task_id: proposal.task_id.clone(),
+            task_id: task_id.to_owned(),
             from,
         };
-        let stream = stream_of_task(&proposal.task_id);
         self.write_mission_fact(authority, submitted, &stream, &queue, now)?;
         self.lep().queue().enqueue(Queued {
             mission: proposal.envelope(),
             attempt: proposal.attempt,
         });
         Ok(())
+    }
+
+    /// Ce que le journal dit de cette tâche : ce qui a été proposé, et où elle en est.
+    ///
+    /// # L'état courant est celui du **dernier** fait qui en porte un
+    ///
+    /// Chaque fait de tâche écrit son `state` — `Propose`, `Queue` et `Claim` le font tous les
+    /// trois. Le dernier gagne, et c'est exact par construction : le journal est ordonné par
+    /// révision, et une transition n'est écrite que si §7.1 l'a permise.
+    ///
+    /// # Errors
+    ///
+    /// [`CommandError::NotFound`] quand rien n'a été proposé, [`CommandError::Internal`] quand le
+    /// fait de proposition ne porte pas de proposition relisible — ce qui ne peut venir que d'un
+    /// journal écrit par une version antérieure, et se répare par migration, pas par le client.
+    fn proposed(&self, stream: &str, task_id: &str) -> Result<(Proposal, TaskState), CommandError> {
+        let faits = self.transaction_store().read_stream(stream, 0);
+        let brut = faits
+            .iter()
+            .find_map(|fait| fait.payload.get("proposal"))
+            .ok_or_else(|| CommandError::Validation {
+                field: "task_id".to_owned(),
+                detail: format!(
+                    "aucune tâche « {task_id} » n'a été proposée : §7.1 veut qu'une tâche passe par \
+                     `proposed` avant d'entrer en file, et le journal n'en garde pas trace"
+                ),
+            })?;
+        let proposal = serde_json::from_value::<Proposal>(brut.clone()).map_err(|erreur| {
+            CommandError::Internal {
+                detail: format!(
+                    "le fait de proposition de « {task_id} » ne se relit pas comme une proposition : \
+                     {erreur}. Un journal écrit avant `W20.s` n'en porte pas, et cela se répare par \
+                     migration — pas en corrigeant la requête"
+                ),
+            }
+        })?;
+        let etat = faits
+            .iter()
+            .rev()
+            .find_map(|fait| {
+                fait.payload
+                    .get("state")
+                    .and_then(serde_json::Value::as_str)
+            })
+            .and_then(|nom| {
+                TaskState::ALL
+                    .into_iter()
+                    .find(|etat| etat.to_string() == nom)
+            })
+            .ok_or_else(|| CommandError::Internal {
+                detail: format!(
+                    "aucun fait de « {task_id} » ne porte d'état lisible : le stream existe, donc \
+                     quelque chose y a été écrit sans dire où la tâche en était"
+                ),
+            })?;
+        Ok((proposal, etat))
     }
 
     fn write_mission_fact<D: Decide<State = LepContext>>(

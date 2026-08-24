@@ -174,8 +174,7 @@ fn mettre_en_file_depose_la_mission_que_la_question_decrit() {
         .expect("proposition");
     runtime
         .lep_queue(
-            &proposal,
-            TaskState::Proposed,
+            &proposal.task_id,
             autorite(),
             &soumis("idem-queue"),
             maintenant,
@@ -205,22 +204,41 @@ fn mettre_en_file_depose_la_mission_que_la_question_decrit() {
     // Le type le rend inexprimable : `Queued` ne porte pas le champ.
 }
 
-/// **Une transition que §7.1 refuse ne s'écrit pas, et rien n'est mis en file.**
+/// **Une transition que §7.1 refuse ne s'écrit pas, et ne dépose pas une seconde mission.**
 ///
 /// La table est interrogée, jamais recopiée : `queued → queued` n'existe pas, et le refus le dit
 /// sous la famille `policy` — la requête est bien formée, c'est l'état qui s'y oppose.
+///
+/// Depuis `W20.s` l'appelant ne déclare plus l'état de départ, donc ce test ne peut plus l'inventer
+/// non plus : il **amène** la tâche en `queued` par le chemin normal, puis redemande la mise en
+/// file. C'est précisément ce que l'ancienne signature laissait contourner — il suffisait
+/// d'annoncer `proposed` une seconde fois pour que la garde valide un état que le journal
+/// démentait.
 #[test]
 fn une_transition_interdite_ne_met_rien_en_file() {
     let (runtime, file) = daemon();
     let proposal = proposition();
+    let maintenant = Timestamp::from_millis(1_700_000_000_000);
+
+    runtime
+        .lep_propose(&proposal, autorite(), &soumis("idem-propose"), maintenant)
+        .expect("proposition");
+    runtime
+        .lep_queue(
+            &proposal.task_id,
+            autorite(),
+            &soumis("idem-queue"),
+            maintenant,
+        )
+        .expect("première mise en file");
+    file.take("peu-importe").expect("la première a déposé");
 
     let refus = runtime
         .lep_queue(
-            &proposal,
-            TaskState::Queued,
+            &proposal.task_id,
             autorite(),
-            &soumis("idem-queue"),
-            Timestamp::from_millis(1_700_000_000_000),
+            &soumis("idem-requeue"),
+            maintenant,
         )
         .expect_err("§7.1 ne permet pas queued → queued");
 
@@ -229,6 +247,31 @@ fn une_transition_interdite_ne_met_rien_en_file() {
         file.is_empty(),
         "un refus n'écrit rien et ne dépose rien : c'est la transaction qui écrit"
     );
+}
+
+/// **Mettre en file une tâche que personne n'a proposée est refusé en nommant le champ.**
+///
+/// L'état ne se lit plus de l'appelant, donc il faut qu'il existe. Un stream vide n'est pas un
+/// `proposed` implicite : c'est une tâche qui n'existe pas, et le refus doit le dire au client
+/// plutôt que d'échouer plus loin sur une proposition absente.
+#[test]
+fn mettre_en_file_une_tache_inconnue_nomme_le_champ() {
+    let (runtime, file) = daemon();
+
+    let refus = runtime
+        .lep_queue(
+            "task-jamais-proposee",
+            autorite(),
+            &soumis("idem-queue"),
+            Timestamp::from_millis(1_700_000_000_000),
+        )
+        .expect_err("rien n'a été proposé sous cet identifiant");
+
+    match refus {
+        CommandError::Validation { field, .. } => assert_eq!(field, "task_id"),
+        autre => panic!("le refus doit nommer le champ, pas échouer plus loin : {autre:?}"),
+    }
+    assert!(file.is_empty());
 }
 
 /// **Une question vide est refusée en nommant le champ.**
