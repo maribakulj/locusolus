@@ -13229,3 +13229,60 @@ ce qui dit en plus quelque chose de vrai : une reprise est le cas normal d'un ra
 
 **Prochain item.** `W20.s` — les commandes de §22.3 sur le fil, maintenant écrivable honnêtement :
 `lep_queue` ne demande plus de bail, donc une route n'a plus à en faire fournir un.
+
+## 2026-08-24 — W20.s — Les commandes de §22.3 sur le fil : proposer et mettre en file
+
+**Périmètre.** `apps/locusd/src/http.rs` (deux routes, `ProposeBody`/`QueueBody`/`CommandBody`,
+`authorite`, `corps_illisible`, `served()` → 13), `apps/locusd/src/mission.rs` (port
+`Administrators` + `NoAdministrators` + `MemoryAdministrators`, `Proposal` sérialisable et portée
+par le fait `task.proposed`, `lep_queue` refait, `proposed()` nouveau), `apps/locusd/src/lep.rs`
+(`Desk::administering()`), `apps/locusd/tests/commands.rs` (nouveau, 10 tests),
+`apps/locusd/tests/mission.rs` (deux tests adaptés à la nouvelle signature, un ajouté). Débordement
+assumé sur `mission.rs` : la route ne pouvait pas être écrite honnêtement au-dessus de l'ancienne
+signature de `lep_queue`, qui recevait la proposition et l'état de son appelant.
+
+**Tests exécutés.** `cargo test -p locusd --test commands` → 10 passés, c'est le test de sortie et
+il tient ses quatre clauses séparément : `une_question_posee_sur_le_fil_produit_une_mission` (la
+mission déposée est comparée champ pour champ à la proposition),
+`une_creance_de_worker_n_ouvre_pas_les_commandes_de_22_3` et `sans_creance_…` (l'autorité),
+`mettre_en_file_deux_fois_est_refuse_par_7_1` (le refus de §7.1, et l'état vient du journal),
+`deux_propositions_sous_la_meme_cle_produisent_une_tache` (l'idempotence). `cargo test --workspace`
+vert, `cargo clippy --workspace --all-targets` sans avertissement. Passe de mutation : 11 mutants
+posés, **0 survivant** — après correction du seul survivant du premier passage, décrite ci-dessous.
+
+**Décisions prises.**
+
+1. **Un second registre plutôt qu'un rôle comparé.** `Administrators` résout une créance vers une
+   `Authority` ; `WorkerRegistry` résout une créance vers une identité de worker. Les deux ne se
+   croisent jamais. Qu'un worker ne puisse pas se créer du travail n'est donc tenu par aucun `if` :
+   sa créance n'est pas dans ce registre-ci, donc elle n'y résout rien. Un registre unique portant
+   un rôle aurait tenu la même règle par une comparaison, et une comparaison se déplace ou s'inverse
+   dans un refactor. Le défaut, `NoAdministrators`, n'admet personne — un daemon sans exploitant
+   refuse toutes les commandes de §22.3, l'inverse ferait de l'absence de configuration une
+   autorisation.
+2. **La proposition et l'état de départ se lisent du journal, jamais de l'appelant.** L'ancienne
+   signature prenait les deux, et les deux étaient des trous : faire renvoyer la proposition
+   laissait proposer une question et en mettre une autre en file sous le même identifiant — le fait
+   écrit ne porte que l'identifiant, donc rien n'aurait montré la divergence ; faire annoncer l'état
+   laissait déclarer celui qui arrange, et la garde de §7.1 aurait validé le mensonge. C'est
+   l'invariant 2 appliqué à la décision de la commande suivante, et non seulement à sa trace.
+3. **Les deux chemins sont hors de `/lep/`.** `/commands/task/{propose,queue}` : §22.3 est
+   l'administration, `/lep/v1/*` est le protocole des workers. Un test lit les deux constantes.
+4. **Un corps par commande, et le champ y est obligatoire.** Le survivant unique de la première
+   passe de mutation disait ceci : effacer la garde `ok_or_else` sur `task_id` ne cassait aucun
+   test, parce que la chaîne vide qui la remplaçait finissait quand même par un refus — plus loin,
+   après une lecture du journal, sous un message parlant d'une tâche inexistante alors que le client
+   avait simplement omis le champ. La garde a été **supprimée** plutôt que testée : `ProposeBody` et
+   `QueueBody` sont deux types, le champ y est non-optionnel, et c'est serde qui refuse en le
+   nommant. C'est la règle du dépôt — rendre la faute inexprimable vaut mieux que la chercher —
+   appliquée une fois de plus, et le test qui la tient distingue les deux refus par le champ que
+   `CommandError::Validation` nomme (`body` à la lecture, `task_id` après recherche), pas par une
+   lecture de phrase.
+
+**Écart avec la spec.** Aucun. §22.3 nomme les deux commandes ; §22.5 la clé d'idempotence, scopée
+`(workspace, principal)` tous deux lus du registre et non du corps ; §7.1 la table de transitions,
+interrogée et jamais recopiée.
+
+**Prochain item.** `W20.t` — les artefacts atteignent le daemon. Dépendance : `packages/artifacts`
+existe et `apps/locusd` ne l'a pas en dépendance, ce qui est exactement ce que l'item corrige ; rien
+d'autre ne le bloque.

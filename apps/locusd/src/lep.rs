@@ -395,6 +395,7 @@ pub struct Desk {
     identities: Arc<dyn Identities>,
     enrollment: Arc<dyn crate::enrollment::EnrollmentTokens>,
     broker: Arc<dyn BrokerPort + Send + Sync>,
+    administrators: Arc<dyn crate::mission::Administrators>,
 }
 
 impl std::fmt::Debug for Desk {
@@ -427,6 +428,7 @@ impl Default for Desk {
             identities: Arc::new(NoIdentities),
             enrollment: Arc::new(crate::enrollment::MemoryTokens::new()),
             broker: Arc::new(broker_absent()),
+            administrators: Arc::new(crate::mission::NoAdministrators),
         }
     }
 }
@@ -445,6 +447,7 @@ impl Desk {
             identities,
             enrollment: Arc::new(crate::enrollment::MemoryTokens::new()),
             broker: Arc::new(broker_absent()),
+            administrators: Arc::new(crate::mission::NoAdministrators),
         }
     }
 
@@ -453,6 +456,22 @@ impl Desk {
     pub fn enrolling(mut self, tokens: Arc<dyn crate::enrollment::EnrollmentTokens>) -> Self {
         self.enrollment = tokens;
         self
+    }
+
+    /// Câbler le registre d'administration — `W20.s`.
+    #[must_use]
+    pub fn administering(
+        mut self,
+        administrators: Arc<dyn crate::mission::Administrators>,
+    ) -> Self {
+        self.administrators = administrators;
+        self
+    }
+
+    /// Le registre d'administration, en lecture.
+    #[must_use]
+    pub fn administrators(&self) -> &dyn crate::mission::Administrators {
+        self.administrators.as_ref()
     }
 
     /// Câbler le broker qui décide du placement — `W20.q`.
