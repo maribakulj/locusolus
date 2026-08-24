@@ -12391,3 +12391,66 @@ elle a été réparée en `W20.h`. Sans le correctif de `satisfied` de la PR #17
 **Écart avec la spec.** Aucun.
 
 **Prochain item.** `W2.21` chez canterel, ou `W20.i` / `W20.j` chez `locusolus`.
+
+## 2026-08-24 — Roadmap — `W2.21` marqué, et le cinquième maillon que personne n'avait nommé
+
+**Périmètre.** `docs/10_V1_ROADMAP.md` — `W2.21` marqué **fait** ; `W20.k` créé ; `W23.b` re-pointé
+; `W23.c` débloqué ; `W12.d` corrigé ; le décompte des maillons passé de quatre à cinq.
+`docs/adr/0026-la-population-virtuelle.md` — amendement de la décision 0. Le code de `W2.21` vit
+dans `canterel`, et son entrée y est.
+
+**Tests exécutés.** `npm run check` — les treize portes. `check:roadmap` : 218 lignes reconnues sur
+218, `ok`. Côté `canterel` : `bun run typecheck` sans erreur, `bun test test/locus/` 432 tests
+verts, et une passe de mutation de quinze mutants tous tués.
+
+**Ce que le marquage a fait tomber.** Marquer `W2.21` a périmé les blocages de `W23.b` et `W23.c`,
+et les deux ont demandé un examen de nature différente.
+
+**`W23.c` était bloqué pour un motif que le dépôt refuse.** Sa ligne disait « il ordonnance des
+instances qui s'exécutent », et l'ADR 0026 décision 0 reprenait cela sous « ne se teste pas sur des
+fixtures seules ». Or son propre test de sortie, écrit dans le même document, est fait de trois
+vérifications sur fixtures dont deux sont des tests d'absence : les quatre verbes lus de
+`coordination::lifecycle`, `place` seul juge de l'hôte, aucun événement de portefeuille sur une
+décision locale. Un ordonnanceur décide **au sujet** d'instances ; il ne les exécute pas. Le motif
+réel était donc « aucun appelant ne l'utilise encore », que l'ADR 0022 décision 0 refuse
+explicitement — et la décision 0 de l'ADR 0026 existe précisément pour faire ce tri. Elle l'a fait
+pour `W23.a`, pour `W24` et pour `W25`, et l'a manqué pour `W23.c`, en rangeant sous une seule
+formule deux items dont un seul en avait besoin. `W23.c` est débloqué, l'ADR amendé.
+
+Deux choses valent d'être retenues plus que la correction. Une règle appliquée trois fois de suite
+avec succès ne s'applique pas toute seule la quatrième, et c'est après les trois réussites qu'on
+cesse de regarder. Et ce qui a levé l'erreur n'est pas une relecture : c'est le garde de `W0.16`,
+qui a exigé qu'un marqueur périmé soit réexaminé. Une affirmation fausse **inerte** peut vivre
+indéfiniment dans un document ; celle-ci a été rattrapée parce qu'un outil avait une raison
+mécanique d'y revenir.
+
+**`W23.b` reste bloqué, et c'est la troisième fois qu'on nomme sa condition.** Le marqueur a attendu
+`W2.20`, puis `W2.21` : deux jalons voisins, tous deux livrés, sans que rien change à ce qui manque.
+La condition, elle, n'a jamais bougé — le compteur `generating` compte un fait qui doit **atteindre
+le journal**. Ce qui l'en empêche est que `locusd` ne sert pas §15.2.
+
+**Et cet item-là n'existait pas.** `apps/locusd/src/http.rs` porte sept routes, toutes en lecture,
+aucune sous `/lep/`. Aucune ligne de la roadmap ne demandait cette surface. Trois lignes la
+désignaient sans la nommer : `W23.b` par deux marqueurs successifs qui visaient à côté, `W12.d` par
+une liste de dépendances à laquelle il en manquait une, et le « ce qui reste » de `W2.21` lui-même.
+C'est pour cela que les deux premiers marqueurs de `W23.b` ont visé de travers — **il n'y avait rien
+à viser**. `W20.k` entre : les trois chemins de §15.2 servis, le harnais de `W0.9` tourné contre le
+daemon réel, `204` distinct d'une erreur des **deux** côtés du fil, un résultat qui passe par un
+command handler transactionnel, l'`idempotency_key` de §15.5 honorée — sa durabilité restant
+l'affaire de `W20.j` —, un refus typé de §22.5 sur créance invalide, et la règle 4 intacte.
+
+C'est le **cinquième** maillon de la fermeture verticale, après `W20.h`, `W20.i`, `W2.20` et `W4.h`.
+Il est resté invisible plus longtemps que les quatre autres, et pour une raison qui mérite d'être
+écrite : les quatre premiers ont été trouvés en constatant qu'un côté du fil manquait. Celui- ci ne
+pouvait apparaître qu'une fois le client livré, parce qu'avant `W2.21` « personne ne parle §15.2 »
+se lisait comme une conséquence de l'inertie du worker, et non comme un trou du daemon.
+
+**Décisions prises.** Le marqueur d'un blocage nomme un **item**, jamais une condition en prose. La
+conséquence, tirée ici pour la deuxième fois, est qu'un blocage dont la condition n'a pas d'item
+oblige à créer l'item — sinon le marqueur se périme sur un jalon voisin et le garde dit « vas-y »
+sur ce qui ne peut pas être fait, ce que `W0.11` nomme le plus coûteux de ses deux sens.
+
+**Écart avec la spec.** Aucun. §15.2 est déjà dans `SPEC_V1.md` ; ce qui manquait était son item.
+
+**Prochain item.** `W20.k`, `W20.i`, `W20.j`, `W23.a` ou `W23.c` — les cinq sont ouverts et sans
+dépendance en attente. `W20.k` est celui qui débloque le plus en aval : `W23.b`, puis `W12.d`.
