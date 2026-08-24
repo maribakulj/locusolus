@@ -354,3 +354,68 @@ jobs:
             cat quota.txt 2>/dev/null || echo "le test n'a rien produit"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+
+  # ------------------------------------------------------------------------------------------
+  # Le harnais de bout en bout — `W12.f`, ADR 0033.
+  # ------------------------------------------------------------------------------------------
+  #
+  # Séparé de `check` exprès (ADR 0033 décision 5) : il demande un second dépôt, une chaîne Bun et
+  # deux binaires construits. Le faire entrer dans la porte que chaque item franchit rendrait rouge,
+  # sur la machine d'un contributeur, un contrôle qui n'a rien à voir avec ce qu'il vient d'écrire.
+  #
+  # Il vit ici plutôt que dans `canterel`, et l'ADR le mesure : la CI de ce dépôt a déjà une sandbox
+  # `podman` réelle, le verdict appartient à l'endroit où la clause est écrite, et la suite amont de
+  # `canterel` s'est révélée instable — trois exécutions sur un arbre identique pour un seul tour
+  # entièrement vert. Un verdict qui peut rougir pour une raison étrangère cesse d'être lu.
+  e2e:
+    name: e2e
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Le worker réel, à une révision épinglée. `continue-on-error` serait la tentation ici — les
+      # deux dépôts sont privés et le jeton peut manquer. Elle est refusée : un checkout raté qui
+      # laisse le job continuer produirait un `LOCUS_E2E_WORKER` pointant sur un répertoire vide, et
+      # le harnais dirait « ce n'est pas un dépôt canterel » au lieu de « le jeton manque ». Deux
+      # diagnostics pour une cause, et le mauvais en premier.
+      - name: Le dépôt worker
+        uses: actions/checkout@v4
+        with:
+          repository: maribakulj/canterel
+          path: .worker
+          token: ${{ secrets.CANTEREL_TOKEN || github.token }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Toolchain
+        run: rustup show active-toolchain || rustup toolchain install
+
+      - uses: Swatinem/rust-cache@v2
+
+      # Les deux binaires seulement, pas le workspace : mesuré à 26 s à froid contre plusieurs
+      # minutes pour `cargo test --workspace`, dont ce job n'a aucun besoin.
+      - name: Les deux binaires
+        run: cargo build --bin locusd --bin locus-execd
+
+      - name: Les dépendances du worker
+        working-directory: .worker
+        run: bun install --frozen-lockfile
+
+      - name: Install
+        run: npm ci
+
+      # Le harnais **échoue bruyamment** si l'un des trois processus ne démarre pas, et rend sa
+      # sortie. Pas de `continue-on-error` : c'est la règle du dépôt, et `W20.i` a montré ce qu'elle
+      # coûte quand on l'oublie.
+      - name: La chaîne monte, se voit et s'arrête
+        env:
+          LOCUS_E2E_WORKER: ${{ github.workspace }}/.worker
+        run: npm run e2e
