@@ -13673,3 +13673,39 @@ que de traîner l'erreur.
 **Prochain item.** `W12.d`. Son premier acte passe ; la suite — proposer une tâche, la mettre en
 file, la réclamer, l'exécuter, hasher les artefacts, commettre, lire le graphe — s'écrit dans
 `tests/e2e/` sur `startChain`.
+
+---
+
+## Défaut — l'isolation du harnais e2e était une fiction
+
+**Ce qui était faux.** `startChain` démarrait le worker avec `XDG_DATA_HOME` pointé sur un
+répertoire temporaire, en croyant l'isoler de l'installation de la machine. `canterel` **ne lit pas
+cette variable** : `Global.Path.data` dérive de `OPENSCIENCE_TEST_HOME` ou du home réel
+(`backend/cli/src/global/index.ts`). Le harnais partageait donc l'installation de l'hôte.
+
+**Pourquoi personne ne l'a vu.** Parce que le verdict du harnais dépendait alors de l'état de la
+machine, et que cet état était longtemps le bon : tant qu'aucun worker n'était enrôlé sur l'hôte, le
+worker démarré par le harnais se comportait comme un worker neuf, et les trois tests passaient. Il a
+fallu qu'un enrôlement réel réussisse — celui de `W20.x`, quelques minutes plus tôt — pour que la
+fiction devienne visible, sous la forme d'un `No context found for instance` qu'un diff **vide**
+entre deux commits ne pouvait pas expliquer.
+
+C'est la pire espèce de harnais : il croyait isoler, il ne le disait à personne, et il rendait vert
+un dossier dont il n'exerçait pas les conditions.
+
+**Le correctif, et pourquoi il est nommé.** `WORKER_HOME_ENV` est **exportée**, pas écrite dans
+l'appel à `spawn`. C'est un couplage entre deux dépôts, et un couplage qu'on ne voit pas est un
+couplage que personne ne vérifie. Un test tient la constante par égalité stricte et refuse
+explicitement `XDG_DATA_HOME` — un test de constante, délibérément, parce que rien d'autre ne
+l'aurait montré avant le prochain enrôlement réel.
+
+**Ce que ça a rapporté par ailleurs.** Le même incident a mis à nu un vrai défaut produit dans
+`canterel` (PR #33) : la commande `worker` était la seule à toucher l'état d'instance sans entrer
+dans `Instance.provide`, et le correctif précédent avait **déplacé** le défaut au lieu de le retirer
+— une installation non enrôlée ne le touchait plus, une installation enrôlée si. Quinze portes de
+CI, 458 tests unitaires et le typecheck le laissaient passer.
+
+**Vérifié.** `npm run e2e` → 3 pass ; `node --test tests/e2e/harness.test.ts` → 9 pass ;
+`npm run check` → vert.
+
+**Prochain item.** `W12.d`, inchangé.

@@ -34,6 +34,19 @@ import { setTimeout as sleep } from "node:timers/promises";
 /** La variable qui dit où le dépôt worker se trouve. */
 export const WORKER_REPO_ENV = "LOCUS_E2E_WORKER";
 
+/**
+ * La variable par laquelle `canterel` accepte qu'on lui donne un autre répertoire d'état.
+ *
+ * Nommée et exportée plutôt qu'écrite dans l'appel à `spawn` : c'est un **couplage entre deux
+ * dépôts**, et un couplage qu'on ne voit pas est un couplage que personne ne vérifie. La première
+ * rédaction posait `XDG_DATA_HOME`, que `canterel` ne lit pas — le harnais partageait alors
+ * l'installation de la machine sans le dire, et son verdict dépendait de l'état de cet hôte.
+ *
+ * Lu dans `backend/cli/src/global/index.ts` : `Global.Path.data` dérive de cette variable, ou du
+ * home réel.
+ */
+export const WORKER_HOME_ENV = "OPENSCIENCE_TEST_HOME";
+
 /** Combien de temps un processus a pour devenir joignable avant qu'on le déclare mort. */
 const BOOT_TIMEOUT_MS = 30_000;
 
@@ -259,7 +272,17 @@ export async function startChain(options: {
       "canterel worker",
       "bun",
       ["run", join(repo, "backend", "cli", "src", "index.ts"), "worker", "--locus", controlPlane],
-      { ...process.env, XDG_DATA_HOME: workerStateDir },
+      // `OPENSCIENCE_TEST_HOME`, et **pas** `XDG_DATA_HOME`.
+      //
+      // La première rédaction posait `XDG_DATA_HOME` en croyant isoler le worker. `canterel` ne lit
+      // pas cette variable : `Global.Path.data` dérive de `OPENSCIENCE_TEST_HOME` ou du home réel.
+      // Le harnais partageait donc l'installation **de la machine**, et son verdict dépendait de
+      // l'état de cet hôte — vert tant qu'aucun worker n'y était enrôlé, rouge dès qu'il l'était.
+      //
+      // C'est la pire espèce de harnais : il croyait isoler, il ne le disait à personne, et il a
+      // fallu qu'un enrôlement réel réussisse pour que le mensonge devienne visible. Vérifié en
+      // lisant `src/global/index.ts`, pas en supposant qu'une variable XDG standard serait lue.
+      { ...process.env, [WORKER_HOME_ENV]: workerStateDir },
     );
     demarres.push(worker);
     await sleep(2_000);
