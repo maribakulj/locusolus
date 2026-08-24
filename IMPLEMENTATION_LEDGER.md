@@ -13128,3 +13128,54 @@ quatrième reprise est épuisée, et aucun item nommé ne le bloque plus. Ce qui
 qui compte davantage : qu'il passera. Quatre marqueurs ont annoncé un déblocage qui n'a pas eu lieu
 ; la cinquième réponse n'est plus une liste mais l'essai lui-même, et ce qu'il révélera deviendra
 des items. Les deux défauts trouvés par `W20.q` et `W20.r` n'ont été trouvés d'aucune autre façon.
+
+## 2026-08-24 — W12.d — Partiel : la première tentative, et les cinq conditions qu'elle a constatées
+
+**Périmètre.** `docs/10_V1_ROADMAP.md` seul. Aucun code : cette entrée consigne une **tentative** et
+ce qu'elle a trouvé, ce que le format prévoit et ce que `W0.13` a rendu obligatoire — une entrée qui
+consigne un blocage n'est pas une livraison, et celle-ci ne prétend pas en être une.
+
+**Ce qui a été tenté.** `W12.d` — `e2e/minimal_science`. Son marqueur venait d'être levé en livrant
+`W20.p` : les huit items de la quatrième reprise étaient faits, plus `W20.q` et `W20.r`, et aucun
+item nommé ne le bloquait plus. La conclusion écrite alors était de **tenter le test** plutôt que
+d'écrire une cinquième liste. C'est ce qui a été fait.
+
+**La tentative s'est arrêtée avant la première ligne de code.** `e2e/minimal_science` n'est nommé
+**nulle part** hors de cette roadmap — pas de répertoire, pas de job de CI, pas d'ADR — et le seul
+worker du chantier vit dans un autre dépôt, dans un autre langage. `packages/testing` ne peut pas le
+remplacer : il joue le **serveur** par construction, ce que `W20.k` avait déjà découvert à ses
+dépens.
+
+**Cinq conditions, toutes vérifiées au code.** Aucune n'est déduite du texte du test de sortie —
+c'est la méthode que `W20.q` et `W20.r` ont établie, et la seule qui n'ait pas produit de marqueur
+périmé :
+
+1. `lep_propose` et `lep_queue` existent depuis `W20.o` et **aucune route ne les appelle** — zéro
+   occurrence dans `http.rs`. Le test ne peut donc pas **commencer** → `W20.s`.
+2. `apps/locusd/Cargo.toml` ne dépend pas de `locus-artifacts`. « Les artefacts sont hashés » n'a
+   pas de sujet institutionnel → `W20.t`.
+3. `served()` liste sept routes, aucune n'est le graphe ; `apps/locusd` ne dépend pas de
+   `packages/graph` ; et aucune projection ne porte le coût. La clause la plus longue du test de
+   sortie n'a de sujet pour **aucun** de ses six termes → `W20.u`.
+4. `runWorker` exige que l'appelant **fournisse** ses ports — c'est ce que `W2.3` a livré, à dessein
+   — et personne ne les assemble. Le worker réel ne se lance donc pas → `W2.22`.
+5. Le harnais n'existe pas, et sa place est une **décision** plutôt qu'un oubli : faire entrer
+   `canterel` dans la CI de `locusolus`, ou l'inverse. Les deux coûts sont réels et opposés, le
+   second étant payé à chaque synchronisation amont (ADR 0010) → `W12.f`.
+
+**Ce que cette entrée n'affirme pas.** Que ces cinq suffisent. La complétude n'est pas revendiquée,
+et la prochaine tentative en trouvera vraisemblablement d'autres — c'est le fonctionnement voulu,
+pas un échec.
+
+**La différence avec les quatre listes qui se sont périmées.** Elle est de nature, et elle décide de
+la forme. Les quatre précédentes **devinaient** la précondition de la chaîne entière, et un marqueur
+qui anticipe se périme. Ces cinq items sont ce qu'une tentative a **constaté** ; chacun tient debout
+seul et vaut d'être livré même si `W12.d` n'existait pas. `W12.d` ne redevient donc **pas** bloqué :
+sa ligne ne déclare rien et reste dans la frontière, parce que la bonne réponse la prochaine fois
+est encore de tenter.
+
+**Écart avec la spec.** Aucun. Le test de sortie de `W12.d` n'a pas été modifié d'un mot.
+
+**Prochain item.** `W20.s` — les commandes de §22.3 sur le fil. C'est le premier des cinq dont les
+dépendances sont satisfaites : `W20.o` a livré les deux commandes et l'`Authority` qui les autorise,
+`W20.p` la convention d'appel de la couche HTTP, il ne manque que les routes.
