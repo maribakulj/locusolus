@@ -12888,3 +12888,74 @@ n'honore.
 conditions.
 
 **Prochain item.** `W20.o`, puis `W20.p`, `W20.j`, `W23.a`, `W23.b`, `W23.c`, `W4.i`.
+
+## 2026-08-24 — W20.o — Une mission naît d'une question, et un marqueur expire pour la quatrième fois
+
+**Périmètre.** `apps/locusd/src/mission.rs` (neuf), `apps/locusd/src/lep.rs` — `MissionQueue` gagne
+`enqueue` —, `apps/locusd/src/lib.rs`, `apps/locusd/tests/mission.rs` (neuf, 10 tests),
+`docs/10_V1_ROADMAP.md` : `W20.o` marqué, sa clause de schéma rétrécie, `W20.q` et `W20.r` créés,
+`W12.d` re-pointé.
+
+**Tests exécutés.** `cargo test -p locusd --test mission` : **10 verts**. Passe de mutation : neuf
+mutants, neuf tués. `cargo clippy --all-targets` : zéro avertissement. `npm run check` : les treize
+portes.
+
+**Ce que l'item livre.** Une commande de §22.3 crée une tâche `proposed` ; une seconde la met en
+file **et y dépose sa mission**. La file de `W20.k` cesse d'être garnie par un test. L'ordre compte
+et il est testé : le fait est écrit d'abord, la file garnie ensuite — une mission déposée avant que
+le fait soit écrit pourrait être réclamée par un worker plus rapide que l'écriture, et l'institution
+lirait un `task.leased` qu'aucun `task.queued` n'a précédé.
+
+**« Réclamable » se lit du tableau de §7.1, jamais d'une liste.** Une tâche est réclamable
+exactement quand `Leased` est atteignable depuis son état — c'est la définition, pas une
+coïncidence. Écrire « `Queued` et rien d'autre » créerait une seconde énumération qui divergerait au
+premier ajout, la dérive que `served()` a connue quatre fois. Conséquences gratuites : une tâche
+`proposed` n'est pas réclamable, une tâche terminale ne l'est plus, et aucune des deux règles n'est
+écrite quelque part.
+
+**La clause « valide contre son schéma » a été rétrécie, et le motif est écrit.** Le registre de
+schémas est en TypeScript et valide les **fixtures du corpus**, pas une valeur produite en Rust ; un
+validateur Draft 7 côté Rust coûte **88 paquets**, plus que le driver PostgreSQL entier, pour une
+propriété de test. Ce qui la remplace est plus étroit et réellement vérifié : la liste `required`
+est lue du fichier de schéma au moment du test. Ce qui n'est **pas** couvert — contraintes de
+valeur, formats, `additionalProperties` — est nommé dans le fichier de test, pour qu'on ne lise pas
+« valide contre son schéma » là où il faut lire « porte tous ses champs obligatoires ».
+
+C'est la troisième clause que j'ai écrite et qui ne survit pas à sa mise en œuvre, après le harnais
+de `W20.k` et le `spawn_blocking` de `W20.m`. Les trois sont corrigées dans la roadmap avec leur
+raison plutôt que silencieusement.
+
+**Un mutant a montré la différence entre « présent » et « juste ».** Vider `output_contract` en
+chaîne vide laissait le test de champs obligatoires **vert** : la clé était là, et la mission
+demandait à un worker de ne rien rendre. Le remède n'est pas une assertion de plus sur ce champ mais
+un test d'**égalité** champ par champ entre la proposition et la mission — la faute est générique,
+un constructeur qui perd une valeur produit une mission bien formée et vide de sens.
+
+**`W12.d` expire pour la quatrième fois, et cette fois il faut en tirer la conclusion.** Son
+marqueur a successivement attendu `W20.h`, `W20.i`, `W2.20`, `W20.k`, puis `W20.m`, `W20.n` et
+`W20.o` : **les huit sont livrés** et ce test reste impossible.
+
+Une liste qui se périme quatre fois ne se trompe pas de contenu, elle se trompe de **forme**.
+`W12.d` exerce la chaîne entière, donc sa précondition est « le reste de la V1 » et non une poignée
+d'items ; tout marqueur court la sous-estimera encore.
+
+Ce qui change est la méthode : chaque entrée de la nouvelle liste a été **vérifiée au code** avant
+d'être écrite, et non déduite du test de sortie.
+
+- `MemoryQueue::take` reçoit le `worker_id` et l'**ignore délibérément** — sa propre documentation
+  le dit —, et rien dans `apps/locusd` n'appelle `place`. « Un worker placé sur ce qu'il a prouvé »
+  n'a donc pas de sujet : la file sert la première offre à qui demande. C'est `W20.q`.
+- Rien dans `apps/locusd` ne connaît `EpistemicCommit` hors d'une traduction de type d'événement. «
+  Mis en scène puis intégré » n'a pas de sujet côté serveur. C'est `W20.r`.
+- Les phases `W5` et `W7` sont **entièrement livrées** — vérifié, pas supposé.
+
+**Et la complétude de cette liste n'est pas affirmée.** C'est la seule chose que quatre expirations
+autorisent à dire : ce qui y figure manque réellement, et il peut en manquer d'autres que personne
+n'a encore cherchées. Écrire « il ne reste que ça » serait refaire, une cinquième fois, la faute que
+les quatre premières ont enseignée.
+
+**Écart avec la spec.** Aucun. Aucune dépendance nouvelle. Les champs optionnels de §15.4 restent
+**absents** de la mission produite : « absent ne se remplit pas d'un défaut », et un test le tient
+sur les sept.
+
+**Prochain item.** `W20.p`, `W20.q`, `W20.r`, `W20.j`, `W23.a`, `W23.b`, `W23.c`, `W4.i`.

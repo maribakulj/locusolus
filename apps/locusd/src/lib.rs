@@ -50,6 +50,7 @@ pub mod http;
 pub mod journal;
 pub mod lep;
 pub mod messaging;
+pub mod mission;
 pub mod organisation;
 pub mod outcome;
 pub mod query;
