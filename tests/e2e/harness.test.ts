@@ -22,7 +22,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
 
-import { HarnessFailure, WORKER_REPO_ENV, builtBinary, workerRepo } from "./harness.ts";
+import {
+  HarnessFailure,
+  WORKER_HOME_ENV,
+  WORKER_REPO_ENV,
+  builtBinary,
+  workerRepo,
+} from "./harness.ts";
 
 /** Un dépôt worker crédible : ce que `workerRepo` va chercher, et rien de plus. */
 function depotWorker(): string {
@@ -114,6 +120,23 @@ describe("le harnais e2e refuse plutôt que de se sauter — W12.f", () => {
     // en relançant à la main. Avec elle, la cause est dans le message.
     assert.match(erreur.message, /adresse déjà utilisée/);
     assert.match(erreur.message, /--- sortie ---/);
+  });
+
+  /**
+   * **Le harnais isole le worker par la variable que `canterel` lit réellement.**
+   *
+   * Un test de constante, et c'est délibéré. La première rédaction posait `XDG_DATA_HOME` — une
+   * variable XDG standard, plausible, et que `canterel` **ne lit pas** : `Global.Path.data` dérive
+   * de `OPENSCIENCE_TEST_HOME` ou du home réel. Le harnais partageait donc l'installation de la
+   * machine en croyant l'isoler, et son verdict dépendait de l'état de cet hôte : vert tant
+   * qu'aucun worker n'y était enrôlé, rouge dès qu'il l'était.
+   *
+   * Rien ne l'aurait montré avant qu'un enrôlement réel réussisse. Le nom est donc figé ici, où un
+   * lecteur le voit, plutôt que d'être enfoui dans un appel à `spawn`.
+   */
+  it("l'isolation passe par la variable que canterel lit, pas par une variable XDG plausible", () => {
+    assert.equal(WORKER_HOME_ENV, "OPENSCIENCE_TEST_HOME");
+    assert.notEqual(WORKER_HOME_ENV, "XDG_DATA_HOME");
   });
 
   it("une sortie vide n'ajoute pas de section vide au message", () => {
