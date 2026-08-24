@@ -850,7 +850,10 @@ impl<S: EventStore> Runtime<S> {
             submitted.idempotency_key.clone(),
             Revision::new(self.revision_of(stream)),
         )?;
-        verdict(self.transaction().submit(decider, &command, &context, now))
+        // `commit` et non `transaction().submit` : depuis `W20.l`, c'est le chemin d'écriture qui
+        // fait avancer les projections. Passer par la transaction directement écrirait un fait que
+        // les quatre projections de §9.5 ne verraient jamais.
+        verdict(self.commit(decider, &command, &context, now))
     }
 
     /// La révision courante d'un stream, ou `0` — « il n'existe pas encore ».

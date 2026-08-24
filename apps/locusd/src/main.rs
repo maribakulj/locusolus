@@ -30,7 +30,7 @@ use locusd::http::{DEFAULT_BIND, router, served};
 const DEFAULT_BROKER_SOCKET: &str = "/tmp/locus/broker.sock";
 
 fn main() -> ExitCode {
-    let mut runtime = Runtime::in_memory();
+    let runtime = Runtime::in_memory();
     let readiness = runtime.catch_up();
     println!("{readiness}");
 

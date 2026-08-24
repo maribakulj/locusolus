@@ -67,7 +67,7 @@ fn runtime_avec(count: u8) -> Runtime<locus_event_store::MemoryEventStore> {
     const NOMS: [&str; 7] = [
         "wrk_a", "wrk_b", "wrk_c", "wrk_d", "wrk_e", "wrk_f", "wrk_g",
     ];
-    let mut runtime = Runtime::in_memory();
+    let runtime = Runtime::in_memory();
     for index in 0..count {
         let nom = NOMS[usize::from(index) % NOMS.len()];
         runtime

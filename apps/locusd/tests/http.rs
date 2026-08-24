@@ -88,7 +88,7 @@ fn commande() -> CommandEnvelope {
 /// échoueraient l'un l'autre au hasard de l'ordonnancement, et le diagnostic porterait sur la
 /// mauvaise chose.
 async fn serveur(types: &'static [&'static str]) -> String {
-    let mut runtime = Runtime::in_memory();
+    let runtime = Runtime::in_memory();
     runtime
         .transaction()
         .submit(&Ecrit(types), &commande(), &(), NOW)
@@ -517,7 +517,7 @@ impl Decide for EcritDansLaBranche {
 }
 
 async fn serveur_de_branche(types: &'static [&'static str]) -> String {
-    let mut runtime = Runtime::in_memory();
+    let runtime = Runtime::in_memory();
     runtime
         .transaction()
         .submit(&EcritDansLaBranche(types), &commande(), &(), NOW)
@@ -720,7 +720,7 @@ async fn serveur_avec_organisation() -> (String, String, String) {
         .apply(&Operation::AddNode(id::<Agent>(3)), &ContentDigest)
         .expect("licite");
 
-    let mut runtime = Runtime::in_memory();
+    let runtime = Runtime::in_memory();
     runtime
         .transaction()
         .submit(
