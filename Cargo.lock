@@ -612,6 +612,7 @@ dependencies = [
  "axum",
  "locus-broker",
  "locus-coordination",
+ "locus-deployment",
  "locus-domain",
  "locus-event-store",
  "locus-lep",

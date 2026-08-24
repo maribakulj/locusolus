@@ -12755,3 +12755,69 @@ un raisonnement à la lecture d'un journal. Le test de CI vérifie désormais **
 aboutit**, et la suite imprime les backends qu'elle a éprouvés.
 
 **Prochain item.** `W20.m`, `W20.n`, `W20.o`, `W20.j`, `W23.a`, `W23.b`, `W23.c`, `W4.i`.
+
+## 2026-08-24 — W20.m — Le journal durable, câblé : un redémarrage ne perd plus rien
+
+**Périmètre.** `apps/locusd/src/journal.rs` (neuf), `apps/locusd/src/main.rs` — le choix du backend
+et une fonction de démarrage générique —, `apps/locusd/src/lib.rs`, `apps/locusd/Cargo.toml`,
+`apps/locusd/tests/journal.rs` (neuf, 8 tests). `docs/10_V1_ROADMAP.md` : `W20.m` marqué, `W20.p`
+créé.
+
+**Tests exécutés.** `cargo test -p locusd --test journal` : **8 verts**, dont le redémarrage contre
+une vraie base. `cargo clippy --all-targets` : zéro avertissement. `npm run check` : les treize
+portes.
+
+**Ce que l'item corrige.** `W20.i` a livré le driver et ne l'a **câblé nulle part** — c'était son
+périmètre, et le plan de rollback de l'ADR 0030 en dépendait. Conséquence : « `locusd` redémarre et
+tout est encore là », clause centrale de `W12.d`, n'était vérifié par personne. Il l'est.
+
+**Un profil qui promet la durabilité ne démarre pas sur un journal volatile.** §27.1 nomme cinq
+profils. `personal-local` met tout sur un poste, et un journal en mémoire y est un choix défendable
+— on perd un laboratoire, pas une institution. Les quatre autres hébergent un control plane que
+d'autres interrogent, et un `single-node-vm` qui repartirait vide à chaque redémarrage mentirait à
+tout ce qui s'y connecte, **silencieusement** : le daemon a l'air d'aller bien.
+
+Le refus est donc au démarrage, avant d'ouvrir le port, pour la même raison que `main.rs` refuse
+déjà de servir avec une projection en quarantaine — un refus se voit. Le défaut, lui, est
+`personal-local` : celui qui promet le moins. Un défaut qui promettrait la durabilité ferait
+démarrer un daemon volatile sous un profil qui jure le contraire.
+
+**Une affirmation de `W20.d` enfin éprouvée.** Sa documentation disait que le driver « se substitue
+**sans toucher à ce fichier** — c'est la seule chose que le paramètre de type est là pour garantir
+». Comme celle de `W1.c` sur la suite de contract tests, elle est restée invérifiée tant qu'il
+n'existait qu'un backend. Celle-ci **tient** : la substitution a lieu dans le binaire,
+`composition.rs` ne nomme aucun backend concret, et un test lit le source pour le vérifier — une
+absence ne se compile pas.
+
+Deux affirmations du même genre, à deux jours d'intervalle, l'une fausse et l'autre vraie. C'est
+l'argument pour les éprouver, pas pour s'en méfier.
+
+**Un troisième fichier portait le commentaire périmé.** `main.rs` annonçait encore « aucune commande
+de §22.3 : `Transaction::submit` prend `&mut self` », levé par `W20.h` six sprints plus tôt, après
+`http.rs` et `branch.rs` corrigés en `W20.k`. Une affirmation fausse ne se propage pas par
+malveillance mais par copie, et elle ne s'efface que là où quelqu'un la relit.
+
+**La troisième clause de l'item est devenue `W20.p`, et le motif est écrit.** Appeler le driver
+bloquant hors du fil du runtime asynchrone change la convention d'appel de **toute** la couche HTTP.
+C'est une propriété de latence sous charge et non de correction — le daemon répond juste, il occupe
+mal ses fils —, et les deux autres clauses forment une capacité complète sans elle. Découper vaut
+mieux que livrer à moitié en le taisant, et c'est la deuxième fois de la journée qu'une clause que
+j'avais écrite ne survit pas à sa mise en œuvre — après celle du harnais en `W20.k`.
+
+**Le test de redémarrage est probant, et son pendant est ce qui le rend tel.** Un second `Runtime`
+sur la même base est, du point de vue du journal, exactement un redémarrage : ses quatre projections
+partent vides et se reconstruisent. Le test l'exige explicitement **avant** le rattrapage — sans
+cette assertion, il pourrait passer sur un daemon qui n'a rien oublié parce qu'il n'a rien relu. Et
+le pendant sur `MemoryEventStore` perd tout, ce qui montre que la propriété tient au journal et non
+à la projection.
+
+**Une erreur de ma part, sans conséquence.** Le test attendait `canterel-vm-linux-01` là où le
+graphe d'exécution rend `worker:canterel-vm-linux-01` — il préfixe ses nœuds par leur sorte.
+L'attente était fausse, pas le code ; elle est corrigée en clair plutôt que reconstruite, pour que
+le test dise ce qu'un client lit réellement.
+
+**Écart avec la spec.** Aucun. Aucune dépendance externe nouvelle : `locus-deployment` est un crate
+du workspace, et il portait déjà les cinq profils de §27.1.
+
+**Prochain item.** `W20.n`, `W20.o` — les deux dernières conditions de `W12.d` —, puis `W20.p`,
+`W20.j`, `W23.a`, `W23.b`, `W23.c`, `W4.i`.

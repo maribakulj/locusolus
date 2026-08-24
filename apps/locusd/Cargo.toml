@@ -42,6 +42,7 @@ locus-domain = { path = "../../packages/domain" }
 locus-event-store = { path = "../../packages/event-store" }
 # W20.d : le composition root câble les projections de §9.5 et le moteur de politique de §20.2.
 # Aucune des deux n'est une dépendance de transport — elles sont le domaine que `locusd` assemble.
+locus-deployment = { path = "../../packages/deployment" }
 locus-policy = { path = "../../packages/policy" }
 locus-projections = { path = "../../packages/projections" }
 locus-lep = { path = "../../packages/lep" }
