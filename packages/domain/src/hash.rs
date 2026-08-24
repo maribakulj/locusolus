@@ -180,3 +180,66 @@ impl fmt::Display for ParseHashError {
 }
 
 impl std::error::Error for ParseHashError {}
+
+/// Un calcul de condensat **incrémental** — ADR 0020, `W20.t`.
+///
+/// # Pourquoi celui-ci s'ajoute à [`ContentHash::of`]
+///
+/// `of` prend les octets d'un coup, et c'est ce qu'il faut pour une forme canonique tenue en
+/// mémoire — une version de coordination, une charge d'événement. Un artefact peut peser des
+/// gigaoctets : `packages/artifacts` borne délibérément l'écriture **pendant** qu'elle a lieu, et un
+/// hash qui exige le contenu entier avant de commencer oblige à le tenir en mémoire pour savoir
+/// s'il est acceptable — exactement l'inverse de la garantie recherchée.
+///
+/// `dependencies.json` notait, en faisant entrer `sha2`, que « `Digest` n'avait aucune
+/// implémentation de production ». `of` a comblé la moitié tenue en mémoire ; ceci comble l'autre.
+///
+/// # Il ne canonicalise rien
+///
+/// Comme `of`, et pour la même raison : la forme canonique appartient à l'appelant.
+#[derive(Clone, Default)]
+pub struct Hasher {
+    inner: sha2::Sha256,
+}
+
+impl Hasher {
+    /// Un calcul vierge.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Absorber un fragment.
+    pub fn update(&mut self, chunk: &[u8]) {
+        use sha2::Digest as _;
+
+        self.inner.update(chunk);
+    }
+
+    /// Clore le calcul, et rendre le condensat des fragments absorbés.
+    ///
+    /// Consomme le calcul plutôt que de le réinitialiser : un `Hasher` réutilisé après coup
+    /// hasherait la concaténation de deux contenus en croyant hasher le second, et rien dans le
+    /// résultat ne le montrerait.
+    #[must_use]
+    pub fn finish(self) -> ContentHash {
+        use sha2::Digest as _;
+
+        let mut digest = String::with_capacity(64);
+        for byte in self.inner.finalize() {
+            let _ = write!(digest, "{byte:02x}");
+        }
+        ContentHash {
+            algorithm: "sha256".to_owned(),
+            digest,
+        }
+    }
+}
+
+impl fmt::Debug for Hasher {
+    /// Sans l'état interne : un condensat partiel n'a pas de sens hors du calcul, et l'afficher
+    /// inviterait à le lire comme un résultat.
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.debug_struct("Hasher").finish_non_exhaustive()
+    }
+}

@@ -13286,3 +13286,70 @@ interrogée et jamais recopiée.
 **Prochain item.** `W20.t` — les artefacts atteignent le daemon. Dépendance : `packages/artifacts`
 existe et `apps/locusd` ne l'a pas en dépendance, ce qui est exactement ce que l'item corrige ; rien
 d'autre ne le bloque.
+
+## 2026-08-24 — W20.t — La chaîne d'artefacts de §19.1 atteint le daemon
+
+**Périmètre.** `apps/locusd/src/artifacts.rs` (nouveau : port `Blobs`, `NoBlobs`, `MemoryBlobs`,
+décideurs `Declared`/`Uploaded`, `lep_declare_artifact`, `lep_upload_artifact`, la relecture
+`declared`, les traductions de refus), `apps/locusd/src/http.rs` (deux routes, `ProposeBody` voisine
+`DeclareBody`, `rendu`, `entete`, `served()` → 15), `apps/locusd/src/lep.rs` (`Desk::storing()`,
+`identify` et `write_worker_fact` ouverts au crate), `apps/locusd/Cargo.toml`,
+`packages/domain/src/hash.rs` (`Hasher` incrémental), `packages/artifacts/src/digest.rs` (nouveau :
+`Sha256Digest`), `apps/locusd/tests/artifacts.rs` (nouveau, 16 tests),
+`packages/artifacts/tests/digest.rs` (nouveau, 4 tests).
+
+Débordement hors `apps/locusd` assumé, et il est la moitié la moins visible de l'item :
+`dependencies.json` notait déjà, en faisant entrer `sha2`, que « `Digest` n'avait **aucune**
+implémentation de production ». `ContentHash::of` avait comblé la moitié tenue en mémoire ; l'autre
+manquait, et un artefact de plusieurs gigaoctets ne se hashe pas d'un bloc.
+
+**Tests exécutés.** `cargo test -p locusd --test artifacts` → 16 passés, c'est le test de sortie et
+il tient ses trois clauses séparément : `un_contenu_qui_diverge_est_refuse_en_nommant_le_hash` et
+`un_contenu_plus_long_que_la_taille_declaree_est_refuse` (le hash est vérifié, jamais cru),
+`deposer_sans_declaration_est_refuse` + `un_stream_sans_declaration_reste_non_declare` +
+`une_declaration_expiree_n_ouvre_plus_le_depot` (la déclaration précède l'upload),
+`un_manifeste_sans_provenance_n_entre_pas` + `le_fait_de_declaration_porte_la_provenance` (invariant
+4). `cargo test -p locus-artifacts --test digest` → 4 passés. `cargo test --workspace` vert,
+`cargo clippy --workspace --all-targets` sans avertissement, `npm run check` → 13 portes vertes.
+Passe de mutation : **13 mutants posés, 0 survivant**, après correction des deux survivants du
+premier passage.
+
+**Décisions prises.**
+
+1. **Le port du daemon n'a qu'une méthode.** `ObjectStore` en a cinq, et _l'ordre dans lequel on les
+   appelle est la garantie_ — confronter après avoir rangé revient à faire entrer le contenu puis à
+   espérer pouvoir l'oublier. `Blobs::receive` porte l'appel que `locus_artifacts::ingest` fait déjà
+   correctement, et rien d'autre : le daemon ne peut pas refaire cet ordre de travers, faute d'avoir
+   de quoi. Son défaut, `NoBlobs`, **refuse** — accepter en jetant les octets écrirait
+   `artifact.uploaded` pour un artefact introuvable, et l'invariant 4 tomberait sans qu'un seul test
+   rougisse.
+2. **La déclaration se relit du journal, et par le _nom du fait_.** Même raison qu'en `W20.s` : la
+   faire renvoyer par son déposant laisserait déclarer un hash et en téléverser un autre sous le
+   même identifiant, et la confrontation comparerait alors le contenu à une promesse faite après
+   coup — c'est-à-dire à lui-même. La relecture cherchait d'abord « le premier fait qui porte une
+   clé `manifest` » ; un survivant de mutation l'a démentie, et chercher `artifact.declared` ne se
+   trompe pas de sujet.
+3. **Le ticket porte un `upload_path`, pas une `url`.** §19.1 dit « URL temporaire ». Une URL
+   absolue exige que le daemon connaisse son propre nom public, derrière le proxy éventuel ; le
+   deviner de l'en-tête `Host` laisserait un client choisir l'hôte vers lequel les artefacts
+   partent, et le coder en dur supposerait une machine de développeur. Le champ **est** un chemin et
+   porte donc ce nom. Conséquence à nommer plutôt qu'à découvrir : `canterel`, dont
+   `UploadTicket.url` est validé par `assertEndpointAcceptable`, ne se branche pas dessus tel quel.
+   C'est le travail de l'item qui câblera son `ArtifactTransport`, et il aura le choix entre
+   résoudre le chemin côté client ou donner au daemon son adresse publique en configuration.
+4. **La fenêtre de dépôt est enforcée, pas décorative.** Une échéance que rien ne vérifie serait un
+   effet annoncé qui n'a pas lieu — l'ADR 0022 le nomme une promesse et le refuse. Elle est comparée
+   à l'arrivée du contenu, et un test tient chacun des deux côtés : hors délai refusé, dans le délai
+   accepté. Une garde qui crierait aussi sur ce qui est juste se ferait désactiver.
+5. **Le fait d'arrivée porte le condensat _observé_.** Il est égal au déclaré quand tout va bien —
+   c'est le **résultat** de la vérification, pas sa définition. Un fait qui recopierait la
+   déclaration ne pourrait jamais en différer, donc ne prouverait rien ; le décideur est interrogé
+   directement par un test avec un condensat délibérément différent, parce que de bout en bout les
+   deux valeurs coïncident et qu'aucune assertion ne les distinguerait.
+
+**Écart avec la spec.** Aucun sur §19.1 et §19.2. Le seul point où la spec dit plus que ce qui est
+livré est l'« URL temporaire », rendue comme un chemin — décision 3, avec sa raison.
+
+**Prochain item.** `W20.u` — le graphe épistémique et le coût servis. Dépendance : les projections
+de §9.5 existent et tournent (`W20.l`) ; ce que l'item constate, c'est qu'aucune route ne les sert
+et qu'aucune projection ne porte le coût.
