@@ -1,16 +1,19 @@
 //! La liaison HTTP — `W20.g`. Ce qui traduit, et rien qui décide.
 //!
-//! # Une surface **en lecture seule**, et c'est délibéré
+//! # Une surface qui a cessé d'être en lecture seule, et ce que sa raison est devenue
 //!
-//! Les routes servies sont celles de §22.4 (queries) et §22.1 (fil d'événements). **Aucune commande
-//! de §22.3 n'est exposée**, et la raison est dans les types plutôt que dans une intention :
-//! `Transaction::submit` prend `&mut self`, alors qu'un handler `axum` partage son état entre des
-//! requêtes concurrentes. Servir une commande demanderait donc de décider comment sérialiser les
-//! écritures — un verrou, une file, un acteur — et ce choix mérite son item, pas un coin de
-//! celui-ci.
+//! `W20.g` n'exposait que §22.4 et §22.1, et le disait ainsi : « `Transaction::submit` prend
+//! `&mut self`, alors qu'un handler `axum` partage son état entre des requêtes concurrentes ».
+//! C'était vrai, et `W20.h` l'a levé — `submit` prend `&self` depuis l'ADR 0029, et la
+//! sérialisation se fait par stream sous [`crate::writes::StreamLocks`].
 //!
-//! Le résultat est agréable et n'est pas un hasard : la couche HTTP ne peut rien muter, parce
-//! qu'elle ne tient qu'un `&Runtime`.
+//! **La phrase a survécu six sprints à la condition qu'elle décrivait**, et elle est corrigée ici
+//! plutôt que laissée : un commentaire qui invoque un obstacle levé est une affirmation fausse sur
+//! l'état du système, ce que l'ADR 0025 rend coûteux. C'est la deuxième fois dans ce fichier qu'un
+//! raisonnement se périme sans que personne le relise — [`branch_history`] porte l'autre.
+//!
+//! Les trois routes de §15.2 (`W20.k`) écrivent donc, et elles écrivent **par la transaction** :
+//! la couche HTTP ne décide toujours rien, elle traduit.
 //!
 //! # Un refus de cursor est **typé**, jamais un 500
 //!
@@ -34,15 +37,16 @@ use axum::Router;
 use axum::extract::{Path, Query, State};
 use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
-use axum::routing::get;
+use axum::routing::{get, post};
 use locus_coordination::version::VersionId;
 use locus_event_store::EventStore;
-use locus_protocol::Id;
+use locus_protocol::{Id, Timestamp};
 use serde::Deserialize;
 
 use crate::composition::Runtime;
 use crate::cursor::{Collection, Cursor, CursorError};
 use crate::error::{CommandError, Family};
+use crate::lep::{Rendered, Submitted};
 use crate::organisation::ReplayError;
 use crate::query::Page;
 use crate::stream::Frame;
@@ -81,6 +85,9 @@ where
         .route("/branches/{id}/history", get(branch_history::<S>))
         .route("/branches/{id}/diff", get(branch_diff::<S>))
         .route("/projections/status", get(projections_status::<S>))
+        .route(CLAIM_PATH, post(claim::<S>))
+        .route(EVENTS_PATH, post(worker_events::<S>))
+        .route(RESULT_PATH, post(result::<S>))
         .with_state(runtime)
 }
 
@@ -332,6 +339,234 @@ fn refusal(error: CursorError) -> Response {
     )
 }
 
+/// Les trois chemins de §15.2, mode pull — les mêmes littéraux que le client de `W2.21`.
+///
+/// Écrits en clair des deux côtés du fil, et c'est voulu : ce sont la moitié serveur d'un contrat,
+/// pas un détail d'implémentation. Les changer casse un worker qu'on ne redéploie pas en même temps,
+/// et un diff doit le montrer.
+pub const CLAIM_PATH: &str = "/lep/v1/claim";
+/// Voir [`CLAIM_PATH`].
+pub const EVENTS_PATH: &str = "/lep/v1/events";
+/// Voir [`CLAIM_PATH`].
+pub const RESULT_PATH: &str = "/lep/v1/result";
+
+/// La créance portée par `Authorization: Bearer …`, si elle y est.
+///
+/// Jamais journalisée, jamais renvoyée dans un refus : `CLAUDE.md` interdit de logger un token, et
+/// un message d'erreur qui citerait la créance refusée la ferait fuir dans le premier rapport de bug
+/// venu.
+fn bearer(headers: &axum::http::HeaderMap) -> Option<&str> {
+    headers
+        .get(header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "))
+        .filter(|credential| !credential.is_empty())
+}
+
+/// Ce qu'un worker envoie sur les trois chemins — la part que le daemon ne décide pas à sa place.
+#[derive(Debug, Deserialize)]
+struct WorkerBody {
+    /// La clé d'idempotence de §15.2. Absente, une chaîne vide : le worker n'annonce alors aucune
+    /// resoumission, et deux envois identiques produisent deux faits — ce qui est ce qu'il a demandé.
+    #[serde(default)]
+    idempotency_key: String,
+    /// Le projet. Absent, celui-ci est refusé plutôt que deviné.
+    #[serde(default)]
+    project_id: Option<String>,
+    /// Les événements, sur `/lep/v1/events`.
+    #[serde(default)]
+    events: Vec<locus_lep::Event>,
+    /// Sur `/lep/v1/result`.
+    #[serde(default)]
+    task_id: String,
+    #[serde(default)]
+    attempt_id: String,
+    #[serde(default)]
+    session_id: String,
+    #[serde(default)]
+    output: serde_json::Value,
+}
+
+impl WorkerBody {
+    /// Ce que le worker a soumis, ou le refus qui nomme le champ manquant.
+    fn submitted(&self, now: Timestamp) -> Result<Submitted, CommandError> {
+        let project = self
+            .project_id
+            .as_deref()
+            .ok_or_else(|| CommandError::Validation {
+                field: "project_id".to_owned(),
+                detail: "sans projet, un fait n'a pas d'endroit où appartenir : le deviner \
+                         écrirait dans un projet que personne n'a choisi"
+                    .to_owned(),
+            })?;
+        let project_id = Id::parse(project).map_err(|error| CommandError::Validation {
+            field: "project_id".to_owned(),
+            detail: error.to_string(),
+        })?;
+        Ok(Submitted {
+            idempotency_key: self.idempotency_key.clone(),
+            project_id,
+            // L'instant de l'acte est celui de la réception : le worker date ses **événements**
+            // (§15.6 `occurred_at`), pas son enveloppe, et prendre une date qu'il n'a pas envoyée
+            // serait l'inventer. §10.1 garde les deux distincts par `recorded_at`, que le journal
+            // pose lui-même.
+            occurred_at: now,
+        })
+    }
+}
+
+/// `POST /lep/v1/claim` — §15.2, mode pull. `W20.k`.
+///
+/// # `204` n'est pas une erreur
+///
+/// Un ordonnanceur sans travail répond `204 No Content`, et le client de `W2.21` en fait un tour
+/// `idle`. Répondre `404` ou `503` l'enverrait chercher un lien cassé là où il n'y a que du calme —
+/// la séparation de l'ADR 0028 décision 4, tenue ici du côté serveur.
+async fn claim<S: EventStore + Send + Sync + 'static>(
+    State(runtime): State<Arc<Runtime<S>>>,
+    headers: axum::http::HeaderMap,
+    body: String,
+) -> Response {
+    let Some(credential) = bearer(&headers) else {
+        return sans_creance();
+    };
+    let body = match lu(&body) {
+        Ok(body) => body,
+        Err(error) => return commande_refusee(&error),
+    };
+    let now = maintenant();
+    match body
+        .submitted(now)
+        .and_then(|submitted| runtime.lep_claim(credential, &submitted, now))
+    {
+        Ok(None) => StatusCode::NO_CONTENT.into_response(),
+        Ok(Some(offer)) => match serde_json::to_string(&offer) {
+            Ok(body) => json(StatusCode::OK, body),
+            Err(error) => probleme(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "internal",
+                &error.to_string(),
+            ),
+        },
+        Err(error) => commande_refusee(&error),
+    }
+}
+
+/// `POST /lep/v1/events` — §15.6, les événements que le worker fait remonter.
+async fn worker_events<S: EventStore + Send + Sync + 'static>(
+    State(runtime): State<Arc<Runtime<S>>>,
+    headers: axum::http::HeaderMap,
+    body: String,
+) -> Response {
+    let Some(credential) = bearer(&headers) else {
+        return sans_creance();
+    };
+    let body = match lu(&body) {
+        Ok(body) => body,
+        Err(error) => return commande_refusee(&error),
+    };
+    let now = maintenant();
+    match body
+        .submitted(now)
+        .and_then(|submitted| runtime.lep_events(credential, body.events.clone(), &submitted, now))
+    {
+        Ok(()) => StatusCode::ACCEPTED.into_response(),
+        Err(error) => commande_refusee(&error),
+    }
+}
+
+/// `POST /lep/v1/result` — l'achèvement d'une tentative, et le fait que `W23.b` compte.
+async fn result<S: EventStore + Send + Sync + 'static>(
+    State(runtime): State<Arc<Runtime<S>>>,
+    headers: axum::http::HeaderMap,
+    body: String,
+) -> Response {
+    let Some(credential) = bearer(&headers) else {
+        return sans_creance();
+    };
+    let body = match lu(&body) {
+        Ok(body) => body,
+        Err(error) => return commande_refusee(&error),
+    };
+    let now = maintenant();
+    // Aucun `worker_id` : le type n'en porte pas. Ce que le corps annoncerait ne ferait de toute
+    // façon pas foi, et l'inexprimable vaut mieux que l'écrasé.
+    let rendered = Rendered {
+        task_id: body.task_id.clone(),
+        attempt_id: body.attempt_id.clone(),
+        session_id: body.session_id.clone(),
+        output: body.output.clone(),
+    };
+    match body
+        .submitted(now)
+        .and_then(|submitted| runtime.lep_result(credential, rendered, &submitted, now))
+    {
+        Ok(()) => StatusCode::ACCEPTED.into_response(),
+        Err(error) => commande_refusee(&error),
+    }
+}
+
+/// Lire un corps de worker, ou rendre le refus qui dit pourquoi il n'est pas lisible.
+///
+/// Écrit à la main plutôt qu'avec l'extracteur `Json` d'`axum` : `dependencies.json` écarte sa
+/// feature `json` sous l'ADR 0018 — « `serde_json` suffit » — et l'activer pour trois routes
+/// reviendrait sur une décision motivée, en tirant une dépendance de plus pour ce que quatre lignes
+/// font ici.
+/// Rend le refus **sous sa forme d'erreur de commande**, et non déjà en `Response` : clippy relève
+/// à juste titre qu'une `Response` d'axum pèse trop pour voyager dans un `Err`, et la traduction en
+/// statut appartient de toute façon à [`commande_refusee`], qui la fait pour les huit familles.
+fn lu(body: &str) -> Result<WorkerBody, CommandError> {
+    serde_json::from_str::<WorkerBody>(body).map_err(|error| CommandError::Validation {
+        field: "body".to_owned(),
+        detail: format!("corps illisible : {error}"),
+    })
+}
+
+/// L'instant courant, et la **première** fois qu'une horloge entre dans `locusd`.
+///
+/// Jusqu'ici l'instant venait toujours d'un appelant — `Transaction::submit` le prend en paramètre,
+/// et `locus-protocol` « ne lit pas l'heure ». Une route n'a pas d'appelant à qui le demander, comme
+/// elle n'en avait pas pour les identifiants ; à la différence de ceux-là, l'heure ne coûte aucune
+/// dépendance, `std::time` la portant.
+///
+/// Une horloge qui reculerait avant 1970 rend `0`. Le cas est irréel et la conséquence serait pire
+/// que le cas : `expect` ferait tomber le daemon entier pour une horloge mal réglée.
+fn maintenant() -> Timestamp {
+    Timestamp::from_millis(
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |since| i64::try_from(since.as_millis()).unwrap_or(0)),
+    )
+}
+
+/// Le refus d'une requête sans porteur — `401`, et sans citer quoi que ce soit.
+fn sans_creance() -> Response {
+    probleme(
+        StatusCode::UNAUTHORIZED,
+        "authorization",
+        "aucune créance : §15.2 se parle sous `Authorization: Bearer`",
+    )
+}
+
+/// Un refus de commande, traduit en statut selon sa famille de §22.5.
+///
+/// # Pourquoi la famille décide du statut, et pas l'inverse
+///
+/// `W20.a` a rangé les refus en huit familles précisément pour qu'un client sache **quoi faire**.
+/// Les aplatir en `400` pour tout ferait retenter à l'identique une saturation qui aurait abouti
+/// plus tard, et relire sa requête à qui n'a rien à y corriger.
+fn commande_refusee(error: &CommandError) -> Response {
+    let status = match error.family() {
+        Family::Validation => StatusCode::BAD_REQUEST,
+        Family::Authorization => StatusCode::FORBIDDEN,
+        Family::Conflict => StatusCode::CONFLICT,
+        Family::Unavailable => StatusCode::SERVICE_UNAVAILABLE,
+        Family::Budget | Family::Policy | Family::Security => StatusCode::UNPROCESSABLE_ENTITY,
+        Family::Internal => StatusCode::INTERNAL_SERVER_ERROR,
+    };
+    probleme(status, error.family().name(), &error.to_string())
+}
+
 /// Un refus qui n'est pas celui d'un cursor — même forme, autre famille et autre statut.
 ///
 /// Écrit à côté de [`refusal`] plutôt qu'en le généralisant : `refusal` porte un raisonnement qui
@@ -359,23 +594,29 @@ fn json(status: StatusCode, body: String) -> Response {
 /// n'existe pas encore.
 pub const DEFAULT_BIND: &str = "127.0.0.1:8787";
 
-/// Le collecteur des collections servies, pour un diagnostic.
+/// Le collecteur des routes servies, pour un diagnostic.
 ///
 /// Il vit ici, à côté du routeur, parce que c'est le routeur qui décide ce qui est servi : deux
 /// listes à deux endroits divergeraient au premier ajout de route.
 ///
-/// # Le déstructurage n'est pas une coquetterie
+/// # Le déstructurage n'est pas une coquetterie — et il ne suffisait pas
 ///
 /// La liste était écrite à la main, et elle a dérivé au premier ajout : `history` a été servie sans
 /// être annoncée, et le test qui lit cette liste est passé au vert — il ne vérifiait qu'un sens,
 /// « toute collection annoncée a une route », jamais l'inverse.
 ///
-/// C'est la troisième fois dans ce chantier qu'une liste écrite à la main se désynchronise de son
-/// énumération — après `Family::rang` et `Collection::ALL` lui-même. Le déstructurage la rattache
-/// **à la compilation** : ajouter une variante à `Collection` casse cette ligne, et la casser oblige
-/// à décider si la nouvelle collection est servie ou non. Une liste littérale n'oblige à rien.
+/// Le déstructurage de `Collection::ALL` a été la réponse, et il rattache **à la compilation** la
+/// moitié de la liste qui vient d'une énumération. `W20.k` a montré qu'il n'en tenait que la moitié :
+/// `diff` était servie et non annoncée depuis `W17.h`, parce que `diff` n'est pas une `Collection` —
+/// elle ne pagine rien. La même dérive, au même endroit, sous la protection d'un correctif qui ne
+/// la couvrait pas. C'est la quatrième fois qu'une liste écrite à la main se désynchronise dans ce
+/// chantier, après `Family::rang`, `Collection::ALL` et `history`.
+///
+/// Ce qui la tient maintenant est le **compte**, vérifié par un test qui lit les `.route(` de ce
+/// fichier : ajouter une route sans l'annoncer fait rougir, qu'elle soit une `Collection` ou non.
+/// Le déstructurage reste, pour ce qu'il couvre — un nom, pas seulement un nombre.
 #[must_use]
-pub fn served() -> [&'static str; 6] {
+pub fn served() -> [&'static str; 10] {
     let [timeline, workers, conflicts, events, history] = Collection::ALL.map(Collection::name);
     [
         timeline,
@@ -383,6 +624,13 @@ pub fn served() -> [&'static str; 6] {
         conflicts,
         events,
         history,
+        "branches/{id}/diff",
         "projections/status",
+        // Les trois de §15.2, lues de leurs constantes : renommer un chemin suit ici tout seul.
+        // Ce qu'aucune constante ne tient est l'**oubli** d'une quatrième route, et c'est ce que
+        // le compte vérifie.
+        CLAIM_PATH,
+        EVENTS_PATH,
+        RESULT_PATH,
     ]
 }

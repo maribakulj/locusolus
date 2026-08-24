@@ -51,6 +51,7 @@ pub struct Runtime<S> {
     validation: ProjectionRunner<ValidationState>,
     policy: Policy,
     readiness: Readiness,
+    lep: crate::lep::Desk,
 }
 
 impl Runtime<MemoryEventStore> {
@@ -78,7 +79,26 @@ impl<S: EventStore> Runtime<S> {
             readiness: Readiness {
                 projections: Vec::new(),
             },
+            // Une file vide et un registre vide : un daemon sans ordonnanceur répond `204` à toute
+            // réclamation et refuse toute créance, ce qui est exact. `W20.k` livre les ports ; ce
+            // qui les remplira est `W23.c`, nommé plutôt que simulé ici.
+            lep: crate::lep::Desk::default(),
         }
+    }
+
+    /// Substituer les ports de §15.2 — la file de missions et le registre de workers.
+    ///
+    /// Consomme et rend le runtime plutôt que de muter : un daemon dont la file changerait en cours
+    /// de route servirait deux ordonnanceurs sans que rien le dise.
+    #[must_use]
+    pub fn with_lep(mut self, desk: crate::lep::Desk) -> Self {
+        self.lep = desk;
+        self
+    }
+
+    /// Les ports de §15.2, en lecture — `W20.k`.
+    pub const fn lep(&self) -> &crate::lep::Desk {
+        &self.lep
     }
 
     /// La transaction, seul chemin d'écriture — `W20.b`.

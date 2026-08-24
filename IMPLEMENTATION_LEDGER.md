@@ -12454,3 +12454,112 @@ sur ce qui ne peut pas être fait, ce que `W0.11` nomme le plus coûteux de ses 
 
 **Prochain item.** `W20.k`, `W20.i`, `W20.j`, `W23.a` ou `W23.c` — les cinq sont ouverts et sans
 dépendance en attente. `W20.k` est celui qui débloque le plus en aval : `W23.b`, puis `W12.d`.
+
+## 2026-08-24 — W20.k — La surface §15.2 : le cinquième maillon, servi
+
+**Périmètre.** `apps/locusd/src/lep.rs` (neuf), `apps/locusd/src/http.rs` — trois routes `POST`, la
+lecture du corps, la traduction des huit familles en statuts, et la première horloge du daemon —,
+`apps/locusd/src/composition.rs` — le `Desk` câblé —, `apps/locusd/src/lib.rs`,
+`apps/locusd/tests/lep.rs` (neuf, 19 tests), `apps/locusd/tests/http.rs` — un test de plus, et
+`served()` corrigée. `docs/10_V1_ROADMAP.md` : `W20.k` marqué, `W20.l` créé, `W23.b` débloqué.
+
+**Tests exécutés.** `cargo test -p locusd --test lep` : 19 verts. `--test http` : 22 verts.
+`cargo clippy --all-targets` : zéro avertissement. `npm run check` : les treize portes.
+
+**Ce qui est livré.** Les trois chemins de §15.2 en mode pull, servis par `locusd`. Un worker
+réclame, remonte ses événements, rend son résultat — et **les faits atteignent le journal**, par un
+command handler transactionnel, comme toute mutation de ce dépôt. Les corps qui traversent sont les
+types **générés** de `packages/lep`, les mêmes schémas que `canterel` consomme en TypeScript : les
+deux moitiés du fil viennent d'un seul schéma, donc un changement de schéma casse les deux côtés à
+la compilation au lieu de les laisser diverger en silence.
+
+**La clause du test de sortie était fausse, et corrigée le jour même.** Elle disait « le harnais de
+conformance de `W0.9` tourne contre le daemon réel ». Écrite en marquant `W2.21`, elle n'a pas
+survécu à la lecture du harnais une heure plus tard : `packages/testing` **joue le serveur** — « il
+n'y a personne pour compenser » —, donc le faire tourner contre le daemon opposait deux serveurs et
+ne voulait rien dire. Ce qui la remplace tient la même propriété par l'autre bout : les types
+générés des deux côtés, et un vrai socket.
+
+**Trois ports, et pas un ordonnanceur bricolé.** Rien ne crée encore de mission, rien n'enrôle un
+worker côté serveur, et ce crate ne fabrique pas d'identifiants. Trois réponses possibles, une seule
+admise : reporter aurait été dire « aucun appelant ne l'utilise encore », que l'ADR 0022 décision 0
+refuse ; fabriquer un ordonnanceur en passant aurait été bâtir une fonctionnalité pour justifier une
+surface, ce que `W21.g` a refusé sous ce nom. `MissionQueue`, `WorkerRegistry` et `Identities`
+entrent donc comme **ports**, avec leur implémentation de référence — la forme de
+`packages/event-store`, construit avant tout écrivain.
+
+**Le défaut de `Identities` refuse, et ce choix mérite d'être gardé.** Une source d'identifiants par
+défaut qui aurait rendu des valeurs séquentielles aurait marché en test, marché au premier
+démarrage, et réattribué les mêmes identités au redémarrage suivant — un journal dont deux faits
+différents portent la même identité, découvert des mois plus tard. `NoIdentities` refuse en nommant
+ce qui manque, sous `unavailable` et non `internal` : le service ne peut pas répondre
+**maintenant**, ce qui est exact et se répare par configuration.
+
+**La créance dit qui parle ; le corps n'est qu'une déclaration.** `WorkerRegistry::identify` rend un
+`WorkerIdentity` — worker, workspace, principal — et non un booléen. Un booléen aurait obligé
+l'appelant à croire sur parole le `worker_id` du corps ; un worker qui annoncerait son workspace
+pourrait écrire dans n'importe lequel, et un worker qui annoncerait son principal signerait au nom
+de qui il veut.
+
+**`served()` avait redérivé, sous la protection d'un correctif qui ne couvrait pas le cas.** `W20.g`
+avait répondu à la dérive de `history` en déstructurant `Collection::ALL`, ce qui rattache la liste
+à la compilation — pour la moitié qui vient d'une énumération. `diff` était servie et **non
+annoncée** depuis `W17.h`, parce que `diff` ne pagine rien, donc n'est pas une `Collection`. La même
+dérive, au même endroit, quatre sprints plus tard. Ce qui la tient maintenant est un test du
+**compte** des `.route(` — et sa première rédaction comptait les occurrences de la chaîne, donc onze
+pour dix routes : la onzième était dans la documentation de `served()`, qui explique ce test.
+**Douzième fois** qu'une garde mord sur la prose qui la justifie, assez pour que ce soit une règle :
+un motif qui vise du code se contraint à la **forme** du code, jamais à ses caractères. Vérifié
+rouge sur une vraie route non annoncée avant d'être rendu vert.
+
+**Deux commentaires qui invoquaient un obstacle levé.** `http.rs` et `branch.rs` expliquaient tous
+deux l'absence de commandes par « `Transaction::submit` prend `&mut self` ». `W20.h` l'a levé six
+sprints plus tôt. Corrigés ici plutôt que laissés : un commentaire qui invoque un obstacle disparu
+est une affirmation fausse sur l'état du système.
+
+**La passe de mutation.** Seize mutants. Le premier tour en a laissé six vivants et cinq
+inclassables — et le harnais lui-même avait un défaut du genre qu'il cherche : `grep -cF` compte des
+**lignes**, jamais des occurrences d'un motif multiligne, et il a rapporté « 6 occurrences » pour un
+motif unique couvrant six lignes. Un compteur qui compte autre chose que ce qu'on croit, dans
+l'outil qui traque les compteurs qui mentent.
+
+Les survivants réels valaient tous une correction :
+
+- _Les chemins de §15.2 étaient comparés à leurs propres constantes_, donc à eux-mêmes — **la
+  deuxième fois de la journée**, après `worker-client.ts` ce matin, contre la même constante, de
+  l'autre côté du même fil. Idem pour le préfixe `task/` des streams.
+- _Un en-tête `authorization` sans `Bearer `_ était accepté par la mutation `trim_start_matches`, et
+  aucun test n'envoyait de jeton nu.
+- _Un bail émis pour un autre worker_ passait : aucune fixture ne dépareillait la paire. Un droit
+  d'exécution transféré sans que personne l'ait décidé.
+- _Une réserve d'identités trop courte_ pouvait être comblée par un identifiant fabriqué sans qu'un
+  test bouge — le scénario le plus coûteux qui soit, deux faits distincts sous une même identité.
+- _Le `worker_id` de la charge_ : la route posait une valeur toujours écrasée par `lep_result`, donc
+  elle pouvait y écrire n'importe quoi. Corrigé **par le type** plutôt que par un test — `Rendered`
+  ne porte pas d'identité, et `Complete::worker_id` est privé au module, donc seul `lep_result` peut
+  l'écrire. Rendre la faute inexprimable vaut mieux que la chercher.
+
+Quatre tests sont tombés en cours de route sur une fixture qui réutilisait `idem-1` pour trois
+commandes différentes. Le registre d'idempotence faisait exactement son travail : la clé est scopée
+par `(workspace, principal)`, pas par commande. « Corriger » en relâchant l'assertion aurait effacé
+la seule chose que ces quatre échecs avaient à dire.
+
+Seize mutants, quinze tués. Le seizième est **rapporté vivant** : voir ci-dessous.
+
+**Ce que cet item rend observable et ne corrige pas — `W20.l`.** `catch_up` prend `&mut self`, la
+liaison HTTP ne tient qu'un `&Runtime`, et les quatre projections de §9.5 ne voient jamais ce que
+ces routes écrivent. Ce n'est pas un défaut introduit ici : tant que la surface était en lecture
+seule, rien n'était écrit pendant que le daemon servait, donc rien ne pouvait devenir périmé. C'est
+aussi la raison du seizième mutant : le seul chemin public qui exposerait le `worker_id` de la
+charge est `/workers`, via le graphe d'exécution — et il est inerte ; ni `/timeline` ni `/events` ne
+portent de charge. Un test atteste l'état actuel **de façon à rougir** quand `W20.l` sera livré.
+
+**Écart avec la spec.** Aucun. La feature `json` d'`axum` reste désactivée — `dependencies.json` la
+refuse sous l'ADR 0018, « `serde_json` suffit » —, donc les corps se lisent à la main. Aucune
+dépendance nouvelle : l'horloge vient de `std::time`, et c'est la première fois qu'une horloge entre
+dans `locusd`.
+
+**Ce que `W20.k` débloque.** `W23.b`, dont la condition est satisfaite pour la première fois après
+trois nominations. `W12.d` garde `W20.i`.
+
+**Prochain item.** `W20.l`, `W20.i`, `W20.j`, `W23.a`, `W23.b`, `W23.c`, `W4.i` — tous ouverts.
