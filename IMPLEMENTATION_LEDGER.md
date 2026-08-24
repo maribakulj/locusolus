@@ -13179,3 +13179,53 @@ est encore de tenter.
 **Prochain item.** `W20.s` — les commandes de §22.3 sur le fil. C'est le premier des cinq dont les
 dépendances sont satisfaites : `W20.o` a livré les deux commandes et l'`Authority` qui les autorise,
 `W20.p` la convention d'appel de la couche HTTP, il ne manque que les routes.
+
+## 2026-08-24 — W20.v — Le bail est frappé à la réclamation, et le placement cesse d'être décoratif
+
+**Périmètre.** `apps/locusd/src/lep.rs` — la file porte des `Queued` et non des paires, le bail est
+frappé au moment de confier, les deux gardes d'appariement de `Claim` disparaissent ;
+`apps/locusd/src/mission.rs` — `lep_queue` n'exige plus de bail et la proposition fixe le rang
+d'attempt ; `apps/locusd/src/lib.rs` — exports. Quatre fichiers de tests adaptés, trois tests neufs.
+
+**Comment cet item a été trouvé.** En tentant `W20.s`, l'item que la tentative de `W12.d` avait
+placé en tête. Écrire une route pour `lep_queue` obligeait à faire fournir un `Lease` par un client
+HTTP — c'est-à-dire à lui laisser nommer le worker et l'échéance, alors que §12.3 en fait le travail
+du daemon, « ce qui distingue un worker en panne d'un worker lent ». Vérification au code : **rien,
+dans tout le dépôt, ne construit un `Lease` hors des tests**.
+
+**La conséquence, plus grave que la maladresse.** `Claim` refuse un bail dont le `worker_id` n'est
+pas le réclamant — un test le tient depuis `W20.k`. Une file de paires ne pouvait donc contenir que
+des missions **déjà attribuées**, et la question de placement que `W20.q` pose au broker ne pouvait
+jamais que confirmer le worker que le bail avait déjà choisi. **Le placement était décoratif, et
+rien ne le disait.**
+
+**Tests exécutés.** `cargo test --workspace` — 190 binaires verts. Les trois clauses de sortie :
+`le_bail_servi_nomme_son_worker_et_sa_tache` et `deux_workers_recoivent_chacun_leur_bail` tiennent
+ce que deux gardes tenaient avant ; `le_bail_servi_porte_les_bornes_de_12_3` vérifie le document
+servi ; `sans_identite_de_bail_la_mission_reste_en_file` tient les deux propriétés que la mutation a
+trouvées nues.
+
+**Décisions prises.** Trois. (1) Les deux gardes d'appariement de `Claim` sont **supprimées**, pas
+conservées : le bail étant frappé depuis le worker admis et depuis la mission retirée, elles ne
+pouvaient plus se déclencher — c'est ce que `W20.n` a fait à `Rejection::WrongEndpoint`. Ce qu'elles
+protégeaient est devenu structurel (champs privés) et éprouvé sur l'offre **servie**. (2) Le rang
+d'attempt vient de la **proposition**, jamais d'un compteur : §12.3 veut qu'une tâche réattribuée
+conserve son numéro, et un compteur de réclamations donnerait un rang neuf à une reprise après panne
+— le doublon exact que §15.5 existe pour empêcher. (3) La relation de §12.3 — battement sous le
+tiers du TTL — est tenue **à la compilation** par un `const`. Le schéma dit lui-même que Draft 7 ne
+sait pas l'énoncer et qu'elle est vérifiée ailleurs ; « ailleurs » n'existait nulle part côté
+serveur. `clippy` a suggéré la forme, et elle est plus forte qu'un test.
+
+**Écart avec la spec.** Aucun. `Lease` et `MissionEnvelope` ne changent pas d'un champ : le rang vit
+dans `Queued`, côté file, parce que `MissionEnvelope` porte `attempt_id` — une identité — et pas un
+rang, et que §11.1 refuse de substituer l'une à l'autre.
+
+**Passe de mutation.** Dix mutants, zéro motif absent, 10/10 après un tour de correction. Quatre
+survivants au premier passage, et le plus instructif est le premier : le rang attendu par le test
+valait `1`, comme la constante que le mutant y mettait — **une valeur comparée à elle-même ne
+vérifie rien**. C'est la quatrième fois que ce défaut apparaît dans ce chantier, après
+`SOCKET_MODE`, les chemins de §15.2 et `served()`. Le jeu de test porte désormais un rang de trois,
+ce qui dit en plus quelque chose de vrai : une reprise est le cas normal d'un rang supérieur à un.
+
+**Prochain item.** `W20.s` — les commandes de §22.3 sur le fil, maintenant écrivable honnêtement :
+`lep_queue` ne demande plus de bail, donc une route n'a plus à en faire fournir un.

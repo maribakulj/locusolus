@@ -59,6 +59,13 @@ impl Identities for Identites {
                 .fetch_add(1, std::sync::atomic::Ordering::Relaxed),
         ))
     }
+
+    fn lease(&self) -> Result<Id<CommandId>, CommandError> {
+        Ok(id::<CommandId>(
+            self.prochain
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+        ))
+    }
 }
 
 /// Le base64 standard, pour écrire ce que le client écrit.

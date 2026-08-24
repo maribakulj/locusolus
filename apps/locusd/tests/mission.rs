@@ -20,11 +20,11 @@
 use std::sync::Arc;
 
 use locus_domain::task::TaskState;
-use locus_lep::{Lease, MissionEnvelopeBudget, NetworkMode, ResourceSpec, SandboxLevel};
+use locus_lep::{MissionEnvelopeBudget, NetworkMode, ResourceSpec, SandboxLevel};
 use locus_protocol::id::{Agent, Command as CommandId, Event as EventId, Project, Workspace};
 use locus_protocol::{Id, IdKind, Timestamp};
 use locusd::lep::{Desk, Identities, MemoryQueue, MemoryRegistry, MissionQueue, Submitted};
-use locusd::mission::{Authority, PROTOCOL, Proposal, claimable};
+use locusd::mission::{Authority, Proposal, claimable};
 use locusd::{CommandError, Runtime};
 
 fn id<K: IdKind>(seed: u8) -> Id<K> {
@@ -57,6 +57,13 @@ impl Identities for Identites {
                 .fetch_add(1, std::sync::atomic::Ordering::Relaxed),
         ))
     }
+
+    fn lease(&self) -> Result<Id<CommandId>, CommandError> {
+        Ok(id::<CommandId>(
+            self.prochain
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+        ))
+    }
 }
 
 fn proposition() -> Proposal {
@@ -65,6 +72,7 @@ fn proposition() -> Proposal {
         success_conditions: vec!["une mesure reproductible à trois essais".to_owned()],
         task_id: "tsk_catalyseur".to_owned(),
         attempt_id: "att_1".to_owned(),
+        attempt: 1,
         branch_id: "br_principal".to_owned(),
         context_view_id: "ctx_1".to_owned(),
         context_view_hash: "sha256:".to_owned() + &"ab".repeat(32),
@@ -85,22 +93,6 @@ fn proposition() -> Proposal {
             max_cost_micros: None,
         },
         output_contract: "epistemic-commit/1".to_owned(),
-    }
-}
-
-fn bail(proposal: &Proposal) -> Lease {
-    Lease {
-        protocol: PROTOCOL.to_owned(),
-        lease_id: "lease-1".to_owned(),
-        task_id: proposal.task_id.clone(),
-        attempt: 1,
-        worker_id: "canterel-vm-linux-01".to_owned(),
-        issued_at: "2026-08-24T12:00:00.000Z".to_owned(),
-        expires_at: "2026-08-24T12:05:00.000Z".to_owned(),
-        ttl_seconds: 300,
-        heartbeat_interval_seconds: 30,
-        renewal_count: None,
-        idempotency_key: None,
     }
 }
 
@@ -184,7 +176,6 @@ fn mettre_en_file_depose_la_mission_que_la_question_decrit() {
         .lep_queue(
             &proposal,
             TaskState::Proposed,
-            bail(&proposal),
             autorite(),
             &soumis("idem-queue"),
             maintenant,
@@ -203,10 +194,15 @@ fn mettre_en_file_depose_la_mission_que_la_question_decrit() {
         vec!["task.proposed".to_owned(), "task.queued".to_owned()]
     );
 
-    let offre = file.take("peu-importe").expect("une offre attend");
-    assert_eq!(offre.mission.task_id, proposal.task_id);
-    assert_eq!(offre.mission.objective.statement, proposal.statement);
-    assert_eq!(offre.lease.task_id, proposal.task_id);
+    let en_file = file.take("peu-importe").expect("une mission attend");
+    assert_eq!(en_file.mission.task_id, proposal.task_id);
+    assert_eq!(en_file.mission.objective.statement, proposal.statement);
+    assert_eq!(
+        en_file.attempt, proposal.attempt,
+        "le rang vient de la proposition — §12.3 veut qu'une réattribution le conserve"
+    );
+    // **Aucun bail** dans la file — `W20.v`. Un bail autorise un worker, et aucun n'est choisi ici.
+    // Le type le rend inexprimable : `Queued` ne porte pas le champ.
 }
 
 /// **Une transition que §7.1 refuse ne s'écrit pas, et rien n'est mis en file.**
@@ -222,7 +218,6 @@ fn une_transition_interdite_ne_met_rien_en_file() {
         .lep_queue(
             &proposal,
             TaskState::Queued,
-            bail(&proposal),
             autorite(),
             &soumis("idem-queue"),
             Timestamp::from_millis(1_700_000_000_000),

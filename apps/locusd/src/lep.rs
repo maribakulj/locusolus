@@ -92,28 +92,60 @@ pub struct Offer {
     pub lease: Lease,
 }
 
+/// Une mission en attente, et le rang d'attempt que la proposition lui a fixé — `W20.v`.
+///
+/// # Pourquoi le rang voyage à côté et non dans la mission
+///
+/// `MissionEnvelope` est un type **généré** depuis les JSON Schemas de `W0.5` : il porte
+/// `attempt_id`, l'identité de la tentative, et pas son **rang**. Les deux sont distincts par
+/// construction — §11.1 : « aucune de ces identités ne doit être substituée aux autres » — et
+/// ajouter un champ au schéma pour cela toucherait les deux moitiés du fil, donc `W0.5`, donc
+/// `canterel`.
+///
+/// Le rang est de toute façon une donnée de **file**, pas de mission : c'est ce que
+/// [`crate::mission::Proposal`] a fixé, et ce que le bail reprendra. Il vit donc ici.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Queued {
+    /// Ce que la mission demande — §15.4.
+    pub mission: MissionEnvelope,
+    /// Le rang de la tentative, tel que §12.3 le veut : **conservé** par une réattribution.
+    pub attempt: i64,
+}
+
 /// D'où viennent les missions assignables.
 ///
 /// # Un port, parce que ce qui les produira n'existe pas
 ///
 /// L'ordonnancement d'instances est `W23.c` ; la création de missions viendra avec la chaîne
 /// complète. En attendant, ce trait dit **exactement** ce dont la surface a besoin — prendre la
-/// prochaine offre s'il y en a une — et rien de plus. Un port plus large aurait anticipé un
+/// prochaine mission s'il y en a une — et rien de plus. Un port plus large aurait anticipé un
 /// ordonnanceur que personne n'a écrit.
+///
+/// # La file porte des **missions**, jamais des paires — `W20.v`
+///
+/// Elle a porté des [`Offer`] pendant deux items, et c'était faux. Un bail n'a pas d'objet avant
+/// qu'un worker soit choisi : §12.3 en fait « le droit, borné dans le temps, d'exécuter un attempt »
+/// **pour un worker**. Une file de paires ne peut donc contenir que des missions **déjà
+/// attribuées** — et [`Claim`] refuse un bail dont le `worker_id` n'est pas le réclamant, ce qu'un
+/// test tient depuis `W20.k`.
+///
+/// La conséquence était plus grave que la maladresse : la question de placement que `W20.q` pose au
+/// broker ne pouvait jamais que **confirmer** le worker que le bail avait déjà choisi. Le placement
+/// était décoratif, et rien ne le disait.
 pub trait MissionQueue: Send + Sync {
-    /// Déposer une offre — `W20.o`.
+    /// Déposer une mission — `W20.o`.
     ///
     /// Sur le trait et non sur l'implémentation de référence : la file cesse d'être garnie par un
     /// test, donc c'est le **daemon** qui dépose, donc tout port doit savoir le faire. La laisser
     /// hors du trait ferait de `MemoryQueue` la seule file remplissable.
-    fn enqueue(&self, offer: Offer);
+    fn enqueue(&self, queued: Queued);
 
-    /// Retirer la prochaine offre destinée à ce worker, s'il y en a une.
+    /// Retirer la prochaine mission destinée à ce worker, s'il y en a une.
     ///
     /// `None` veut dire « rien à donner », jamais « je n'ai pas pu regarder ». Une file qui ne sait
     /// pas répondre doit le dire par un autre chemin que celui du calme : c'est la règle de
     /// `W22.e` — une ignorance n'est pas une absence — et la file de référence, elle, sait toujours.
-    fn take(&self, worker_id: &str) -> Option<Offer>;
+    fn take(&self, worker_id: &str) -> Option<Queued>;
 }
 
 /// Ce qu'une créance reconnue désigne — §7.2, ce que l'enrôlement lie.
@@ -196,6 +228,18 @@ pub trait Identities: Send + Sync {
     ///
     /// [`CommandError::Unavailable`], comme ci-dessus.
     fn command(&self) -> Result<Id<CommandId>, CommandError>;
+
+    /// Une identité de bail — `W20.v`.
+    ///
+    /// Une méthode de plus plutôt qu'un réemploi de [`Identities::command`] : un bail n'est pas une
+    /// commande, et emprunter l'identité de l'une pour l'autre ferait qu'un `lease_id` et un
+    /// `command_id` désigneraient la même valeur. §11.1 : « aucune de ces identités ne doit être
+    /// substituée aux autres ».
+    ///
+    /// # Errors
+    ///
+    /// [`CommandError::Unavailable`], comme ci-dessus.
+    fn lease(&self) -> Result<Id<CommandId>, CommandError>;
 }
 
 /// La source par défaut : aucune. Elle refuse, et dit pourquoi.
@@ -222,6 +266,10 @@ impl Identities for NoIdentities {
     fn command(&self) -> Result<Id<CommandId>, CommandError> {
         Err(Self::refusal("identifiant de commande"))
     }
+
+    fn lease(&self) -> Result<Id<CommandId>, CommandError> {
+        Err(Self::refusal("identifiant de bail"))
+    }
 }
 
 /// La file de référence — en mémoire, alimentée par qui la détient.
@@ -230,7 +278,7 @@ impl Identities for NoIdentities {
 /// une décision d'ordonnancement, donc `W23.c`, et l'écrire ici la rendrait invisible.
 #[derive(Debug, Default)]
 pub struct MemoryQueue {
-    offers: Mutex<VecDeque<Offer>>,
+    missions: Mutex<VecDeque<Queued>>,
 }
 
 impl MemoryQueue {
@@ -240,18 +288,18 @@ impl MemoryQueue {
         Self::default()
     }
 
-    /// Déposer une offre.
-    pub fn push(&self, offer: Offer) {
-        self.offers
+    /// Déposer une mission.
+    pub fn push(&self, queued: Queued) {
+        self.missions
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
-            .push_back(offer);
+            .push_back(queued);
     }
 
     /// Ce qui reste à distribuer.
     #[must_use]
     pub fn len(&self) -> usize {
-        self.offers
+        self.missions
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .len()
@@ -265,8 +313,8 @@ impl MemoryQueue {
 }
 
 impl MissionQueue for MemoryQueue {
-    fn enqueue(&self, offer: Offer) {
-        self.push(offer);
+    fn enqueue(&self, queued: Queued) {
+        self.push(queued);
     }
 
     /// Le `worker_id` est reçu et **délibérément ignoré** par cette implémentation.
@@ -274,8 +322,8 @@ impl MissionQueue for MemoryQueue {
     /// Le port le porte parce qu'un ordonnanceur réel en aura besoin — placer selon ce qu'un hôte a
     /// prouvé est `W4.g`. La file de référence, elle, ne place rien, et le dire ici vaut mieux que
     /// laisser croire qu'elle filtre.
-    fn take(&self, _worker_id: &str) -> Option<Offer> {
-        self.offers
+    fn take(&self, _worker_id: &str) -> Option<Queued> {
+        self.missions
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .pop_front()
@@ -498,6 +546,74 @@ impl LepContext {
     }
 }
 
+/// Combien de temps un bail vaut, en secondes — §12.3, « courte et renouvelable ».
+///
+/// # Une valeur de politique, pas une propriété du protocole
+///
+/// Le schéma de `Lease` le dit lui-même : « aucune borne haute ici : c'est une politique de
+/// scheduler ». Elle vit donc dans le daemon, sous un nom, et non dans le fil.
+///
+/// Cinq minutes : assez pour qu'un worker qui redémarre son processus ne perde pas sa tâche, assez
+/// court pour qu'une machine morte la rende avant qu'on s'en aperçoive à la main.
+pub const LEASE_TTL_SECONDS: i64 = 300;
+
+/// À quel intervalle un worker doit donner signe de vie — §12.3.
+///
+/// La contrainte de §12.3 est une **relation** : « le worker envoie un heartbeat à intervalle
+/// inférieur au tiers du TTL ». Draft 7 ne sait pas énoncer une relation entre deux champs, et le
+/// schéma le dit plutôt que de laisser croire qu'il la couvre. Elle est donc tenue ici par un test.
+///
+/// Le tiers, et non la moitié : il faut que **deux** heartbeats puissent se perdre sans que le bail
+/// expire, sinon un réseau qui hoquette rend un worker vivant indistinguable d'un worker mort — et
+/// c'est exactement la distinction que le bail existe pour faire.
+pub const HEARTBEAT_INTERVAL_SECONDS: i64 = 30;
+
+/// La relation de §12.3, tenue **à la compilation**.
+///
+/// « Le worker envoie un heartbeat à intervalle inférieur au tiers du TTL. » Le schéma de `Lease`
+/// dit lui-même qu'il ne peut pas l'énoncer — c'est une relation entre deux champs, et Draft 7 n'en
+/// exprime pas — et qu'elle est donc vérifiée ailleurs. « Ailleurs » n'existait nulle part côté
+/// serveur.
+///
+/// Elle est ici, et sous la forme la plus forte disponible : un `const` qui ne compile pas si la
+/// relation cesse d'être vraie. Un test aurait dit la même chose plus tard et moins fort ; ce qui
+/// suit rend le réglage fautif **inexprimable**, ce que ce dépôt préfère partout où c'est possible.
+const _: () = assert!(
+    HEARTBEAT_INTERVAL_SECONDS * 3 <= LEASE_TTL_SECONDS,
+    "§12.3 : l'intervalle de heartbeat doit tenir sous le tiers du TTL — deux battements perdus ne \
+     doivent pas suffire à faire expirer le bail d'un worker vivant"
+);
+
+/// L'instant où un bail cesse de valoir.
+///
+/// Publique pour être **éprouvable** : le débordement ci-dessous n'est atteignable par aucune
+/// horloge réelle, et une garde qu'aucun test ne peut atteindre est une garde qu'on croit tenir.
+///
+/// # Un débordement se dit, il ne se replie pas
+///
+/// `Timestamp` porte des millisecondes signées. Une addition qui déborderait et se replierait
+/// produirait une expiration **dans le passé** — c'est-à-dire un bail né expiré, que `W2.9` traite
+/// comme un bail perdu. Le refus est donc explicite, même si aucune valeur réelle n'en approche :
+/// ce qui n'est pas vérifié n'est jamais réussi.
+///
+/// # Errors
+///
+/// [`CommandError::Internal`] sur débordement — ce n'est pas la faute du client, et rien dans sa
+/// requête ne le corrigerait.
+pub fn expiration(now: Timestamp, ttl_seconds: i64) -> Result<Timestamp, CommandError> {
+    ttl_seconds
+        .checked_mul(1_000)
+        .and_then(|millis| now.millis().checked_add(millis))
+        .map(Timestamp::from_millis)
+        .ok_or_else(|| CommandError::Internal {
+            detail: format!(
+                "l'échéance d'un bail de {ttl_seconds} s déborde depuis {} : un bail qui repartirait \
+                 dans le passé naîtrait expiré",
+                now.millis()
+            ),
+        })
+}
+
 /// Le stream d'une tâche. Un seul écrivain par tâche, donc un seul verrou — `W20.h`.
 #[must_use]
 pub fn stream_of_task(task_id: &str) -> String {
@@ -512,43 +628,39 @@ pub fn stream_of_task(task_id: &str) -> String {
 /// `W23.b` compte. Une réclamation servie comme une lecture rendrait une mission sans que rien
 /// n'atteste qu'elle a été confiée — et deux workers pourraient recevoir la même.
 pub struct Claim {
-    /// L'offre retirée de la file.
-    pub offer: Offer,
+    /// L'offre confiée : la mission retirée de la file, et le bail frappé pour ce worker.
+    ///
+    /// Privée au module, comme [`Complete::worker_id`] et pour la même raison — `W20.v` a rendu
+    /// **inexprimable** ce que deux gardes vérifiaient jusqu'ici.
+    offer: Offer,
     /// Le worker qui réclame, tel que **la créance** l'identifie.
-    pub worker_id: String,
+    worker_id: String,
 }
 
 impl Decide for Claim {
     type State = LepContext;
 
+    /// # Les deux gardes d'appariement ont disparu, et ce n'est pas un relâchement
+    ///
+    /// Jusqu'à `W20.v`, ce décideur vérifiait deux choses : que le bail désignait le réclamant, et
+    /// qu'il désignait la mission qu'il accompagne. Les deux étaient nécessaires, parce que la file
+    /// portait des paires **déjà formées** — un bail y arrivait avec un `worker_id` que personne
+    /// n'avait confronté au réclamant.
+    ///
+    /// Depuis `W20.v`, le bail est frappé par [`Runtime::lep_claim`] **depuis** le worker admis et
+    /// **depuis** la mission retirée. Les deux appariements sont donc vrais par construction, et les
+    /// gardes ne pouvaient plus se déclencher : c'est ce que `W20.n` a fait à
+    /// `Rejection::WrongEndpoint`, et la règle est la même — une garde qu'aucun appelant ne peut
+    /// déclencher se supprime, elle ne se conserve pas « au cas où ».
+    ///
+    /// Ce qu'elles protégeaient n'est pas perdu, il a changé de nature : les champs sont privés,
+    /// donc personne hors de ce module ne peut composer une paire dépareillée, et deux tests
+    /// vérifient sur l'offre **servie** que le bail nomme bien son worker et sa tâche.
     fn decide(
         &self,
         command: &CommandEnvelope,
         context: &Self::State,
     ) -> Result<Vec<EventDraft>, CommandError> {
-        // Le bail doit désigner le worker qui réclame. Un bail émis pour un autre serait un droit
-        // d'exécution transféré sans que personne l'ait décidé.
-        if self.offer.lease.worker_id != self.worker_id {
-            return Err(CommandError::Authorization {
-                action: format!(
-                    "réclamer sous le bail « {} », émis pour « {} »",
-                    self.offer.lease.lease_id, self.offer.lease.worker_id
-                ),
-            });
-        }
-        // Et il doit désigner la mission qu'il accompagne. §11.1 : « aucune de ces identités ne doit
-        // être substituée aux autres ».
-        if self.offer.lease.task_id != self.offer.mission.task_id {
-            return Err(CommandError::Validation {
-                field: "lease.task_id".to_owned(),
-                detail: format!(
-                    "le bail porte « {} » et la mission « {} » : une paire dépareillée confierait un \
-                     travail sous l'autorisation d'un autre",
-                    self.offer.lease.task_id, self.offer.mission.task_id
-                ),
-            });
-        }
-
         Ok(vec![fact(
             command,
             context,
@@ -919,29 +1031,89 @@ impl<S: EventStore> Runtime<S> {
         // Vérifié **avant** de retirer quoi que ce soit : une réclamation qu'on va refuser ne doit
         // pas coûter une mission à la file.
         let manifest = announced(&identity, manifest)?;
-        // La file est consultée **après** l'authentification : un daemon qui retirerait une offre
+        // La file est consultée **après** l'authentification : un daemon qui retirerait une mission
         // avant de savoir qui parle la perdrait au profit de personne.
-        let Some(offer) = self.lep().queue().take(&identity.worker_id) else {
+        let Some(queued) = self.lep().queue().take(&identity.worker_id) else {
             return Ok(None);
         };
-        match self.placed(manifest, &offer) {
+        match self.placed(manifest, &queued.mission) {
             Ok(true) => {}
             Ok(false) => {
-                self.lep().queue().enqueue(offer);
+                self.lep().queue().enqueue(queued);
                 return Ok(None);
             }
             Err(error) => {
-                self.lep().queue().enqueue(offer);
+                self.lep().queue().enqueue(queued);
                 return Err(error);
             }
         }
+        // Le bail est frappé **ici** — `W20.v` —, après que le placement a admis ce worker-là, et
+        // pour lui. Le frapper à la mise en file aurait obligé à nommer le worker avant de savoir
+        // lequel convient, ce qui rendait la question posée au broker purement décorative.
+        //
+        // Si l'identité manque, la mission **retourne dans la file** : elle n'a pas été confiée, et
+        // la perdre ici la retirerait à qui pouvait la porter — la même règle que pour un refus de
+        // placement.
+        let lease = match self.lease_for(&identity.worker_id, &queued, now) {
+            Ok(lease) => lease,
+            Err(error) => {
+                self.lep().queue().enqueue(queued);
+                return Err(error);
+            }
+        };
+        let offer = Offer {
+            mission: queued.mission,
+            lease,
+        };
         let stream = stream_of_task(&offer.mission.task_id);
         let claim = Claim {
             offer: offer.clone(),
             worker_id: identity.worker_id.clone(),
         };
+        debug_assert_eq!(
+            claim.offer.lease.worker_id, claim.worker_id,
+            "le bail est frappé depuis le réclamant : l'inégalité serait un défaut de ce module"
+        );
         self.write_worker_fact(&identity, submitted, &stream, 1, &claim, now)?;
         Ok(Some(offer))
+    }
+
+    /// Frapper le bail de §15.5 qui autorise **ce** worker sur **cette** mission — `W20.v`.
+    ///
+    /// # Le rang d'attempt vient de la mission, jamais d'un compteur
+    ///
+    /// §12.3 : « une tâche réattribuée conserve son numéro d'attempt ». Le dériver d'un compteur de
+    /// réclamations ferait qu'une reprise après panne recevrait un rang neuf — c'est-à-dire
+    /// exactement le doublon que §15.5 existe pour empêcher, et que le jumeau de `W12.d` doit
+    /// démontrer impossible.
+    ///
+    /// # Errors
+    ///
+    /// [`CommandError::Unavailable`] quand aucune source d'identifiants n'est câblée : un bail sans
+    /// identité ne s'oppose à rien, et deux baux qui porteraient la même ne se distingueraient plus.
+    fn lease_for(
+        &self,
+        worker_id: &str,
+        queued: &Queued,
+        now: Timestamp,
+    ) -> Result<Lease, CommandError> {
+        let lease_id = self.lep().identities().lease()?;
+        Ok(Lease {
+            protocol: queued.mission.protocol.clone(),
+            lease_id: lease_id.to_string(),
+            task_id: queued.mission.task_id.clone(),
+            attempt: queued.attempt,
+            worker_id: worker_id.to_owned(),
+            issued_at: now.to_string(),
+            expires_at: expiration(now, LEASE_TTL_SECONDS)?.to_string(),
+            ttl_seconds: LEASE_TTL_SECONDS,
+            heartbeat_interval_seconds: HEARTBEAT_INTERVAL_SECONDS,
+            renewal_count: None,
+            // La clé d'idempotence des effets de bord est **indépendante** de l'attempt (§12.3) :
+            // rejouer un attempt ne doit pas rejouer ses effets. Ce daemon n'en attribue aucune, et
+            // l'absence est exacte — l'inventer ici ferait croire qu'un effet est protégé.
+            idempotency_key: None,
+        })
     }
 
     /// Demander au broker si cette offre peut aller sur ce worker — `W20.q`.
@@ -950,9 +1122,13 @@ impl<S: EventStore> Runtime<S> {
     /// deux sont l'ADR 0028 décision 4 : « rien pour toi » se traduit en `204`, « je n'ai pas pu
     /// demander » en `unavailable`. Les fondre ferait attendre en silence un worker dont le lien est
     /// coupé.
-    fn placed(&self, manifest: &CapabilityManifest, offer: &Offer) -> Result<bool, CommandError> {
+    fn placed(
+        &self,
+        manifest: &CapabilityManifest,
+        mission: &MissionEnvelope,
+    ) -> Result<bool, CommandError> {
         let broker = self.lep().broker();
-        match broker.place(manifest, &offer.mission.sandbox, &offer.mission.resources) {
+        match broker.place(manifest, &mission.sandbox, &mission.resources) {
             Ok(Placement::Placed { .. }) => Ok(true),
             Ok(Placement::NotPlaced { .. }) => Ok(false),
             // Un broker qui refuse de nous parler n'a pas dit que le worker ne convient pas : il a

@@ -17,7 +17,7 @@ use locus_policy::Policy;
 use locus_protocol::id::{Agent, Command as CommandId, Event as EventId, Project, Workspace};
 use locus_protocol::{Id, IdKind, Timestamp};
 use locusd::journal::{Choice, Refusal, promises_durability};
-use locusd::lep::{Desk, Identities, MemoryQueue, MemoryRegistry, Offer, WorkerIdentity};
+use locusd::lep::{Desk, Identities, MemoryQueue, MemoryRegistry, Queued, WorkerIdentity};
 use locusd::{CommandError, Runtime};
 
 fn id<K: IdKind>(seed: u8) -> Id<K> {
@@ -173,9 +173,16 @@ impl Identities for Identites {
                 .fetch_add(1, std::sync::atomic::Ordering::Relaxed),
         ))
     }
+
+    fn lease(&self) -> Result<Id<CommandId>, CommandError> {
+        Ok(id::<CommandId>(
+            self.prochain
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+        ))
+    }
 }
 
-fn offre() -> Offer {
+fn en_file() -> Queued {
     let chemin =
         std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../schemas/examples");
     let lire = |nom: &str| -> serde_json::Value {
@@ -186,17 +193,18 @@ fn offre() -> Offer {
     };
     let mission: locus_lep::MissionEnvelope =
         serde_json::from_value(lire("mission-envelope-nominal.json")).expect("mission");
-    let mut lease: locus_lep::Lease =
-        serde_json::from_value(lire("lease-expired.json")).expect("bail");
-    lease.task_id.clone_from(&mission.task_id);
-    "canterel-vm-linux-01".clone_into(&mut lease.worker_id);
-    Offer { mission, lease }
+    // `W20.v` : la file porte la mission et le rang, jamais un bail — celui-ci est frappé à la
+    // réclamation, pour le worker que le placement admet.
+    Queued {
+        mission,
+        attempt: 1,
+    }
 }
 
 fn desk(offres: usize) -> Desk {
     let file = Arc::new(MemoryQueue::new());
     for _ in 0..offres {
-        file.push(offre());
+        file.push(en_file());
     }
     let registre = Arc::new(MemoryRegistry::new());
     registre.admit(

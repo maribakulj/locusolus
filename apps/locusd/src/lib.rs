@@ -68,8 +68,9 @@ pub use epistemic::{Integrate, Stage, fact_type, fields, payload, staging};
 pub use error::{CommandError, Conflict, EmptyResourceRef, Family, ResourceRef, Revision};
 pub use handler::{Batch, Decide, IdempotencyScope, Submission};
 pub use lep::{
-    Claim, Complete, Desk, Identities, LepContext, MemoryQueue, MemoryRegistry, MissionQueue,
-    Offer, Rendered, Report, WorkerRegistry, stream_of_task,
+    Claim, Complete, Desk, HEARTBEAT_INTERVAL_SECONDS, Identities, LEASE_TTL_SECONDS, LepContext,
+    MemoryQueue, MemoryRegistry, MissionQueue, Offer, Queued, Rendered, Report, WorkerRegistry,
+    expiration, stream_of_task,
 };
 pub use messaging::{MessageContext, Send};
 pub use offload::{Budget, MAX_BLOCKING, Offload, Offloaded, Permit};
