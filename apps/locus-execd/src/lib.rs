@@ -21,6 +21,8 @@
 //! - [`macos`] : la machine qui porte l'invité Linux, et le plafond qui en découle (W4.e) ;
 //! - [`build`] : construire une image, premier maillon de la chaîne de `packages/environments` (W5) ;
 //! - [`placement`] : choisir un hôte parmi plusieurs, sur ce qu'il a **prouvé** (W4.g) ;
+//! - [`announced`] : relire ce qu'un worker **annonce**, et refuser de le promouvoir en preuve
+//!   (W20.q) ;
 //! - [`reroute`] : replacer une tentative dont l'hôte est tombé, **sous le même numéro** (W4.g).
 //!
 //! Depuis W4.d.2, ce paquet **lance** un runtime : [`linux::SystemRunner`] est la seule fonction du
@@ -28,6 +30,7 @@
 //! ailleurs, et un test balaie l'arbre pour vérifier que personne d'autre n'en parle.
 
 pub mod admission;
+pub mod announced;
 pub mod build;
 pub mod link;
 pub mod linux;
@@ -41,8 +44,11 @@ pub mod wire;
 pub use admission::{
     AcceleratorReach, Admission, DiskQuota, HostCapabilities, RefusalReason, admit,
 };
+pub use announced::{
+    NothingProven, Proven, Unreadable, candidate, capabilities, placement, requirement,
+};
 pub use build::{BuildContext, BuildDriver, BuildDriverError, build_arguments};
-pub use link::{serve, verdict};
+pub use link::{answer_ask, serve, verdict};
 pub use linux::Missing;
 pub use linux::{ConfinementPlan, HostFacts, PlanError, PodmanBackend, Workload, plan};
 pub use linux::{NO_STORAGE_DECLARED, PROJECT_QUOTA_OPTIONS, QUOTA_CAPABLE_FILESYSTEMS, Support};

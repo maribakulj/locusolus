@@ -43,8 +43,10 @@ use std::os::unix::fs::{FileTypeExt, PermissionsExt};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 
+use locus_lep::{CapabilityManifest, ResourceSpec, SandboxSpec};
+
 use crate::frame::{FrameError, read_frame, write_frame};
-use crate::port::{BrokerError, BrokerPort};
+use crate::port::{BrokerError, BrokerPort, Placement, as_placement};
 use crate::protocol::{PROTOCOL, Request, Response, Verdict};
 
 /// Les permissions de la socket : lecture et écriture pour son seul propriétaire.
@@ -127,6 +129,19 @@ impl BrokerPort for UnixSocketBroker {
 
     fn readiness(&self) -> Result<Verdict, BrokerError> {
         self.ask(&Request::readiness())
+    }
+
+    fn place(
+        &self,
+        manifest: &CapabilityManifest,
+        sandbox: &SandboxSpec,
+        resources: &ResourceSpec,
+    ) -> Result<Placement, BrokerError> {
+        as_placement(self.ask(&Request::place(
+            manifest.clone(),
+            sandbox.clone(),
+            resources.clone(),
+        ))?)
     }
 }
 

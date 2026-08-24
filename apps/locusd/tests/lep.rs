@@ -23,7 +23,9 @@
 use std::fmt::Write as _;
 use std::sync::Arc;
 
-use locus_lep::{Event, Lease, MissionEnvelope};
+use locus_broker::port::{BrokerError, BrokerPort, Placement};
+use locus_broker::protocol::Verdict;
+use locus_lep::{CapabilityManifest, Event, Lease, MissionEnvelope, ResourceSpec, SandboxSpec};
 use locus_protocol::id::{Agent, Command as CommandId, Event as EventId, Project, Workspace};
 use locus_protocol::{Id, IdKind, Timestamp};
 use locusd::http::{CLAIM_PATH, EVENTS_PATH, RESULT_PATH, router};
@@ -100,6 +102,100 @@ fn offre() -> Offer {
     Offer { mission, lease }
 }
 
+/// Ce que le worker annonce — la fixture Linux de `W0.7`, dont le `worker_id` **est** [`WORKER`].
+///
+/// Prise telle quelle, sans un champ retouché : `W0.7` a écrit un corpus pour que les tests
+/// n'inventent pas leurs propres documents, et un manifeste bricolé ici ne prouverait rien de ce
+/// qu'un worker réel envoie.
+fn manifeste() -> CapabilityManifest {
+    let manifeste: CapabilityManifest = fixture("capability-manifest-vm-linux.json");
+    assert_eq!(
+        manifeste.worker_id, WORKER,
+        "la fixture Linux de W0.7 désigne le worker de ces tests ; si elle change, ce n'est plus \
+         elle qu'on éprouve"
+    );
+    manifeste
+}
+
+/// Un broker de test, qui **retient ce qu'on lui a demandé**.
+///
+/// Un `Loopback` suffirait à rendre un verdict ; il ne dirait rien de ce que `locusd` lui a passé.
+/// Or c'est la moitié de l'item : « la réclamation passe le `CapabilityManifest` du worker au
+/// broker ». Un daemon qui poserait la question avec le manifeste d'un autre, ou avec une exigence
+/// inventée, obtiendrait le même verdict et passerait tous les tests d'un port muet.
+struct BrokerDeTest {
+    verdict: Result<Verdict, BrokerError>,
+    vu: std::sync::Mutex<Vec<(CapabilityManifest, SandboxSpec, ResourceSpec)>>,
+}
+
+impl BrokerDeTest {
+    fn rendant(verdict: Verdict) -> Self {
+        Self {
+            verdict: Ok(verdict),
+            vu: std::sync::Mutex::new(Vec::new()),
+        }
+    }
+
+    fn injoignable() -> Self {
+        Self {
+            verdict: Err(BrokerError::Unreachable {
+                endpoint: "/tmp/pas-de-broker.sock".to_owned(),
+                why: "aucun processus n'écoute".to_owned(),
+            }),
+            vu: std::sync::Mutex::new(Vec::new()),
+        }
+    }
+
+    fn placant() -> Self {
+        Self::rendant(Verdict::Placed {
+            worker: WORKER.to_owned(),
+            level: locus_lep::SandboxLevel::S3,
+        })
+    }
+
+    fn refusant() -> Self {
+        Self::rendant(Verdict::NotPlaced {
+            shortfalls: vec![locus_broker::protocol::Shortfall {
+                worker: WORKER.to_owned(),
+                reasons: vec![locus_lep::Reason::LevelUnavailable {
+                    required: locus_lep::SandboxLevel::S3,
+                    best: locus_lep::SandboxLevel::S2,
+                }],
+            }],
+        })
+    }
+
+    fn questions(&self) -> Vec<(CapabilityManifest, SandboxSpec, ResourceSpec)> {
+        self.vu
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+    }
+}
+
+impl BrokerPort for BrokerDeTest {
+    fn endpoint(&self) -> String {
+        "broker-de-test".to_owned()
+    }
+
+    fn readiness(&self) -> Result<Verdict, BrokerError> {
+        self.verdict.clone()
+    }
+
+    fn place(
+        &self,
+        manifest: &CapabilityManifest,
+        sandbox: &SandboxSpec,
+        resources: &ResourceSpec,
+    ) -> Result<Placement, BrokerError> {
+        self.vu
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .push((manifest.clone(), sandbox.clone(), resources.clone()));
+        locus_broker::port::as_placement(self.verdict.clone()?)
+    }
+}
+
 fn identite() -> WorkerIdentity {
     WorkerIdentity {
         worker_id: WORKER.to_owned(),
@@ -110,17 +206,28 @@ fn identite() -> WorkerIdentity {
 
 /// Un daemon prêt à parler §15.2, et la file qu'on lui a remplie.
 fn daemon(offres: Vec<Offer>) -> Runtime<locus_event_store::MemoryEventStore> {
+    daemon_brokere(offres, Arc::new(BrokerDeTest::placant())).0
+}
+
+/// Le même, avec le broker qu'on lui donne — et ce broker rendu à l'appelant.
+fn daemon_brokere(
+    offres: Vec<Offer>,
+    broker: Arc<BrokerDeTest>,
+) -> (
+    Runtime<locus_event_store::MemoryEventStore>,
+    Arc<BrokerDeTest>,
+) {
     let file = Arc::new(MemoryQueue::new());
     for offre in offres {
         file.push(offre);
     }
     let registre = Arc::new(MemoryRegistry::new());
     registre.admit(CREANCE, identite());
-    Runtime::in_memory().with_lep(Desk::new(
-        file,
-        registre,
-        Arc::new(IdentitesDeTest::default()),
-    ))
+    let runtime = Runtime::in_memory().with_lep(
+        Desk::new(file, registre, Arc::new(IdentitesDeTest::default()))
+            .placing(Arc::clone(&broker) as Arc<dyn BrokerPort + Send + Sync>),
+    );
+    (runtime, broker)
 }
 
 async fn servir(runtime: Runtime<locus_event_store::MemoryEventStore>) -> String {
@@ -218,8 +325,12 @@ fn corps(cle: &str, extra: &str) -> String {
 }
 
 /// Le corps d'une réclamation, sous une clé qui n'est employée nulle part ailleurs.
+///
+/// Il porte le manifeste depuis `W20.q` : une réclamation sans manifeste est refusée, et c'est
+/// éprouvé à part — ici, ce qu'on veut est une réclamation ordinaire.
 fn corps_minimal(extra: &str) -> String {
-    corps("idem-claim", extra)
+    let annonce = serde_json::to_string(&manifeste()).expect("le manifeste se sérialise");
+    corps("idem-claim", &format!(",\"manifest\":{annonce}{extra}"))
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -287,11 +398,14 @@ async fn une_requete_refusee_ne_consomme_pas_la_file() {
     file.push(offre());
     let registre = Arc::new(MemoryRegistry::new());
     registre.admit(CREANCE, identite());
-    let runtime = Runtime::in_memory().with_lep(Desk::new(
-        Arc::clone(&file) as Arc<dyn locusd::MissionQueue>,
-        registre,
-        Arc::new(IdentitesDeTest::default()),
-    ));
+    let runtime = Runtime::in_memory().with_lep(
+        Desk::new(
+            Arc::clone(&file) as Arc<dyn locusd::MissionQueue>,
+            registre,
+            Arc::new(IdentitesDeTest::default()),
+        )
+        .placing(Arc::new(BrokerDeTest::placant())),
+    );
     let adresse = servir(runtime).await;
 
     let _ = poster(
@@ -489,7 +603,12 @@ async fn sans_source_d_identifiants_le_daemon_refuse_plutot_que_d_inventer() {
     file.push(offre());
     let registre = Arc::new(MemoryRegistry::new());
     registre.admit(CREANCE, identite());
-    let runtime = Runtime::in_memory().with_lep(Desk::new(file, registre, Arc::new(NoIdentities)));
+    // Le broker **place** : sans cela, le `503` viendrait du lien absent et non de la source
+    // d'identifiants, et ce test passerait en n'éprouvant pas ce que son nom annonce.
+    let runtime = Runtime::in_memory().with_lep(
+        Desk::new(file, registre, Arc::new(NoIdentities))
+            .placing(Arc::new(BrokerDeTest::placant())),
+    );
     let adresse = servir(runtime).await;
 
     let reponse = poster(&adresse, CLAIM_PATH, Some(CREANCE), &corps_minimal("")).await;
@@ -497,6 +616,10 @@ async fn sans_source_d_identifiants_le_daemon_refuse_plutot_que_d_inventer() {
     assert!(
         reponse.starts_with("HTTP/1.1 503"),
         "sans source d'identifiants, le service est indisponible, pas en panne :\n{reponse}"
+    );
+    assert!(
+        reponse.contains("identifiant"),
+        "le refus doit nommer la source d'identifiants, et non le broker :\n{reponse}"
     );
 }
 
@@ -723,8 +846,10 @@ async fn une_reserve_d_identites_trop_courte_refuse_en_la_nommant() {
     file.push(offre);
     let registre = Arc::new(MemoryRegistry::new());
     registre.admit(CREANCE, identite());
-    let adresse =
-        servir(Runtime::in_memory().with_lep(Desk::new(file, registre, Arc::new(Avare)))).await;
+    let adresse = servir(Runtime::in_memory().with_lep(
+        Desk::new(file, registre, Arc::new(Avare)).placing(Arc::new(BrokerDeTest::placant())),
+    ))
+    .await;
     let _ = poster(&adresse, CLAIM_PATH, Some(CREANCE), &corps_minimal("")).await;
 
     // Deux événements, une seule identité disponible.
@@ -956,5 +1081,253 @@ async fn une_lecture_ne_fait_pas_avancer_les_projections() {
         corps_de(&premiere),
         corps_de(&seconde),
         "deux lectures consécutives rendent le même état"
+    );
+}
+
+// ---------------------------------------------------------------------------------------------
+// 6. Le placement est **demandé**, jamais décidé ici — `W20.q`.
+// ---------------------------------------------------------------------------------------------
+
+/// **La réclamation passe au broker le manifeste du worker et l'exigence de la mission.**
+///
+/// C'est la moitié de l'item qu'un verdict seul ne prouverait pas : un daemon qui poserait la
+/// question avec un manifeste bricolé, ou avec une exigence inventée, obtiendrait le même `Placed`
+/// et passerait tous les tests d'un port muet. Ce test lit **ce qui a été demandé**, pas ce qui a
+/// été répondu.
+#[tokio::test]
+async fn la_reclamation_soumet_le_manifeste_du_worker_et_l_exigence_de_la_mission() {
+    let offre = offre();
+    let exigence = offre.mission.sandbox.clone();
+    let reservation = offre.mission.resources.clone();
+    let (runtime, broker) = daemon_brokere(vec![offre], Arc::new(BrokerDeTest::placant()));
+    let adresse = servir(runtime).await;
+
+    let reponse = poster(&adresse, CLAIM_PATH, Some(CREANCE), &corps_minimal("")).await;
+    assert!(reponse.starts_with("HTTP/1.1 200"), "{reponse}");
+
+    let questions = broker.questions();
+    assert_eq!(
+        questions.len(),
+        1,
+        "une réclamation pose une question de placement, et une seule"
+    );
+    assert_eq!(
+        questions[0].0,
+        manifeste(),
+        "le manifeste soumis est celui que le worker a annoncé, champ pour champ"
+    );
+    assert_eq!(
+        questions[0].1, exigence,
+        "l'exigence soumise est celle de la mission — un plancher, pas un souhait recomposé"
+    );
+    assert_eq!(
+        questions[0].2, reservation,
+        "la réservation soumise est celle de la mission (invariant 6)"
+    );
+}
+
+/// **Un placement refusé rend `204`, et la mission reste en file.**
+///
+/// Les deux moitiés comptent. `204` parce que « rien pour toi » est exact : il y a du travail, mais
+/// pas pour cet hôte-là. Et la mission **revient** parce que `take` retire : sans remise, un worker
+/// macOS qui sonde une file portant une mission `S3` la ferait disparaître, et le worker Linux qui
+/// pouvait la porter ne la verrait jamais. Aucun journal ne montrerait cette perte-là.
+#[tokio::test]
+async fn un_placement_refuse_rend_204_et_laisse_la_mission_en_file() {
+    let file = Arc::new(MemoryQueue::new());
+    file.push(offre());
+    let registre = Arc::new(MemoryRegistry::new());
+    registre.admit(CREANCE, identite());
+    let runtime = Runtime::in_memory().with_lep(
+        Desk::new(
+            Arc::clone(&file) as Arc<dyn locusd::MissionQueue>,
+            registre,
+            Arc::new(IdentitesDeTest::default()),
+        )
+        .placing(Arc::new(BrokerDeTest::refusant())),
+    );
+    let adresse = servir(runtime).await;
+
+    let reponse = poster(&adresse, CLAIM_PATH, Some(CREANCE), &corps_minimal("")).await;
+
+    assert!(
+        reponse.starts_with("HTTP/1.1 204"),
+        "« pas pour cet hôte » est du calme, pas une panne :\n{reponse}"
+    );
+    assert_eq!(
+        file.len(),
+        1,
+        "une mission qu'on n'a pas confiée retourne dans la file : la perdre la retirerait à qui \
+         pouvait la porter"
+    );
+    assert!(
+        faits_sur(&adresse, "task/task-nominal").await.is_empty(),
+        "rien n'a été confié, donc rien n'est écrit"
+    );
+}
+
+/// **Un broker injoignable rend `unavailable`, et non `204`.**
+///
+/// ADR 0028 décision 4, tenue jusque dans le code de statut : « je n'ai pas pu demander » envoie
+/// démarrer un service ou vérifier un chemin de socket ; « rien pour toi » dit d'attendre. Un
+/// worker qui recevrait `204` sur un lien coupé attendrait en silence un ordonnanceur qui avait du
+/// travail — et personne ne saurait pourquoi rien n'avance.
+#[tokio::test]
+async fn un_broker_injoignable_rend_unavailable_et_non_204() {
+    let file = Arc::new(MemoryQueue::new());
+    file.push(offre());
+    let registre = Arc::new(MemoryRegistry::new());
+    registre.admit(CREANCE, identite());
+    let runtime = Runtime::in_memory().with_lep(
+        Desk::new(
+            Arc::clone(&file) as Arc<dyn locusd::MissionQueue>,
+            registre,
+            Arc::new(IdentitesDeTest::default()),
+        )
+        .placing(Arc::new(BrokerDeTest::injoignable())),
+    );
+    let adresse = servir(runtime).await;
+
+    let reponse = poster(&adresse, CLAIM_PATH, Some(CREANCE), &corps_minimal("")).await;
+
+    assert!(
+        reponse.starts_with("HTTP/1.1 503"),
+        "un broker injoignable est une indisponibilité, pas du calme :\n{reponse}"
+    );
+    assert!(
+        reponse.contains("injoignable"),
+        "le refus dit où regarder :\n{reponse}"
+    );
+    assert_eq!(
+        file.len(),
+        1,
+        "on n'a pas pu demander : la mission reste en file, et le worker retentera"
+    );
+}
+
+/// **Une réclamation sans manifeste est refusée, et n'entame pas la file.**
+///
+/// §15.3 : un worker annonce ce qu'il sait faire avant qu'on lui confie quoi que ce soit. Servir la
+/// première mission venue à qui n'annonce rien est **exactement** ce que `W20.q` corrige — la file
+/// de `W20.k` le faisait, et sa propre documentation le disait.
+#[tokio::test]
+async fn une_reclamation_sans_manifeste_est_refusee_et_ne_consomme_rien() {
+    let file = Arc::new(MemoryQueue::new());
+    file.push(offre());
+    let registre = Arc::new(MemoryRegistry::new());
+    registre.admit(CREANCE, identite());
+    let runtime = Runtime::in_memory().with_lep(
+        Desk::new(
+            Arc::clone(&file) as Arc<dyn locusd::MissionQueue>,
+            registre,
+            Arc::new(IdentitesDeTest::default()),
+        )
+        .placing(Arc::new(BrokerDeTest::placant())),
+    );
+    let adresse = servir(runtime).await;
+
+    let reponse = poster(
+        &adresse,
+        CLAIM_PATH,
+        Some(CREANCE),
+        &corps("idem-sans-manifeste", ""),
+    )
+    .await;
+
+    assert!(
+        reponse.starts_with("HTTP/1.1 400"),
+        "un manifeste manquant est une requête à corriger :\n{reponse}"
+    );
+    assert!(
+        reponse.contains("manifest"),
+        "le refus nomme le champ, il ne dit pas « requête invalide » :\n{reponse}"
+    );
+    assert_eq!(
+        file.len(),
+        1,
+        "une réclamation refusée avant tout placement ne retire rien"
+    );
+}
+
+/// **Un manifeste au nom d'un autre worker ne réclame rien.**
+///
+/// La créance dit qui parle ; le manifeste dit ce que la machine sait faire. Les laisser diverger
+/// ferait placer sur les capacités d'une machine et exécuter sur une autre — un downgrade
+/// silencieux au sens de §21.6, obtenu sans jamais toucher au niveau demandé.
+///
+/// C'est la règle que [`Report`] applique déjà à un événement, et le refus est de la même famille.
+#[tokio::test]
+async fn un_manifeste_au_nom_d_un_autre_worker_est_refuse() {
+    let file = Arc::new(MemoryQueue::new());
+    file.push(offre());
+    let registre = Arc::new(MemoryRegistry::new());
+    registre.admit(CREANCE, identite());
+    let runtime = Runtime::in_memory().with_lep(
+        Desk::new(
+            Arc::clone(&file) as Arc<dyn locusd::MissionQueue>,
+            registre,
+            Arc::new(IdentitesDeTest::default()),
+        )
+        .placing(Arc::new(BrokerDeTest::placant())),
+    );
+    let adresse = servir(runtime).await;
+
+    let mut usurpe = manifeste();
+    "un-autre-worker".clone_into(&mut usurpe.worker_id);
+    let annonce = serde_json::to_string(&usurpe).expect("sérialisable");
+    let reponse = poster(
+        &adresse,
+        CLAIM_PATH,
+        Some(CREANCE),
+        &corps("idem-usurpe", &format!(",\"manifest\":{annonce}")),
+    )
+    .await;
+
+    assert!(
+        reponse.starts_with("HTTP/1.1 403"),
+        "annoncer les capacités d'un autre est une faute d'autorisation :\n{reponse}"
+    );
+    assert_eq!(file.len(), 1, "un refus n'entame pas la file");
+}
+
+/// **`locusd` ne décide toujours d'aucun hôte.**
+///
+/// La même forme d'absence que `W20.o` tient pour la création de mission, appliquée au chemin qui
+/// aurait maintenant le plus de raisons d'y contrevenir : celui qui **demande** un placement. Ce
+/// module transmet un manifeste et lit un verdict ; il ne compare aucun niveau, ne trie aucun
+/// candidat, et n'importe rien de `locus-execd`.
+///
+/// `Placement` figure dans la liste des permis — c'est le type de la **réponse**, pas de la
+/// décision. Ce qui est interdit est la décision : `place(`, `Candidate`, `shortfall`, `admit(`.
+#[test]
+fn reclamer_ne_choisit_aucun_hote() {
+    let source = include_str!("../src/lep.rs");
+    for interdit in [
+        "Candidate",
+        "shortfall",
+        "Admission",
+        "RefusalReason",
+        "locus_execd",
+        "HostCapabilities",
+        "proven_level",
+    ] {
+        assert!(
+            !source.contains(interdit),
+            "« {interdit} » dans la surface §15.2 : le placement est celui de `W4.g`, chez \
+             `locus-execd`, et `locusd` se contente de le demander"
+        );
+    }
+
+    // Et l'absence seule ne suffirait pas : un module qui ne déciderait rien **et** ne demanderait
+    // rien la tiendrait aussi. Le seul `place` de ce fichier est donc un appel au port, et il n'y
+    // en a qu'un — deux chemins de placement seraient deux politiques.
+    assert_eq!(
+        source.matches(".place(").count(),
+        1,
+        "un seul chemin demande un placement"
+    );
+    assert!(
+        source.contains("broker.place("),
+        "et il passe par le port du broker, jamais par un calcul local"
     );
 }

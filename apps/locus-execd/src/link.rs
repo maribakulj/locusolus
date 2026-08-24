@@ -22,13 +22,22 @@
 //! [`serve`] lit une requête et répond ; il n'ouvre aucune connexion sortante. ADR 0028 décision 3 :
 //! un programme qui répond n'a besoin que d'écouter, et doubler la surface du processus privilégié
 //! pour lui donner l'initiative irait contre la raison d'être de la séparation.
+//!
+//! # Deux questions depuis `W20.q`, et le dispatch est **exhaustif**
+//!
+//! [`answer_ask`] n'a pas de bras fourre-tout : une variante nouvelle d'[`Ask`] sans réponse ne
+//! compile pas. C'est la même garantie structurelle que [`crate::wire::reason`] obtient pour les
+//! motifs de refus, et c'est ce qui empêche une question nouvelle de recevoir en silence la réponse
+//! d'une autre.
 
 use std::os::unix::net::UnixListener;
 
-use locus_broker::protocol::{Missing as WireMissing, Verdict};
+use locus_broker::protocol::{Ask, Missing as WireMissing, Verdict};
 use locus_broker::unix::answer;
 
+use crate::announced::{Proven, placement, shortfalls};
 use crate::linux::{HostFacts, Missing};
+use crate::placement::Placement;
 use crate::readiness::Readiness;
 use crate::wire::level;
 
@@ -73,6 +82,54 @@ pub fn verdict(facts: &HostFacts) -> Verdict {
     }
 }
 
+/// Ce que le broker répond à une demande de placement — `W20.q`.
+///
+/// # Une demande illisible n'est pas un refus de placement
+///
+/// Elle rend [`Verdict::Refused`], qui veut dire « le broker a parlé et il ne répond pas à ça ».
+/// Lui rendre un `NotPlaced` vide enverrait chercher une machine plus grosse à qui a envoyé un
+/// document incomplet — et un `NotPlaced` sans manque serait exactement le refus muet que l'ADR 0028
+/// décision 2 refuse.
+#[must_use]
+pub fn verdict_of_placement(
+    manifest: &locus_lep::CapabilityManifest,
+    sandbox: &locus_lep::SandboxSpec,
+    resources: &locus_lep::ResourceSpec,
+    proven: &dyn Proven,
+) -> Verdict {
+    match placement(manifest, sandbox, resources, proven) {
+        Ok(Placement::Placed { worker, level: at }) => Verdict::Placed {
+            worker,
+            level: level(at),
+        },
+        Ok(Placement::Refused {
+            shortfalls: missing,
+        }) => Verdict::NotPlaced {
+            shortfalls: shortfalls(&missing),
+        },
+        Err(unreadable) => Verdict::Refused {
+            why: unreadable.to_string(),
+        },
+    }
+}
+
+/// La réponse à une question, quelle qu'elle soit.
+///
+/// Exhaustif par construction : ajouter une variante à [`Ask`] sans lui donner de réponse **ne
+/// compile pas**. Un bras fourre-tout aurait fait recevoir à une question nouvelle la réponse d'une
+/// autre, ce que `packages/broker` refuse de l'autre côté du fil.
+#[must_use]
+pub fn answer_ask(ask: &Ask, facts: &HostFacts, proven: &dyn Proven) -> Verdict {
+    match ask {
+        Ask::Readiness => verdict(facts),
+        Ask::Place {
+            manifest,
+            sandbox,
+            resources,
+        } => verdict_of_placement(manifest, sandbox, resources, proven),
+    }
+}
+
 /// Servir, une connexion à la fois, jusqu'à ce que l'écoute cesse.
 ///
 /// # Une connexion en échec n'arrête pas le broker
@@ -81,14 +138,16 @@ pub fn verdict(facts: &HostFacts) -> Verdict {
 /// doit pas emporter le service : ce serait un déni de service ouvert à quiconque peut se connecter.
 /// L'échec est rendu à l'appelant, qui décide d'en faire une trace ; le module, lui, reprend la
 /// boucle.
-pub fn serve<F>(listener: &UnixListener, facts: &HostFacts, mut report: F)
+pub fn serve<F>(listener: &UnixListener, facts: &HostFacts, proven: &dyn Proven, mut report: F)
 where
     F: FnMut(&str),
 {
     for incoming in listener.incoming() {
         match incoming {
             Ok(stream) => {
-                if let Err(error) = answer(&stream, |_| verdict(facts)) {
+                if let Err(error) =
+                    answer(&stream, |request| answer_ask(&request.ask, facts, proven))
+                {
                     report(&format!("connexion abandonnée — {error}"));
                 }
             }

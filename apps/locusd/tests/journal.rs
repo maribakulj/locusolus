@@ -207,7 +207,26 @@ fn desk(offres: usize) -> Desk {
             principal_id: id::<Agent>(3),
         },
     );
-    Desk::new(file, registre, Arc::new(Identites::default()))
+    // `W20.q` : la réclamation demande le placement au broker. Un `Loopback` qui **place** est ce
+    // qu'il faut ici — ce que ce fichier éprouve est la durabilité du journal, pas le placement, et
+    // laisser le lien absent ferait échouer la réclamation pour une raison hors sujet.
+    Desk::new(file, registre, Arc::new(Identites::default())).placing(Arc::new(
+        locus_broker::port::Loopback::answering(locus_broker::protocol::Verdict::Placed {
+            worker: "canterel-vm-linux-01".to_owned(),
+            level: locus_lep::SandboxLevel::S3,
+        }),
+    ))
+}
+
+/// Ce que le worker annonce — la fixture Linux de `W0.7`, telle quelle.
+fn manifeste() -> locus_lep::CapabilityManifest {
+    let chemin =
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../schemas/examples");
+    let brut = std::fs::read_to_string(chemin.join("capability-manifest-vm-linux.json"))
+        .expect("fixture lisible");
+    let mut valeur: serde_json::Value = serde_json::from_str(&brut).expect("JSON valide");
+    valeur.as_object_mut().expect("un objet").remove("_fixture");
+    serde_json::from_value(valeur).expect("manifeste")
 }
 
 fn submitted() -> locusd::lep::Submitted {
@@ -243,6 +262,7 @@ fn un_redemarrage_ne_perd_rien() {
     let offre = daemon
         .lep_claim(
             "creance",
+            Some(&manifeste()),
             &submitted(),
             Timestamp::from_millis(1_700_000_000_000),
         )
@@ -304,6 +324,7 @@ fn un_journal_volatile_ne_survit_pas_a_un_redemarrage() {
     daemon
         .lep_claim(
             "creance",
+            Some(&manifeste()),
             &submitted(),
             Timestamp::from_millis(1_700_000_000_000),
         )

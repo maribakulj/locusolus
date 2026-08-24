@@ -21,6 +21,7 @@
 
 use std::process::ExitCode;
 
+use locus_execd::announced::NothingProven;
 use locus_execd::link::serve;
 use locus_execd::linux::{HostFacts, SystemRunner};
 use locus_execd::readiness::Readiness;
@@ -62,7 +63,11 @@ fn main() -> ExitCode {
         }
     };
     println!("locus-execd : à l'écoute sur {path}");
-    serve(&listener, &facts, |trouble| {
+    // `NothingProven` : aucune campagne de self-tests n'est conservée par ce binaire, donc aucun
+    // worker n'a rien prouvé à ses yeux, donc il ne place rien au-dessus de `S0` et le refus le dit
+    // sous le nom `level_not_attested`. C'est exact — et c'est ce qui rend visible, au premier
+    // placement réel, qu'il manque la campagne, plutôt que de placer sur une déclaration.
+    serve(&listener, &facts, &NothingProven, |trouble| {
         eprintln!("locus-execd : {trouble}");
     });
     ExitCode::SUCCESS

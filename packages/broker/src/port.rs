@@ -21,7 +21,9 @@
 
 use std::fmt;
 
-use crate::protocol::Verdict;
+use locus_lep::{CapabilityManifest, ResourceSpec, SandboxLevel, SandboxSpec};
+
+use crate::protocol::{Shortfall, Verdict};
 
 /// Ce qui empêche d'obtenir un verdict.
 ///
@@ -71,11 +73,47 @@ impl fmt::Display for BrokerError {
 
 impl std::error::Error for BrokerError {}
 
+/// Ce qu'une question de placement rend — `W20.q`.
+///
+/// # Pourquoi un type à part, et pas [`Verdict`] tel quel
+///
+/// [`Verdict`] porte les réponses aux **deux** questions, parce qu'il n'y a qu'une [`crate::protocol::Response`].
+/// Un appelant qui demande un placement, lui, n'a que trois issues possibles, et les deux variantes
+/// de disponibilité n'en sont pas : les lui rendre l'obligerait à écrire une branche
+/// « ça ne devrait pas arriver », c'est-à-dire l'endroit exact où l'on finit par supposer.
+///
+/// Le hors-sujet devient donc un [`BrokerError::Malformed`] — le broker a parlé, mais pas de ce
+/// qu'on lui demandait, et c'est un désaccord de protocole comme un autre.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Placement {
+    /// La mission peut aller sur ce worker, à ce niveau.
+    Placed {
+        /// Le worker retenu.
+        worker: String,
+        /// Le niveau qui sera appliqué.
+        level: SandboxLevel,
+    },
+    /// Aucun worker soumis ne convient, et voici ce qui manquait à chacun.
+    NotPlaced {
+        /// Un manque par worker examiné.
+        shortfalls: Vec<Shortfall>,
+    },
+    /// Le broker refuse de répondre à cet appelant.
+    ///
+    /// Il reste une **réponse**, jamais une erreur : `port.rs` tient cette séparation pour la
+    /// disponibilité depuis `W4.h`, et la relâcher ici enverrait chercher un service éteint là où
+    /// il y a une identité à corriger.
+    Refused {
+        /// Ce que le broker en a dit.
+        why: String,
+    },
+}
+
 /// Ce que `locusd` sait demander au broker.
 ///
-/// Une seule question aujourd'hui, et l'ADR 0028 décision 5 dit pourquoi ce n'est pas un jalon
-/// partiel : le tube est complet, et les opérations suivantes sont des variantes de requête sur un
-/// tube qui marche.
+/// Deux questions, et l'ADR 0028 décision 5 avait annoncé la seconde : « l'admission […]
+/// s'ajouter[a] comme des variantes de requête sur un tube qui marche ». C'est ce qui s'est passé —
+/// le transport n'a pas bougé.
 pub trait BrokerPort {
     /// Où ce port parle, pour que les messages d'erreur nomment un endroit réel.
     fn endpoint(&self) -> String;
@@ -87,6 +125,40 @@ pub trait BrokerPort {
     /// [`BrokerError`] quand la question n'aboutit pas. Un broker qui répond « je refuse de te
     /// parler » **n'est pas** une erreur : c'est un [`Verdict::Refused`], parce qu'il a parlé.
     fn readiness(&self) -> Result<Verdict, BrokerError>;
+
+    /// Demander au broker si ce worker, tel qu'il s'annonce, peut porter cette mission.
+    ///
+    /// # Errors
+    ///
+    /// [`BrokerError`] quand la question n'aboutit pas — y compris [`BrokerError::Malformed`] quand
+    /// le broker répond à l'**autre** question.
+    fn place(
+        &self,
+        manifest: &CapabilityManifest,
+        sandbox: &SandboxSpec,
+        resources: &ResourceSpec,
+    ) -> Result<Placement, BrokerError>;
+}
+
+/// Lire un verdict comme la réponse à une question de placement, ou dire qu'il n'en est pas une.
+///
+/// # Errors
+///
+/// [`BrokerError::Malformed`] quand le verdict répond à la question de disponibilité.
+pub fn as_placement(verdict: Verdict) -> Result<Placement, BrokerError> {
+    match verdict {
+        Verdict::Placed { worker, level } => Ok(Placement::Placed { worker, level }),
+        Verdict::NotPlaced { shortfalls } => Ok(Placement::NotPlaced { shortfalls }),
+        Verdict::Refused { why } => Ok(Placement::Refused { why }),
+        other @ (Verdict::Provable { .. } | Verdict::HostShort { .. }) => {
+            Err(BrokerError::Malformed {
+                why: format!(
+                    "on a demandé un placement et le broker a répondu sur la disponibilité de son \
+                     hôte ({other}) : une réponse hors sujet se dit, elle ne s'interprète pas"
+                ),
+            })
+        }
+    }
 }
 
 /// Un broker en mémoire, pour les appelants qui n'en ont pas de vrai.
@@ -137,5 +209,20 @@ impl BrokerPort for Loopback {
 
     fn readiness(&self) -> Result<Verdict, BrokerError> {
         self.verdict.clone()
+    }
+
+    /// Le **même** verdict, quelle que soit la question.
+    ///
+    /// C'est ce qui fait de ce type une implémentation de référence et non un simulacre : il rend ce
+    /// qu'on lui a donné à rendre, sans savoir de quoi on parle. Conséquence voulue : un `Loopback`
+    /// monté avec un verdict de disponibilité fait échouer une demande de placement en
+    /// [`BrokerError::Malformed`], exactement comme le ferait un vrai broker d'une autre version.
+    fn place(
+        &self,
+        _manifest: &CapabilityManifest,
+        _sandbox: &SandboxSpec,
+        _resources: &ResourceSpec,
+    ) -> Result<Placement, BrokerError> {
+        as_placement(self.verdict.clone()?)
     }
 }

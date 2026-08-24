@@ -502,3 +502,218 @@ fn la_borne_compte_ce_qui_precede_le_dernier_morceau() {
         "le refus dit la longueur totale, pas celle du dernier morceau"
     );
 }
+
+// ---------------------------------------------------------------------------------------------
+// La seconde question du tube — `W20.q`, l'ADR 0028 décision 5 prise au mot.
+// ---------------------------------------------------------------------------------------------
+
+/// La mission et le manifeste des fixtures de `W0.7`, relus dans les types générés.
+fn fixture<T: serde::de::DeserializeOwned>(nom: &str) -> T {
+    let chemin = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../schemas/examples")
+        .join(nom);
+    let brut = std::fs::read_to_string(&chemin).expect("fixture lisible");
+    let mut valeur: serde_json::Value =
+        serde_json::from_str(&brut).expect("fixture en JSON valide");
+    valeur
+        .as_object_mut()
+        .expect("une fixture est un objet")
+        .remove("_fixture");
+    serde_json::from_value(valeur).expect("la fixture se décode dans le type généré")
+}
+
+/// **Une demande de placement traverse la socket sans perdre un champ.**
+///
+/// Le manifeste est le plus gros document que ce tube ait porté, et c'est le seul qui vienne du
+/// worker : s'il arrivait amputé, le broker placerait sur un inventaire tronqué et personne ne le
+/// saurait. Le test compare le document **entier**, pas une poignée de champs.
+#[test]
+fn une_demande_de_placement_traverse_sans_perdre_un_champ() {
+    let scratch = Scratch::new("place-aller");
+    let path = scratch.socket();
+    let listener = listen(&path).expect("écoute");
+    let (rendu, recu) = std::sync::mpsc::channel();
+    let server = thread::spawn(move || {
+        let (stream, _) = listener.accept().expect("connexion");
+        answer(&stream, |request| {
+            rendu.send(request.ask.clone()).expect("l'ask remonte");
+            Verdict::Placed {
+                worker: "canterel-vm-linux-01".to_owned(),
+                level: SandboxLevel::S3,
+            }
+        })
+        .expect("réponse");
+    });
+
+    let manifeste: locus_lep::CapabilityManifest = fixture("capability-manifest-vm-linux.json");
+    let mission: locus_lep::MissionEnvelope = fixture("mission-envelope-nominal.json");
+    let verdict = UnixSocketBroker::at(&path)
+        .place(&manifeste, &mission.sandbox, &mission.resources)
+        .expect("le broker répond");
+
+    let Ask::Place {
+        manifest,
+        sandbox,
+        resources,
+    } = recu.recv().expect("une question a été posée")
+    else {
+        panic!("le broker doit recevoir une question de placement");
+    };
+    assert_eq!(*manifest, manifeste, "le manifeste arrive entier");
+    assert_eq!(sandbox, mission.sandbox, "l'exigence arrive entière");
+    assert_eq!(resources, mission.resources, "la réservation aussi");
+    assert_eq!(
+        verdict,
+        locus_broker::port::Placement::Placed {
+            worker: "canterel-vm-linux-01".to_owned(),
+            level: SandboxLevel::S3,
+        }
+    );
+    server.join().expect("le serveur se termine");
+}
+
+/// **Un refus de placement porte tous ses motifs, dans l'ordre.**
+///
+/// La même propriété que `les_manques_traversent_tous_et_dans_l_ordre` tient pour la disponibilité,
+/// et pour la même raison : n'en transmettre qu'un ferait corriger une condition, relancer,
+/// découvrir la suivante. Le vocabulaire est celui de §10.2, donc celui qu'un `AdmissionRefusal`
+/// emploie déjà — pas une seconde écriture.
+#[test]
+fn un_refus_de_placement_porte_tous_ses_motifs() {
+    let scratch = Scratch::new("place-refus");
+    let path = scratch.socket();
+    let server = serve_once(
+        &path,
+        Verdict::NotPlaced {
+            shortfalls: vec![locus_broker::protocol::Shortfall {
+                worker: "canterel-macbook-01".to_owned(),
+                reasons: vec![
+                    locus_lep::Reason::LevelUnavailable {
+                        required: SandboxLevel::S3,
+                        best: SandboxLevel::S2,
+                    },
+                    locus_lep::Reason::LevelNotAttested {
+                        required: SandboxLevel::S3,
+                        proven: None,
+                    },
+                ],
+            }],
+        },
+    );
+
+    let manifeste: locus_lep::CapabilityManifest = fixture("capability-manifest.json");
+    let mission: locus_lep::MissionEnvelope = fixture("mission-envelope-nominal.json");
+    let verdict = UnixSocketBroker::at(&path)
+        .place(&manifeste, &mission.sandbox, &mission.resources)
+        .expect("le broker répond");
+
+    let locus_broker::port::Placement::NotPlaced { shortfalls } = verdict else {
+        panic!("le verdict doit être un refus de placement : {verdict:?}");
+    };
+    assert_eq!(shortfalls.len(), 1);
+    assert_eq!(
+        shortfalls[0].reasons.len(),
+        2,
+        "les deux motifs traversent : « il ne sait pas faire » et « il ne l'a pas prouvé » ne se \
+         fondent pas"
+    );
+    server.join().expect("le serveur se termine");
+}
+
+/// **Une réponse hors sujet se dit, dans les deux sens.**
+///
+/// Les cinq variantes de [`Verdict`] vivent dans une seule énumération parce qu'il n'y a qu'une
+/// `Response`. Elles ne répondent pas toutes à la même question, et le lecteur ne doit pas s'en
+/// arranger : un verdict de disponibilité rendu à une demande de placement est un désaccord de
+/// protocole, pas un « peut-être ».
+///
+/// Sans ce test, la fusion des deux familles dans un seul type se paierait le jour où deux binaires
+/// de versions différentes se parlent — et se paierait en placements silencieusement faux.
+#[test]
+fn une_reponse_hors_sujet_se_dit_dans_les_deux_sens() {
+    let manifeste: locus_lep::CapabilityManifest = fixture("capability-manifest-vm-linux.json");
+    let mission: locus_lep::MissionEnvelope = fixture("mission-envelope-nominal.json");
+
+    // Un broker qui répond « mon hôte prouve S3 » à « place ceci » : hors sujet.
+    let disponibilite = Loopback::answering(Verdict::Provable {
+        ceiling: SandboxLevel::S3,
+    });
+    let erreur = disponibilite
+        .place(&manifeste, &mission.sandbox, &mission.resources)
+        .expect_err("un verdict de disponibilité n'est pas un placement");
+    assert!(
+        matches!(erreur, BrokerError::Malformed { .. }),
+        "un hors-sujet est un désaccord de protocole, pas une panne de lien : {erreur:?}"
+    );
+
+    // Et l'inverse : un `Placed` rendu à une question de disponibilité. La lecture appartient à
+    // `locusd`, mais la propriété est celle du protocole, donc elle s'énonce ici aussi.
+    let placement = Loopback::answering(Verdict::Placed {
+        worker: "canterel-vm-linux-01".to_owned(),
+        level: SandboxLevel::S3,
+    });
+    let verdict = placement.readiness().expect("le port répond");
+    assert!(
+        matches!(verdict, Verdict::Placed { .. }),
+        "le port rend ce que le broker a dit ; c'est au lecteur de refuser le hors-sujet"
+    );
+}
+
+/// **Un broker éteint ne rend pas un refus de placement.**
+///
+/// C'est la décision 4 sur la seconde question. « Je n'ai pas pu demander sur quoi ça tournerait »
+/// et « ce worker ne convient pas » envoient chercher à des endroits opposés, et c'est cette
+/// distinction que `locusd` traduit en `503` plutôt qu'en `204`.
+#[test]
+fn un_broker_eteint_ne_rend_pas_un_refus_de_placement() {
+    let scratch = Scratch::new("place-eteint");
+    let path = scratch.socket();
+
+    let manifeste: locus_lep::CapabilityManifest = fixture("capability-manifest-vm-linux.json");
+    let mission: locus_lep::MissionEnvelope = fixture("mission-envelope-nominal.json");
+    let erreur = UnixSocketBroker::at(&path)
+        .place(&manifeste, &mission.sandbox, &mission.resources)
+        .expect_err("un broker éteint ne répond pas");
+
+    let BrokerError::Unreachable { endpoint, .. } = &erreur else {
+        panic!("un broker éteint est injoignable : {erreur:?}");
+    };
+    assert_eq!(endpoint, &path.display().to_string());
+}
+
+/// **Un appelant d'une autre version est refusé sur le placement comme sur la disponibilité.**
+///
+/// La barrière de version est dans `answer`, avant le répondeur : elle ne doit pas dépendre de la
+/// question posée. Un tube qui ne la tiendrait que sur la première question laisserait passer la
+/// seconde avec le vocabulaire d'une autre version.
+#[test]
+fn un_appelant_d_une_autre_version_est_refuse_sur_le_placement_aussi() {
+    let scratch = Scratch::new("place-version");
+    let path = scratch.socket();
+    let listener = listen(&path).expect("écoute");
+    let server = thread::spawn(move || {
+        let (stream, _) = listener.accept().expect("connexion");
+        answer(&stream, |_| {
+            panic!("le répondeur ne doit pas être appelé pour une autre version")
+        })
+        .expect("réponse");
+    });
+
+    let manifeste: locus_lep::CapabilityManifest = fixture("capability-manifest-vm-linux.json");
+    let mission: locus_lep::MissionEnvelope = fixture("mission-envelope-nominal.json");
+    let mut requete = Request::place(manifeste, mission.sandbox, mission.resources);
+    "broker/0.9".clone_into(&mut requete.protocol);
+
+    let stream = UnixStream::connect(&path).expect("connexion");
+    let mut writer = &stream;
+    write_frame(&mut writer, &requete).expect("la requête part");
+    let mut reader = BufReader::new(&stream);
+    let reponse: Response = read_frame(&mut reader).expect("la réponse revient");
+
+    assert_eq!(reponse.protocol, PROTOCOL);
+    let Verdict::Refused { why } = reponse.verdict else {
+        panic!("un désaccord de version se dit : {:?}", reponse.verdict);
+    };
+    assert!(why.contains("broker/0.9") && why.contains(PROTOCOL));
+    server.join().expect("le serveur se termine");
+}

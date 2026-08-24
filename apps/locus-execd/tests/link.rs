@@ -24,6 +24,7 @@ use std::thread;
 use locus_broker::port::BrokerPort;
 use locus_broker::protocol::Missing as WireMissing;
 use locus_broker::unix::{UnixSocketBroker, listen};
+use locus_execd::announced::NothingProven;
 use locus_execd::link::{serve, verdict};
 use locus_execd::linux::{HostFacts, Missing};
 use locusd::broker::Standing;
@@ -106,7 +107,7 @@ fn une_connexion_fautive_n_arrete_pas_le_broker() {
     // processus de test, ce qui est le comportement réel du binaire.
     thread::spawn(move || {
         let facts = HostFacts::read_host();
-        serve(&listener, &facts, |_| {});
+        serve(&listener, &facts, &NothingProven, |_| {});
     });
 
     // Une connexion qui se ferme sans rien dire : le serveur doit la constater et poursuivre.

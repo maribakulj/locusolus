@@ -381,6 +381,14 @@ struct WorkerBody {
     /// Les événements, sur `/lep/v1/events`.
     #[serde(default)]
     events: Vec<locus_lep::Event>,
+    /// Ce que le worker annonce, sur `/lep/v1/claim` — §15.3, `W20.q`.
+    ///
+    /// Encadré : une variante de `WorkerBody` ne doit pas peser dix fois les autres pour un champ
+    /// qui n'est lu que sur un chemin. Absent, la réclamation est refusée en nommant le champ —
+    /// jamais servie « au mieux », parce que confier une mission à un hôte dont on ne sait rien est
+    /// exactement ce que cet item existe pour empêcher.
+    #[serde(default)]
+    manifest: Option<Box<locus_lep::CapabilityManifest>>,
     /// Sur `/lep/v1/result`.
     #[serde(default)]
     task_id: String,
@@ -420,13 +428,18 @@ impl WorkerBody {
     }
 }
 
-/// `POST /lep/v1/claim` — §15.2, mode pull. `W20.k`.
+/// `POST /lep/v1/claim` — §15.2, mode pull. `W20.k`, `W20.q`.
 ///
-/// # `204` n'est pas une erreur
+/// # `204` n'est pas une erreur, et `503` non plus n'est pas `204`
 ///
 /// Un ordonnanceur sans travail répond `204 No Content`, et le client de `W2.21` en fait un tour
 /// `idle`. Répondre `404` ou `503` l'enverrait chercher un lien cassé là où il n'y a que du calme —
 /// la séparation de l'ADR 0028 décision 4, tenue ici du côté serveur.
+///
+/// Depuis `W20.q`, l'autre moitié de cette séparation est servie aussi : un broker injoignable rend
+/// `503` — la famille `unavailable` de §22.5 — et **jamais** `204`. « Je n'ai pas pu demander sur
+/// quoi ça tournerait » n'est pas « rien pour toi », et un worker qui recevrait `204` attendrait en
+/// silence un ordonnanceur qui, lui, avait du travail.
 async fn claim<S: EventStore + Send + Sync + 'static>(
     State(runtime): State<Arc<Runtime<S>>>,
     headers: axum::http::HeaderMap,
@@ -440,10 +453,9 @@ async fn claim<S: EventStore + Send + Sync + 'static>(
         Err(error) => return commande_refusee(&error),
     };
     let now = maintenant();
-    match body
-        .submitted(now)
-        .and_then(|submitted| runtime.lep_claim(credential, &submitted, now))
-    {
+    match body.submitted(now).and_then(|submitted| {
+        runtime.lep_claim(credential, body.manifest.as_deref(), &submitted, now)
+    }) {
         Ok(None) => StatusCode::NO_CONTENT.into_response(),
         Ok(Some(offer)) => match serde_json::to_string(&offer) {
             Ok(body) => json(StatusCode::OK, body),

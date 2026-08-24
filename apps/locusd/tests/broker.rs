@@ -1,8 +1,8 @@
 //! Ce que `locusd` sait — et ne sait pas — de l'Execution Fabric. `W4.h`, ADR 0028 décision 4.
 
-use locus_broker::port::{BrokerError, BrokerPort, Loopback};
+use locus_broker::port::{BrokerError, BrokerPort, Loopback, Placement};
 use locus_broker::protocol::{Missing, Verdict};
-use locus_lep::SandboxLevel;
+use locus_lep::{CapabilityManifest, ResourceSpec, SandboxLevel, SandboxSpec};
 use locusd::broker::Standing;
 
 /// Un port qui rend l'erreur qu'on lui donne, pour exercer les chemins que `Loopback` ne couvre pas.
@@ -14,6 +14,15 @@ impl BrokerPort for Failing {
     }
 
     fn readiness(&self) -> Result<Verdict, BrokerError> {
+        Err(self.0.clone())
+    }
+
+    fn place(
+        &self,
+        _manifest: &CapabilityManifest,
+        _sandbox: &SandboxSpec,
+        _resources: &ResourceSpec,
+    ) -> Result<Placement, BrokerError> {
         Err(self.0.clone())
     }
 }
