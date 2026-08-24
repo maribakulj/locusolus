@@ -33,7 +33,8 @@ use std::sync::{PoisonError, RwLock};
 use locus_event_store::{EventStore, MemoryEventStore};
 use locus_policy::{Facts, Policy, Run};
 use locus_projections::{
-    ConflictRegistry, ExecutionGraph, Health, OrganisationGraph, ProjectionRunner, ValidationState,
+    ConflictRegistry, EpistemicGraph, ExecutionGraph, Health, OrganisationGraph, ProjectionRunner,
+    ValidationState,
 };
 
 use crate::transaction::Transaction;
@@ -50,6 +51,7 @@ pub struct Runtime<S> {
     organisation: RwLock<ProjectionRunner<OrganisationGraph>>,
     conflicts: RwLock<ProjectionRunner<ConflictRegistry>>,
     validation: RwLock<ProjectionRunner<ValidationState>>,
+    epistemic: RwLock<ProjectionRunner<EpistemicGraph>>,
     policy: Policy,
     readiness: RwLock<Readiness>,
     lep: crate::lep::Desk,
@@ -66,9 +68,13 @@ impl Runtime<MemoryEventStore> {
 impl<S: EventStore> Runtime<S> {
     /// Câbler un journal et un jeu de politiques.
     ///
-    /// Les quatre projections de §9.5 sont enregistrées ici, en dur. Une table de configuration qui
+    /// Les projections de §9.5 sont enregistrées ici, en dur. Une table de configuration qui
     /// permettrait d'en omettre une laisserait démarrer un daemon dont une projection manque, et
     /// personne ne s'en apercevrait avant qu'une query rende un résultat vide plutôt qu'une erreur.
+    ///
+    /// Elles ne sont pas comptées dans cette phrase : le compte a dit « quatre » pendant qu'il y en
+    /// avait quatre, et `W20.u` en a ajouté une cinquième. Un nombre écrit dans un commentaire se
+    /// périme sans bruit ; la liste ci-dessous, elle, est le code.
     pub fn assemble(store: S, policy: Policy) -> Self {
         Self {
             transaction: Transaction::new(store),
@@ -76,6 +82,7 @@ impl<S: EventStore> Runtime<S> {
             organisation: RwLock::new(ProjectionRunner::new(OrganisationGraph::new())),
             conflicts: RwLock::new(ProjectionRunner::new(ConflictRegistry::new())),
             validation: RwLock::new(ProjectionRunner::new(ValidationState::new())),
+            epistemic: RwLock::new(ProjectionRunner::new(EpistemicGraph::new())),
             policy,
             readiness: RwLock::new(Readiness {
                 projections: Vec::new(),
@@ -155,6 +162,11 @@ impl<S: EventStore> Runtime<S> {
         read(read_lock(&self.validation).projection())
     }
 
+    /// Le graphe épistémique, en lecture — §9.4, `W20.u`.
+    pub fn with_epistemic_graph<T>(&self, read: impl FnOnce(&EpistemicGraph) -> T) -> T {
+        read(read_lock(&self.epistemic).projection())
+    }
+
     /// Évaluer une politique sans droit d'agir — §20.2, le chemin `dry`.
     ///
     /// Exposé depuis le composition root parce que c'est lui qui détient le jeu de règles ; le
@@ -189,6 +201,10 @@ impl<S: EventStore> Runtime<S> {
                 wired(
                     &write_lock(&self.validation).catch_up(store).health,
                     ValidationState::NAME,
+                ),
+                wired(
+                    &write_lock(&self.epistemic).catch_up(store).health,
+                    EpistemicGraph::NAME,
                 ),
             ],
         };

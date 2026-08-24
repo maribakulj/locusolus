@@ -27,6 +27,9 @@ use locus_event_store::{EventStore, Sequenced};
 use locus_projections::{ConflictEntry, NodeKind};
 
 use crate::composition::Runtime;
+use locus_domain::RevisionId;
+use locus_projections::Dossier;
+
 use crate::cursor::{Collection, Cursor, CursorError};
 
 /// Le nombre d'éléments qu'une page rend par défaut.
@@ -161,6 +164,42 @@ impl<S: EventStore> Runtime<S> {
             bounded(limit),
             Collection::Conflicts,
         ))
+    }
+
+    /// `GET /graph/{revision_id}` — le dossier épistémique d'une conclusion, §9.4, `W20.u`.
+    ///
+    /// # Les six termes, et pourquoi ils sortent ensemble
+    ///
+    /// « Le graphe rend la conclusion, ses prémisses, son expérience, ses artefacts, ses objections
+    /// et son coût. » Les rendre par six requêtes laisserait un lecteur en composer cinq et oublier
+    /// la sixième — et celle qu'on oublie est toujours la même : les objections. L'invariant 12 est
+    /// mieux tenu par une réponse qui les porte que par une route qu'il faut penser à appeler.
+    ///
+    /// # Ce que cette query ne fait pas
+    ///
+    /// Elle ne rattrape pas les projections. `W20.l` a placé le rattrapage dans le chemin
+    /// d'écriture, et une lecture qui ferait avancer l'état rendrait le résultat dépendant de qui a
+    /// lu en dernier.
+    ///
+    /// # Errors
+    ///
+    /// [`CommandError::Validation`] quand l'identifiant n'est pas une révision lisible. **Jamais
+    /// « introuvable »** : une conclusion que rien ne soutient est une réponse de §9.4, et la
+    /// changer en `404` ferait relancer sa requête à qui vient précisément d'apprendre quelque
+    /// chose.
+    pub fn epistemic_dossier(
+        &self,
+        revision_id: &str,
+    ) -> Result<Dossier, crate::error::CommandError> {
+        let conclusion = RevisionId::parse(revision_id).map_err(|erreur| {
+            crate::error::CommandError::Validation {
+                field: "revision_id".to_owned(),
+                detail: format!(
+                    "« {revision_id} » n'est pas un identifiant de révision : {erreur}"
+                ),
+            }
+        })?;
+        Ok(self.with_epistemic_graph(|graph| graph.dossier(&conclusion)))
     }
 }
 

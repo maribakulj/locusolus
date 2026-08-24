@@ -87,6 +87,7 @@ where
         .route("/branches/{id}/history", get(branch_history::<S>))
         .route("/branches/{id}/diff", get(branch_diff::<S>))
         .route("/projections/status", get(projections_status::<S>))
+        .route(GRAPH_PATH, get(epistemic_graph::<S>))
         .route(CLAIM_PATH, post(claim::<S>))
         .route(EVENTS_PATH, post(worker_events::<S>))
         .route(RESULT_PATH, post(result::<S>))
@@ -439,6 +440,13 @@ pub const DECLARE_PATH: &str = "/lep/v1/artifacts";
 /// littéral est le motif qu'`axum` route, et un test vérifie que les deux s'accordent — deux
 /// endroits qui construisent le même chemin finissent par en construire deux.
 pub const CONTENT_PATH: &str = "/lep/v1/artifacts/{artifact_id}/content";
+
+/// `GET` — le dossier épistémique d'une conclusion, §9.4, `W20.u`.
+///
+/// Une lecture, donc hors de `/lep/` **et** hors de `/commands/` : ce n'est ni le protocole des
+/// workers, ni une commande d'administration. C'est une query de §22.4, comme `/timeline` et
+/// `/conflicts`.
+pub const GRAPH_PATH: &str = "/graph/{revision_id}";
 
 /// La créance portée par `Authorization: Bearer …`, si elle y est.
 ///
@@ -833,6 +841,29 @@ async fn queue<S: EventStore + Send + Sync + 'static>(
     }
 }
 
+/// `GET /graph/{revision_id}` — les six termes de §9.4, `W20.u`.
+///
+/// # Pourquoi `200` pour une conclusion que rien ne soutient
+///
+/// Parce que c'est une **réponse**. Un `404` dirait « je ne connais pas cette conclusion » là où le
+/// journal dit « rien ne la soutient, personne ne l'a contestée, aucune expérience ne la porte » —
+/// et un client qui reçoit un `404` relance sa requête au lieu de lire ce qu'elle lui a appris. Le
+/// seul refus de cette route est un identifiant qui n'est pas une révision.
+async fn epistemic_graph<S: EventStore + Send + Sync + 'static>(
+    State(desk): State<Offload<S>>,
+    Path(revision_id): Path<String>,
+) -> Response {
+    match hors_du_fil(&desk, move |runtime| {
+        runtime.epistemic_dossier(&revision_id)
+    })
+    .await
+    {
+        Err(sature) => commande_refusee(&sature),
+        Ok(Ok(dossier)) => rendu(StatusCode::OK, &dossier),
+        Ok(Err(error)) => commande_refusee(&error),
+    }
+}
+
 /// `POST /lep/v1/artifacts` — §19.1, la déclaration d'un artefact, `W20.t`.
 ///
 /// Rend l'adresse où en déposer le contenu, et jusqu'à quand. Le hash n'est **pas** vérifié ici :
@@ -1083,7 +1114,7 @@ pub const DEFAULT_BIND: &str = "127.0.0.1:8787";
 /// fichier : ajouter une route sans l'annoncer fait rougir, qu'elle soit une `Collection` ou non.
 /// Le déstructurage reste, pour ce qu'il couvre — un nom, pas seulement un nombre.
 #[must_use]
-pub fn served() -> [&'static str; 15] {
+pub fn served() -> [&'static str; 16] {
     let [timeline, workers, conflicts, events, history] = Collection::ALL.map(Collection::name);
     [
         timeline,
@@ -1106,5 +1137,7 @@ pub fn served() -> [&'static str; 15] {
         // Les deux de §19.1 — `W20.t`.
         DECLARE_PATH,
         CONTENT_PATH,
+        // Le graphe épistémique de §9.4 — `W20.u`.
+        GRAPH_PATH,
     ]
 }

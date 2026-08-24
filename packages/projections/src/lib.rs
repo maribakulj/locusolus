@@ -21,14 +21,18 @@
 //! un invariant » — n'est pas implémenté : aucune projection de ce paquet n'est synchrone, et
 //! écrire le mécanisme avant d'avoir le cas produirait une abstraction que rien ne teste.
 //!
-//! # Deux projections, pas douze
+//! # Cinq projections, pas douze
 //!
-//! §9.3 en liste douze. Ce commit en livre deux — « état de validation » et « registre des
-//! conflits » — parce que ce sont celles que le domaine de W1.a et W1.b permet d'écrire
-//! honnêtement, et parce que deux suffisent à éprouver le port. Les dix autres attendent le graphe
-//! (W1.e) et la validation (W1.f), qui leur donneront de quoi projeter.
+//! §9.3 en liste douze. Ce paquet en porte cinq : « état de validation » et « registre des
+//! conflits » d'abord — celles que le domaine de W1.a et W1.b permettait d'écrire honnêtement —,
+//! puis les deux graphes d'exécution et d'organisation, et depuis `W20.u` le graphe épistémique.
+//!
+//! Le compte est écrit ici parce qu'il se périme : cette phrase a dit « deux » pendant que le
+//! paquet en portait quatre. Une projection s'ajoute quand des faits existent à projeter, jamais
+//! avant — les sept qui manquent attendent les leurs.
 
 pub mod conflict_registry;
+pub mod epistemic_graph;
 pub mod execution_graph;
 pub mod organisation_graph;
 pub mod projection;
@@ -37,6 +41,9 @@ pub mod validation_state;
 pub mod verify;
 
 pub use conflict_registry::{ConflictEntry, ConflictRegistry};
+pub use epistemic_graph::{
+    ArtifactRecord, Cost, Dossier, EpistemicGraph, Experiment, Objection, Unreadable,
+};
 pub use execution_graph::{Edge, EdgeKind, ExecutionGraph, NodeKind};
 pub use organisation_graph::{AssignmentRecord, OrganisationGraph};
 pub use projection::{Projection, ProjectionError, Watermark};
