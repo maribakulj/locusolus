@@ -48,6 +48,7 @@ use crate::cursor::{Collection, Cursor, CursorError};
 use crate::enrollment::EnrollmentRequest;
 use crate::error::{CommandError, Family};
 use crate::lep::{Rendered, Submitted};
+use crate::offload::Offload;
 use crate::organisation::ReplayError;
 use crate::query::Page;
 use crate::stream::Frame;
@@ -90,46 +91,88 @@ where
         .route(EVENTS_PATH, post(worker_events::<S>))
         .route(RESULT_PATH, post(result::<S>))
         .route(ENROLL_PATH, post(enroll::<S>))
-        .with_state(runtime)
+        .with_state(Offload::new(runtime))
+}
+
+/// Le passage obligé vers le daemon — `W20.p`.
+///
+/// # Pourquoi un passe-plat plutôt qu'un appel direct à `Offload::run`
+///
+/// Pour que la garde de source ait quelque chose à vérifier. `hors_du_fil` est **le seul** endroit
+/// de ce fichier qui touche un [`Runtime`], et un test lit le source pour l'exiger : un handler qui
+/// reprendrait l'habitude d'appeler le daemon sur le fil du runtime ferait rougir la CI, au lieu de
+/// réintroduire en silence la famine que cet item corrige.
+///
+/// # Errors
+///
+/// [`CommandError::Unavailable`] quand la borne d'appels bloquants est franchie — le refus la nomme.
+async fn hors_du_fil<S, T, F>(desk: &Offload<S>, work: F) -> Result<T, CommandError>
+where
+    S: EventStore + Send + Sync + 'static,
+    F: FnOnce(&Runtime<S>) -> T + Send + 'static,
+    T: Send + 'static,
+{
+    desk.run(work).await
 }
 
 async fn timeline<S: EventStore + Send + Sync + 'static>(
-    State(runtime): State<Arc<Runtime<S>>>,
+    State(desk): State<Offload<S>>,
     Query(paging): Query<Paging>,
 ) -> Response {
-    match runtime.timeline(paging.cursor().as_ref(), paging.limit) {
-        Ok(page) => json_page(&page, |entry| {
+    let cursor = paging.cursor();
+    let limit = paging.limit;
+    match hors_du_fil(&desk, move |runtime| {
+        runtime.timeline(cursor.as_ref(), limit)
+    })
+    .await
+    {
+        Err(sature) => commande_refusee(&sature),
+        Ok(Ok(page)) => json_page(&page, |entry| {
             format!(
                 "{{\"position\":{},\"event_type\":\"{}\",\"stream_id\":\"{}\"}}",
                 entry.position, entry.event_type, entry.stream_id
             )
         }),
-        Err(error) => refusal(error),
+        Ok(Err(error)) => refusal(error),
     }
 }
 
 async fn workers<S: EventStore + Send + Sync + 'static>(
-    State(runtime): State<Arc<Runtime<S>>>,
+    State(desk): State<Offload<S>>,
     Query(paging): Query<Paging>,
 ) -> Response {
-    match runtime.workers(paging.cursor().as_ref(), paging.limit) {
-        Ok(page) => json_page(&page, |worker| format!("\"{worker}\"")),
-        Err(error) => refusal(error),
+    let cursor = paging.cursor();
+    let limit = paging.limit;
+    match hors_du_fil(&desk, move |runtime| {
+        runtime.workers(cursor.as_ref(), limit)
+    })
+    .await
+    {
+        Err(sature) => commande_refusee(&sature),
+        Ok(Ok(page)) => json_page(&page, |worker| format!("\"{worker}\"")),
+        Ok(Err(error)) => refusal(error),
     }
 }
 
 async fn conflicts<S: EventStore + Send + Sync + 'static>(
-    State(runtime): State<Arc<Runtime<S>>>,
+    State(desk): State<Offload<S>>,
     Query(paging): Query<Paging>,
 ) -> Response {
-    match runtime.open_conflicts(paging.cursor().as_ref(), paging.limit) {
-        Ok(page) => json_page(&page, |entry| {
+    let cursor = paging.cursor();
+    let limit = paging.limit;
+    match hors_du_fil(&desk, move |runtime| {
+        runtime.open_conflicts(cursor.as_ref(), limit)
+    })
+    .await
+    {
+        Err(sature) => commande_refusee(&sature),
+        Ok(Ok(page)) => json_page(&page, |entry| {
             format!(
                 "{{\"stream_id\":\"{}\",\"declared_at\":{}}}",
                 entry.stream_id, entry.declared_at
             )
         }),
-        Err(error) => refusal(error),
+        Ok(Err(error)) => refusal(error),
     }
 }
 
@@ -140,7 +183,7 @@ async fn conflicts<S: EventStore + Send + Sync + 'static>(
 /// trouve le second plus simple. L'en-tête gagne quand les deux sont là : c'est celui que le
 /// protocole gère tout seul, donc celui qui est à jour après une reconnexion automatique.
 async fn events<S: EventStore + Send + Sync + 'static>(
-    State(runtime): State<Arc<Runtime<S>>>,
+    State(desk): State<Offload<S>>,
     headers: axum::http::HeaderMap,
     Query(paging): Query<Paging>,
 ) -> Response {
@@ -150,8 +193,9 @@ async fn events<S: EventStore + Send + Sync + 'static>(
         .map(|text| Cursor::from_wire(text.to_owned()));
     let cursor = last_event_id.or_else(|| paging.cursor());
 
-    match runtime.events_since(cursor.as_ref()) {
-        Ok(delivery) => {
+    match hors_du_fil(&desk, move |runtime| runtime.events_since(cursor.as_ref())).await {
+        Err(sature) => commande_refusee(&sature),
+        Ok(Ok(delivery)) => {
             let mut body = String::new();
             for event in &delivery.events {
                 body.push_str(&Frame::event(event));
@@ -169,7 +213,7 @@ async fn events<S: EventStore + Send + Sync + 'static>(
             )
                 .into_response()
         }
-        Err(error) => refusal(error),
+        Ok(Err(error)) => refusal(error),
     }
 }
 
@@ -195,19 +239,26 @@ async fn events<S: EventStore + Send + Sync + 'static>(
 ///
 /// L'histoire, elle, ne demande que le stream et un cursor — les deux que le client a déjà.
 async fn branch_history<S: EventStore + Send + Sync + 'static>(
-    State(runtime): State<Arc<Runtime<S>>>,
+    State(desk): State<Offload<S>>,
     Path(id): Path<String>,
     Query(paging): Query<Paging>,
 ) -> Response {
     let stream = format!("branch/{id}");
-    match runtime.branch_history(&stream, paging.cursor().as_ref(), paging.limit) {
-        Ok(page) => json_page(&page, |entry| {
+    let cursor = paging.cursor();
+    let limit = paging.limit;
+    match hors_du_fil(&desk, move |runtime| {
+        runtime.branch_history(&stream, cursor.as_ref(), limit)
+    })
+    .await
+    {
+        Err(sature) => commande_refusee(&sature),
+        Ok(Ok(page)) => json_page(&page, |entry| {
             format!(
                 "{{\"revision\":{},\"event_type\":\"{}\",\"recorded_at\":\"{}\"}}",
                 entry.revision, entry.event_type, entry.recorded_at
             )
         }),
-        Err(error) => refusal(error),
+        Ok(Err(error)) => refusal(error),
     }
 }
 
@@ -223,7 +274,7 @@ struct Bornes {
 }
 
 async fn branch_diff<S: EventStore + Send + Sync + 'static>(
-    State(runtime): State<Arc<Runtime<S>>>,
+    State(desk): State<Offload<S>>,
     Path(id): Path<String>,
     Query(bornes): Query<Bornes>,
 ) -> Response {
@@ -244,8 +295,13 @@ async fn branch_diff<S: EventStore + Send + Sync + 'static>(
         );
     };
 
-    match runtime.organisation_diff(branche, &depart, &arrivee) {
-        Ok(view) => {
+    match hors_du_fil(&desk, move |runtime| {
+        runtime.organisation_diff(branche, &depart, &arrivee)
+    })
+    .await
+    {
+        Err(sature) => commande_refusee(&sature),
+        Ok(Ok(view)) => {
             let operations: Vec<String> = view
                 .operations
                 .iter()
@@ -263,19 +319,19 @@ async fn branch_diff<S: EventStore + Send + Sync + 'static>(
         }
         // Une version inconnue est un `404` : la ressource demandée n'existe pas. Un `400` dirait
         // que la requête est mal écrite, et enverrait le client relire une syntaxe correcte.
-        Err(ReplayError::UnknownVersion { version }) => probleme(
+        Ok(Err(ReplayError::UnknownVersion { version })) => probleme(
             StatusCode::NOT_FOUND,
             "not_found",
             &format!("aucune version « {version} » dans cette branche"),
         ),
-        Err(ReplayError::Empty) => probleme(
+        Ok(Err(ReplayError::Empty)) => probleme(
             StatusCode::NOT_FOUND,
             "not_found",
             "aucune organisation n'a été fondée sur cette branche",
         ),
         // Un stream illisible est une faute du serveur, pas du client : le dire autrement enverrait
         // le client corriger ce qu'il n'a pas écrit.
-        Err(autre) => probleme(
+        Ok(Err(autre)) => probleme(
             StatusCode::INTERNAL_SERVER_ERROR,
             "internal",
             &autre.to_string(),
@@ -284,9 +340,12 @@ async fn branch_diff<S: EventStore + Send + Sync + 'static>(
 }
 
 async fn projections_status<S: EventStore + Send + Sync + 'static>(
-    State(runtime): State<Arc<Runtime<S>>>,
+    State(desk): State<Offload<S>>,
 ) -> Response {
-    let readiness = runtime.readiness();
+    let readiness = match hors_du_fil(&desk, Runtime::readiness).await {
+        Ok(readiness) => readiness,
+        Err(sature) => return commande_refusee(&sature),
+    };
     let lignes: Vec<String> = readiness
         .projections
         .iter()
@@ -441,7 +500,7 @@ impl WorkerBody {
 /// quoi ça tournerait » n'est pas « rien pour toi », et un worker qui recevrait `204` attendrait en
 /// silence un ordonnanceur qui, lui, avait du travail.
 async fn claim<S: EventStore + Send + Sync + 'static>(
-    State(runtime): State<Arc<Runtime<S>>>,
+    State(desk): State<Offload<S>>,
     headers: axum::http::HeaderMap,
     body: String,
 ) -> Response {
@@ -453,11 +512,17 @@ async fn claim<S: EventStore + Send + Sync + 'static>(
         Err(error) => return commande_refusee(&error),
     };
     let now = maintenant();
-    match body.submitted(now).and_then(|submitted| {
-        runtime.lep_claim(credential, body.manifest.as_deref(), &submitted, now)
-    }) {
-        Ok(None) => StatusCode::NO_CONTENT.into_response(),
-        Ok(Some(offer)) => match serde_json::to_string(&offer) {
+    let credential = credential.to_owned();
+    match hors_du_fil(&desk, move |runtime| {
+        body.submitted(now).and_then(|submitted| {
+            runtime.lep_claim(&credential, body.manifest.as_deref(), &submitted, now)
+        })
+    })
+    .await
+    {
+        Err(sature) => commande_refusee(&sature),
+        Ok(Ok(None)) => StatusCode::NO_CONTENT.into_response(),
+        Ok(Ok(Some(offer))) => match serde_json::to_string(&offer) {
             Ok(body) => json(StatusCode::OK, body),
             Err(error) => probleme(
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -465,13 +530,13 @@ async fn claim<S: EventStore + Send + Sync + 'static>(
                 &error.to_string(),
             ),
         },
-        Err(error) => commande_refusee(&error),
+        Ok(Err(error)) => commande_refusee(&error),
     }
 }
 
 /// `POST /lep/v1/events` — §15.6, les événements que le worker fait remonter.
 async fn worker_events<S: EventStore + Send + Sync + 'static>(
-    State(runtime): State<Arc<Runtime<S>>>,
+    State(desk): State<Offload<S>>,
     headers: axum::http::HeaderMap,
     body: String,
 ) -> Response {
@@ -483,18 +548,23 @@ async fn worker_events<S: EventStore + Send + Sync + 'static>(
         Err(error) => return commande_refusee(&error),
     };
     let now = maintenant();
-    match body
-        .submitted(now)
-        .and_then(|submitted| runtime.lep_events(credential, body.events.clone(), &submitted, now))
+    let credential = credential.to_owned();
+    match hors_du_fil(&desk, move |runtime| {
+        body.submitted(now).and_then(|submitted| {
+            runtime.lep_events(&credential, body.events.clone(), &submitted, now)
+        })
+    })
+    .await
     {
-        Ok(()) => StatusCode::ACCEPTED.into_response(),
-        Err(error) => commande_refusee(&error),
+        Err(sature) => commande_refusee(&sature),
+        Ok(Ok(())) => StatusCode::ACCEPTED.into_response(),
+        Ok(Err(error)) => commande_refusee(&error),
     }
 }
 
 /// `POST /lep/v1/result` — l'achèvement d'une tentative, et le fait que `W23.b` compte.
 async fn result<S: EventStore + Send + Sync + 'static>(
-    State(runtime): State<Arc<Runtime<S>>>,
+    State(desk): State<Offload<S>>,
     headers: axum::http::HeaderMap,
     body: String,
 ) -> Response {
@@ -514,12 +584,16 @@ async fn result<S: EventStore + Send + Sync + 'static>(
         session_id: body.session_id.clone(),
         output: body.output.clone(),
     };
-    match body
-        .submitted(now)
-        .and_then(|submitted| runtime.lep_result(credential, rendered, &submitted, now))
+    let credential = credential.to_owned();
+    match hors_du_fil(&desk, move |runtime| {
+        body.submitted(now)
+            .and_then(|submitted| runtime.lep_result(&credential, rendered, &submitted, now))
+    })
+    .await
     {
-        Ok(()) => StatusCode::ACCEPTED.into_response(),
-        Err(error) => commande_refusee(&error),
+        Err(sature) => commande_refusee(&sature),
+        Ok(Ok(())) => StatusCode::ACCEPTED.into_response(),
+        Ok(Err(error)) => commande_refusee(&error),
     }
 }
 
@@ -532,7 +606,7 @@ async fn result<S: EventStore + Send + Sync + 'static>(
 /// privée du worker, liée à son `worker_id`, à **cet** endpoint et à un nonce à usage unique — et le
 /// token d'enrôlement, court-terme et consommé au premier usage.
 async fn enroll<S: EventStore + Send + Sync + 'static>(
-    State(runtime): State<Arc<Runtime<S>>>,
+    State(desk): State<Offload<S>>,
     headers: axum::http::HeaderMap,
     body: String,
 ) -> Response {
@@ -559,8 +633,14 @@ async fn enroll<S: EventStore + Send + Sync + 'static>(
         .unwrap_or_default();
     let endpoint = format!("http://{hote}");
 
-    match runtime.lep_enroll(&requete.request, &endpoint, &submitted, maintenant()) {
-        Ok(credential) => match serde_json::to_string(&credential) {
+    let maintenant = maintenant();
+    match hors_du_fil(&desk, move |runtime| {
+        runtime.lep_enroll(&requete.request, &endpoint, &submitted, maintenant)
+    })
+    .await
+    {
+        Err(sature) => commande_refusee(&sature),
+        Ok(Ok(credential)) => match serde_json::to_string(&credential) {
             Ok(rendu) => json(StatusCode::OK, rendu),
             Err(error) => probleme(
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -568,7 +648,7 @@ async fn enroll<S: EventStore + Send + Sync + 'static>(
                 &error.to_string(),
             ),
         },
-        Err(error) => commande_refusee(&error),
+        Ok(Err(error)) => commande_refusee(&error),
     }
 }
 

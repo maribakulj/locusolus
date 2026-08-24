@@ -52,6 +52,7 @@ pub mod journal;
 pub mod lep;
 pub mod messaging;
 pub mod mission;
+pub mod offload;
 pub mod organisation;
 pub mod outcome;
 pub mod query;
@@ -71,6 +72,7 @@ pub use lep::{
     Offer, Rendered, Report, WorkerRegistry, stream_of_task,
 };
 pub use messaging::{MessageContext, Send};
+pub use offload::{Budget, MAX_BLOCKING, Offload, Offloaded, Permit};
 pub use organisation::{
     Commit, Create, OrganisationContext, ReplayError, replay, resolve, resolve_at, stream_of,
 };
