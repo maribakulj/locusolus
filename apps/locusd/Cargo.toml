@@ -22,6 +22,9 @@ path = "src/main.rs"
 # runtime asynchrone et le cadre HTTP après leur ADR. `CLAUDE.md` : « construire domain/protocol/
 # event-store d'abord, avec des ports purs ».
 [dependencies]
+# ADR 0034 : les dix octets d\'aléa d\'un ULID. Déjà dans l\'arbre par `rand` ; le déclarer
+# n\'ajoute aucun paquet — mesuré dans `Cargo.lock`.
+getrandom = "0.4"
 # W20.g : les premières dépendances de transport, autorisées par l'ADR 0018 et portées par
 # `dependencies.json`. Les features de `tokio` sont énumérées une par une — `full` apporte `process`
 # et `signal`, exactement ce que la règle 4 de `boundaries.json` interdit à `locusd`, et

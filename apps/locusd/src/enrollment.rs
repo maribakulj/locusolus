@@ -399,8 +399,18 @@ impl<S: EventStore> Runtime<S> {
                 ),
             });
         }
+        // La clé d'idempotence d'un enrôlement est son **nonce** — `W20.x`.
+        //
+        // Pas un champ de plus à remplir : le nonce est déjà ce qui rend une demande unique, il est
+        // **signé**, et le daemon en tient le registre (`nonce_seen`). Exiger en plus une clé
+        // choisie par le worker demanderait deux valeurs pour une garantie, et la moins sûre des
+        // deux — un worker peut réutiliser sa clé, il ne peut pas réutiliser son nonce.
+        //
+        // Trouvé en enrôlant un worker réel : `canterel` n'envoie pas d'`idempotency_key`, et
+        // `CommandEnvelope::mutating` la refuse vide. Le worker n'avait pas tort : il avait déjà
+        // envoyé ce qu'il fallait, sous un autre nom.
         let submitted = &Submitted {
-            idempotency_key: enrolling.idempotency_key.clone(),
+            idempotency_key: request.nonce.clone(),
             project_id: grant.project_id,
             occurred_at: enrolling.occurred_at,
         };

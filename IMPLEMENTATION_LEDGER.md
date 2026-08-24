@@ -13614,3 +13614,62 @@ définitive : l'item aura ça à corriger aussi.
 
 **Prochain item.** `W20.x`. Il demande un ADR — quel crate pour l'entropie, et ses transitives
 mesurées — ce que `CLAUDE.md` exige pour toute dépendance externe du workspace Rust.
+
+## 2026-08-24 — W20.x — La source d'entropie, et le premier worker réel enrôlé
+
+**Périmètre.** `docs/adr/0034-la-source-d-entropie.md` (nouveau), `dependencies.json` (`getrandom`),
+`apps/locusd/Cargo.toml`, `apps/locusd/src/identities.rs` (nouveau), `apps/locusd/src/lib.rs`,
+`apps/locusd/src/lep.rs` (`Desk::identifying`), `apps/locusd/src/main.rs`,
+`apps/locusd/src/enrollment.rs` (le nonce sert de clé d'idempotence),
+`apps/locusd/tests/enrollment.rs`, `docs/10_V1_ROADMAP.md`.
+
+**Le résultat qui compte.** Un worker `canterel` **réel** s'enrôle contre un `locusd` **réel** :
+
+```
+enrôlé : canterel-ce06e897-a1d3-492b-aa5b-e2d08ff9bb74
+scope : worker
+```
+
+C'est le premier acte de `W12.d`, et il traverse la chaîne pour la première fois.
+
+**Ce que l'ADR 0034 a mesuré.** `CLAUDE.md` exige qu'un ADR **mesure** les transitives d'une
+dépendance. `getrandom` 0.4.3 est **déjà dans `Cargo.lock`**, tiré par `rand` via
+`postgres-protocol` et `tokio-postgres` (ADR 0030) ; ses quatre dépendances propres — `cfg-if`,
+`libc`, `r-efi`, `rand_core` — y sont toutes aussi. **Le déclarer ajoute zéro paquet.** La question
+« quel crate » n'avait pas de réponse évidente a priori ; c'est la mesure qui l'a rendue évidente,
+et c'est exactement ce que la règle est là pour produire.
+
+Écartés, avec leur raison : `rand` est un **générateur**, et un daemon n'a jamais de raison
+d'utiliser un générateur ensemencé pour des identifiants qui distinguent des actes institutionnels ;
+`/dev/urandom` lu à la main serait un pari sur l'hôte, ce que « aucune dépendance implicite à une
+machine de développeur » interdit.
+
+**Décisions prises.**
+
+1. **Le défaut continue de refuser.** `SystemIdentities` ne remplace pas `NoIdentities` : c'est le
+   binaire qui câble la source. Si la source système devenait le défaut, plus personne ne
+   rencontrerait ce refus, et le jour où une plateforme sans entropie apparaîtrait, le message qui
+   explique quoi faire aurait disparu du chemin. Un refus qu'on ne peut plus atteindre est un refus
+   qu'on ne peut plus maintenir.
+2. **Une panne d'entropie est une panne, jamais un identifiant de secours.** Retomber sur un
+   compteur, l'horloge ou des zéros produirait des identifiants prévisibles ou colisionnants, donc
+   deux actes institutionnels sous le même nom. Le refus ne coûte qu'une requête.
+3. **Le nonce est la clé d'idempotence d'un enrôlement.** Trouvé en enrôlant un worker réel :
+   `canterel` n'envoie pas d'`idempotency_key`, et `CommandEnvelope::mutating` la refuse vide. Le
+   worker n'avait pas tort — il avait déjà envoyé ce qu'il fallait, sous un autre nom. Exiger les
+   deux demanderait deux valeurs pour une garantie, et la moins sûre des deux : un worker peut
+   réutiliser sa clé, il ne peut pas réutiliser son nonce, dont le daemon tient le registre.
+
+**Une erreur corrigée par la lecture.** La première rédaction d'`identities.rs` appelait un
+`Timestamp::now()` qui n'existe pas — `packages/protocol` n'offre que `from_millis` et `parse`. Le
+module calcule l'instant comme `http::maintenant`, et la note est dans le code.
+
+**Une affirmation de la roadmap corrigée par l'ADR.** La ligne `W20.x` annonçait qu'il fallait aussi
+changer le code de statut, « `503` donc réessaie, donc un worker qui boucle sur une panne définitive
+». **C'est faux** : `Unavailable` veut dire « ce service ne peut pas répondre maintenant, et cela se
+répare par configuration », ce qui est exactement la situation. La décision 3 de l'ADR le dit plutôt
+que de traîner l'erreur.
+
+**Prochain item.** `W12.d`. Son premier acte passe ; la suite — proposer une tâche, la mettre en
+file, la réclamer, l'exécuter, hasher les artefacts, commettre, lire le graphe — s'écrit dans
+`tests/e2e/` sur `startChain`.

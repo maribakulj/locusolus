@@ -50,6 +50,7 @@ pub mod epistemic;
 pub mod error;
 pub mod handler;
 pub mod http;
+pub mod identities;
 pub mod journal;
 pub mod lep;
 pub mod messaging;
