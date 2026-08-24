@@ -8,19 +8,32 @@
 //! voit. Le code de sortie `1` et l'absence d'écoute disent la même chose, et un superviseur peut
 //! agir sur l'un comme sur l'autre.
 //!
-//! # La surface est en lecture seule
+//! # La surface écrit, depuis `W20.k` — et ce commentaire disait le contraire
 //!
-//! `W20.g` sert §22.4 et §22.1. Aucune commande de §22.3 : `Transaction::submit` prend `&mut self`,
-//! et la couche HTTP ne tient qu'un `&Runtime`. Sérialiser les écritures — verrou, file, acteur —
-//! est une décision qui mérite son item.
+//! Il annonçait « aucune commande de §22.3 : `Transaction::submit` prend `&mut self` ». `W20.h` l'a
+//! levé, et cette phrase a survécu six sprints à la condition qu'elle décrivait. C'est le
+//! **troisième** fichier où elle traînait, après `http.rs` et `branch.rs`, corrigés en `W20.k` : une
+//! affirmation fausse ne se propage pas par malveillance mais par copie, et elle ne s'efface que là
+//! où quelqu'un la relit.
+//!
+//! `W20.k` sert les trois chemins de §15.2, qui écrivent, par la transaction.
+//!
+//! # Quel journal, et pourquoi ce n'est pas toujours celui qu'on veut
+//!
+//! `W20.m` : le backend vient du **profil de déploiement**. Un profil qui promet la durabilité à ses
+//! clients ne démarre pas sur un journal volatile — voir [`locusd::journal`]. Le choix a lieu ici,
+//! dans le binaire, et `composition.rs` ne nomme aucun backend concret : c'est la seule chose que le
+//! paramètre de type de `Runtime<S>` était là pour garantir, et un test l'éprouve enfin.
 
 use std::process::ExitCode;
 use std::sync::Arc;
 
 use locus_broker::unix::UnixSocketBroker;
+use locus_event_store::{EventStore, PostgresEventStore};
 use locusd::broker::Standing;
 use locusd::composition::Runtime;
 use locusd::http::{DEFAULT_BIND, router, served};
+use locusd::journal::Choice;
 
 /// Où le broker est attendu quand rien ne le dit.
 ///
@@ -29,8 +42,43 @@ use locusd::http::{DEFAULT_BIND, router, served};
 /// ferait échouer la première mise en service sur une variable d'environnement oubliée.
 const DEFAULT_BROKER_SOCKET: &str = "/tmp/locus/broker.sock";
 
+/// Le profil supposé quand rien ne le dit — celui qui promet le moins.
+///
+/// `personal-local` et non le plus capable : un défaut qui promettrait la durabilité ferait démarrer
+/// un daemon volatile sous un profil qui jure le contraire, et c'est exactement ce que `W20.m`
+/// existe pour empêcher. Le défaut le plus prudent est celui qui n'engage rien.
+const DEFAULT_PROFILE: &str = "personal-local";
+
 fn main() -> ExitCode {
-    let runtime = Runtime::in_memory();
+    let profile = std::env::var("LOCUSD_PROFILE").unwrap_or_else(|_| DEFAULT_PROFILE.to_owned());
+    let choice = match Choice::decide(&profile, std::env::var("LOCUSD_JOURNAL").ok()) {
+        Ok(choice) => choice,
+        Err(refusal) => {
+            eprintln!("locusd : {refusal}");
+            return ExitCode::FAILURE;
+        }
+    };
+    println!("locusd : profil {profile} — {}", choice.describe());
+
+    match choice {
+        Choice::Volatile => demarrer(Runtime::in_memory()),
+        Choice::Durable(url) => match PostgresEventStore::connect(&url) {
+            // L'adresse n'est **pas** citée dans le refus : une chaîne de connexion porte un mot de
+            // passe, et un message d'erreur le mettrait dans tous les journaux de supervision.
+            Err(error) => {
+                eprintln!("locusd : journal durable indisponible — {error}");
+                ExitCode::FAILURE
+            }
+            Ok(store) => demarrer(Runtime::assemble(store, locus_policy::Policy::new())),
+        },
+    }
+}
+
+/// Démarrer sur le journal choisi.
+///
+/// Générique sur `S`, et c'est ce qui permet au choix de vivre dans le binaire : `composition.rs`
+/// ne nomme aucun backend, `http.rs` non plus, et substituer un driver ne touche ni l'un ni l'autre.
+fn demarrer<S: EventStore + Send + Sync + 'static>(runtime: Runtime<S>) -> ExitCode {
     let readiness = runtime.catch_up();
     println!("{readiness}");
 
@@ -68,6 +116,11 @@ fn main() -> ExitCode {
         }
     };
 
+    // `W20.p` : avec un journal durable, ces handlers appellent un driver **bloquant** depuis un fil
+    // du runtime asynchrone. C'est une propriété de latence sous charge, pas une faute de
+    // correction, et l'ADR 0030 décision 1 nomme déjà `spawn_blocking` comme réponse. L'écrire ici
+    // demanderait de changer la convention d'appel de toute la couche HTTP : c'est un item, pas un
+    // coin de celui-ci.
     runtime_async.block_on(async move {
         let listener = match tokio::net::TcpListener::bind(&adresse).await {
             Ok(listener) => listener,

@@ -46,6 +46,7 @@ pub mod cursor;
 pub mod error;
 pub mod handler;
 pub mod http;
+pub mod journal;
 pub mod lep;
 pub mod messaging;
 pub mod organisation;
