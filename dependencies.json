@@ -36,6 +36,12 @@
       "adr": "0030",
       "why": "Le driver du journal canonique (W20.i). Le port EventStore est synchrone ; `postgres` est le wrapper synchrone de `tokio-postgres` et coûte **un** paquet transitif de plus que lui — 63 contre 62, mesurés arbre complet avec `with-serde_json-1` et sans TLS. `sqlx` en coûterait 115 et exigerait une base accessible pour *compiler*. Feature `with-serde_json-1` seule : la charge d'un événement est du JSON, et les vingt autres features `with-*` tirent chacune un écosystème de types dont aucun n'entre dans l'enveloppe de §10.1.",
       "scope": "packages/event-store"
+    },
+    {
+      "crate": "ed25519-dalek",
+      "adr": "0031",
+      "why": "Vérifier la signature d'enrôlement de §7.2 côté serveur (W20.n). Le client de W2.4 signe en Ed25519 avec une clé publique SPKI DER en base64. `ring` coûterait 8 paquets contre 25 — et tirerait un compilateur C, ce que l'ADR 0020 a déjà refusé pour `blake3` ; l'argument vaut plus fort ici, une dépendance de build non-Rust traversant tous les profils de §27.1. Neuf des vingt-cinq sont déjà dans le workspace par `sha2`, donc le coût marginal réel est de seize. Features nommées : `pkcs8` pour lire le SPKI sans découper les octets à la main, `alloc` pour les erreurs. Ni `rand_core` — ce module ne génère aucune clé — ni les défauts.",
+      "scope": "apps/locusd"
     }
   ],
   "forbiddenFeatures": [

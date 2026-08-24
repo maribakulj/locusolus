@@ -43,6 +43,7 @@ pub mod broker;
 pub mod command;
 pub mod composition;
 pub mod cursor;
+pub mod enrollment;
 pub mod error;
 pub mod handler;
 pub mod http;

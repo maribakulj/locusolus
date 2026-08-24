@@ -45,6 +45,7 @@ use serde::Deserialize;
 
 use crate::composition::Runtime;
 use crate::cursor::{Collection, Cursor, CursorError};
+use crate::enrollment::EnrollmentRequest;
 use crate::error::{CommandError, Family};
 use crate::lep::{Rendered, Submitted};
 use crate::organisation::ReplayError;
@@ -88,6 +89,7 @@ where
         .route(CLAIM_PATH, post(claim::<S>))
         .route(EVENTS_PATH, post(worker_events::<S>))
         .route(RESULT_PATH, post(result::<S>))
+        .route(ENROLL_PATH, post(enroll::<S>))
         .with_state(runtime)
 }
 
@@ -349,6 +351,9 @@ pub const CLAIM_PATH: &str = "/lep/v1/claim";
 pub const EVENTS_PATH: &str = "/lep/v1/events";
 /// Voir [`CLAIM_PATH`].
 pub const RESULT_PATH: &str = "/lep/v1/result";
+/// L'enrôlement de §7.2 — `W20.n`. Le seul chemin qui se parle **sans** créance, par construction :
+/// c'est celui par lequel on en obtient une.
+pub const ENROLL_PATH: &str = "/lep/v1/enroll";
 
 /// La créance portée par `Authorization: Bearer …`, si elle y est.
 ///
@@ -506,6 +511,64 @@ async fn result<S: EventStore + Send + Sync + 'static>(
     }
 }
 
+/// `POST /lep/v1/enroll` — §7.2, `W20.n`.
+///
+/// # Le seul chemin sans porteur, et ce n'est pas un trou
+///
+/// Les trois autres exigent `Authorization: Bearer`. Celui-ci ne peut pas : c'est par lui qu'on
+/// obtient la créance. Ce qui le protège est la **signature** — la demande est signée par la clé
+/// privée du worker, liée à son `worker_id`, à **cet** endpoint et à un nonce à usage unique — et le
+/// token d'enrôlement, court-terme et consommé au premier usage.
+async fn enroll<S: EventStore + Send + Sync + 'static>(
+    State(runtime): State<Arc<Runtime<S>>>,
+    headers: axum::http::HeaderMap,
+    body: String,
+) -> Response {
+    let requete: EnrollmentBody = match serde_json::from_str(&body) {
+        Ok(lu) => lu,
+        Err(error) => {
+            return commande_refusee(&CommandError::Validation {
+                field: "body".to_owned(),
+                detail: format!("corps illisible : {error}"),
+            });
+        }
+    };
+    let submitted = match requete.worker.submitted(maintenant()) {
+        Ok(submitted) => submitted,
+        Err(error) => return commande_refusee(&error),
+    };
+
+    // L'endpoint que le worker a signé doit être **celui-ci**. Le lire de l'en-tête `Host` plutôt
+    // que d'une configuration : c'est l'adresse à laquelle il a réellement parlé, et une valeur
+    // configurée pourrait diverger de celle qui sert.
+    let hote = headers
+        .get(axum::http::header::HOST)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default();
+    let endpoint = format!("http://{hote}");
+
+    match runtime.lep_enroll(&requete.request, &endpoint, &submitted, maintenant()) {
+        Ok(credential) => match serde_json::to_string(&credential) {
+            Ok(rendu) => json(StatusCode::OK, rendu),
+            Err(error) => probleme(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "internal",
+                &error.to_string(),
+            ),
+        },
+        Err(error) => commande_refusee(&error),
+    }
+}
+
+/// Le corps d'un enrôlement : la demande signée, et ce que tout worker envoie par ailleurs.
+#[derive(Debug, Deserialize)]
+struct EnrollmentBody {
+    #[serde(flatten)]
+    worker: WorkerBody,
+    #[serde(flatten)]
+    request: EnrollmentRequest,
+}
+
 /// Lire un corps de worker, ou rendre le refus qui dit pourquoi il n'est pas lisible.
 ///
 /// Écrit à la main plutôt qu'avec l'extracteur `Json` d'`axum` : `dependencies.json` écarte sa
@@ -616,7 +679,7 @@ pub const DEFAULT_BIND: &str = "127.0.0.1:8787";
 /// fichier : ajouter une route sans l'annoncer fait rougir, qu'elle soit une `Collection` ou non.
 /// Le déstructurage reste, pour ce qu'il couvre — un nom, pas seulement un nombre.
 #[must_use]
-pub fn served() -> [&'static str; 10] {
+pub fn served() -> [&'static str; 11] {
     let [timeline, workers, conflicts, events, history] = Collection::ALL.map(Collection::name);
     [
         timeline,
@@ -632,5 +695,6 @@ pub fn served() -> [&'static str; 10] {
         CLAIM_PATH,
         EVENTS_PATH,
         RESULT_PATH,
+        ENROLL_PATH,
     ]
 }

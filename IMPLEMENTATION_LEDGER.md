@@ -12821,3 +12821,70 @@ du workspace, et il portait déjà les cinq profils de §27.1.
 
 **Prochain item.** `W20.n`, `W20.o` — les deux dernières conditions de `W12.d` —, puis `W20.p`,
 `W20.j`, `W23.a`, `W23.b`, `W23.c`, `W4.i`.
+
+## 2026-08-24 — W20.n — L'enrôlement servi, et une variante qui n'existait que sur le papier
+
+**Périmètre.** `apps/locusd/src/enrollment.rs` (neuf), `apps/locusd/src/lep.rs` — le registre
+apprend à enrôler et à révoquer, le `Desk` porte le port des tokens —, `apps/locusd/src/http.rs` —
+la route `/lep/v1/enroll` —, `apps/locusd/src/lib.rs`, `apps/locusd/Cargo.toml`,
+`apps/locusd/tests/enrollment.rs` (neuf, 9 tests), `apps/locusd/tests/http.rs`, `dependencies.json`,
+`docs/adr/0031-la-verification-d-enrolement.md` (neuf), `docs/10_V1_ROADMAP.md`.
+
+**Tests exécutés.** `cargo test -p locusd --test enrollment` : **9 verts**.
+`cargo clippy --all-targets` : zéro avertissement. `npm run check` : les treize portes. Passe de
+mutation : huit mutants, huit tués.
+
+**Ce que l'item corrige.** `W2.4` avait livré la moitié cliente de §7.2 et **personne ne
+l'écoutait**. `W20.k` a dû livrer un `WorkerRegistry` que seul un test remplit : aucun worker réel
+ne pouvait obtenir de créance, donc les trois chemins de §15.2 étaient injoignables en pratique. Un
+worker signe, s'enrôle, et réclame — la chaîne est testée d'un bout à l'autre sur un vrai socket,
+avec une vraie signature Ed25519 produite par la bibliothèque que `canterel` emploie, pas par un
+double.
+
+**`ed25519-dalek` plutôt que `ring`, et l'argument était déjà dans le dépôt.** 25 paquets contre 8 —
+et `ring` tire un compilateur C, ce que l'ADR 0020 a refusé pour `blake3`. L'argument vaut plus fort
+ici : une dépendance de build non-Rust traverse tous les profils de §27.1, y compris ceux qui
+compilent ailleurs que sur la machine d'un développeur. Neuf des vingt-cinq sont déjà là par `sha2`
+; le coût marginal réel est de seize.
+
+**Une variante d'énumération qui n'existait que sur le papier.** `Rejection::WrongEndpoint` — « la
+demande est signée pour un autre serveur » — était **inatteignable** : la charge est reconstruite
+avec _notre_ endpoint, donc une demande signée ailleurs échoue à la vérification et se lit
+`BadSignature`. La distinguer demanderait que le client renvoie l'endpoint qu'il a signé,
+c'est-à-dire qu'on le croie sur parole, et cela ne servirait qu'à dire lequel des deux a échoué — un
+oracle.
+
+Elle a été **retirée** plutôt que gardée « au cas où » : `CLAUDE.md` refuse une valeur d'énumération
+qui annonce un effet dont personne n'est le consommateur. Ce que la garde protège reste vrai —
+l'endpoint est bien dans la signature —, c'est le refus qui n'a pas de nom propre.
+
+**L'ordre des vérifications est une propriété, pas une commodité.** Signature, **puis** nonce,
+**puis** token. Une demande mal signée ne consomme ni l'un ni l'autre : sinon n'importe qui épuise
+les tokens d'un worker en envoyant du bruit signé n'importe comment — un déni de service qui ne
+demande aucune clé. Un test enrôle _après_ l'attaque pour le tenir.
+
+**Deux tests disaient plus que ce qu'ils vérifiaient, et la mutation les a trouvés.**
+
+- _« un nonce rejoué est refusé »_ envoyait deux fois la même demande. Elle **était** refusée — par
+  le **token**, consommé au premier passage. La garde de nonce n'était éprouvée nulle part. Un
+  second token est désormais émis avant le rejeu : il ne reste que le nonce pour expliquer le refus.
+- _« le journal ne porte aucun secret »_ lisait `/timeline`, qui ne rend **pas** de charge. Le test
+  portait ce nom et ne regardait rien de ce qui pourrait en contenir. La charge se lit maintenant au
+  décideur, seul endroit où elle existe avant d'être scellée — aucune query de §22.4 ne l'expose, et
+  lui ajouter une porte « pour les tests » ouvrirait le chemin que `W20.b` a fermé.
+
+**Et une correction que j'ai crue faite sans l'être.** Le remplacement du second test n'a pas matché
+— le texte visé avait été reformaté par `cargo fmt` entre-temps — et le script a rendu la main sans
+rien dire. J'ai relancé la mutation en croyant avoir corrigé ; le mutant a survécu une seconde fois,
+et c'est **lui** qui a signalé que rien n'avait changé. Une substitution textuelle qui ne trouve pas
+sa cible doit crier ; celle-ci s'est tue, et sans la passe de mutation la correction serait restée
+imaginaire. Le remplacement se fait désormais par frontière de fonction.
+
+**Écart avec la spec.** Ni rotation de créance ni expiration vérifiée à l'usage — ADR 0031
+décision 5. `expires_at` vaut `null`, ce qui est **exact** et se lit, au lieu d'une date que rien
+n'honore.
+
+**Ce qui reste de `W12.d`.** `W20.o` : rien ne crée encore de mission. C'est la dernière des trois
+conditions.
+
+**Prochain item.** `W20.o`, puis `W20.p`, `W20.j`, `W23.a`, `W23.b`, `W23.c`, `W4.i`.

@@ -428,6 +428,7 @@ fn nom_de_constante(chemin: &str) -> &'static str {
         "/lep/v1/claim" => "CLAIM_PATH",
         "/lep/v1/events" => "EVENTS_PATH",
         "/lep/v1/result" => "RESULT_PATH",
+        "/lep/v1/enroll" => "ENROLL_PATH",
         _ => "\u{0}",
     }
 }
