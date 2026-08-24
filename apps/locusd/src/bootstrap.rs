@@ -45,7 +45,7 @@
 //! arrive au démarrage, et il nomme la variable.
 
 use locus_protocol::Id;
-use locus_protocol::id::{Agent, Workspace};
+use locus_protocol::id::{Agent, Project, Workspace};
 
 use crate::enrollment::{Grant, MemoryTokens};
 
@@ -57,6 +57,12 @@ pub const WORKSPACE_ENV: &str = "LOCUSD_ENROLLMENT_WORKSPACE";
 
 /// Le principal sous lequel il agira.
 pub const PRINCIPAL_ENV: &str = "LOCUSD_ENROLLMENT_PRINCIPAL";
+
+/// Le projet auquel ses faits appartiendront — `W20.w`.
+///
+/// Exigé comme les deux autres, et pour la même raison : c'est l'institution qui décide où un
+/// worker écrit. Le deviner reviendrait à choisir un projet à la place de l'opérateur.
+pub const PROJECT_ENV: &str = "LOCUSD_ENROLLMENT_PROJECT";
 
 /// Le scope accordé à un worker enrôlé par amorçage.
 ///
@@ -105,6 +111,7 @@ pub fn read(
 
     let workspace_id = required_id::<Workspace>(&lookup, WORKSPACE_ENV)?;
     let principal_id = required_id::<Agent>(&lookup, PRINCIPAL_ENV)?;
+    let project_id = required_id::<Project>(&lookup, PROJECT_ENV)?;
 
     Ok(Some((
         token,
@@ -113,6 +120,7 @@ pub fn read(
             labels: Vec::new(),
             workspace_id,
             principal_id,
+            project_id,
         },
     )))
 }

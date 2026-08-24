@@ -111,12 +111,23 @@ fn demande(endpoint: &str, nonce: &str) -> EnrollmentRequest {
     }
 }
 
+/// Ce qu'un worker envoie en s'enrôlant — sans projet, puisqu'il ne le connaît pas encore.
+fn enrolling() -> locusd::lep::Enrolling {
+    locusd::lep::Enrolling {
+        idempotency_key: "idem-enrol".to_owned(),
+        proposed_project: None,
+        occurred_at: Timestamp::from_millis(1_700_000_000_000),
+    }
+}
+
 fn grant() -> Grant {
     Grant {
         scope: vec!["worker".to_owned()],
         labels: Vec::new(),
         workspace_id: id::<Workspace>(2),
         principal_id: id::<Agent>(3),
+        // `W20.w` : le projet vient du grant, jamais de la demande du worker.
+        project_id: id::<Project>(4),
     }
 }
 
@@ -444,17 +455,12 @@ fn la_verification_a_deux_refus_et_pas_trois() {
 #[test]
 fn un_worker_revoque_perd_ses_chemins_et_garde_son_histoire() {
     let (runtime, registre) = daemon();
-    let submitted = Submitted {
-        idempotency_key: "idem-enrol".to_owned(),
-        project_id: id::<Project>(4),
-        occurred_at: Timestamp::from_millis(1_700_000_000_000),
-    };
     let endpoint = "http://locus.example";
     let creance = runtime
         .lep_enroll(
             &demande(endpoint, "n-1"),
             endpoint,
-            &submitted,
+            &enrolling(),
             Timestamp::from_millis(1_700_000_000_000),
         )
         .expect("l'enrôlement aboutit");
@@ -469,9 +475,13 @@ fn un_worker_revoque_perd_ses_chemins_et_garde_son_histoire() {
             WORKER,
             "clé compromise",
             &grant(),
+            // La révocation, elle, est un acte d'un worker **déjà enrôlé** : elle connaît son
+            // projet et le dit. C'est la distinction que `W20.w` a rendue visible en séparant les
+            // deux types.
             &Submitted {
                 idempotency_key: "idem-revoc".to_owned(),
-                ..submitted
+                project_id: id::<Project>(4),
+                occurred_at: Timestamp::from_millis(1_700_000_000_000),
             },
             Timestamp::from_millis(1_700_000_100_000),
         )
@@ -544,4 +554,83 @@ fn le_fait_d_enrolement_ne_porte_aucun_secret() {
     // La clé **publique**, elle, y est : c'est un fait du registre, et pas un secret.
     assert!(charge.contains(&demande(endpoint, "n-1").public_key));
     assert!(charge.contains(WORKER));
+}
+
+// ---------------------------------------------------------------------------------------------
+// `W20.w` — le projet vient du grant, jamais de la demande.
+// ---------------------------------------------------------------------------------------------
+
+/// **Un worker qui propose un autre projet que celui de son grant est refusé.**
+///
+/// Refusé, et non ignoré. L'ignorer en silence le laisserait croire qu'il écrit dans le projet
+/// qu'il a nommé, et découvrir le contraire des mois plus tard en lisant une projection qui range
+/// ses faits ailleurs. Le refus nomme le champ et dit **qui** décide.
+#[test]
+fn un_projet_propose_qui_diverge_du_grant_est_refuse() {
+    let (runtime, _) = daemon();
+    let endpoint = "http://locus.example";
+
+    let refus = runtime
+        .lep_enroll(
+            &demande(endpoint, "n-divergent"),
+            endpoint,
+            &locusd::lep::Enrolling {
+                proposed_project: Some(id::<Project>(99)),
+                ..enrolling()
+            },
+            Timestamp::from_millis(1_700_000_000_000),
+        )
+        .expect_err("le projet proposé n'est pas celui du grant");
+
+    match refus {
+        locusd::error::CommandError::Validation { field, detail } => {
+            assert_eq!(field, "project_id");
+            assert!(detail.contains("assigné par le grant"), "{detail}");
+        }
+        autre => panic!("attendu un refus de validation, reçu {autre:?}"),
+    }
+}
+
+/// **Le même projet que le grant passe — la garde ne crie pas sur ce qui est juste.**
+///
+/// Le pendant du test précédent. Un worker peut légitimement répéter le projet qu'on lui a donné,
+/// et une garde qui refuserait aussi ce cas se ferait désactiver à la première mise en service.
+#[test]
+fn un_projet_propose_identique_au_grant_passe() {
+    let (runtime, _) = daemon();
+    let endpoint = "http://locus.example";
+
+    runtime
+        .lep_enroll(
+            &demande(endpoint, "n-identique"),
+            endpoint,
+            &locusd::lep::Enrolling {
+                proposed_project: Some(id::<Project>(4)),
+                ..enrolling()
+            },
+            Timestamp::from_millis(1_700_000_000_000),
+        )
+        .expect("répéter le projet de son grant n'est pas une faute");
+}
+
+/// **Sans projet proposé, l'enrôlement aboutit et le fait atterrit dans le projet du grant.**
+///
+/// C'est le cas nominal — celui du worker `canterel` réel, qui n'envoie pas de `project_id` parce
+/// qu'il ne le connaît pas encore. Avant `W20.w`, il recevait « sans projet, un fait n'a pas
+/// d'endroit où appartenir » et ne pouvait pas s'enrôler du tout.
+#[test]
+fn sans_projet_propose_l_enrolement_aboutit() {
+    let (runtime, registre) = daemon();
+    let endpoint = "http://locus.example";
+
+    let creance = runtime
+        .lep_enroll(
+            &demande(endpoint, "n-nominal"),
+            endpoint,
+            &enrolling(),
+            Timestamp::from_millis(1_700_000_000_000),
+        )
+        .expect("l'enrôlement aboutit sans que le worker nomme un projet");
+
+    assert!(registre.identify(&creance.credential).is_some());
 }

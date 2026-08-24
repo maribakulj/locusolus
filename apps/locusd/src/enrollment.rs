@@ -33,7 +33,7 @@ use crate::command::CommandEnvelope;
 use crate::composition::Runtime;
 use crate::error::CommandError;
 use crate::handler::Decide;
-use crate::lep::{LepContext, Submitted, WorkerIdentity};
+use crate::lep::{Enrolling, LepContext, Submitted, WorkerIdentity};
 
 /// La demande signée qu'un worker envoie — la forme de `W2.4`, champ pour champ.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -83,6 +83,19 @@ pub struct Grant {
     pub labels: Vec<String>,
     /// Le workspace dans lequel les faits de ce worker s'écriront.
     pub workspace_id: Id<locus_protocol::id::Workspace>,
+    /// Le projet auquel ses faits appartiendront — `W20.w`.
+    ///
+    /// # Pourquoi il vit ici et non dans la demande du worker
+    ///
+    /// Il vivait dans `WorkerBody`, donc dans ce que le **worker envoie**, et c'est la mauvaise
+    /// moitié : un worker qui choisit son propre projet écrit dans un projet que personne ne lui a
+    /// assigné. `Grant` porte déjà `workspace_id` et `principal_id` pour exactement cette raison —
+    /// ce sont des choses que l'institution décide **de** lui, pas des choses qu'il déclare.
+    ///
+    /// La distinction n'est pas théorique : le projet est l'endroit où ses faits atterrissent, donc
+    /// ce que les projections de §9.5 rangeront sous ce nom, donc ce qu'un lecteur croira avoir été
+    /// produit là.
+    pub project_id: Id<locus_protocol::id::Project>,
     /// Le principal sous lequel il agira.
     pub principal_id: Id<locus_protocol::id::Agent>,
 }
@@ -358,7 +371,7 @@ impl<S: EventStore> Runtime<S> {
         &self,
         request: &EnrollmentRequest,
         endpoint: &str,
-        submitted: &Submitted,
+        enrolling: &Enrolling,
         now: Timestamp,
     ) -> Result<Credential, CommandError> {
         verify(request, endpoint).map_err(|rejection| refusal(&rejection))?;
@@ -370,6 +383,27 @@ impl<S: EventStore> Runtime<S> {
             .enrollment()
             .redeem(&request.enrollment_token)
             .ok_or_else(|| refusal(&Rejection::UnknownToken))?;
+
+        // Le projet vient du **grant**, jamais du corps — `W20.w`. Un worker qui en propose un
+        // autre est refusé plutôt qu'ignoré : l'ignorer en silence le laisserait croire qu'il écrit
+        // dans le projet qu'il a nommé, et découvrir le contraire des mois plus tard en lisant une
+        // projection.
+        if let Some(propose) = enrolling.proposed_project
+            && propose != grant.project_id
+        {
+            return Err(CommandError::Validation {
+                field: "project_id".to_owned(),
+                detail: format!(
+                    "« {propose} » n'est pas le projet de ce token d'enrôlement : le projet est \
+                     assigné par le grant, pas choisi par le worker"
+                ),
+            });
+        }
+        let submitted = &Submitted {
+            idempotency_key: enrolling.idempotency_key.clone(),
+            project_id: grant.project_id,
+            occurred_at: enrolling.occurred_at,
+        };
 
         // La créance est une valeur **neuve** — jamais le token. §7.2 : « un token ne devient pas le
         // secret permanent du worker ».
