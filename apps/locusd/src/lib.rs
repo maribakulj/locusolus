@@ -44,6 +44,7 @@ pub mod command;
 pub mod composition;
 pub mod cursor;
 pub mod enrollment;
+pub mod epistemic;
 pub mod error;
 pub mod handler;
 pub mod http;
@@ -62,6 +63,7 @@ pub use branch::{Approve, BranchContext, DiffView, HistoryEntry, Rollback};
 pub use command::{CommandEnvelope, Draft};
 pub use composition::{Readiness, Runtime, Wired};
 pub use cursor::{Collection, Cursor, CursorError};
+pub use epistemic::{Integrate, Stage, fact_type, fields, payload, staging};
 pub use error::{CommandError, Conflict, EmptyResourceRef, Family, ResourceRef, Revision};
 pub use handler::{Batch, Decide, IdempotencyScope, Submission};
 pub use lep::{

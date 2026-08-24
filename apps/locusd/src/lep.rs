@@ -626,6 +626,17 @@ impl Decide for Report {
                 });
             }
 
+            // Un commit de §15.7 n'est pas un événement de progression de §15.6, et le traiter comme
+            // tel a coûté cher : le fait écrit portait la sérialisation de l'événement LEP, donc ni
+            // `status` ni `validation_level`, donc la projection de §9.3 passait en quarantaine —
+            // et un daemon dont une projection est en quarantaine ne redémarre pas. Le worker, lui,
+            // recevait `202`. `W20.r` lui donne son chemin, et celui-ci écrit les deux champs.
+            if let Some(mut commit) = crate::epistemic::staging(event, task_id, &self.worker_id) {
+                commit.rank = rank;
+                drafts.extend(commit.decide(command, context)?);
+                continue;
+            }
+
             drafts.push(fact(
                 command,
                 context,
