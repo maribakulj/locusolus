@@ -38,6 +38,7 @@
 //! donc un crate, donc un ADR — voir [`branch::BranchContext`], qui préfère nommer la lacune plutôt
 //! que la combler en passant.
 
+pub mod administration;
 pub mod artifacts;
 pub mod bootstrap;
 pub mod branch;

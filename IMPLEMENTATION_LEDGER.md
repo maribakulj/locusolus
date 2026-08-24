@@ -13709,3 +13709,72 @@ CI, 458 tests unitaires et le typecheck le laissaient passer.
 `npm run check` → vert.
 
 **Prochain item.** `W12.d`, inchangé.
+
+---
+
+## 2026-08-24 — W20.y — L'administration et le stockage câblés, et la première clause de W12.d qui passe
+
+**Le constat, obtenu en exécutant.** `POST /commands/task/queue` contre un `locusd` réel rend, pour
+**toute** créance :
+
+```json
+{
+  "family": "authorization",
+  "detail": "« commander §22.3 sans autorité d'administration reconnue » n'est pas permis"
+}
+```
+
+`main.rs` câble le broker, l'émetteur de tokens et la source d'entropie ; il n'appelle jamais
+`administering`, donc `Desk` garde `NoAdministrators`, dont le contrat est de n'admettre personne.
+Les deux routes de §22.3 existent depuis `W20.s` et **personne ne peut les appeler**.
+
+Le second câblage manquant est `storing` : `NoBlobs` refuse tout dépôt en disant qu'aucun stockage
+n'est câblé. Établi par l'**absence de l'appel** — `grep` sur `main.rs` — et par le contrat du port,
+**non** par une sonde de bout en bout, qui aurait demandé un worker enrôlé. La distinction est
+écrite plutôt que fondue dans la précédente : ce qui a été observé et ce qui a été lu ne se
+rapportent pas du même ton.
+
+**La forme, pour la troisième fois.** Un port dont le défaut refuse, correct séparément, qu'aucun
+assemblage de production ne remplace — `W20.v` pour les tokens, `W20.x` pour l'entropie, celui-ci
+pour l'autorité et le stockage. Elle se reconnaît maintenant à l'œil, et l'item la traite comme les
+deux précédents plutôt que d'improviser une troisième réponse. Ce que la répétition apprend n'est
+pas « il faut moins de ports par défaut » — les défauts qui refusent sont ce qui a rendu chaque
+manque **visible et nommé**. C'est qu'un port n'est fini que quand un **assemblage de production**
+le remplace, et qu'aucun test unitaire ne peut le constater : `apps/locusd/tests/commands.rs`
+exerçait déjà les deux routes, sur un `Runtime` dont le registre était rempli par le test lui-même.
+
+**Ce qui a été décidé, et pourquoi.**
+
+1. **L'amorçage passe par l'environnement du daemon**, comme en `W20.v` et pour le même argument :
+   une route qui accorderait l'autorité d'administration demanderait une créance pour être appelée,
+   et la première créance de l'installation est précisément celle qu'on cherche à obtenir.
+   L'environnement, lui, appartient déjà à qui démarre le daemon — **aucune autorité nouvelle n'est
+   accordée**.
+2. **Une créance d'administration est un secret durable, pas un token consommable.** C'est la
+   différence avec `W20.v`, et elle a deux conséquences tenues plutôt que supposées : elle **ne
+   s'imprime jamais** — un test tient l'annonce de démarrage par les deux bouts, le secret absent et
+   le renseignement présent, parce qu'une annonce vide tiendrait la première moitié et serait
+   inutile ; et elle **n'est pas** le token d'enrôlement — deux variables, deux registres, tenu par
+   les noms **et** par le comportement.
+3. **Le helper partagé nomme son demandeur.** `required_id` sert les deux amorçages et prend en
+   paramètre la variable **à cause de laquelle** celle qu'il lit devient obligatoire. Un helper qui
+   nommerait toujours le token enverrait l'opérateur d'un amorçage d'administration chercher une
+   variable d'enrôlement qu'il n'a pas posée. Le mutant qui recode `TOKEN_ENV` en dur est tué.
+4. **Le stockage est en mémoire, et c'est dit.** Le profil `personal-local` annonce déjà que rien ne
+   survit au redémarrage pour le journal ; les octets suivent la même règle. Un profil durable
+   demandera un store durable, et `packages/artifacts` n'en a pas — c'est un item, pas un coin de
+   celui-ci, et le taire ferait croire que `MemoryBlobs` suffit partout.
+
+**Ce que ça débloque.** La **première clause de `W12.d`** — « une question produit une mission » —
+s'exécute désormais contre un daemon réel, dans `tests/e2e/chain.chain.ts` : proposer, mettre en
+file, et les deux faits `task.proposed` / `task.queued` relus au journal du `locusd` que le harnais
+a démarré. Le pendant négatif y est aussi : une créance que personne n'a posée reçoit `403`, sans
+quoi le test passerait tout aussi bien sur un daemon qui aurait remplacé le refus par « tout le
+monde administre ».
+
+**Vérifié.** 11 tests d'amorçage ; `npm run e2e` → 5 pass (2 nouveaux) ; `npm run check` → vert ;
+mutation sur `locusd` — **6 mutants posés, 0 survivant, 0 motif absent**.
+
+**Prochain item.** `W12.d`, deuxième clause : « un worker s'enregistre et est placé sur ce qu'il a
+prouvé ». Le harnais devra amorcer l'enrôlement (`W20.v`) et faire passer `canterel worker enroll`
+avant la boucle.

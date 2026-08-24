@@ -118,14 +118,47 @@ fn demarrer<S: EventStore + Send + Sync + 'static>(runtime: Runtime<S>) -> ExitC
         }
     };
 
+    // `W20.y` : l'amorçage d'administration, lu ici pour la même raison que celui d'enrôlement —
+    // une intention d'administrer que le daemon ne peut pas honorer doit refuser **avant** que le
+    // port s'ouvre, plutôt que de laisser l'opérateur lire des `403` en cherchant pourquoi.
+    let (administrators, admise) =
+        match locusd::administration::administrators(|name| std::env::var(name).ok()) {
+            Ok(amorce) => amorce,
+            Err(refus) => {
+                eprintln!("locusd : {refus}");
+                return ExitCode::FAILURE;
+            }
+        };
+    // L'annonce ne porte **jamais** la créance : elle est un secret durable, contrairement au token
+    // d'enrôlement qui se consomme. Voir `administration::annonce`, où la phrase est écrite.
+    println!(
+        "  {}",
+        admise.as_ref().map_or_else(
+            || "administration : aucune — §22.3 refuse toute créance".to_owned(),
+            locusd::administration::annonce,
+        )
+    );
+
     let desk = runtime.lep().clone();
     // `W20.x` : la source d'entropie, câblée **ici** et non dans le composition root. ADR 0034 —
     // le défaut de `Desk` refuse, et c'est ce qui garde le message qui explique quoi faire sur le
     // chemin d'un daemon qu'on aurait assemblé sans source.
+    //
+    // `W20.y` : `administering` et `storing` suivent le même principe, et leur absence était le
+    // défaut que la chaîne réelle a rendu — `NoAdministrators` refusait §22.3 à toute créance, et
+    // `NoBlobs` refusait tout dépôt en disant qu'aucun stockage n'était câblé. Les deux ports
+    // étaient corrects ; c'est le binaire qui ne les remplaçait pas.
+    //
+    // Le stockage est **en mémoire**, ce que le profil annonce déjà pour le journal : sous
+    // `personal-local`, un redémarrage perd les octets comme il perd les faits. Un profil durable
+    // demandera un store durable, et `packages/artifacts` n'en a pas encore — c'est un item, pas un
+    // coin de celui-ci, et le taire ici ferait croire que `MemoryBlobs` suffit partout.
     let runtime = runtime.with_lep(
         desk.placing(broker)
             .enrolling(Arc::new(tokens))
-            .identifying(Arc::new(locusd::identities::SystemIdentities)),
+            .identifying(Arc::new(locusd::identities::SystemIdentities))
+            .administering(Arc::new(administrators))
+            .storing(Arc::new(locusd::artifacts::MemoryBlobs::new())),
     );
 
     let adresse = std::env::var("LOCUSD_BIND").unwrap_or_else(|_| DEFAULT_BIND.to_owned());
