@@ -180,6 +180,17 @@ fn en_ci_le_driver_postgresql_est_reellement_eprouve() {
         "en CI, `LOCUS_TEST_POSTGRES` doit être défini : un verdict vert sans driver éprouvé dirait \
          « conforme » là où il faut lire « pas exécuté »"
     );
+    // **Et la connexion aboutit.** Sans cette ligne, la variable pourrait être définie et la base
+    // absente : `postgres_de_test` paniquerait, ce qui est le bon comportement, mais la preuve que
+    // le driver a tourné se lirait alors dans l'**absence** d'une panne. Une preuve par l'absence
+    // demande de reconstituer une chaîne d'inférence à la lecture d'un journal de CI ; celle-ci
+    // s'écrit en clair.
+    assert!(
+        postgres_de_test().is_some(),
+        "en CI, la base doit répondre : la preuve qu'un driver a tourné ne se déduit pas de \
+         l'absence d'erreur"
+    );
+    eprintln!("contract: backends éprouvés = mémoire + postgresql");
 }
 
 // ————————————————————————— Le test de sortie de W1.c —————————————————————————

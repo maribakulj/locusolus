@@ -12740,4 +12740,18 @@ répète parce qu'elle est structurelle : un marqueur ne peut nommer qu'un item,
 la condition n'en a pas **oblige à créer l'item**, sinon il se périme en annonçant un déblocage qui
 n'a pas lieu.
 
+**Et le contrôle de santé du service ne contrôlait rien.** Le premier passage en CI est vert, et son
+journal porte neuf `FATAL: role "root" does not exist`, une toutes les dix secondes, pendant toute
+la durée du job : `pg_isready` **nu** prend l'utilisateur du système, donc `root`, absent de
+l'image. Le contrôle n'est jamais passé au vert, donc il n'ordonnançait rien — et le commentaire
+écrit au-dessus affirmait qu'il le faisait. Une garde qui ne rapporte rien, écrite dans le sprint
+même où l'on démontre qu'un backend jamais exécuté rend le même vert qu'un backend conforme.
+`-U locus -d locus_test` la répare.
+
+**La preuve que le driver a tourné en CI ne se déduit plus.** Elle se lisait par une chaîne
+d'inférence : la variable est définie, donc `postgres_de_test` a connecté ou paniqué, donc le vert
+prouve la connexion. C'est exact et c'est fragile — une preuve par l'absence demande de reconstituer
+un raisonnement à la lecture d'un journal. Le test de CI vérifie désormais **que la connexion
+aboutit**, et la suite imprime les backends qu'elle a éprouvés.
+
 **Prochain item.** `W20.m`, `W20.n`, `W20.o`, `W20.j`, `W23.a`, `W23.b`, `W23.c`, `W4.i`.
