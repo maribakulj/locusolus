@@ -39,6 +39,7 @@
 //! que la combler en passant.
 
 pub mod artifacts;
+pub mod bootstrap;
 pub mod branch;
 pub mod broker;
 pub mod command;

@@ -13512,3 +13512,61 @@ a maintenant un répertoire, un script et un job.
 **Prochain item.** `W12.d` — le scénario lui-même. Les cinq constats de sa première tentative sont
 levés : `W20.s`, `W20.t`, `W20.u`, `W2.22` et `W12.f`. Il s'écrit dans `tests/e2e/`, en s'appuyant
 sur `startChain`.
+
+## 2026-08-24 — W20.v — L'amorçage d'enrôlement, pour que la chaîne puisse commencer
+
+**Périmètre.** `apps/locusd/src/bootstrap.rs` (nouveau), `apps/locusd/src/lib.rs`,
+`apps/locusd/src/main.rs` (lecture avant l'ouverture du port), `apps/locusd/tests/bootstrap.rs`
+(nouveau, 9 tests), `docs/10_V1_ROADMAP.md`.
+
+**Comment le manque a été trouvé.** En sondant la **chaîne réelle** montée par le harnais de
+`W12.f`, pas en lisant la roadmap : `/lep/v1/enroll` répondait, et l'émetteur de tokens du daemon
+était vide. `MemoryTokens::issue` existe depuis `W20.n` ; rien dans `main.rs` ni `http.rs` ne
+l'appelle. Un `locusd` fraîchement démarré n'enrôlait donc **personne**, et `W12.d` ne pouvait pas
+commencer — sa toute première étape est qu'un worker s'enrôle.
+
+`W20.n` avait laissé le port sans émetteur en écrivant pourquoi : « inventer un émetteur en passant
+serait bâtir une fonctionnalité pour justifier une surface ». L'appelant est maintenant nommé, et
+c'est ce qui rend l'item légitime plutôt que spéculatif.
+
+**Décisions prises.**
+
+1. **L'amorçage passe par l'environnement du daemon, pas par une route.** Une route qui émettrait
+   des tokens demanderait une créance pour être appelée, et la première créance de l'installation
+   est précisément celle qu'on cherche à obtenir ; dénouer le cercle par une exception — « cette
+   route-là ne demande rien » — ouvrirait l'enrôlement à quiconque atteint le port. L'environnement,
+   lui, appartient déjà à qui démarre le daemon : **aucune autorité nouvelle n'est accordée**,
+   puisque l'opérateur qui pose la variable peut déjà arrêter le daemon et le relancer autrement. La
+   question « qui a le droit d'enrôler » n'est donc pas tranchée ici — elle est **évitée**, et elle
+   se posera pour de bon quand une commande de §22.3 émettra des tokens au fil de l'eau, avec une
+   créance existante à vérifier.
+2. **Le défaut ne change rien.** Variable absente ou vide : aucun token, donc personne ne s'enrôle —
+   exactement le comportement d'avant. C'est ce qui rend l'ajout sûr par construction : il n'existe
+   aucune configuration où ce module rend un daemon plus ouvert qu'il ne l'était sans lui, et un
+   test le tient.
+3. **Un amorçage demandé et illisible refuse le démarrage.** Ignorer une variable malformée
+   laisserait l'opérateur chercher pendant que son worker reçoit « token inconnu ». Le refus arrive
+   au démarrage et **nomme la variable** ; un test par variable, parce que deux absences doivent
+   produire deux messages et qu'un test cumulé passerait encore s'ils se confondaient.
+4. **Le scope accordé est le plus petit** — `worker`, rien d'autre. Un amorçage plus généreux ferait
+   du chemin le plus commode le chemin le plus puissant, qui est la façon habituelle dont une porte
+   de service devient une porte d'entrée.
+
+**Un défaut de fixture, gardé plutôt que corrigé en silence.** Mon premier jet fabriquait un
+identifiant de _workspace_ pour les deux variables ; le refus — « préfixe attendu : agent » — est
+exactement ce que les identifiants typés de `packages/protocol` existent pour produire. La fixture
+était fausse, pas le code, et la note est dans le test : un test qui aurait pris l'autre pente
+aurait relâché le type pour se faire passer.
+
+**Ce que l'item ne débloque pas encore, et pourquoi c'est écrit.** L'enrôlement d'un worker réel
+échoue toujours, **une étape plus loin** :
+`« project_id » : sans projet, un fait n'a pas d'endroit où appartenir`. Le champ vit dans
+`WorkerBody`, donc dans ce que le worker envoie, et `canterel` ne l'envoie pas. C'est `W20.w`,
+ajouté à la roadmap avec son test de sortie — et la moitié à corriger est le **grant**, pas le
+worker : un worker qui choisit son propre projet écrit dans un projet que personne ne lui a assigné.
+
+**Écart avec la spec.** `docs/SPEC_V1.md` ne dit rien de l'enrôlement — il vit dans
+`canterel/docs/locus/SPEC_V1.md` §7.2. Le silence est noté plutôt que comblé : cet item n'invente
+pas de doctrine d'autorité, il ouvre une porte d'amorçage qui n'accorde rien de neuf.
+
+**Prochain item.** `W20.w`, ci-dessus. Puis `W12.d`, dont c'est la première étape.
