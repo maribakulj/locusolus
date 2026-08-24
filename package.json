@@ -24,6 +24,7 @@
     "format": "prettier --write .",
     "typecheck": "tsc --noEmit",
     "test": "node --test \"tests/**/*.test.ts\"",
+    "e2e": "node --test \"tests/e2e/**/*.chain.ts\"",
     "check:schemas": "node tooling/schemas/check-schemas.ts",
     "sdk": "node tooling/sdk/generate.ts",
     "check:generated": "node tooling/sdk/generate.ts --check",

@@ -13451,3 +13451,64 @@ l'adresse d'inférence de chaque fournisseur plutôt qu'en la supposant.
 
 **Prochain item.** `W2.23`, ci-dessus, ou tout item de la roadmap qu'une session choisira ; rien ne
 le bloque.
+
+## 2026-08-24 — W12.f — Où vit le harnais e2e, et qui y joue le worker
+
+**Périmètre.** `docs/adr/0033-ou-vit-le-harnais-e2e.md` (nouveau), `tests/e2e/harness.ts` (nouveau),
+`tests/e2e/harness.test.ts` (nouveau, 8 tests), `tests/e2e/chain.chain.ts` (nouveau, 3 tests),
+`package.json` (script `e2e`), `.github/workflows/ci.yml` (job `e2e`), `docs/10_V1_ROADMAP.md`.
+
+**Tests exécutés.** `npm test` → 226 passés, dont 8 neufs. `npm run e2e` contre la **vraie chaîne**
+→ 3 passés en 3,2 s : `locus-execd`, `locusd` et le worker `canterel` démarrent, `locusd` répond
+`200` sur `/projections/status` avec cinq projections saines, et tout s'arrête. `npm run check`
+vert.
+
+**Ce que l'ADR a mesuré plutôt qu'estimé.** La ligne demandait de mesurer les deux coûts. Résultat :
+`locusd` + `locus-execd` se construisent **à froid en 26 s** (529 Mo de `target`), le worker démarre
+en **2 s**. Le coût de construction ne sépare donc pas les options, et l'argument de « la chaîne à
+installer » sort du débat — il fallait le mesurer pour l'en sortir.
+
+**Deux des trois arguments de la ligne n'ont pas survécu.**
+
+1. **L'asymétrie de synchronisation n'existe pas.** La ligne opposait un coût ponctuel à un coût «
+   payé à chaque synchronisation amont ». `canterel` porte déjà `.github/workflows/locus.yml`, un
+   fichier **neuf**, dont l'en-tête explique précisément que l'amont n'en a aucun de ce nom. Un job
+   ajouté là ne coûte rien au merge. Même faute que `W2.22` avait trouvée dans sa propre ligne :
+   déduire l'état du code d'une règle générale sans lire le fichier qui la contredit.
+2. **L'argument décisif ne figurait pas dans la question.** C'est la **stabilité de la suite hôte**,
+   et elle a été mesurée malgré nous pendant `W2.23` : trois exécutions sur un **arbre identique**,
+   deux tests amont différents instables, un seul tour entièrement vert. Un `e2e/minimal_science`
+   hébergé dans `canterel` aurait un rouge qui signifie tantôt « la chaîne scientifique est cassée
+   », tantôt « un test de migration Windows a perdu une course de fichiers ».
+
+**Ce qui reste et qui décide** : la CI de `locusolus` a déjà une sandbox `podman` réelle
+(invariant 5) et celle de `canterel` n'en a pas ; et le verdict appartient à l'endroit où la clause
+est écrite.
+
+**Le harnais ne se saute jamais.** `LOCUS_E2E_WORKER` absente, dépôt qui n'en est pas un, binaire
+non construit, processus mort : chacun est une panne qui **nomme** son sujet et porte la sortie du
+processus. Huit tests le tiennent, dont deux qui vérifient le pendant positif — une garde qui
+crierait aussi sur ce qui est juste se ferait désactiver.
+
+**Le harnais a corrigé trois de mes suppositions avant même d'être livré**, et c'est le meilleur
+argument pour la façon dont il rapporte ses échecs :
+
+1. `LOCUSD_BIND`, et non `LOCUS_HTTP_ADDR` que j'avais supposé ;
+2. `locus-execd` prend son chemin de socket par `--listen`, un argument, et **sort** sans lui ;
+3. il n'y a pas de route `/health` — `/projections/status` sert de sonde, plutôt que d'ajouter au
+   produit une route dont seul le test aurait besoin.
+
+À chaque fois, l'échec portait la sortie du binaire et la cause était dans le message. Un harnais
+qui n'aurait dit que « locus-execd n'a pas démarré » aurait coûté trois sessions de débogage.
+
+**Et il a trouvé un vrai défaut** — `canterel worker --locus <url>` levait « No context found for
+instance » au lieu de rendre le constat de `W2.3`. Régression introduite par `W2.22`, aggravée par
+`W2.23`, invisible à 458 tests unitaires parce qu'ils **injectent** l'entourage au lieu d'exercer la
+couture qui le fabrique. Corrigée et figée dans `canterel` (PR #32, mergée).
+
+**Écart avec la spec.** Aucun. `e2e/minimal_science` n'était nommé nulle part hors de `docs/10` ; il
+a maintenant un répertoire, un script et un job.
+
+**Prochain item.** `W12.d` — le scénario lui-même. Les cinq constats de sa première tentative sont
+levés : `W20.s`, `W20.t`, `W20.u`, `W2.22` et `W12.f`. Il s'écrit dans `tests/e2e/`, en s'appuyant
+sur `startChain`.
