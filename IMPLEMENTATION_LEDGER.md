@@ -13027,3 +13027,59 @@ comportement faux **exprimable**, donc constatable. 13/13 après correction.
 dépendances sont satisfaites : `W2.15` plafonne le worker à `staged` côté client,
 `packages/validation` porte la propagation, et la surface §15.2 de `W20.k` est servie. `W12.d`
 n'attend plus que `W20.p` et `W20.r`.
+
+## 2026-08-24 — W20.r — Un commit entre au journal, et le défaut qu'il a fallu trouver pour l'écrire
+
+**Périmètre.** `apps/locusd/src/epistemic.rs` (neuf) — la mise en scène de §15.7, l'intégration de
+§7.4, et la charge que §9.3 exige ; `apps/locusd/src/lep.rs` — un `epistemic_commit.*` quitte la
+traduction générique ; `apps/locusd/src/lib.rs` — exports. Tests neufs :
+`apps/locusd/tests/epistemic.rs`, dix-sept.
+
+**Le défaut trouvé en se donnant un sujet.** L'item existait parce que rien dans `apps/locusd` ne
+connaissait `EpistemicCommit`. Une sonde a trouvé pire qu'une absence : un
+`epistemic_commit.submitted` remonté par §15.6 recevait **`202 Accepted`**, et le fait écrit portait
+la sérialisation de l'événement LEP — donc ni `status` ni `validation_level`. La projection « état
+de validation » de §9.3 refuse à juste titre un tel fait ; elle passait en **quarantaine** ; et
+`main.rs` refuse d'ouvrir le port avec une projection en quarantaine. **Un worker qui soumettait un
+commit empêchait le daemon de redémarrer, après qu'on lui a répondu que tout allait bien.** Cinq des
+tests neufs rougissent si l'on remet le chemin d'avant — vérifié en le neutralisant.
+
+**Tests exécutés.** `cargo test --workspace` — vert. Le test de sortie a quatre clauses, chacune
+tenue par son test : un commit reçu est écrit `staged` et jamais au-delà
+(`un_worker_qui_annonce_validated_est_refuse_et_rien_n_est_ecrit`, avec le statut de
+`invalid-commit-self-validated.json`, la fixture que `W0.7` a écrite pour cela ; plus
+`les_statuts_hors_de_2_3_sont_tous_refuses`, qui éprouve les **dix** de §7.4 en interrogeant
+`Status::is_worker_proposable` plutôt qu'en recopiant la liste) ; l'intégration est une commande
+distincte sous une autorité distincte (`aucun_chemin_de_worker_n_atteint_l_integration`, absence sur
+le source de `lep.rs`, `enrollment.rs` et `http.rs`) ; l'invariant 12 est éprouvé par un commit qui
+contredit un commit **déjà intégré**, et les trois faits restent lisibles dans l'ordre.
+
+**Décisions prises.** Pas d'ADR : aucune décision ne dépasse le périmètre de l'item. Trois méritent
+d'être lues. (1) Un commit mis en scène est enregistré `L0` **parce que personne ne l'a évalué**, et
+non parce que `staged` impliquerait `L0` — §7.4 interdit de déduire le niveau du statut, et
+`valide_au_niveau_zero_est_representable` vérifie qu'il n'existe **aucune** garde liant les deux.
+(2) Le fait épistémique va sur le stream de la **tâche** : la transaction verrouille par stream, et
+l'écrire ailleurs rendrait un lot mixte inatomique — ce que `W20.k` refuse déjà pour cette raison.
+Conséquence nommée : dans la projection, plusieurs tentatives d'une même tâche partagent l'état
+courant ; le journal, lui, garde chaque fait. (3) La reconnaissance d'un commit se fait sur le
+**préfixe de type**, jamais sur la présence d'un `status` dans la charge — un `progress` qui en
+porterait un ne doit pas devenir un objet épistémique.
+
+**Écart avec la spec.** Aucun.
+
+**Passe de mutation.** Douze mutants, zéro motif absent, 12/12 après deux tours. Trois survivants au
+premier tour : le niveau enregistré à la mise en scène — le plus coûteux, puisqu'un `L6` y ferait
+lire une soumission de worker comme un résultat institutionnellement accepté sans qu'aucun statut
+soit franchi ; la préséance des deux champs de §9.3 sur le contexte ; et le rang d'un fait dans un
+lot mixte, dont la perte ferait porter la même identité à deux faits différents, en silence.
+
+Le deuxième a été corrigé autrement qu'attendu. La garde qui refusait d'écraser les deux champs
+était **inatteignable** : le contexte est bâti par le module et ne porte jamais ces clés. Une garde
+qu'aucun appelant ne peut déclencher se supprime — c'est ce que `W20.n` avait fait pour
+`Rejection::WrongEndpoint`. La propriété est devenue une propriété de l'**ordre d'écriture**, qui,
+elle, s'éprouve. Le contexte a pris le type `serde_json::Map` au passage, ce qui a supprimé une
+seconde branche inatteignable — le repli « et si ce n'était pas un objet ».
+
+**Prochain item.** `W20.p` — le driver bloquant sort du fil du runtime asynchrone. Ses dépendances
+sont satisfaites : le journal durable est câblé depuis `W20.m` et l'ADR 0030 décision 1 nomme déjà
+`spawn_blocking`. **`W12.d` n'attend plus que lui.**
