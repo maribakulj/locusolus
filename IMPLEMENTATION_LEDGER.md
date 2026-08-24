@@ -13083,3 +13083,48 @@ seconde branche inatteignable — le repli « et si ce n'était pas un objet ».
 **Prochain item.** `W20.p` — le driver bloquant sort du fil du runtime asynchrone. Ses dépendances
 sont satisfaites : le journal durable est câblé depuis `W20.m` et l'ADR 0030 décision 1 nomme déjà
 `spawn_blocking`. **`W12.d` n'attend plus que lui.**
+
+## 2026-08-24 — W20.p — Le travail bloquant sort du fil du runtime, et `W12.d` n'attend plus rien
+
+**Périmètre.** `apps/locusd/src/offload.rs` (neuf) — le passage au pool bloquant, le budget et son
+refus ; `apps/locusd/src/http.rs` — l'état du routeur devient `Offload<S>`, et les **onze** handlers
+passent par un point d'entrée unique ; `apps/locusd/src/lib.rs` — exports. Tests neufs :
+`apps/locusd/tests/offload.rs`, six.
+
+**Tests exécutés.** `cargo test --workspace` — vert. Le test de sortie est
+`un_appel_lent_ne_famine_pas_le_daemon` : un runtime à **un** fil de travail, un `EventStore` qui
+bloque sur `feed` jusqu'à ce qu'on l'ouvre, et deux requêtes réelles en socket brut. La première
+entre dans le journal et y reste ; la seconde — la sonde de santé, qui ne touche pas le journal —
+doit être servie pendant ce temps.
+
+**Rouge avant vert, vérifié.** La roadmap l'exigeait, et c'est fait : en remplaçant le passage au
+pool par un appel direct sur le fil du runtime, le test échoue avec « le daemon n'a pas répondu
+pendant qu'une lecture attendait la base ». Sans cette vérification, la clause aurait pu être verte
+pour n'importe quelle raison.
+
+**Décisions prises.** Pas d'ADR : l'ADR 0030 décision 1 nommait déjà `spawn_blocking`, et ce qui
+manquait était la convention d'appel. Deux choses contraignent la suite. (1) L'état du routeur n'est
+plus `Arc<Runtime<S>>` mais `Offload<S>`, qui **n'expose pas** le daemon : la convention se tient
+parce que le type qu'un handler reçoit ne permet pas de la violer, et une garde de source tient
+l'autre moitié. (2) La borne **refuse** au lieu d'attendre, avec le `unavailable` de §22.5 qui la
+nomme — le pool bloquant de `tokio` a sa propre borne, haute, et s'y fier ferait apparaître la
+saturation comme une latence que personne ne sait attribuer. C'est la forme que
+`writes::StreamLocks` donne déjà à la saturation des écritures.
+
+**Écart avec la spec.** Aucun.
+
+**Détail qui a coûté une reprise.** La garde de budget empruntait d'abord le budget, ce qui la
+rendait incapable de traverser le passage au pool : il fallait relâcher la place avant de céder puis
+en reprendre une dedans — c'est-à-dire ne rien borner entre les deux, et laisser le travail
+s'exécuter même quand la seconde prise échouait. La garde possède désormais un `Arc`, et elle voyage
+avec la fermeture.
+
+**Passe de mutation.** Sept mutants, zéro motif absent, 7/7 du premier coup — y compris le plus
+important, qui rendait `hors_du_fil` synchrone : il meurt sur le test de famine, ce qui est
+exactement ce qu'on lui demande.
+
+**Prochain item.** `W12.d` — `e2e/minimal_science`. **Son marqueur est levé** : la liste de la
+quatrième reprise est épuisée, et aucun item nommé ne le bloque plus. Ce qui n'est pas affirmé, et
+qui compte davantage : qu'il passera. Quatre marqueurs ont annoncé un déblocage qui n'a pas eu lieu
+; la cinquième réponse n'est plus une liste mais l'essai lui-même, et ce qu'il révélera deviendra
+des items. Les deux défauts trouvés par `W20.q` et `W20.r` n'ont été trouvés d'aucune autre façon.
