@@ -82,7 +82,7 @@ fn a_full_replay_yields_exactly_what_was_written() {
     // révisions, sans trou ni doublon. C'est ce qui rend une projection reconstructible (W1.d) :
     // si le replay n'est pas total et ordonné, la reconstruction ne l'est pas non plus.
     let mut rng = Rng::new(21);
-    let mut store = MemoryEventStore::new();
+    let store = MemoryEventStore::new();
     let stream = "claim_01";
 
     let mut expected = Expected::NoStream;
@@ -133,7 +133,7 @@ fn a_concurrent_write_is_detected_and_named() {
     // le second est refusé — et le refus dit ce qu'il attendait et ce qu'il a trouvé, parce que
     // c'est de cet écart que l'appelant a besoin pour relire et retenter.
     let mut rng = Rng::new(22);
-    let mut store = MemoryEventStore::new();
+    let store = MemoryEventStore::new();
     let stream = "claim_02";
 
     store
@@ -192,7 +192,7 @@ fn a_second_creation_of_the_same_stream_is_a_conflict() {
     // L'autre moitié de la concurrence optimiste : `NoStream` sur un stream qui existe déjà. Sans
     // ce refus, deux créateurs concurrents produiraient deux histoires du même objet.
     let mut rng = Rng::new(23);
-    let mut store = MemoryEventStore::new();
+    let store = MemoryEventStore::new();
     let stream = "claim_03";
 
     let first = Append {
@@ -226,7 +226,7 @@ fn the_same_command_replayed_yields_the_original_result() {
     // eu son effet ; lui rendre son résultat d'origine est plus utile que de faire échouer un
     // appelant qui referait la même chose.
     let mut rng = Rng::new(24);
-    let mut store = MemoryEventStore::new();
+    let store = MemoryEventStore::new();
     let stream = "claim_04";
     let command_id = rng.id::<Command>();
     let event = draft(&mut rng, stream, "staged", 1_700_000_000_000);
@@ -258,7 +258,7 @@ fn a_reused_command_id_with_other_content_is_refused() {
     // Distinct du rejeu : deux lots différents sous un même identifiant veulent dire que
     // l'identifiant a été réutilisé, et l'accepter écrirait l'un des deux en croyant écrire l'autre.
     let mut rng = Rng::new(25);
-    let mut store = MemoryEventStore::new();
+    let store = MemoryEventStore::new();
     let stream = "claim_05";
     let command_id = rng.id::<Command>();
 
@@ -295,7 +295,7 @@ fn a_replayed_command_is_not_a_conflict_with_itself() {
     // `expected` est périmé au rejeu. Vérifier la concurrence avant l'idempotence lui opposerait
     // sa propre écriture — le comble de la concurrence optimiste.
     let mut rng = Rng::new(26);
-    let mut store = MemoryEventStore::new();
+    let store = MemoryEventStore::new();
     let stream = "claim_06";
     let command_id = rng.id::<Command>();
     let event = draft(&mut rng, stream, "staged", 1_700_000_000_000);
@@ -317,7 +317,7 @@ fn a_batch_is_written_whole_or_not_at_all() {
     // un événement vise un autre stream est refusé **avant** toute écriture : un lot à moitié
     // écrit laisserait un agrégat dont l'état ne correspond à aucune décision prise.
     let mut rng = Rng::new(27);
-    let mut store = MemoryEventStore::new();
+    let store = MemoryEventStore::new();
     let stream = "claim_07";
 
     let refusal = store
@@ -346,7 +346,7 @@ fn an_empty_batch_is_refused() {
     // Une commande sans effet n'a rien à journaliser ; l'écrire produirait une entrée dont aucune
     // projection ne saurait quoi faire.
     let mut rng = Rng::new(28);
-    let mut store = MemoryEventStore::new();
+    let store = MemoryEventStore::new();
     assert_eq!(
         store
             .append(
@@ -377,7 +377,7 @@ fn a_multi_event_batch_numbers_them_consecutively() {
     // L'ordre total par stream vaut aussi à l'intérieur d'un lot : les événements d'une même
     // commande se suivent, dans l'ordre où l'appelant les a rangés.
     let mut rng = Rng::new(29);
-    let mut store = MemoryEventStore::new();
+    let store = MemoryEventStore::new();
     let stream = "claim_09";
 
     let appended = store
@@ -421,7 +421,7 @@ fn the_raw_export_follows_write_order_across_streams() {
     // un worker hors ligne produit des actes anciens écrits tard, et trier par `occurred_at` ferait
     // apparaître ses événements avant ceux qui les ont provoqués.
     let mut rng = Rng::new(30);
-    let mut store = MemoryEventStore::new();
+    let store = MemoryEventStore::new();
 
     for (stream, at) in [
         ("claim_10", 1_700_000_900_000_i64),
@@ -525,7 +525,7 @@ fn an_event_outside_the_taxonomy_is_refused() {
 fn an_envelope_round_trips_through_json() {
     // §10.2 : « export brut ». Un export qui perdrait ou reformaterait un champ ne serait pas brut.
     let mut rng = Rng::new(31);
-    let mut store = MemoryEventStore::new();
+    let store = MemoryEventStore::new();
     let stream = "claim_12";
     let appended = store
         .append(
@@ -547,4 +547,190 @@ fn an_envelope_round_trips_through_json() {
     // acte hors ligne les sépare de plusieurs heures.
     assert_ne!(back.occurred_at, back.recorded_at);
     assert_eq!(back.recorded_at, recorded());
+}
+
+// ——————————————— La concurrence, depuis que `append` prend `&self` — ADR 0029 ———————————————
+
+/// **Rien ne se perd quand plusieurs fils écrivent sur des streams distincts.**
+///
+/// Depuis l'ADR 0029 décision 1, `append` prend `&self` : la garantie d'exclusion n'est plus donnée
+/// par le type, elle est **exigée de l'implémenteur et vérifiée ici**. Ce test est celui que le
+/// driver `PostgreSQL` de `W20.i` rejouera à l'identique — un backend qui ne le passe pas n'est pas
+/// un journal, quoi que dise sa documentation.
+#[test]
+fn des_ecritures_concurrentes_sur_des_streams_distincts_ne_perdent_rien() {
+    const FILS: u64 = 8;
+    const PAR_FIL: u64 = 25;
+
+    let store = std::sync::Arc::new(MemoryEventStore::new());
+    // **Un rendez-vous, parce qu'un test de concurrence qui espère l'entrelacement n'en éprouve
+    // aucun.** Sans lui, les fils sont lancés l'un après l'autre, chacun finit avant que le suivant
+    // démarre, et le test passe sur une course qu'il n'a jamais provoquée — vérifié en injectant un
+    // « check-then-act » qui a survécu.
+    let depart = std::sync::Arc::new(std::sync::Barrier::new(
+        usize::try_from(FILS).expect("compte raisonnable"),
+    ));
+    let mut fils = Vec::new();
+    for numero in 0..FILS {
+        let store = std::sync::Arc::clone(&store);
+        let depart = std::sync::Arc::clone(&depart);
+        fils.push(std::thread::spawn(move || {
+            let mut rng = Rng::new(9_000 + numero);
+            let stream = format!("epistemic_object:{numero}");
+            depart.wait();
+            for rang in 0..PAR_FIL {
+                let expected = if rang == 0 {
+                    Expected::NoStream
+                } else {
+                    Expected::Exact(rang)
+                };
+                let draft = draft(&mut rng, &stream, "created", RECORDED);
+                store
+                    .append(
+                        Append {
+                            stream_id: stream.clone(),
+                            expected,
+                            command_id: rng.id::<Command>(),
+                            events: vec![draft],
+                        },
+                        recorded(),
+                    )
+                    .expect("un stream n'est écrit que par son fil");
+            }
+        }));
+    }
+    for fil in fils {
+        fil.join().expect("aucun fil ne panique");
+    }
+
+    // Chaque stream porte exactement ce que son fil a écrit, sans trou.
+    for numero in 0..FILS {
+        let stream = format!("epistemic_object:{numero}");
+        assert_eq!(
+            store.revision(&stream),
+            Some(PAR_FIL),
+            "le stream {stream} a perdu des écritures"
+        );
+        let events = store.read_stream(&stream, 0);
+        let revisions: Vec<u64> = events.iter().map(|event| event.stream_revision).collect();
+        assert_eq!(
+            revisions,
+            (1..=PAR_FIL).collect::<Vec<_>>(),
+            "les révisions de {stream} doivent être contiguës et ordonnées"
+        );
+    }
+
+    // Et le flux global les porte tous : un événement écrit sans entrer dans l'ordre global serait
+    // invisible aux projections, ce qui est pire qu'une écriture refusée.
+    assert_eq!(
+        store.feed(0).len(),
+        usize::try_from(FILS * PAR_FIL).expect("compte raisonnable"),
+        "le flux global doit porter chaque événement écrit"
+    );
+}
+
+/// **Sur un même stream, il y a exactement un gagnant par révision.**
+///
+/// C'est la contrepartie du test précédent, et la plus importante des deux : le contrôle optimiste
+/// de `Expected` est ce qui garde la correction quand plusieurs écrivains visent le même agrégat.
+/// Un backend qui laisserait passer deux écritures sur la même révision attendue produirait deux
+/// histoires pour un même objet.
+///
+/// # Ce que ce test attrape, et ce qu'il n'attrape pas
+///
+/// Il vérifie les propriétés **positives** d'un backend conforme : un gagnant par tour, des
+/// révisions contiguës, un perdant qui reçoit un conflit et non autre chose. C'est à ce titre que
+/// `W20.i` le rejouera contre `PostgreSQL`.
+///
+/// Il n'est **pas** un détecteur de course, et le dire évite de s'y fier. Mesuré contre une
+/// implémentation délibérément fautive — vérification sous un verrou de lecture relâché avant
+/// l'écriture —, il a rendu : vert à tous les coups sans rendez-vous, deux fois sur trois avec un
+/// rendez-vous, quatre fois sur dix en portant la contention à trente-deux fils. La détection
+/// dépend de l'ordonnanceur, donc de la machine, et une garde qui n'attrape qu'à moitié n'est pas
+/// une garde.
+///
+/// C'est pourquoi la course est rendue **inexprimable** plutôt que cherchée : `Journal::check` exige
+/// un accès exclusif, donc vérifier sous un verrou de lecture puis écrire sous un verrou d'écriture
+/// ne compile pas. Ce test garde ce qu'un test peut garder ; le compilateur garde le reste.
+#[test]
+fn sur_un_meme_stream_une_seule_ecriture_gagne_par_revision() {
+    const FILS: u64 = 8;
+    const TOURS: u64 = 20;
+
+    let store = std::sync::Arc::new(MemoryEventStore::new());
+    let stream = "epistemic_object:contesté".to_owned();
+    let depart = std::sync::Arc::new(std::sync::Barrier::new(
+        usize::try_from(FILS).expect("compte raisonnable"),
+    ));
+
+    let mut fils = Vec::new();
+    for numero in 0..FILS {
+        let store = std::sync::Arc::clone(&store);
+        let stream = stream.clone();
+        let depart = std::sync::Arc::clone(&depart);
+        fils.push(std::thread::spawn(move || {
+            let mut rng = Rng::new(7_000 + numero);
+            let mut verdicts = Vec::new();
+            for tour in 0..TOURS {
+                let expected = if tour == 0 {
+                    Expected::NoStream
+                } else {
+                    Expected::Exact(tour)
+                };
+                let draft = draft(&mut rng, &stream, "created", RECORDED);
+                depart.wait();
+                verdicts.push(store.append(
+                    Append {
+                        stream_id: stream.clone(),
+                        expected,
+                        command_id: rng.id::<Command>(),
+                        events: vec![draft],
+                    },
+                    recorded(),
+                ));
+            }
+            verdicts
+        }));
+    }
+
+    let verdicts: Vec<_> = fils
+        .into_iter()
+        .flat_map(|fil| fil.join().expect("aucun fil ne panique"))
+        .collect();
+
+    let gagnants = verdicts.iter().filter(|verdict| verdict.is_ok()).count();
+    assert_eq!(
+        gagnants,
+        usize::try_from(TOURS).expect("compte raisonnable"),
+        "exactement une écriture gagne par tour : deux gagnantes sur une même révision attendue \
+         feraient deux histoires pour un même objet"
+    );
+
+    // Un perdant reçoit un **conflit**, jamais autre chose : `internal` l'enverrait ouvrir un
+    // ticket, `validation` chercher une faute dans sa requête. Seul le conflit dit « relis et
+    // retente ».
+    for verdict in &verdicts {
+        if let Err(other) = verdict {
+            assert!(
+                matches!(other, AppendError::Conflict { .. }),
+                "une écriture concurrente perdante est un conflit, pas {other:?}"
+            );
+        }
+    }
+
+    assert_eq!(
+        store.revision(&stream),
+        Some(TOURS),
+        "le stream porte un événement par tour, ni plus ni moins"
+    );
+    let revisions: Vec<u64> = store
+        .read_stream(&stream, 0)
+        .iter()
+        .map(|event| event.stream_revision)
+        .collect();
+    assert_eq!(
+        revisions,
+        (1..=TOURS).collect::<Vec<_>>(),
+        "les révisions restent contiguës sous contention"
+    );
 }

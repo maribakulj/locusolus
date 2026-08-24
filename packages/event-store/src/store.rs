@@ -156,11 +156,25 @@ pub struct Sequenced {
 pub trait EventStore {
     /// Écrire un lot.
     ///
+    /// # `&self`, et ce que cela demande à l'implémenteur — ADR 0029 décision 1
+    ///
+    /// Un backend **possède sa propre concurrence**, et cette signature l'exige plutôt que de
+    /// l'espérer : deux appels peuvent se recouvrir, et c'est à lui de dire ce qui s'exclut. Le
+    /// backend mémoire prend un verrou global et le documente ; un driver relationnel s'en remettra
+    /// au verrouillage de ligne, qui laisse deux streams distincts avancer ensemble.
+    ///
+    /// La signature a longtemps été `&mut self`, ce qui donnait la garantie **par le type**. Elle
+    /// l'a perdue au profit d'une garantie **vérifiée** : la suite de contract tests écrit depuis
+    /// plusieurs fils et exige qu'aucun événement ne se perde, que les révisions d'un stream soient
+    /// contiguës, et qu'un seul gagnant existe par révision. Le motif du changement est dans l'ADR :
+    /// un verrou placé **au-dessus** du journal aurait bloqué toutes les lectures pendant une
+    /// écriture, c'est-à-dire créé un goulot que le stockage n'a pas — `Expected` est par stream.
+    ///
     /// # Errors
     ///
     /// Voir [`AppendError`]. Un conflit n'est pas une panne : c'est le résultat normal d'une
     /// écriture concurrente, et l'appelant relit puis retente.
-    fn append(&mut self, command: Append, recorded_at: Timestamp) -> Result<Appended, AppendError>;
+    fn append(&self, command: Append, recorded_at: Timestamp) -> Result<Appended, AppendError>;
 
     /// Relire un stream depuis une révision exclue.
     ///
