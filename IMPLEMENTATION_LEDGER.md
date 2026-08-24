@@ -12647,3 +12647,111 @@ coupleraient le composition root au runtime asynchrone. À nommer le jour où un
 pas avant.
 
 **Prochain item.** `W20.i`, `W20.j`, `W23.a`, `W23.b`, `W23.c`, `W4.i` — tous ouverts.
+
+## 2026-08-24 — W20.i — Le driver PostgreSQL, et une suite de tests qui ne pouvait pas faire ce qu'elle annonçait
+
+**Périmètre.** `packages/event-store/src/postgres.rs` (neuf), `packages/event-store/src/lib.rs`,
+`packages/event-store/Cargo.toml`, `packages/event-store/tests/contract.rs` — paramétrée par le
+backend —, `dependencies.json`, `.github/workflows/ci.yml` — le job `rust` gagne un service
+`postgres` —, `docs/adr/0030-le-driver-postgresql.md` (neuf), `docs/10_V1_ROADMAP.md` : `W20.i`
+marqué, `W20.m`, `W20.n` et `W20.o` créés, `W12.d` re-pointé.
+
+**Tests exécutés.** `cargo test -p locus-event-store --test contract` : **18 verts contre les deux
+backends**, sur un schéma neuf, et trois exécutions consécutives pour écarter l'intermittence.
+`cargo clippy --all-targets` : zéro avertissement. `npm run check` : les treize portes. `check:deps`
+: six crates externes autorisés. `check:boundaries` : `ok`, la règle 3 tenant déjà `postgres` dans
+son catalogue avec `packages/event-store/**` en exception.
+
+**L'affirmation de `W1.c` était fausse, et de peu.** Sa documentation disait : « écrite contre le
+**port**, jamais contre l'implémentation en mémoire : le jour où un second journal existe, cette
+suite tourne sur lui **sans être modifiée** ». C'était vrai des méthodes et faux du constructeur —
+`MemoryEventStore::new()` y apparaissait quatorze fois. Personne n'avait de second backend, donc la
+propriété est restée affirmée et jamais éprouvée : le motif de l'ADR 0025, **dans la suite de tests
+qui sert de juge à tout le reste**.
+
+Ce sont les quatorze constructeurs qui ont changé ; aucune assertion n'a été touchée, et c'est ce
+qui permet de dire que le driver passe « la même » suite plutôt qu'une suite adaptée à lui. Une
+seule assertion a dû être reformulée : `store.stream_count()` est propre au backend mémoire, et un
+contract test qui l'emploie n'est pas un contract test. `store.export().is_empty()` dit la même
+chose et le dit du port.
+
+**Le choix du crate est mesuré, pas estimé.** Arbre complet, feature `with-serde_json-1`, sans TLS :
+`postgres` **63** paquets, `tokio-postgres` **62**, `sqlx` **115**. Le port est synchrone ; le
+wrapper synchrone coûte donc **un** paquet de plus que le client asynchrone et évite de propager
+`async` dans `packages/projections`, `apps/locusd` et cette suite. `sqlx` coûte presque le double et
+son argument principal — la vérification des requêtes à la compilation — exigerait une base pour
+**compiler**.
+
+**L'ordre global se paie, et l'ADR 0029 l'avait prévu autrement.** Sa documentation annonçait qu'«
+un driver relationnel s'en remettra au verrouillage de ligne, qui laisse deux streams distincts
+avancer ensemble ». C'est vrai de la concurrence **optimiste** — la contrainte d'unicité sur
+`(stream_id, stream_revision)` fait exactement cela — et faux de l'**ordre global**. Une séquence
+`bigserial` attribue ses numéros **avant** le commit et les transactions valident dans un ordre
+quelconque : un lecteur verrait 1, 2, 4, avancerait son filigrane à 4, et ne verrait jamais 3. Un
+événement écrit mais invisible aux projections est pire qu'une écriture refusée. La position vient
+donc d'un compteur à une ligne, verrouillé jusqu'au commit. L'ADR 0030 amende la prévision plutôt
+que de laisser le code la démentir en silence.
+
+**Un vrai bug de driver, et le remède qui vaut mieux que le correctif.** Au rejeu, `append` rendait
+un lot **vide** : il relisait le stream et filtrait par `causation_id` pour retrouver ce que la
+commande avait produit. Au-delà du défaut, la forme était fautive — le journal redécouvrait ce qu'il
+savait déjà. La plage de révisions est désormais **enregistrée** dans `command_applied`. Ce qu'une
+commande a produit est un fait à écrire, pas à déduire.
+
+**Deux fautes de harnais, et toutes deux accusaient le driver.** C'est ce qui mérite d'être retenu
+de ce sprint.
+
+- `cargo test` exécute en parallèle, les cas partageaient une base, et le `truncate` de l'un
+  effaçait ce qu'un autre venait d'écrire. Symptôme : « 7 événements attendus, 3 trouvés ».
+- Le verrou pris **après** la connexion laissait plusieurs fils exécuter
+  `create table if not exists` en même temps, ce que PostgreSQL ne sérialise pas gracieusement.
+  Symptôme : trois tests rouges au premier passage sur une base neuve, verts au second — la
+  signature exacte d'un test intermittent, et un test intermittent finit désactivé.
+
+Les deux se lisaient « le driver n'est pas conforme ». **Un harnais qui accuse son sujet est pire
+qu'un harnais absent** : il produit des corrections là où il n'y a rien à corriger. Le verrou se
+prend maintenant avant d'aller chercher la base, et la connexion est unique pour toute la suite.
+
+**Que le driver soit réellement éprouvé, vérifié plutôt que supposé.** Un backend conforme et un
+backend jamais exécuté rendent le même verdict vert. La preuve a donc été faite à l'envers : une
+faute injectée dans `revision_of` rend **8 tests rouges avec la base** et **18 verts sans elle**. Ce
+qui n'est pas vérifié n'est pas réussi, y compris quand ce qui n'est pas vérifié est la
+vérification.
+
+D'où la règle de l'ADR 0030 décision 4, en deux moitiés : la suite **imprime ce qu'elle n'a pas
+fait** quand `LOCUS_TEST_POSTGRES` est absent, et un test **échoue** si `CI` est défini et la
+variable ne l'est pas. Le job `rust` gagne le service qui la nourrit. Une variable présente et une
+base injoignable ne sont pas un saut non plus : c'est une panne, et elle panique en le disant.
+
+**Écart avec la spec.** Aucun. `truncate_for_tests` est réservé aux tests et son nom le dit :
+l'immutabilité logique de §10.2 porte sur ce qu'un appelant du **port** peut faire, et `EventStore`
+n'offre rien de tel.
+
+**Ce que cet item ne fait pas, et qui a une conséquence.** Le driver n'est **câblé nulle part** —
+c'était son périmètre, et le plan de rollback de l'ADR en dépend. Conséquence : marquer `W20.i` a
+périmé le blocage de `W12.d`, dont le marqueur attendait `W20.i` et `W20.k`. Confronté clause par
+clause à son propre test de sortie, `W12.d` reste impossible : rien ne crée de mission, personne ne
+sert l'enrôlement de §7.2, et le journal durable n'est choisi par aucun profil. **Aucune des trois
+n'avait d'item** — `W20.m`, `W20.n` et `W20.o` entrent.
+
+C'est la **troisième** fois dans cette session qu'un marqueur nomme un jalon voisin au lieu d'une
+condition, et la deuxième fois que la condition n'a pas d'item du tout. La leçon de `W0.16` se
+répète parce qu'elle est structurelle : un marqueur ne peut nommer qu'un item, donc un blocage dont
+la condition n'en a pas **oblige à créer l'item**, sinon il se périme en annonçant un déblocage qui
+n'a pas lieu.
+
+**Et le contrôle de santé du service ne contrôlait rien.** Le premier passage en CI est vert, et son
+journal porte neuf `FATAL: role "root" does not exist`, une toutes les dix secondes, pendant toute
+la durée du job : `pg_isready` **nu** prend l'utilisateur du système, donc `root`, absent de
+l'image. Le contrôle n'est jamais passé au vert, donc il n'ordonnançait rien — et le commentaire
+écrit au-dessus affirmait qu'il le faisait. Une garde qui ne rapporte rien, écrite dans le sprint
+même où l'on démontre qu'un backend jamais exécuté rend le même vert qu'un backend conforme.
+`-U locus -d locus_test` la répare.
+
+**La preuve que le driver a tourné en CI ne se déduit plus.** Elle se lisait par une chaîne
+d'inférence : la variable est définie, donc `postgres_de_test` a connecté ou paniqué, donc le vert
+prouve la connexion. C'est exact et c'est fragile — une preuve par l'absence demande de reconstituer
+un raisonnement à la lecture d'un journal. Le test de CI vérifie désormais **que la connexion
+aboutit**, et la suite imprime les backends qu'elle a éprouvés.
+
+**Prochain item.** `W20.m`, `W20.n`, `W20.o`, `W20.j`, `W23.a`, `W23.b`, `W23.c`, `W4.i`.

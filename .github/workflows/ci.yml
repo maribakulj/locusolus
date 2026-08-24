@@ -148,6 +148,38 @@ jobs:
     name: rust
     runs-on: ubuntu-latest
     timeout-minutes: 20
+
+    # `W20.i` : la suite de contract tests du journal s'exécute contre **les deux** backends, et
+    # elle ne peut pas éprouver le driver sans base. Un saut silencieux rendrait « vert » un dépôt
+    # où le driver n'a jamais tourné — c'est pourquoi un test de cette suite **échoue** si `CI` est
+    # défini et `LOCUS_TEST_POSTGRES` ne l'est pas. Ce service est ce qui le nourrit.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: locus
+          POSTGRES_PASSWORD: locus
+          POSTGRES_DB: locus_test
+        ports:
+          - 5432:5432
+        # Sans ce contrôle de santé, les tests démarrent avant que la base accepte une connexion, et
+        # l'échec se lit « driver non conforme » là où il faut lire « base pas encore prête ».
+        #
+        # `-U locus -d locus_test` et non `pg_isready` nu. La première rédaction omettait les deux :
+        # `pg_isready` prend alors l'utilisateur du système, donc `root`, qui n'existe pas dans cette
+        # image. Le journal du service en portait la trace — neuf `FATAL: role "root" does not exist`,
+        # une toutes les dix secondes, pendant toute la durée du job. **Le contrôle n'est jamais passé
+        # au vert**, donc il n'ordonnançait rien, et le commentaire au-dessus affirmait le contraire.
+        # Une garde qui ne rapporte rien est la faute que ce dépôt traque partout ailleurs.
+        options: >-
+          --health-cmd "pg_isready -U locus -d locus_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      LOCUS_TEST_POSTGRES: "host=localhost port=5432 user=locus password=locus dbname=locus_test"
+
     steps:
       - uses: actions/checkout@v4
 
