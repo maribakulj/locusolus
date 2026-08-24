@@ -153,7 +153,7 @@ fn la_preview_et_l_ombre_n_ecrivent_rien() {
     // `mut` seulement pour **relire** le journal : `transaction()` rend un `&mut` dont ce test
     // n'use que le `store()`, en lecture. Que la preview, elle, ne puisse rien écrire est tenu par
     // le test suivant, qui lit sa signature.
-    let mut runtime = Runtime::in_memory();
+    let runtime = Runtime::in_memory();
     let avant = runtime.transaction().store().feed(0).len();
 
     let depart = Version::root(
@@ -221,7 +221,7 @@ fn la_preview_et_l_ombre_ne_tiennent_pas_de_quoi_ecrire() {
 /// Une approbation dont les conditions sont satisfaites écrit un fait.
 #[test]
 fn une_approbation_complete_ecrit_un_fait() {
-    let mut runtime = Runtime::in_memory();
+    let runtime = Runtime::in_memory();
     let handler = Approve {
         branch: branche(BranchState::Formalizing),
         witness: temoin(true),
@@ -243,7 +243,7 @@ fn une_approbation_complete_ecrit_un_fait() {
 /// rendre `validation` l'enverrait relire sa requête, où il ne trouverait rien.
 #[test]
 fn une_approbation_incomplete_est_refusee_sous_la_famille_politique() {
-    let mut runtime = Runtime::in_memory();
+    let runtime = Runtime::in_memory();
     let handler = Approve {
         branch: branche(BranchState::Formalizing),
         witness: temoin(false),
@@ -274,7 +274,7 @@ fn une_approbation_incomplete_est_refusee_sous_la_famille_politique() {
 /// est revenu dessus. Un rollback qui effacerait rendrait l'histoire cohérente et fausse.
 #[test]
 fn le_rollback_allonge_le_journal_au_lieu_de_le_raccourcir() {
-    let mut runtime = Runtime::in_memory();
+    let runtime = Runtime::in_memory();
 
     runtime
         .transaction()
@@ -346,7 +346,7 @@ fn le_rollback_allonge_le_journal_au_lieu_de_le_raccourcir() {
 /// désignerait un tout autre événement, et rien dans la réponse ne le dirait.
 #[test]
 fn l_histoire_se_relit_par_revision_avec_son_propre_cursor() {
-    let mut runtime = Runtime::in_memory();
+    let runtime = Runtime::in_memory();
     runtime
         .transaction()
         .submit(

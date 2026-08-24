@@ -12255,3 +12255,107 @@ tués.**
 
 **Prochain item.** `W20.h` — la sérialisation des écritures, dont `main.rs` de `locusd` nomme
 lui-même le blocage. C'est une décision avant d'être du code, donc un ADR.
+
+---
+
+## 2026-08-22 — W20.h — La sérialisation des écritures, et un verrou qu'on a arrêté de chercher
+
+**Ce qui est livré.** `locusd` sait écrire. §22.3 devient servable, ce que `W20.g` avait
+explicitement laissé de côté, et `main.rs` cesse de porter la phrase qui nommait son propre blocage.
+`docs/adr/0029-la-serialisation-des-ecritures.md` arbitre.
+
+**Ce qui demandait réellement l'exclusion, mesuré et non supposé.** `submit` fait quatre choses :
+lire l'enveloppe, consulter le registre d'idempotence, décider, écrire. `Decide::decide` prend
+`&self` et `&State` — elle est **pure**. Le travail de domaine, le plus coûteux des quatre, n'a
+jamais eu besoin d'être sérialisé, et c'est ce constat qui a rendu la forme possible.
+
+**Le verrou est descendu d'un étage, et c'est la décision qui porte tout le reste.** L'évidence
+était de le mettre dans `Transaction`. Elle échoue pour une raison **présente** : `read_stream`,
+`revision` et `feed` prennent déjà `&self`, donc les queries de §22.4 et le fil de §22.1 lisent
+pendant qu'on écrit — un verrou au-dessus du journal les aurait toutes bloquées le temps d'une
+écriture. En mémoire personne ne s'en apercevrait ; avec le driver PostgreSQL de `W20.i`, une
+lecture attendrait une entrée/sortie distante. C'est-à-dire : **créer un goulot que le stockage n'a
+pas**, `Expected` étant par stream depuis toujours. `EventStore::append` prend donc `&self`, et
+chaque backend possède sa concurrence.
+
+**Ce que la signature perd, et ce qui a remplacé.** `&mut self` donnait l'exclusion **par le type**.
+Deux tests de contrat concurrents la remplacent — rien ne se perd sur des streams distincts, un seul
+gagnant par révision sur un stream contesté — et `W20.i` les rejouera contre PostgreSQL, ce que sa
+ligne exige déjà.
+
+**Mais ces tests n'attrapent pas la course, et le dire fait partie du travail.** Mesuré contre une
+implémentation délibérément fautive — vérifier sous un verrou de lecture relâché avant d'écrire —
+ils ont rendu : **vert à tous les coups** sans rendez-vous, **deux fois sur trois** avec, **quatre
+fois sur dix** en portant la contention à trente-deux fils. Augmenter le nombre de fils n'a pas fait
+converger la détection ; elle dépendait de l'ordonnanceur, donc de la machine.
+
+D'où le geste qui compte : **rendre la course inexprimable plutôt que la chercher.**
+`Journal::check` prend `&mut self` alors qu'il ne modifie rien — un marqueur de capacité, qui rend «
+vérifier sous un verrou de lecture puis écrire sous un verrou d'écriture » non compilable. Vérifié :
+le mutant est refusé par le compilateur, pas par un test qui a de la chance. C'est la règle « tenu
+par l'absence » du dépôt, appliquée à une propriété de concurrence.
+
+**La sérialisation est par stream, et elle n'est pas la correction.** Elle ordonne l'accès ;
+`Expected` garde la correction. Deux commandes sur le même stream font la queue **puis** la seconde
+découvre que sa révision est périmée et reçoit un `Conflict` portant l'état courant. Retirer le
+contrôle de révision au motif que l'accès est sérialisé serait faux dès qu'il y a plus d'un
+processus — un second daemon, une migration, un outil d'exploitation —, et c'est pourquoi il reste.
+
+Le verrou se prend **après** la décision : le stream n'est connu qu'une fois les événements décidés,
+c'est le premier `Draft` qui le nomme. Le prendre plus tôt aurait demandé que l'enveloppe déclare
+son agrégat, ce qu'elle ne fait pas — et un champ de ce genre serait faux sans que rien ne le
+signale : ni erreur, ni conflit, seulement deux commandes qui cessent de s'exclure.
+
+**Ce que les tests mesurent, plutôt que de le décrire.** Le test de sortie demandait que deux
+agrégats distincts ne s'attendent pas, « mesuré ». La mesure est un **ordre d'arrivée** et non une
+durée : comparer des millisecondes ferait rougir la garde quand le runner est chargé, et une garde
+qui rougit sur une machine occupée se fait désactiver. Un fil tient le verrou de `mission:a` et ne
+le rend qu'après avoir constaté que `mission:b` est passé ; l'inverse vérifie que deux écritures sur
+le même stream font la queue.
+
+**La table de verrous se nettoie, et le raisonnement mérite d'être écrit.** La crainte est qu'une
+entrée retirée pendant qu'un fil l'attend produise deux verrous pour un même stream. Elle ne peut
+pas se produire : cloner depuis la table et vérifier-puis-retirer passent par **le même verrou de
+table**, donc un fil qui attend a déjà cloné — le compte est d'au moins trois et l'entrée reste.
+Mille streams éphémères le vérifient, parce qu'une fuite de ce genre ne se voit ni en revue ni en
+test court.
+
+**La borne, et pourquoi elle est une valeur du service.** Mille vingt-quatre écritures admises, puis
+un refus `unavailable` qui **nomme la borne**. Une attente sans limite est une panne qui ne se
+déclare pas ; `internal` enverrait le client ouvrir un ticket et `validation` chercher une faute
+dans sa requête, quand seul `unavailable` dit « retente plus tard ». La borne se configure — un
+profil de déploiement la choisit, un test l'exerce sans fabriquer mille écritures — et elle reste un
+fait déclaré plutôt qu'un réglage caché, puisqu'elle voyage dans le refus.
+
+**Ce que ce sprint ne fait pas, et qui était dans les recommandations acceptées.** L'idempotence du
+client reste une mémoire de processus, donc **fausse au moment exact où elle sert** : un redémarrage
+l'oublie, et un redémarrage est précisément ce qui coupe les connexions et déclenche les retentes.
+L'ADR 0029 décision 4 tranche la forme — elle devient une projection de plus, l'enveloppe gagnant un
+seul champ facultatif puisque la portée y est déjà. C'est une **migration**, et `CLAUDE.md` demande
+qu'une migration ne se mélange pas à un changement de signature publique et à une reprise de
+concurrence dans le même commit. Elle est donc `W20.j`, écrite au plan avec son test de sortie et
+son rollback, plutôt que faite à moitié ici.
+
+**Deux survivants de mutants, et le second était le premier déguisé.** Le premier : l'entrée de
+table réclamée alors qu'un fil l'attend — porter le seuil de deux à quatre-vingt-dix-neuf laissait
+passer, sans qu'aucun test bronche. La correction reposait donc sur un **nombre**, et un nombre se
+mute. La table est passée aux **références faibles** : un fil qui attend tient un `Arc`, donc la
+référence s'élève et il obtient le même verrou ; quand plus personne ne tient, elle ne s'élève plus
+et un fil neuf crée un verrou neuf — mais à cet instant personne ne tenait l'ancien. Le seuil
+disparaît, et avec lui la faute.
+
+Le second est apparu au même endroit sous une autre forme : le **balayage** est un prédicat, et
+aucun type ne le borde — un vidage complet emporterait un verrou tenu. Celui-là se teste **sans
+course**, et c'est ce qui le rend fiable : un verrou tenu doit rester compté après un balayage. Nul
+besoin de faire courir deux fils l'un contre l'autre — tenir, provoquer le balayage, regarder ce qui
+reste. Vérifié rouge sur le vidage, vert sur le tri.
+
+Deux motifs du harnais sont partis en `MOTIF ABSENT` après la reprise, et ils sont **rapportés, pas
+comptés** : un motif périmé qui se lirait « tué » ferait croire à une garde qui n'a rien exercé.
+
+**Écart avec la spec.** `EventStore::append` change de signature — amendement porté par l'ADR 0029,
+avec son plan de rollback. Aucun écart sur §22 ni §10.2 : les garanties sont les mêmes, c'est leur
+mode de preuve qui change.
+
+**Prochain item.** `W20.i` — le driver PostgreSQL, qui rejouera la suite de contract tests à
+l'identique, ou `W20.j` — la migration d'idempotence. Les deux sont ouverts.

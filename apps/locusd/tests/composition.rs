@@ -209,7 +209,7 @@ fn une_faute_reelle_met_en_quarantaine_et_se_lit_dans_le_rapport() {
 /// Le journal n'est joignable qu'en lecture depuis l'extérieur de la transaction.
 #[test]
 fn le_journal_ne_sort_qu_en_lecture() {
-    let mut runtime = Runtime::in_memory();
+    let runtime = Runtime::in_memory();
     runtime
         .transaction()
         .submit(&Executer, &commande(), &(), NOW)
