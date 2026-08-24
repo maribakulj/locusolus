@@ -135,7 +135,24 @@ pub struct WorkerIdentity {
 /// inexprimable côté appelant.
 pub trait WorkerRegistry: Send + Sync {
     /// L'identité que porte cette créance, ou `None` si elle n'en porte aucune.
+    ///
+    /// Un worker **révoqué** n'en porte plus : §7.4. `None` couvre donc « inconnu » et « révoqué »,
+    /// et c'est voulu — les distinguer dans la réponse dirait à qui interroge lequel des deux, ce
+    /// qui transforme la surface en oracle d'existence.
     fn identify(&self, credential: &str) -> Option<WorkerIdentity>;
+
+    /// Reconnaître une créance émise par l'enrôlement de §7.2 — `W20.n`.
+    ///
+    /// Sur le trait et non sur l'implémentation de référence : un registre réel devra l'implémenter
+    /// aussi, et le laisser hors du port ferait de `MemoryRegistry` le seul enrôlable.
+    fn admit_enrolled(&self, credential: &str, identity: WorkerIdentity);
+
+    /// Cesser de reconnaître ce worker — §7.4.
+    ///
+    /// **Rien n'est effacé du journal** : `worker.revoked` y est écrit par ailleurs, et ce registre
+    /// n'est qu'un cache de ce que le journal dit. L'invariant 12 porte sur les faits, pas sur les
+    /// index qui les servent.
+    fn revoke(&self, worker_id: &str);
 }
 
 /// D'où viennent les identifiants que ce crate n'a pas le droit de fabriquer.
@@ -260,6 +277,10 @@ impl MissionQueue for MemoryQueue {
 #[derive(Debug, Default)]
 pub struct MemoryRegistry {
     known: RwLock<Vec<(String, WorkerIdentity)>>,
+    /// Les workers révoqués — §7.4. Une **liste de plus**, jamais un retrait de `known` : le
+    /// registre doit pouvoir dire « je connais ce worker et il est révoqué », ce qu'un effacement
+    /// rendrait indistinguable de « je ne l'ai jamais vu ».
+    revoked: RwLock<Vec<String>>,
 }
 
 impl MemoryRegistry {
@@ -280,12 +301,25 @@ impl MemoryRegistry {
 
 impl WorkerRegistry for MemoryRegistry {
     fn identify(&self, credential: &str) -> Option<WorkerIdentity> {
+        let revoked = self.revoked.read().unwrap_or_else(PoisonError::into_inner);
         self.known
             .read()
             .unwrap_or_else(PoisonError::into_inner)
             .iter()
             .find(|(known, _)| known == credential)
+            .filter(|(_, identity)| !revoked.contains(&identity.worker_id))
             .map(|(_, identity)| identity.clone())
+    }
+
+    fn admit_enrolled(&self, credential: &str, identity: WorkerIdentity) {
+        self.admit(credential, identity);
+    }
+
+    fn revoke(&self, worker_id: &str) {
+        self.revoked
+            .write()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push(worker_id.to_owned());
     }
 }
 
@@ -299,6 +333,7 @@ pub struct Desk {
     queue: Arc<dyn MissionQueue>,
     registry: Arc<dyn WorkerRegistry>,
     identities: Arc<dyn Identities>,
+    enrollment: Arc<dyn crate::enrollment::EnrollmentTokens>,
 }
 
 impl std::fmt::Debug for Desk {
@@ -315,6 +350,7 @@ impl Default for Desk {
             queue: Arc::new(MemoryQueue::new()),
             registry: Arc::new(MemoryRegistry::new()),
             identities: Arc::new(NoIdentities),
+            enrollment: Arc::new(crate::enrollment::MemoryTokens::new()),
         }
     }
 }
@@ -331,7 +367,21 @@ impl Desk {
             queue,
             registry,
             identities,
+            enrollment: Arc::new(crate::enrollment::MemoryTokens::new()),
         }
+    }
+
+    /// Câbler l'émetteur de tokens d'enrôlement — `W20.n`.
+    #[must_use]
+    pub fn enrolling(mut self, tokens: Arc<dyn crate::enrollment::EnrollmentTokens>) -> Self {
+        self.enrollment = tokens;
+        self
+    }
+
+    /// L'émetteur de tokens, en lecture.
+    #[must_use]
+    pub fn tokens(&self) -> &dyn crate::enrollment::EnrollmentTokens {
+        self.enrollment.as_ref()
     }
 
     /// La file, en lecture.
@@ -858,7 +908,17 @@ impl<S: EventStore> Runtime<S> {
 
     /// La révision courante d'un stream, ou `0` — « il n'existe pas encore ».
     fn revision_of(&self, stream: &str) -> u64 {
+        self.revision_of_stream(stream)
+    }
+
+    /// La même, ouverte au crate : `enrollment.rs` en a besoin pour la même raison.
+    pub(crate) fn revision_of_stream(&self, stream: &str) -> u64 {
         self.transaction_store().revision(stream).unwrap_or(0)
+    }
+
+    /// Les tokens d'enrôlement, en lecture — `W20.n`.
+    pub(crate) fn enrollment(&self) -> &dyn crate::enrollment::EnrollmentTokens {
+        self.lep().tokens()
     }
 
     /// Qui parle, ou un refus **typé** — jamais une trace.

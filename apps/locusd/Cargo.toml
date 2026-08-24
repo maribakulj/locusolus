@@ -26,6 +26,10 @@ path = "src/main.rs"
 # `dependencies.json`. Les features de `tokio` sont énumérées une par une — `full` apporte `process`
 # et `signal`, exactement ce que la règle 4 de `boundaries.json` interdit à `locusd`, et
 # `check:deps` la refuse.
+# W20.n, ADR 0031 : vérifier une signature Ed25519 et lire une clé publique SPKI. `ring` ferait
+# 8 paquets contre 25, et tirerait un compilateur C — ce que l'ADR 0020 a déjà refusé pour
+# `blake3`. Neuf des vingt-cinq sont déjà là par `sha2` : le coût marginal réel est de seize.
+ed25519-dalek = { version = "2", default-features = false, features = ["pkcs8", "alloc"] }
 axum = { version = "0.8", default-features = false, features = ["http1", "tokio", "query"] }
 tokio = { version = "1", features = ["rt-multi-thread", "net", "macros"] }
 # `locus-event-store` entre avec W20.b : la transaction *possède* le journal, ce qui est ce qui rend
