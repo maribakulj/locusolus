@@ -13844,3 +13844,82 @@ vaut moins que rien, puisqu'elle dispense de chercher.
 
 **Prochain item.** `W12.d`, troisième clause : « un worker est placé sur ce qu'il a prouvé ». La
 première chose à faire est la sonde ci-dessus.
+
+---
+
+## 2026-08-24 — W20.aa — Un `204` de placement cesse d'être muet, et dément aussitôt ma conjecture
+
+**Le constat.** `Runtime::placed` écrivait `Ok(Placement::NotPlaced { .. }) => Ok(false)`. Tout ce
+que le broker avait répondu — un `Shortfall` par worker examiné, chacun avec ses `Reason`, les sept
+motifs que §10.2 distingue avec soin — était **jeté**. Le `204` de §15.2 couvrait alors deux états
+que le daemon distingue parfaitement et que personne d'autre ne pouvait distinguer : « la file
+n'avait rien » et « une mission était là, le broker a dit non ».
+
+L'entrée précédente de ce ledger s'arrête exactement là, et écrit la cause comme **non établie** —
+`backend: "none"` donné pour « vraisemblable », et vraisemblable n'est pas vérifié.
+
+**Ce que le diagnostic a répondu, dès son premier usage :**
+
+```text
+« task_…005 » retourne en file : aucun des 1 worker(s) soumis ne convient —
+« canterel-ff9955e7-… » : l'hôte ne sait pas appliquer le mode réseau Deny ;
+confinement S1 annoncé mais jamais prouvé, aucune campagne n'a conclu — lancer les self-tests
+```
+
+**Deux motifs, et aucun des deux n'était le mien.** Mieux : ma sonde précédente avait _exclu_ le
+mode réseau — « une mission `S1` / `full` rend aussi `204`, donc ce n'est pas ça ». C'était faux, et
+la raison est instructive : **la file est FIFO**, la mission `deny` était toujours en tête, et
+`take()` a servi celle-là. L'expérience changeait une entrée sans contrôler l'état partagé qu'elle
+interrogeait, donc elle ne mesurait pas ce qu'elle croyait mesurer — et sa conclusion était
+exactement à l'envers.
+
+C'est la meilleure justification qu'un item de diagnostic puisse recevoir : tant que le `204` était
+muet, la seule chose disponible était une conjecture, et la conjecture était fausse.
+
+**Décisions.**
+
+1. **Le `204` reste vide.** ADR 0028 décision 4 — « rien pour toi » n'est pas une erreur. Y mettre
+   un corps ferait d'une réponse normale un diagnostic, et donnerait à un worker le détail des
+   manques d'un hôte, ce que sa créance ne lui donne aucun droit de connaître. Ce qui manquait
+   n'était pas une réponse plus bavarde : c'était un **exploitant** capable de lire ce que son
+   daemon décide.
+2. **Un port, pas un `eprintln!`.** Rien sous `apps/locusd/src/` n'imprime — vérifié : `println!`
+   n'apparaît que dans `main.rs`. La bibliothèque décide, le binaire rend compte. Une frontière qui
+   a une exception en a bientôt trois.
+3. **Le défaut de ce port parle**, contrairement aux ports d'autorité voisins. Là-bas le danger est
+   la permissivité silencieuse ; ici le défaut à corriger **est** le silence, et un puits muet par
+   défaut reproduirait ce que l'item retire sous un nom plus rassurant.
+4. **L'asymétrie du silence.** Seul le refus parle ; une file vide ne dit rien. Un worker sonde en
+   boucle, et une ligne par sondage rendrait les vraies notes illisibles. Comme seul le refus parle,
+   l'**absence** de note veut dire « la file n'avait rien » — l'ambiguïté est levée sans coûter une
+   ligne par tour. Deux tests tiennent les deux moitiés.
+
+**Un test d'absence avait raison contre moi.** `reclamer_ne_choisit_aucun_hote` interdit à `lep.rs`
+les mots de la décision — `Candidate`, `shortfall`, `admit(`, `proven_level`. La première rédaction
+faisait transiter les `Shortfall` par `lep.rs` pour les rendre en phrase, et **le test a rougi**. Ce
+n'est pas la garde qui était trop grossière : manipuler le vocabulaire des manques, même pour n'en
+faire qu'une phrase, c'est en connaître la forme, et une surface qui connaît la forme d'une décision
+finit par en prendre une. `lep.rs` lit désormais « placé / pas placé, et voici la phrase à dire » ;
+tout le vocabulaire vit dans `observations.rs`. La garde tenait par le **nom**, ce qui paraît
+grossier et se révèle exact.
+
+**Ce que la phrase ne fond pas.** Les sept motifs de §10.2 envoient à des endroits différents, et
+cinq tests le tiennent par **inégalité stricte** entre rendus, pas par la présence d'un mot :
+`level_unavailable` envoie changer de machine, `level_not_attested` lancer les self-tests,
+`capacity_exceeded` libérer de la place, `disk_quota_not_enforceable` changer de système de fichiers
+— et celui-là dit explicitement de **ne pas** réduire la réservation. `proven: None` et
+`proven: Some(n)` sont deux ignorances différentes, comme partout ailleurs dans ce dépôt.
+
+**Aucun secret.** La note porte la tâche, les workers et leurs manques. Jamais la créance : le
+`worker_id` suffit à savoir de qui on parle.
+
+**Ce que la sonde a établi sur `W12.d`.** Les deux motifs sont des **faits d'hôte**, pas des défauts
+: cet hôte n'a pas de backend de conteneur, donc aucun moyen de refuser le réseau, et aucune
+campagne de self-tests n'y a tourné. La troisième clause — « un worker est placé sur ce qu'il a
+prouvé » — ne peut donc pas être exercée ici. La CI de `locusolus` a une sandbox `podman` réelle
+(ADR 0033), et le harnais e2e y tourne déjà : c'est là qu'il faut regarder ensuite.
+
+**Vérifié.** `npm run check` → vert ; 11 tests de rendu + 2 de comportement ; et la chaîne réelle
+rend la phrase ci-dessus là où elle rendait un `204` muet.
+
+**Prochain item.** Lire ce que la CI dit du placement, là où la sandbox est réelle.

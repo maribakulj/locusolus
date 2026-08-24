@@ -440,6 +440,7 @@ pub struct Desk {
     broker: Arc<dyn BrokerPort + Send + Sync>,
     administrators: Arc<dyn crate::mission::Administrators>,
     blobs: crate::artifacts::SharedBlobs,
+    observations: Arc<dyn crate::observations::Observations>,
 }
 
 impl std::fmt::Debug for Desk {
@@ -474,6 +475,10 @@ impl Default for Desk {
             broker: Arc::new(broker_absent()),
             administrators: Arc::new(crate::mission::NoAdministrators),
             blobs: Arc::new(crate::artifacts::NoBlobs),
+            // `W20.aa` : le défaut **parle**, contrairement aux ports d'autorité voisins. Le danger
+            // d'un puits de diagnostic est le silence, pas la permissivité, et un défaut muet
+            // reproduirait exactement ce que cet item retire.
+            observations: Arc::new(crate::observations::StderrObservations),
         }
     }
 }
@@ -494,6 +499,10 @@ impl Desk {
             broker: Arc::new(broker_absent()),
             administrators: Arc::new(crate::mission::NoAdministrators),
             blobs: Arc::new(crate::artifacts::NoBlobs),
+            // `W20.aa` : le défaut **parle**, contrairement aux ports d'autorité voisins. Le danger
+            // d'un puits de diagnostic est le silence, pas la permissivité, et un défaut muet
+            // reproduirait exactement ce que cet item retire.
+            observations: Arc::new(crate::observations::StderrObservations),
         }
     }
 
@@ -536,6 +545,21 @@ impl Desk {
     ) -> Self {
         self.administrators = administrators;
         self
+    }
+
+    /// Câbler le puits de diagnostic — `W20.aa`.
+    ///
+    /// Le défaut écrit sur la sortie d'erreur ; un test le remplace par un puits qui garde.
+    #[must_use]
+    pub fn observing(mut self, observations: Arc<dyn crate::observations::Observations>) -> Self {
+        self.observations = observations;
+        self
+    }
+
+    /// Le puits de diagnostic, en lecture.
+    #[must_use]
+    pub fn observations(&self) -> &dyn crate::observations::Observations {
+        self.observations.as_ref()
     }
 
     /// Le registre d'administration, en lecture.
@@ -1178,8 +1202,13 @@ impl<S: EventStore> Runtime<S> {
             return Ok(None);
         };
         match self.placed(manifest, &queued.mission) {
-            Ok(true) => {}
-            Ok(false) => {
+            Ok(None) => {}
+            Ok(Some(note)) => {
+                // `W20.aa` : dit **avant** la remise en file, pour que la note nomme la tâche qu'on
+                // s'apprête à rendre. Le `204` qui suit reste vide — ADR 0028 décision 4, et le
+                // détail des manques d'un hôte n'est rien qu'une créance de worker donne le droit
+                // de connaître.
+                self.lep().observations().unplaced(&note);
                 self.lep().queue().enqueue(queued);
                 return Ok(None);
             }
@@ -1267,11 +1296,21 @@ impl<S: EventStore> Runtime<S> {
         &self,
         manifest: &CapabilityManifest,
         mission: &MissionEnvelope,
-    ) -> Result<bool, CommandError> {
+    ) -> Result<Option<String>, CommandError> {
         let broker = self.lep().broker();
         match broker.place(manifest, &mission.sandbox, &mission.resources) {
-            Ok(Placement::Placed { .. }) => Ok(true),
-            Ok(Placement::NotPlaced { .. }) => Ok(false),
+            // `W20.aa` : ce que le refus contenait **cesse d'être jeté**, sans que ce module en
+            // connaisse la forme. Un booléen l'effaçait, et `204` couvrait alors deux états que le
+            // daemon distingue parfaitement — « la file n'avait rien » et « le broker a dit non, et
+            // voici quoi ». Une sonde de session s'est arrêtée là.
+            //
+            // Ce qui remonte ici est une **phrase**, jamais la structure. `reclamer_ne_choisit_
+            // aucun_hote` interdit à ce fichier les mots de la décision, et il a rougi sur la
+            // première rédaction, qui les faisait transiter. Il avait raison, et c'est le code qui
+            // a changé : connaître la forme d'une décision est le premier pas pour en prendre une.
+            Ok(verdict @ (Placement::Placed { .. } | Placement::NotPlaced { .. })) => Ok(
+                crate::observations::refusal_note(&mission.task_id, &verdict),
+            ),
             // Un broker qui refuse de nous parler n'a pas dit que le worker ne convient pas : il a
             // dit qu'il ne répondra pas. Le ranger en `204` ferait attendre indéfiniment un worker
             // capable, pour un problème d'identité entre deux services.
