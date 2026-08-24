@@ -13418,3 +13418,36 @@ daté, et le ledger est l'endroit où l'on dit ce qui a été fait.
 
 **Prochain item.** `W2.22` — le composition root de canterel. Dépendance : `runWorker` exige qu'on
 lui fournisse ses ports et personne ne les assemble ; rien d'autre ne le bloque.
+
+## 2026-08-24 — W2.22 (côté locusolus) — La roadmap corrigée par le code qu'elle décrivait
+
+**Périmètre.** `docs/10_V1_ROADMAP.md` seul — la livraison est dans `canterel` (PR #30, mergée), et
+son ledger la détaille. Cette entrée consigne ce que l'item apprend **à cette roadmap-ci**.
+
+**Le constat de la ligne `W2.22` était faux.** Il disait que « personne n'assemble les ports » et
+qu'« aucun chemin du binaire ne mène d'une configuration à une boucle qui tourne ». `W2.21` avait
+livré ce chemin ; `git log -S workerPortsFor` le date du commit `5c3b516`, antérieur à l'écriture du
+constat. Celui-ci a été pris pendant la tentative de `W12.d`, en lisant la **signature** de
+`runWorker` — qui rend bien les ports facultatifs — sans lire son **appelant**.
+
+Ce qui restait vrai, et que l'item a livré : **rien ne l'attestait**. L'assemblage était une
+fonction privée d'un module de commande, allant chercher son contexte toute seule ; aucun test ne
+pouvait l'atteindre sans muter le processus, et les trois clauses du test de sortie n'avaient donc
+aucun sujet exécutable. C'est `W7.a` sous un autre nom — livré, non attesté.
+
+**La leçon, et pourquoi elle vaut d'être écrite ici.** `W0.16` a établi qu'un marqueur qui
+_anticipe_ une précondition se périme, et qu'un item qui _constate_ ne se périme pas. La ligne
+`W2.22` semblait être du second genre — elle citait des symboles et des fichiers. Elle était en
+réalité du premier : elle **déduisait** l'absence d'appelant d'une signature permissive au lieu de
+chercher l'appelant. Un constat n'est donc pas garanti par le fait de nommer du code ; il l'est par
+le fait d'avoir **lu** le code qu'il nomme. La ligne est corrigée en place plutôt qu'effacée : ce
+qu'elle s'est trompée à conclure est plus instructif que sa disparition.
+
+**Ce que l'item a trouvé et qui devient un item.** Le worker assemblé refusait **toutes** les
+missions — `buildManifest` n'avait pas de champ `models`, donc l'admission répondait
+`model_unavailable`. Le champ existe maintenant et traverse l'assemblage ; la couture n'en déclare
+aucun, délibérément, et un test fige ce refus. `W2.23` est ajouté pour le lever en **lisant**
+l'adresse d'inférence de chaque fournisseur plutôt qu'en la supposant.
+
+**Prochain item.** `W2.23`, ci-dessus, ou tout item de la roadmap qu'une session choisira ; rien ne
+le bloque.
