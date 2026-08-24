@@ -40,6 +40,9 @@ tokio = { version = "1", features = ["rt-multi-thread", "net", "macros"] }
 # W4.h : le client vers `locus-execd`, par le tube de l'ADR 0028. `locusd` ne dépend **pas**
 # de `apps/locus-execd` : les deux dépendent du crate de protocole, sans quoi le daemon
 # porterait dans son graphe la seule fonction du dépôt qui exécute `podman`.
+# W20.t : la chaîne d'artefacts de §19.1 atteint le daemon. Dépendance interne, donc hors de
+# `dependencies.json`, qui ne porte que les dépendances externes.
+locus-artifacts = { path = "../../packages/artifacts" }
 locus-broker = { path = "../../packages/broker" }
 locus-coordination = { path = "../../packages/coordination" }
 locus-domain = { path = "../../packages/domain" }

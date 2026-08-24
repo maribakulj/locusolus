@@ -50,6 +50,7 @@
 //! pour l'ordre des appels, qui est la garantie elle-même.
 
 pub mod derivation;
+pub mod digest;
 pub mod ingest;
 pub mod manifest;
 pub mod memory;
@@ -63,6 +64,7 @@ pub mod store;
 pub mod wire;
 
 pub use derivation::{Derivation, DerivationError, DerivationRelation};
+pub use digest::Sha256Digest;
 pub use ingest::{IngestError, ingest};
 pub use manifest::{ArtifactManifest, Integrity, ManifestError, ProducedBy, Rights, ViewerHints};
 pub use memory::MemoryObjectStore;

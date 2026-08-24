@@ -396,6 +396,7 @@ pub struct Desk {
     enrollment: Arc<dyn crate::enrollment::EnrollmentTokens>,
     broker: Arc<dyn BrokerPort + Send + Sync>,
     administrators: Arc<dyn crate::mission::Administrators>,
+    blobs: crate::artifacts::SharedBlobs,
 }
 
 impl std::fmt::Debug for Desk {
@@ -429,6 +430,7 @@ impl Default for Desk {
             enrollment: Arc::new(crate::enrollment::MemoryTokens::new()),
             broker: Arc::new(broker_absent()),
             administrators: Arc::new(crate::mission::NoAdministrators),
+            blobs: Arc::new(crate::artifacts::NoBlobs),
         }
     }
 }
@@ -448,6 +450,7 @@ impl Desk {
             enrollment: Arc::new(crate::enrollment::MemoryTokens::new()),
             broker: Arc::new(broker_absent()),
             administrators: Arc::new(crate::mission::NoAdministrators),
+            blobs: Arc::new(crate::artifacts::NoBlobs),
         }
     }
 
@@ -456,6 +459,19 @@ impl Desk {
     pub fn enrolling(mut self, tokens: Arc<dyn crate::enrollment::EnrollmentTokens>) -> Self {
         self.enrollment = tokens;
         self
+    }
+
+    /// Câbler le stockage des octets d'artefacts — `W20.t`.
+    #[must_use]
+    pub fn storing(mut self, blobs: crate::artifacts::SharedBlobs) -> Self {
+        self.blobs = blobs;
+        self
+    }
+
+    /// Le stockage, en lecture.
+    #[must_use]
+    pub fn blobs(&self) -> &dyn crate::artifacts::Blobs {
+        self.blobs.as_ref()
     }
 
     /// Câbler le registre d'administration — `W20.s`.
@@ -1228,7 +1244,7 @@ impl<S: EventStore> Runtime<S> {
     /// même pour laquelle `Expected` existe : une lecture périmée produit un `Conflict` au moment
     /// de l'écriture, jamais un écrasement. Ce n'est pas le « lire puis agir » que l'ADR 0029 a
     /// rendu inexprimable dans le journal — là, rien ne protégeait ; ici, le journal refuse.
-    fn write_worker_fact<D: Decide<State = LepContext>>(
+    pub(crate) fn write_worker_fact<D: Decide<State = LepContext>>(
         &self,
         identity: &WorkerIdentity,
         submitted: &Submitted,
@@ -1277,7 +1293,7 @@ impl<S: EventStore> Runtime<S> {
     ///
     /// Une créance inconnue est une faute d'autorisation, pas un défaut interne : lui rendre un
     /// `500` la ferait retenter à l'identique, un `500` voulant dire « réessaie ».
-    fn identify(&self, credential: &str) -> Result<WorkerIdentity, CommandError> {
+    pub(crate) fn identify(&self, credential: &str) -> Result<WorkerIdentity, CommandError> {
         self.lep()
             .registry()
             .identify(credential)

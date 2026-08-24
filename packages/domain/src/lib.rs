@@ -42,7 +42,7 @@ pub mod validation;
 pub use branch::{Branch, BranchState, Condition, Origin, TransitionError, ValidationWitness};
 pub use conflict::{Conflict, ConflictLog, ConflictOrigin, Verdict, conflicts_from_merge};
 pub use envelope::{Confidentiality, Envelope, Ref, Revision};
-pub use hash::{ContentHash, ParseHashError};
+pub use hash::{ContentHash, Hasher, ParseHashError};
 pub use ids::{RevisionId, RevisionKind, StableId, StableKind};
 pub use lineage::Lineage;
 pub use negative_result::{CONCLUSIVE_POWER, Exclusion, NegativeResult, Power};

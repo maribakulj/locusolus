@@ -328,7 +328,7 @@ impl Decide for Queue {
     }
 }
 
-fn fact(
+pub(crate) fn fact(
     command: &CommandEnvelope,
     context: &LepContext,
     event_type: &str,

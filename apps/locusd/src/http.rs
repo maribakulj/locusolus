@@ -37,11 +37,11 @@ use axum::Router;
 use axum::extract::{Path, Query, State};
 use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, post};
+use axum::routing::{get, post, put};
 use locus_coordination::version::VersionId;
 use locus_event_store::EventStore;
 use locus_protocol::{Id, Timestamp};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::composition::Runtime;
 use crate::cursor::{Collection, Cursor, CursorError};
@@ -93,6 +93,8 @@ where
         .route(ENROLL_PATH, post(enroll::<S>))
         .route(PROPOSE_PATH, post(propose::<S>))
         .route(QUEUE_PATH, post(queue::<S>))
+        .route(DECLARE_PATH, post(declare::<S>))
+        .route(CONTENT_PATH, put(upload::<S>))
         .with_state(Offload::new(runtime))
 }
 
@@ -426,6 +428,18 @@ pub const PROPOSE_PATH: &str = "/commands/task/propose";
 /// Voir [`PROPOSE_PATH`].
 pub const QUEUE_PATH: &str = "/commands/task/queue";
 
+/// `POST` — la déclaration d'un artefact, §19.1, `W20.t`.
+///
+/// **Sous `/lep/`**, contrairement aux deux de §22.3 : c'est un worker qui déclare ce qu'il a
+/// produit, sous sa créance de worker, et non un exploitant qui administre.
+pub const DECLARE_PATH: &str = "/lep/v1/artifacts";
+/// `PUT` — les octets de l'artefact déclaré. Voir [`DECLARE_PATH`].
+///
+/// Le chemin est construit par [`locusd::artifacts::upload_path`] pour un artefact donné ; ce
+/// littéral est le motif qu'`axum` route, et un test vérifie que les deux s'accordent — deux
+/// endroits qui construisent le même chemin finissent par en construire deux.
+pub const CONTENT_PATH: &str = "/lep/v1/artifacts/{artifact_id}/content";
+
 /// La créance portée par `Authorization: Bearer …`, si elle y est.
 ///
 /// Jamais journalisée, jamais renvoyée dans un refus : `CLAUDE.md` interdit de logger un token, et
@@ -664,7 +678,10 @@ async fn enroll<S: EventStore + Send + Sync + 'static>(
     }
 }
 
-/// La part commune aux deux commandes de §22.3 — `W20.s`.
+/// Ce qu'une commande porte et que le daemon ne décide pas à sa place — `W20.s`.
+///
+/// Partagée par les deux commandes de §22.3 et par le dépôt d'octets de §19.1, qui la lit de ses
+/// en-têtes plutôt que de son corps — voir [`upload`].
 ///
 /// Elle ne porte **aucune** autorité : ni workspace, ni principal. Les deux viennent du registre
 /// d'administration, résolus depuis la créance — un appelant qui les annoncerait écrirait dans le
@@ -816,6 +833,119 @@ async fn queue<S: EventStore + Send + Sync + 'static>(
     }
 }
 
+/// `POST /lep/v1/artifacts` — §19.1, la déclaration d'un artefact, `W20.t`.
+///
+/// Rend l'adresse où en déposer le contenu, et jusqu'à quand. Le hash n'est **pas** vérifié ici :
+/// il ne peut pas l'être, puisque le contenu n'est pas encore arrivé — c'est tout l'intérêt de
+/// déclarer d'abord.
+async fn declare<S: EventStore + Send + Sync + 'static>(
+    State(desk): State<Offload<S>>,
+    headers: axum::http::HeaderMap,
+    body: String,
+) -> Response {
+    let Some(credential) = bearer(&headers) else {
+        return sans_creance();
+    };
+    let corps: DeclareBody = match serde_json::from_str(&body) {
+        Ok(lu) => lu,
+        Err(error) => return commande_refusee(&corps_illisible(&error)),
+    };
+    let credential = credential.to_owned();
+    let now = maintenant();
+    match hors_du_fil(&desk, move |runtime| {
+        runtime.lep_declare_artifact(
+            &credential,
+            &corps.manifest,
+            &corps.worker.submitted(now)?,
+            now,
+        )
+    })
+    .await
+    {
+        Err(sature) => commande_refusee(&sature),
+        Ok(Ok(ticket)) => rendu(StatusCode::ACCEPTED, &ticket),
+        Ok(Err(error)) => commande_refusee(&error),
+    }
+}
+
+/// `PUT /lep/v1/artifacts/{artifact_id}/content` — §19.1, les octets, `W20.t`.
+///
+/// # Pourquoi les métadonnées voyagent en en-têtes
+///
+/// Le corps **est** l'artefact. Y glisser un objet JSON qui l'enveloppe obligerait à encoder des
+/// octets arbitraires en base64 — un tiers de volume en plus sur des contenus qui se comptent en
+/// gigaoctets —, et à tenir le tout en mémoire pour le décoder avant de savoir s'il est
+/// acceptable, ce que `packages/artifacts` refuse par construction.
+///
+/// La clé d'idempotence et le projet passent donc par `Locus-Idempotency-Key` et
+/// `Locus-Project-Id`. Ils ne portent aucune autorité — celle-ci vient de la créance, comme
+/// partout ailleurs depuis `W20.k`.
+async fn upload<S: EventStore + Send + Sync + 'static>(
+    State(desk): State<Offload<S>>,
+    Path(artifact_id): Path<String>,
+    headers: axum::http::HeaderMap,
+    body: axum::body::Bytes,
+) -> Response {
+    let Some(credential) = bearer(&headers) else {
+        return sans_creance();
+    };
+    let submitted = CommandBody {
+        idempotency_key: entete(&headers, "locus-idempotency-key").unwrap_or_default(),
+        project_id: entete(&headers, "locus-project-id"),
+    };
+    let credential = credential.to_owned();
+    let now = maintenant();
+    match hors_du_fil(&desk, move |runtime| {
+        runtime.lep_upload_artifact(
+            &credential,
+            &artifact_id,
+            &body,
+            &submitted.submitted(now)?,
+            now,
+        )
+    })
+    .await
+    {
+        Err(sature) => commande_refusee(&sature),
+        Ok(Ok(receipt)) => rendu(StatusCode::CREATED, &receipt),
+        Ok(Err(error)) => commande_refusee(&error),
+    }
+}
+
+/// Un en-tête, s'il est là et lisible.
+fn entete(headers: &axum::http::HeaderMap, name: &str) -> Option<String> {
+    headers
+        .get(name)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned)
+}
+
+/// Rendre une valeur en JSON, ou dire que la sérialisation a échoué.
+///
+/// Un `500` et non un corps tronqué : une réponse partielle serait lue comme une réponse.
+fn rendu<T: Serialize>(status: StatusCode, value: &T) -> Response {
+    match serde_json::to_string(value) {
+        Ok(body) => json(status, body),
+        Err(error) => probleme(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "internal",
+            &error.to_string(),
+        ),
+    }
+}
+
+/// Le corps d'une déclaration d'artefact — `W20.t`.
+///
+/// Le manifeste y est **obligatoire**, comme la proposition l'est dans [`ProposeBody`] : une
+/// déclaration sans manifeste ne déclare rien, et c'est serde qui le refuse en nommant le champ.
+#[derive(Debug, Deserialize)]
+struct DeclareBody {
+    #[serde(flatten)]
+    worker: WorkerBody,
+    /// Encadré : un `ArtifactManifest` porte licence, dérivations et viewer hints.
+    manifest: Box<locus_lep::ArtifactManifest>,
+}
+
 /// L'autorité que porte cette créance, ou le refus **typé** qui dit qu'elle n'en porte aucune.
 ///
 /// Jamais une trace : une créance sans autorité est une faute d'autorisation, et lui rendre `500`
@@ -953,7 +1083,7 @@ pub const DEFAULT_BIND: &str = "127.0.0.1:8787";
 /// fichier : ajouter une route sans l'annoncer fait rougir, qu'elle soit une `Collection` ou non.
 /// Le déstructurage reste, pour ce qu'il couvre — un nom, pas seulement un nombre.
 #[must_use]
-pub fn served() -> [&'static str; 13] {
+pub fn served() -> [&'static str; 15] {
     let [timeline, workers, conflicts, events, history] = Collection::ALL.map(Collection::name);
     [
         timeline,
@@ -973,5 +1103,8 @@ pub fn served() -> [&'static str; 13] {
         // Les deux de §22.3 — `W20.s`.
         PROPOSE_PATH,
         QUEUE_PATH,
+        // Les deux de §19.1 — `W20.t`.
+        DECLARE_PATH,
+        CONTENT_PATH,
     ]
 }
