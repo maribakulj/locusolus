@@ -71,7 +71,7 @@ fn commande(seed: u8, revision: u64) -> CommandEnvelope {
 }
 
 fn runtime_avec(types: &'static [&'static str]) -> Runtime<MemoryEventStore> {
-    let mut runtime = Runtime::in_memory();
+    let runtime = Runtime::in_memory();
     runtime
         .transaction()
         .submit(&Ecrit(types), &commande(1, 0), &(), NOW)
@@ -150,7 +150,7 @@ fn le_fil_refuse_un_cursor_d_une_autre_collection() {
 /// que des événements s'écrivent — ce qu'un client lent fait, du point de vue du serveur.
 #[test]
 fn un_client_lent_ne_fait_rien_perdre_et_relit() {
-    let mut runtime = runtime_avec(&["task.started", "artifact.declared"]);
+    let runtime = runtime_avec(&["task.started", "artifact.declared"]);
 
     let premier = runtime.events_since(None).expect("premier passage");
     let cursor = premier.next.expect("il y a eu des événements");
@@ -227,7 +227,7 @@ fn un_retard_plus_long_que_la_borne_se_signale() {
         "tout tenait dans la borne"
     );
 
-    let mut long = Runtime::in_memory();
+    let long = Runtime::in_memory();
     long.transaction()
         .submit(&Beaucoup(DELIVERY + 5), &commande(1, 0), &(), NOW)
         .accepted()

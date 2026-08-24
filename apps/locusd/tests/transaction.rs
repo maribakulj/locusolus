@@ -193,7 +193,7 @@ fn seule_la_transaction_ecrit() {
 /// exactement le défaut qu'on cherche. C'est donc le stream qu'on relit.
 #[test]
 fn un_handler_qui_refuse_ne_laisse_aucun_evenement() {
-    let mut transaction = Transaction::new(MemoryEventStore::new());
+    let transaction = Transaction::new(MemoryEventStore::new());
     let decideur = Decideur::refusant(
         "branch/br_01",
         CommandError::Policy {
@@ -224,7 +224,7 @@ fn un_handler_qui_refuse_ne_laisse_aucun_evenement() {
 /// Un lot atomique dont **une** commande refuse n'écrit rien du tout — pas même ce qui précédait.
 #[test]
 fn un_lot_atomique_qui_refuse_a_mi_parcours_n_ecrit_rien() {
-    let mut transaction = Transaction::new(MemoryEventStore::new());
+    let transaction = Transaction::new(MemoryEventStore::new());
     let decideur = Decideur::refusant(
         "branch/br_01",
         CommandError::Budget {
@@ -259,7 +259,7 @@ fn un_lot_atomique_qui_refuse_a_mi_parcours_n_ecrit_rien() {
 /// et le stream est relu.
 #[test]
 fn une_resoumission_rend_le_meme_resultat_sans_second_effet() {
-    let mut transaction = Transaction::new(MemoryEventStore::new());
+    let transaction = Transaction::new(MemoryEventStore::new());
     let decideur = Decideur::sur("branch/br_01");
 
     let premier = transaction.submit(&decideur, &commande(1, "retry-1", 0), &(), NOW);
@@ -288,7 +288,7 @@ fn une_resoumission_rend_le_meme_resultat_sans_second_effet() {
 /// qu'une erreur parce qu'il ne se signale pas.
 #[test]
 fn deux_portees_ne_confondent_pas_la_meme_cle() {
-    let mut transaction = Transaction::new(MemoryEventStore::new());
+    let transaction = Transaction::new(MemoryEventStore::new());
     let decideur = Decideur::sur("branch/br_01");
 
     let un = transaction.submit(&decideur, &commande(1, "retry-1", 0), &(), NOW);
@@ -327,7 +327,7 @@ fn un_lot_n_est_atomique_que_declare() {
 
     // Séquentiel : le refus arrête le lot, et **ce qui précède reste écrit**. C'est ce que « non
     // atomique » veut dire, et c'est pour cela qu'il faut le déclarer.
-    let mut transaction = Transaction::new(MemoryEventStore::new());
+    let transaction = Transaction::new(MemoryEventStore::new());
     let ecrivain = Decideur::sur("branch/br_01");
     let premier = transaction.submit(&ecrivain, &commande(1, "a", 0), &(), NOW);
     let revision = premier.accepted().expect("acceptée").revision;
@@ -357,7 +357,7 @@ fn un_lot_n_est_atomique_que_declare() {
 /// les commandes suivantes ont été soumises et rejetées. Elles n'ont pas été soumises.
 #[test]
 fn un_lot_sequentiel_ne_rend_pas_de_verdict_pour_ce_qu_il_n_a_pas_tente() {
-    let mut transaction = Transaction::new(MemoryEventStore::new());
+    let transaction = Transaction::new(MemoryEventStore::new());
     let refuseur = Decideur::refusant(
         "branch/br_01",
         CommandError::Unavailable {
@@ -401,7 +401,7 @@ fn un_lot_atomique_inter_streams_est_refuse_avant_d_ecrire() {
         }
     }
 
-    let mut transaction = Transaction::new(MemoryEventStore::new());
+    let transaction = Transaction::new(MemoryEventStore::new());
     let lot = Batch::Atomic(vec![commande(1, "un", 0), commande(2, "deux", 0)]);
     let verdicts = transaction.submit_batch(&DeuxStreams, &lot, &(), NOW);
 
@@ -420,7 +420,7 @@ fn un_lot_atomique_inter_streams_est_refuse_avant_d_ecrire() {
 /// Un conflit du journal devient le conflit de §22.5, avec la ressource à relire.
 #[test]
 fn un_conflit_du_journal_devient_le_conflit_de_la_spec() {
-    let mut transaction = Transaction::new(MemoryEventStore::new());
+    let transaction = Transaction::new(MemoryEventStore::new());
     let decideur = Decideur::sur("branch/br_01");
 
     transaction
@@ -456,7 +456,7 @@ fn un_decideur_qui_ne_decide_rien_est_un_defaut_interne() {
         }
     }
 
-    let mut transaction = Transaction::new(MemoryEventStore::new());
+    let transaction = Transaction::new(MemoryEventStore::new());
     let verdict = transaction.submit(&Muet, &commande(1, "a", 0), &(), NOW);
 
     assert_eq!(
@@ -475,4 +475,35 @@ fn un_decideur_qui_ne_decide_rien_est_un_defaut_interne() {
         "« {detail} » : ce message-ci vient de la garde de `write`. Celui du journal dit « lot vide », \
          et les confondre voudrait dire qu'un `append` a été tenté sur un stream sans nom"
     );
+}
+
+/// **Une saturation se dit `unavailable`, et le refus nomme la borne.**
+///
+/// C'est la famille qui compte : `internal` enverrait le client ouvrir un ticket, `validation` lui
+/// ferait chercher une faute dans sa requête. Seul `unavailable` dit « retente plus tard ».
+///
+/// La borne est ici mise à zéro : c'est la seule façon d'éprouver le chemin sans fabriquer mille
+/// écritures concurrentes, et une borne nulle est une configuration valide — un service qui
+/// n'accepte aucune écriture est un service qui le dit, pas un service en panne.
+#[test]
+fn une_saturation_est_un_refus_unavailable_qui_nomme_la_borne() {
+    let decideur = Decideur::sur("epistemic_object:1");
+    let transaction = Transaction::bounded(MemoryEventStore::new(), 0);
+
+    let verdict = transaction.submit(&decideur, &commande(1, "idem-1", 0), &(), NOW);
+
+    let refus = verdict.refused().expect("une borne à zéro refuse");
+    assert_eq!(
+        refus.family(),
+        Family::Unavailable,
+        "une saturation n'est ni une panne ni une faute du client"
+    );
+    let dit = refus.to_string();
+    assert!(
+        dit.contains('0') && dit.contains("saturé"),
+        "le refus nomme la borne et dit que retenter aboutira : {dit}"
+    );
+
+    // Et rien n'a été écrit : le refus arrive **avant** le journal.
+    assert_eq!(transaction.store().stream_count(), 0);
 }

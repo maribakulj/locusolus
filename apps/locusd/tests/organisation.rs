@@ -96,7 +96,7 @@ fn charges(store: &MemoryEventStore) -> Vec<serde_json::Value> {
 /// qu'un lecteur peut confronter à son propre rejeu, ce qui est la définition de « auditable ».
 #[test]
 fn un_commit_ecrit_l_operation_et_la_version_produite() {
-    let mut transaction = Transaction::new(MemoryEventStore::new());
+    let transaction = Transaction::new(MemoryEventStore::new());
     let base = racine();
     let operation = Operation::AddNode(agent(3));
     let attendue = base
@@ -131,7 +131,7 @@ fn un_commit_ecrit_l_operation_et_la_version_produite() {
 /// chercher là où il n'y a rien.
 #[test]
 fn une_operation_refusee_par_le_domaine_n_ecrit_rien() {
-    let mut transaction = Transaction::new(MemoryEventStore::new());
+    let transaction = Transaction::new(MemoryEventStore::new());
 
     let verdict = transaction.submit(
         &Commit {
@@ -160,7 +160,7 @@ fn une_operation_refusee_par_le_domaine_n_ecrit_rien() {
 /// si ce module tenait son propre compteur, les deux suites divergeraient au premier refus.
 #[test]
 fn la_revision_de_version_est_celle_du_stream() {
-    let mut transaction = Transaction::new(MemoryEventStore::new());
+    let transaction = Transaction::new(MemoryEventStore::new());
     let base = racine();
 
     let premier = transaction.submit(
@@ -202,7 +202,7 @@ fn la_revision_de_version_est_celle_du_stream() {
 /// aurait ajoutée, et c'est le point : il n'y a rien à ajouter.
 #[test]
 fn un_commit_sur_une_base_perimee_est_refuse_sans_ecrire() {
-    let mut transaction = Transaction::new(MemoryEventStore::new());
+    let transaction = Transaction::new(MemoryEventStore::new());
     let base = racine();
 
     let premier = transaction.submit(
@@ -250,7 +250,7 @@ fn un_commit_sur_une_base_perimee_est_refuse_sans_ecrire() {
 /// seul `ADD_NODE` prouverait bien moins.
 #[test]
 fn rejouer_le_stream_rend_la_meme_version() {
-    let mut transaction = Transaction::new(MemoryEventStore::new());
+    let transaction = Transaction::new(MemoryEventStore::new());
     let racine = racine();
 
     let suite = [

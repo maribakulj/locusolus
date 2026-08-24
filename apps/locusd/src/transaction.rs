@@ -27,6 +27,7 @@ use crate::command::CommandEnvelope;
 use crate::error::{CommandError, Conflict, ResourceRef, Revision};
 use crate::handler::{Batch, Decide, Ledger, Submission, expected_from};
 use crate::outcome::{Accepted, Outcome};
+use crate::writes::{Admitted, StreamLocks};
 
 /// L'autorité transactionnelle de §4.1 : elle tient le journal, et elle est seule à le tenir.
 ///
@@ -40,10 +41,20 @@ use crate::outcome::{Accepted, Outcome};
 ///
 /// Les deux sont nécessaires et ne se remplacent pas : celle du journal protège l'écriture, celle-ci
 /// protège le client.
+///
+/// # `&self` sur `submit` — ADR 0029 décision 2
+///
+/// La couche HTTP ne tient qu'un `&Runtime`, partagé entre plusieurs fils. Une transaction qui
+/// exigeait `&mut self` rendait §22.3 inservable, et c'est ce que `main.rs` nommait depuis `W20.g`.
+///
+/// Ce qui s'exclut est le couple `(consultation du registre, écriture)` **par stream**, tenu par
+/// [`StreamLocks`] ; `Decide::decide` est pure et reste dehors. Voir `crate::writes` pour le motif
+/// complet.
 #[derive(Debug)]
 pub struct Transaction<S> {
     store: S,
-    ledger: Ledger,
+    ledger: std::sync::Mutex<Ledger>,
+    locks: StreamLocks,
 }
 
 impl<S: EventStore> Transaction<S> {
@@ -51,8 +62,30 @@ impl<S: EventStore> Transaction<S> {
     pub fn new(store: S) -> Self {
         Self {
             store,
-            ledger: Ledger::default(),
+            ledger: std::sync::Mutex::new(Ledger::default()),
+            locks: StreamLocks::new(),
         }
+    }
+
+    /// Une transaction dont la borne d'admission est choisie.
+    ///
+    /// La borne est une valeur du service — ADR 0029 décision 6 — et non une constante cachée : un
+    /// profil de déploiement peut la fixer, et un test peut l'exercer sans fabriquer mille
+    /// écritures concurrentes.
+    pub fn bounded(store: S, limit: usize) -> Self {
+        Self {
+            store,
+            ledger: std::sync::Mutex::new(Ledger::default()),
+            locks: StreamLocks::with_limit(limit),
+        }
+    }
+
+    /// Les verrous d'écriture, pour un diagnostic ou un test.
+    ///
+    /// En lecture seule : personne n'a besoin d'acquérir un verrou hors de [`Transaction::submit`],
+    /// et l'offrir ouvrirait un chemin où une écriture se ferait sans passer par le handler.
+    pub const fn locks(&self) -> &StreamLocks {
+        &self.locks
     }
 
     /// Soumettre une commande, et rendre son verdict.
@@ -63,29 +96,64 @@ impl<S: EventStore> Transaction<S> {
     /// clé identique dans une autre portée est une autre soumission, et elle s'exécute : c'est ce
     /// que `W20.b` demande, et c'est ce qui empêche le succès d'un client de répondre à un autre.
     pub fn submit<D: Decide>(
-        &mut self,
+        &self,
         handler: &D,
         command: &CommandEnvelope,
         state: &D::State,
         now: Timestamp,
     ) -> Outcome {
         let submission = Submission::of(command);
-        if let Some(revision) = self.ledger.recall(&submission) {
+        if let Some(revision) = self.recall(&submission) {
             return Outcome::Accepted(Accepted { revision });
         }
 
+        // La décision se prend **hors** de toute exclusion : elle est pure, et c'est ce qui permet à
+        // une commande lente sur un stream de ne pas retarder une commande sur un autre.
         let events = match handler.decide(command, state) {
             Ok(events) => events,
             Err(refusal) => return Outcome::Refused(refusal),
         };
+        let Some(stream_id) = events.first().map(|event| event.stream_id.clone()) else {
+            return Outcome::Refused(no_events());
+        };
 
-        match self.write(command, events, now) {
+        self.serialised(&stream_id, || match self.write(command, events, now) {
             Ok(accepted) => {
-                self.ledger.remember(submission, accepted.revision);
+                self.remember(submission, accepted.revision);
                 Outcome::Accepted(accepted)
             }
             Err(refusal) => Outcome::Refused(refusal),
+        })
+    }
+
+    /// Exécuter une écriture sous le verrou de son stream, ou refuser si la borne est franchie.
+    ///
+    /// Le refus est un `unavailable` de §22.5 qui **nomme la borne** : sans elle, un exploitant ne
+    /// distingue pas une saturation d'une lenteur, et un client ne sait pas qu'il peut retenter.
+    fn serialised(&self, stream_id: &str, work: impl FnOnce() -> Outcome) -> Outcome {
+        match self.locks.with(stream_id, work) {
+            Admitted::Done(outcome) => outcome,
+            Admitted::Saturated { limit } => Outcome::Refused(CommandError::Unavailable {
+                detail: format!(
+                    "{limit} écritures sont déjà admises : le service est saturé, pas en panne — \
+                     retenter plus tard aboutira"
+                ),
+            }),
         }
+    }
+
+    fn recall(&self, submission: &Submission) -> Option<Revision> {
+        self.ledger
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .recall(submission)
+    }
+
+    fn remember(&self, submission: Submission, revision: Revision) {
+        self.ledger
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .remember(submission, revision);
     }
 
     /// Soumettre un lot, selon ce qu'il **a déclaré** être.
@@ -104,7 +172,7 @@ impl<S: EventStore> Transaction<S> {
     /// quand un refus l'a arrêté. Un vecteur de même longueur, complété par des refus fabriqués,
     /// laisserait croire que les commandes suivantes ont été tentées.
     pub fn submit_batch<D: Decide>(
-        &mut self,
+        &self,
         handler: &D,
         batch: &Batch,
         state: &D::State,
@@ -136,7 +204,7 @@ impl<S: EventStore> Transaction<S> {
     }
 
     fn submit_atomic<D: Decide>(
-        &mut self,
+        &self,
         handler: &D,
         commands: &[CommandEnvelope],
         state: &D::State,
@@ -166,33 +234,41 @@ impl<S: EventStore> Transaction<S> {
             return vec![Outcome::Refused(refusal)];
         }
 
-        match self.write(first, events, now) {
+        let Some(stream_id) = events.first().map(|event| event.stream_id.clone()) else {
+            return vec![Outcome::Refused(no_events())];
+        };
+
+        let verdict = self.serialised(&stream_id, || match self.write(first, events, now) {
             Ok(accepted) => {
                 for command in commands {
-                    self.ledger
-                        .remember(Submission::of(command), accepted.revision);
+                    self.remember(Submission::of(command), accepted.revision);
                 }
-                commands
-                    .iter()
-                    .map(|_| Outcome::Accepted(accepted.clone()))
-                    .collect()
+                Outcome::Accepted(accepted)
             }
-            Err(refusal) => vec![Outcome::Refused(refusal)],
+            Err(refusal) => Outcome::Refused(refusal),
+        });
+
+        match verdict {
+            Outcome::Accepted(accepted) => commands
+                .iter()
+                .map(|_| Outcome::Accepted(accepted.clone()))
+                .collect(),
+            refused @ Outcome::Refused(_) => vec![refused],
         }
     }
 
     fn write(
-        &mut self,
+        &self,
         command: &CommandEnvelope,
         events: Vec<EventDraft>,
         now: Timestamp,
     ) -> Result<Accepted, CommandError> {
+        // Les appelants ont déjà lu le stream pour prendre le verrou, donc ce cas ne peut plus se
+        // produire par ce chemin. La garde reste : elle est ce qui rend `AppendError::EmptyBatch`
+        // inatteignable, et une passe de mutants l'a confirmé — supprimer cette garde tue, changer
+        // le bras d'`EmptyBatch` survit.
         let Some(stream_id) = events.first().map(|event| event.stream_id.clone()) else {
-            return Err(CommandError::Internal {
-                detail:
-                    "le handler n'a décidé aucun événement : une commande acceptée produit un fait"
-                        .to_owned(),
-            });
+            return Err(no_events());
         };
 
         let append = Append {
@@ -259,6 +335,17 @@ fn refusal_for(
 }
 
 /// Un lot atomique vise un seul stream, ou il est refusé avant d'écrire.
+/// Le refus d'un handler qui n'a décidé aucun événement.
+///
+/// Écrit une fois : `submit` et `submit_atomic` doivent connaître le stream **avant** de prendre le
+/// verrou, donc les deux rencontrent ce cas au même endroit, et deux formulations divergeraient.
+fn no_events() -> CommandError {
+    CommandError::Internal {
+        detail: "le handler n'a décidé aucun événement : une commande acceptée produit un fait"
+            .to_owned(),
+    }
+}
+
 fn single_stream(events: &[EventDraft]) -> Option<CommandError> {
     let first = events.first()?;
     let divergent = events

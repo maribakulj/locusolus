@@ -82,8 +82,12 @@ impl<S: EventStore> Runtime<S> {
     }
 
     /// La transaction, seul chemin d'écriture — `W20.b`.
-    pub const fn transaction(&mut self) -> &mut Transaction<S> {
-        &mut self.transaction
+    ///
+    /// `&self` depuis `W20.h` : la couche HTTP ne tient qu'un `&Runtime` partagé, et exiger `&mut`
+    /// ici est ce qui rendait §22.3 inservable. Ce n'est pas un relâchement de la règle de `W20.b` —
+    /// la transaction reste le seul chemin d'écriture, et c'est elle qui sérialise, par stream.
+    pub const fn transaction(&self) -> &Transaction<S> {
+        &self.transaction
     }
 
     /// Le moteur de politique, en lecture. Il ne décide qu'à partir des faits qu'on lui donne.

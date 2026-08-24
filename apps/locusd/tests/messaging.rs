@@ -114,7 +114,7 @@ fn message_est_une_famille_du_journal() {
 /// une file passerait le second test et échouerait celui-ci.
 #[test]
 fn emettre_un_message_ecrit_un_evenement_et_un_seul() {
-    let mut runtime = Runtime::in_memory();
+    let runtime = Runtime::in_memory();
     let epoch = epoque();
     let handler = Send {
         message: Message::sent(id::<Agent>(1), id::<Agent>(2), &epoch, "revue demandée"),
@@ -156,7 +156,7 @@ fn emettre_un_message_ecrit_un_evenement_et_un_seul() {
 /// réimplémenter moins bien puisqu'elle serait testée une seconde fois plutôt qu'une seule.
 #[test]
 fn deux_messages_au_meme_destinataire_sont_ordonnes() {
-    let mut runtime = Runtime::in_memory();
+    let runtime = Runtime::in_memory();
     let epoch = epoque();
 
     for (seed, sujet, attendue) in [

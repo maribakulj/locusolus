@@ -325,7 +325,7 @@ fn la_derniere_page_ne_rend_pas_de_cursor() {
 /// avait rendu.
 #[test]
 fn une_ecriture_pendant_la_pagination_ne_deplace_pas_le_deja_lu() {
-    let mut runtime = runtime_avec(4);
+    let runtime = runtime_avec(4);
 
     let premiere = runtime.timeline(None, Some(2)).expect("première page");
     let lues: Vec<u64> = premiere.items.iter().map(|entry| entry.position).collect();

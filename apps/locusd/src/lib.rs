@@ -52,6 +52,7 @@ pub mod outcome;
 pub mod query;
 pub mod stream;
 pub mod transaction;
+pub mod writes;
 
 pub use branch::{Approve, BranchContext, DiffView, HistoryEntry, Rollback};
 pub use command::{CommandEnvelope, Draft};
