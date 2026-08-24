@@ -634,3 +634,35 @@ fn sans_projet_propose_l_enrolement_aboutit() {
 
     assert!(registre.identify(&creance.credential).is_some());
 }
+
+// ---------------------------------------------------------------------------------------------
+// `W20.x` — le nonce est la clé d'idempotence d'un enrôlement.
+// ---------------------------------------------------------------------------------------------
+
+/// **Un worker qui n'envoie pas de clé d'idempotence s'enrôle quand même.**
+///
+/// `CommandEnvelope::mutating` refuse une clé vide — c'est le contrat de `W20.a` et il ne bouge
+/// pas. Ce qui a changé est d'où l'enrôlement tire la sienne : du **nonce**, qui est déjà ce qui
+/// rend une demande unique, qui est signé, et dont le daemon tient le registre.
+///
+/// Trouvé en enrôlant un worker réel : `canterel` n'envoie pas d'`idempotency_key`, et il n'avait
+/// pas tort — il avait déjà envoyé ce qu'il fallait, sous un autre nom.
+#[test]
+fn un_enrolement_sans_cle_d_idempotence_aboutit() {
+    let (runtime, registre) = daemon();
+    let endpoint = "http://locus.example";
+
+    let creance = runtime
+        .lep_enroll(
+            &demande(endpoint, "n-sans-cle"),
+            endpoint,
+            &locusd::lep::Enrolling {
+                idempotency_key: String::new(),
+                ..enrolling()
+            },
+            Timestamp::from_millis(1_700_000_000_000),
+        )
+        .expect("le nonce sert de clé");
+
+    assert!(registre.identify(&creance.credential).is_some());
+}

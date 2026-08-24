@@ -42,6 +42,12 @@
       "adr": "0031",
       "why": "Vérifier la signature d'enrôlement de §7.2 côté serveur (W20.n). Le client de W2.4 signe en Ed25519 avec une clé publique SPKI DER en base64. `ring` coûterait 8 paquets contre 25 — et tirerait un compilateur C, ce que l'ADR 0020 a déjà refusé pour `blake3` ; l'argument vaut plus fort ici, une dépendance de build non-Rust traversant tous les profils de §27.1. Neuf des vingt-cinq sont déjà dans le workspace par `sha2`, donc le coût marginal réel est de seize. Features nommées : `pkcs8` pour lire le SPKI sans découper les octets à la main, `alloc` pour les erreurs. Ni `rand_core` — ce module ne génère aucune clé — ni les défauts.",
       "scope": "apps/locusd"
+    },
+    {
+      "crate": "getrandom",
+      "adr": "0034",
+      "why": "Les dix octets d'aléa d'un ULID, côté locusd (W20.x). `Identities` était un port sans implémentation de production, et son refus nommait lui-même son remède : « locusd ne tire pas d'entropie — cela demande un crate, donc un ADR ». Coût mesuré dans Cargo.lock, pas estimé : `getrandom` 0.4.3 y est **déjà**, tiré par `rand` via `postgres-protocol` et `tokio-postgres` (ADR 0030), et ses quatre dépendances propres — cfg-if, libc, r-efi, rand_core — y sont toutes aussi. Le déclarer ajoute donc **zéro** paquet. Pas `rand`, qui est un générateur : un daemon n'a jamais de raison d'utiliser un générateur ensemencé pour des identifiants qui distinguent des actes institutionnels. Pas /dev/urandom lu à la main, qui serait un pari sur l'hôte — Windows n'a pas ce fichier, un conteneur peut ne pas l'exposer.",
+      "scope": "apps/locusd"
     }
   ],
   "forbiddenFeatures": [

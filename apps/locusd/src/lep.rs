@@ -454,6 +454,17 @@ impl Desk {
         }
     }
 
+    /// Câbler la source d'identifiants — `W20.x`, ADR 0034.
+    ///
+    /// Le défaut reste `NoIdentities`, qui refuse : un daemon assemblé sans source doit continuer à
+    /// le **dire**, et un refus qu'on ne peut plus atteindre est un refus qu'on ne peut plus
+    /// maintenir. C'est le binaire qui câble la source système.
+    #[must_use]
+    pub fn identifying(mut self, identities: Arc<dyn Identities>) -> Self {
+        self.identities = identities;
+        self
+    }
+
     /// Câbler l'émetteur de tokens d'enrôlement — `W20.n`.
     #[must_use]
     pub fn enrolling(mut self, tokens: Arc<dyn crate::enrollment::EnrollmentTokens>) -> Self {

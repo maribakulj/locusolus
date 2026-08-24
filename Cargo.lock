@@ -739,6 +739,7 @@ version = "0.0.0"
 dependencies = [
  "axum",
  "ed25519-dalek",
+ "getrandom",
  "locus-artifacts",
  "locus-broker",
  "locus-coordination",

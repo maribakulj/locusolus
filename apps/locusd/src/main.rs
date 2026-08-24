@@ -119,7 +119,14 @@ fn demarrer<S: EventStore + Send + Sync + 'static>(runtime: Runtime<S>) -> ExitC
     };
 
     let desk = runtime.lep().clone();
-    let runtime = runtime.with_lep(desk.placing(broker).enrolling(Arc::new(tokens)));
+    // `W20.x` : la source d'entropie, câblée **ici** et non dans le composition root. ADR 0034 —
+    // le défaut de `Desk` refuse, et c'est ce qui garde le message qui explique quoi faire sur le
+    // chemin d'un daemon qu'on aurait assemblé sans source.
+    let runtime = runtime.with_lep(
+        desk.placing(broker)
+            .enrolling(Arc::new(tokens))
+            .identifying(Arc::new(locusd::identities::SystemIdentities)),
+    );
 
     let adresse = std::env::var("LOCUSD_BIND").unwrap_or_else(|_| DEFAULT_BIND.to_owned());
     println!("  écoute : http://{adresse} — {}", served().join(", "));
