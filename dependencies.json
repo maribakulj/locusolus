@@ -30,6 +30,12 @@
       "adr": "0020",
       "why": "Le calcul d'un ContentHash. Rien dans le workspace n'en calculait un : ContentHash parsait sans jamais produire, et Digest n'avait aucune implémentation de production. SHA-256 parce que c'est ce qu'un registre OCI rend et ce que le dépôt écrit partout ; blake3 coûterait un compilateur C. Portée étroite : une seule implémentation, et les autres crates passent par ContentHash::of.",
       "scope": "packages/domain"
+    },
+    {
+      "crate": "postgres",
+      "adr": "0030",
+      "why": "Le driver du journal canonique (W20.i). Le port EventStore est synchrone ; `postgres` est le wrapper synchrone de `tokio-postgres` et coûte **un** paquet transitif de plus que lui — 63 contre 62, mesurés arbre complet avec `with-serde_json-1` et sans TLS. `sqlx` en coûterait 115 et exigerait une base accessible pour *compiler*. Feature `with-serde_json-1` seule : la charge d'un événement est du JSON, et les vingt autres features `with-*` tirent chacune un écosystème de types dont aucun n'entre dans l'enveloppe de §10.1.",
+      "scope": "packages/event-store"
     }
   ],
   "forbiddenFeatures": [

@@ -15,5 +15,11 @@ locus-protocol = { path = "../protocol" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 
+# Le driver PostgreSQL — W20.i, ADR 0030. Une seule feature : la charge d'un événement est du JSON,
+# et les vingt autres `with-*` tirent chacune un écosystème de types dont aucun n'entre dans
+# l'enveloppe de §10.1. Sans TLS : ce driver n'est câblé nulle part, et le profil qui le câblera
+# décidera de son transport.
+postgres = { version = "0.19", default-features = false, features = ["with-serde_json-1"] }
+
 [dev-dependencies]
 locus-domain = { path = "../domain" }

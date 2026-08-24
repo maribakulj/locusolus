@@ -148,6 +148,31 @@ jobs:
     name: rust
     runs-on: ubuntu-latest
     timeout-minutes: 20
+
+    # `W20.i` : la suite de contract tests du journal s'exécute contre **les deux** backends, et
+    # elle ne peut pas éprouver le driver sans base. Un saut silencieux rendrait « vert » un dépôt
+    # où le driver n'a jamais tourné — c'est pourquoi un test de cette suite **échoue** si `CI` est
+    # défini et `LOCUS_TEST_POSTGRES` ne l'est pas. Ce service est ce qui le nourrit.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: locus
+          POSTGRES_PASSWORD: locus
+          POSTGRES_DB: locus_test
+        ports:
+          - 5432:5432
+        # Sans ce contrôle de santé, les tests démarrent avant que la base accepte une connexion, et
+        # l'échec se lit « driver non conforme » là où il faut lire « base pas encore prête ».
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      LOCUS_TEST_POSTGRES: "host=localhost port=5432 user=locus password=locus dbname=locus_test"
+
     steps:
       - uses: actions/checkout@v4
 

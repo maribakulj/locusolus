@@ -31,6 +31,7 @@
 
 pub mod envelope;
 pub mod memory;
+pub mod postgres;
 pub mod store;
 
 pub use envelope::{
@@ -38,4 +39,5 @@ pub use envelope::{
     StreamId,
 };
 pub use memory::MemoryEventStore;
+pub use postgres::{ConnectError, PostgresEventStore};
 pub use store::{Append, AppendError, Appended, EventStore, Expected, Sequenced};
