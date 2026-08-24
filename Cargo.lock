@@ -669,6 +669,7 @@ version = "0.0.0"
 dependencies = [
  "locus-domain",
  "locus-event-store",
+ "locus-graph",
  "locus-protocol",
  "serde",
  "serde_json",

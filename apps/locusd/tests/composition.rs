@@ -72,15 +72,16 @@ fn commande() -> CommandEnvelope {
 }
 
 // ---------------------------------------------------------------------------------------------
-// 1. Le binaire démarre : l'assemblage produit les quatre projections et le moteur de politique
+// 1. Le binaire démarre : l'assemblage produit les projections et le moteur de politique
 // ---------------------------------------------------------------------------------------------
 
-/// **Les quatre projections de §9.5 sont câblées**, sous les noms qu'elles se donnent.
+/// **Les projections de §9.5 sont câblées**, sous les noms qu'elles se donnent.
 ///
-/// Les nommer une par une plutôt que compter : un test qui vérifierait `len() == 4` resterait vert
-/// si une projection était remplacée par une autre, ou par la même deux fois.
+/// Les nommer une par une plutôt que compter : un test qui vérifierait `len() == 5` resterait vert
+/// si une projection était remplacée par une autre, ou par la même deux fois. Le nom du test ne
+/// porte plus de nombre non plus — il en portait un, et `W20.u` l'a démenti.
 #[test]
-fn l_assemblage_cable_les_quatre_projections() {
+fn l_assemblage_cable_les_projections_de_9_5() {
     let runtime = Runtime::in_memory();
     let readiness = runtime.catch_up();
 
@@ -91,7 +92,8 @@ fn l_assemblage_cable_les_quatre_projections() {
             "execution_graph",
             "organisation_graph",
             "conflict_registry",
-            "validation_state"
+            "validation_state",
+            "epistemic_graph"
         ]
     );
     assert!(
@@ -199,7 +201,14 @@ fn une_faute_reelle_met_en_quarantaine_et_se_lit_dans_le_rapport() {
 
     let readiness = runtime.catch_up();
     assert!(!readiness.is_ready(), "une projection a fauté");
-    assert_eq!(readiness.quarantined(), vec!["execution_graph"]);
+    // **Les deux** projections qui lisent les faits d'artefact refusent, et pour la même raison :
+    // un artefact sans identité n'est rattachable à rien. Que la seconde ait été ajoutée par
+    // `W20.u` sans que ce test soit relâché est le point — une liste qui aurait dit « au moins
+    // execution_graph » aurait laissé passer une projection devenue muette.
+    assert_eq!(
+        readiness.quarantined(),
+        vec!["execution_graph", "epistemic_graph"]
+    );
     assert!(readiness.to_string().contains("EN QUARANTAINE"));
 }
 

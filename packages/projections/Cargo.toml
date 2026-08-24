@@ -12,7 +12,10 @@ workspace = true
 
 [dependencies]
 locus-domain = { path = "../domain" }
+# W20.u : la projection du graphe épistémique range ses inférences dans
+# `locus_graph::Graph`, dont l'absence de `flatten` **est** la garantie de §7.6.
 locus-event-store = { path = "../event-store" }
+locus-graph = { path = "../graph" }
 locus-protocol = { path = "../protocol" }
 serde = { workspace = true }
 serde_json = { workspace = true }

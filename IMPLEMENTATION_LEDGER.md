@@ -13353,3 +13353,68 @@ livré est l'« URL temporaire », rendue comme un chemin — décision 3, avec 
 **Prochain item.** `W20.u` — le graphe épistémique et le coût servis. Dépendance : les projections
 de §9.5 existent et tournent (`W20.l`) ; ce que l'item constate, c'est qu'aucune route ne les sert
 et qu'aucune projection ne porte le coût.
+
+## 2026-08-24 — W20.u — Le graphe épistémique servi : les six termes de §9.4
+
+**Périmètre.** `packages/projections/src/epistemic_graph.rs` (nouveau : la projection, `Dossier`,
+`Unreadable`, `Objection`, `ArtifactRecord`, `Cost`, `Experiment`),
+`packages/projections/Cargo.toml` (dépendance interne vers `locus-graph`),
+`packages/projections/src/lib.rs`, `apps/locusd/src/composition.rs` (cinquième projection câblée),
+`apps/locusd/src/query.rs` (`epistemic_dossier`), `apps/locusd/src/http.rs` (`GRAPH_PATH`,
+`served()` → 16), `apps/locusd/tests/epistemic_graph.rs` (nouveau, 12 tests),
+`packages/projections/tests/epistemic_graph.rs` (nouveau, 6 tests),
+`apps/locusd/tests/composition.rs` (deux tests étendus).
+
+**Tests exécutés.** `cargo test -p locusd --test epistemic_graph` → 12 passés, c'est le test de
+sortie ; `cargo test -p locus-projections --test epistemic_graph` → 6 passés (destruction,
+reconstruction, refus). `cargo test --workspace` vert, `cargo clippy --workspace --all-targets` sans
+avertissement, `npm run check` → 13 portes vertes.
+
+Passe de mutation : **12 mutants posés, 0 survivant** — mais le compte demande une précision, parce
+qu'un chiffre qui la tairait mentirait. Le harnais exécute **un paquet à la fois**. Sous
+`-p locus-projections`, cinq mutants survivent ; sous `-p locusd`, trois autres survivent. Les deux
+ensembles sont disjoints et leur union est vide : chaque mutant est tué par au moins une suite, et
+`cargo test --workspace` — ce que la CI exécute — les exécute toutes les deux. Ce que cela apprend
+est réel : les propriétés du **port** (destruction, résumé, refus d'une objection muette) ne sont
+tenues que par les tests du paquet, et celles du **service** (le coût absent, la réservation qui
+n'est pas une dépense, l'objection à l'inférence) que par ceux du daemon. Aucune des deux suites
+n'aurait suffi.
+
+**Décisions prises.**
+
+1. **§7.6 est tenu par le type, pas par la discipline.** La projection range ses inférences dans
+   `locus_graph::Graph`, dont l'absence de `flatten`/`decompose`/`as_edges` **est** la garantie. Une
+   projection qui aurait tenu ses propres `Vec<Vec<String>>` aurait offert la même garantie par la
+   vigilance de qui la relit. `packages/projections` gagne donc une dépendance vers `packages/graph`
+   — interne, donc hors de `dependencies.json`, et sans toucher aux frontières 6 et 7 : aucun
+   fichier de ce paquet ne voit les objets de coordination.
+2. **Une inférence dont une référence ne se relit pas n'entre pas amputée, et ne disparaît pas.**
+   Entrer avec deux prémisses sur trois ferait paraître la conclusion soutenue par un raisonnement
+   que personne n'a posé ; la jeter effacerait un raisonnement pour rendre le graphe propre —
+   invariant 12. Elle est rangée sous `Unreadable`, avec ses références brutes.
+3. **Une objection qui vise l'inférence apparaît au dossier de la conclusion.** « La règle est
+   fausse » ne vise pas la conclusion et la conteste pourtant : c'est exactement pourquoi §7.6 fait
+   de l'inférence un nœud. Un dossier qui ne montrerait que les objections visant la conclusion
+   elle-même serait « propre » au sens que l'invariant 12 refuse. Et une objection dont la cible ne
+   se relit pas **reste** dans le graphe : taire une contestation parce qu'elle est mal adressée
+   serait pire que la garder mal rattachée.
+4. **L'identité d'une inférence vient de sa position au journal et de son rang dans le commit.**
+   Elle est donc stable à la reconstruction — deux passages sur le même journal la rendent à
+   l'identique — sans qu'aucune entropie soit inventée dans une projection, ce que `W20.k` interdit
+   déjà aux décideurs. Un compteur d'instance aurait rendu deux graphes différents du même journal,
+   et une objection posée sur une inférence aurait cessé de la viser après un redémarrage.
+5. **Le coût est `None`, jamais `0`, et seule la consommation le compose.** §7.2 énumère six sortes
+   d'écritures : une réservation est de l'argent tenu, pas dépensé, et l'additionner ferait payer
+   deux fois. Les dimensions sont gardées séparément — les additionner produirait un nombre sans
+   unité, qu'aucune limite ne peut contredire.
+6. **Une conclusion que rien ne soutient rend `200`.** Un `404` dirait « je ne connais pas cette
+   conclusion » là où le journal dit « rien ne la soutient » — et un client qui reçoit un `404`
+   relance sa requête au lieu de lire ce qu'elle lui a appris.
+
+**Écart avec la spec.** Un seul, et il est nominal : la roadmap rattache le coût à « §17 », qui dans
+`docs/SPEC_V1.md` est le système de revue. Le coût est en **§7.2**, `BudgetAccount`, dont ce module
+reprend le vocabulaire d'écritures. La ligne de roadmap n'est pas corrigée : elle décrit un constat
+daté, et le ledger est l'endroit où l'on dit ce qui a été fait.
+
+**Prochain item.** `W2.22` — le composition root de canterel. Dépendance : `runWorker` exige qu'on
+lui fournisse ses ports et personne ne les assemble ; rien d'autre ne le bloque.
