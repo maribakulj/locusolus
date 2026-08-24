@@ -1002,6 +1002,27 @@ fn verdict(outcome: Outcome) -> Result<(), CommandError> {
     }
 }
 
+/// Ce qu'un worker envoie **en s'enrôlant** — `W20.w`.
+///
+/// Distinct de [`Submitted`], et la différence est le projet. Un worker déjà enrôlé sait dans quel
+/// projet il écrit et le dit ; un worker qui s'enrôle ne le sait pas encore, parce que c'est
+/// précisément ce que l'enrôlement lui apprend. Les fondre en un seul type obligeait le second à
+/// fournir ce que seul le premier possède, et c'est ce qui rendait l'enrôlement d'un worker réel
+/// impossible — vérifié en l'essayant, pas déduit.
+#[derive(Debug, Clone)]
+pub struct Enrolling {
+    /// La clé d'idempotence de §15.2, telle que le worker l'a choisie.
+    pub idempotency_key: String,
+    /// Le projet que le worker a **proposé**, s'il en a proposé un — `W20.w`.
+    ///
+    /// Une proposition, pas une décision : le projet d'un worker enrôlé vient de son grant. Le
+    /// champ n'existe que pour pouvoir **refuser** une proposition qui diverge, plutôt que de
+    /// l'ignorer en silence.
+    pub proposed_project: Option<Id<Project>>,
+    /// Quand l'acte a eu lieu, tel que le serveur le date.
+    pub occurred_at: Timestamp,
+}
+
 /// Ce qu'un worker envoie et que le daemon ne décide pas à sa place.
 ///
 /// La clé d'idempotence vient du worker : c'est lui qui sait qu'il retente. Elle est **scopée** par

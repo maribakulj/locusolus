@@ -9,7 +9,7 @@
 //! Le quatrième — un amorçage illisible refuse le démarrage — est tenu ici au grain de la lecture ;
 //! le binaire s'en sert pour sortir en `FAILURE`, et c'est `main.rs` qui le montre.
 
-use locusd::bootstrap::{PRINCIPAL_ENV, TOKEN_ENV, WORKSPACE_ENV, read, tokens};
+use locusd::bootstrap::{PRINCIPAL_ENV, PROJECT_ENV, TOKEN_ENV, WORKSPACE_ENV, read, tokens};
 use locusd::enrollment::EnrollmentTokens;
 
 /// Un environnement de fixture, sans toucher au processus.
@@ -53,6 +53,29 @@ fn workspace(seed: u8) -> String {
 /// Un identifiant d'agent — le principal sous lequel le worker agira.
 fn principal(seed: u8) -> String {
     identifiant::<locus_protocol::id::Agent>(seed)
+}
+
+/// Un identifiant de projet — où les faits du worker atterriront (`W20.w`).
+fn projet(seed: u8) -> String {
+    identifiant::<locus_protocol::id::Project>(seed)
+}
+
+/// L'amorçage complet, les trois identifiants renseignés.
+fn complet() -> [(&'static str, String); 4] {
+    [
+        (TOKEN_ENV, "jeton-1".to_owned()),
+        (WORKSPACE_ENV, workspace(2)),
+        (PRINCIPAL_ENV, principal(3)),
+        (PROJECT_ENV, projet(4)),
+    ]
+}
+
+/// Le même, sous la forme que `env` accepte.
+fn paires<'a>(valeurs: &'a [(&'static str, String)]) -> Vec<(&'static str, &'a str)> {
+    valeurs
+        .iter()
+        .map(|(key, value)| (*key, value.as_str()))
+        .collect()
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -111,6 +134,34 @@ fn un_token_sans_principal_refuse_en_nommant_la_variable() {
     assert_eq!(refus.variable, PRINCIPAL_ENV);
 }
 
+/// **Un token sans projet refuse, et nomme le projet — `W20.w`.**
+///
+/// Le troisième identifiant est exigé comme les deux autres, et pour la même raison : c'est
+/// l'institution qui décide où un worker écrit. Le deviner reviendrait à choisir un projet à la
+/// place de l'opérateur, et les faits du worker atterriraient là où personne ne les cherche.
+#[test]
+fn un_token_sans_projet_refuse_en_nommant_la_variable() {
+    let refus = read(env(&[
+        (TOKEN_ENV, "jeton-1"),
+        (WORKSPACE_ENV, &workspace(2)),
+        (PRINCIPAL_ENV, &principal(3)),
+    ]))
+    .expect_err("l'amorçage est incomplet");
+
+    assert_eq!(refus.variable, PROJECT_ENV);
+}
+
+/// **Le grant porte le projet, et c'est lui que l'enrôlement utilisera.**
+#[test]
+fn le_grant_porte_le_projet() {
+    let valeurs = complet();
+    let (_, grant) = read(env(&paires(&valeurs)))
+        .expect("l'amorçage est complet")
+        .expect("un token est demandé");
+
+    assert_eq!(grant.project_id.to_string(), projet(4));
+}
+
 /// **Un identifiant illisible refuse, et cite ce qui a été écrit.**
 ///
 /// Le refus porte la valeur fautive : un message qui dirait seulement « illisible » laisserait
@@ -152,12 +203,8 @@ fn le_refus_se_lit_en_une_ligne() {
 /// d'entrée.
 #[test]
 fn un_amorcage_complet_accorde_le_scope_le_plus_petit() {
-    let issuer = tokens(env(&[
-        (TOKEN_ENV, "jeton-1"),
-        (WORKSPACE_ENV, &workspace(2)),
-        (PRINCIPAL_ENV, &principal(3)),
-    ]))
-    .expect("l'amorçage est complet");
+    let valeurs = complet();
+    let issuer = tokens(env(&paires(&valeurs))).expect("l'amorçage est complet");
 
     let grant = issuer.redeem("jeton-1").expect("le token est déposé");
     assert_eq!(grant.scope, vec!["worker".to_owned()]);
@@ -170,12 +217,8 @@ fn un_amorcage_complet_accorde_le_scope_le_plus_petit() {
 /// Un token réutilisable laisserait un second worker prendre l'identité que le premier a obtenue.
 #[test]
 fn le_token_d_amorcage_ne_sert_qu_une_fois() {
-    let issuer = tokens(env(&[
-        (TOKEN_ENV, "jeton-1"),
-        (WORKSPACE_ENV, &workspace(2)),
-        (PRINCIPAL_ENV, &principal(3)),
-    ]))
-    .expect("l'amorçage est complet");
+    let valeurs = complet();
+    let issuer = tokens(env(&paires(&valeurs))).expect("l'amorçage est complet");
 
     assert!(issuer.redeem("jeton-1").is_some());
     assert!(
@@ -189,12 +232,8 @@ fn le_token_d_amorcage_ne_sert_qu_une_fois() {
 /// Le pendant positif du test précédent : une garde qui refuserait tout serait exacte et inutile.
 #[test]
 fn un_token_inconnu_n_ouvre_rien() {
-    let issuer = tokens(env(&[
-        (TOKEN_ENV, "jeton-1"),
-        (WORKSPACE_ENV, &workspace(2)),
-        (PRINCIPAL_ENV, &principal(3)),
-    ]))
-    .expect("l'amorçage est complet");
+    let valeurs = complet();
+    let issuer = tokens(env(&paires(&valeurs))).expect("l'amorçage est complet");
 
     assert!(issuer.redeem("jeton-2").is_none());
     assert!(issuer.redeem("jeton-1").is_some());

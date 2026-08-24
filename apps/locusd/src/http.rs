@@ -47,7 +47,7 @@ use crate::composition::Runtime;
 use crate::cursor::{Collection, Cursor, CursorError};
 use crate::enrollment::EnrollmentRequest;
 use crate::error::{CommandError, Family};
-use crate::lep::{Rendered, Submitted};
+use crate::lep::{Enrolling, Rendered, Submitted};
 use crate::offload::Offload;
 use crate::organisation::ReplayError;
 use crate::query::Page;
@@ -495,6 +495,26 @@ struct WorkerBody {
 
 impl WorkerBody {
     /// Ce que le worker a soumis, ou le refus qui nomme le champ manquant.
+    /// Ce que le worker envoie **en s'enrôlant** — `W20.w`.
+    ///
+    /// Le projet n'est pas exigé : il vient du grant, que seul `lep_enroll` peut redeemer. S'il est
+    /// tout de même fourni, il est lu pour pouvoir être **confronté** au grant, jamais pour être
+    /// utilisé — une proposition qui diverge est refusée plutôt qu'ignorée.
+    fn enrolling(&self, now: Timestamp) -> Result<Enrolling, CommandError> {
+        let proposed_project = match self.project_id.as_deref() {
+            None => None,
+            Some(brut) => Some(Id::parse(brut).map_err(|error| CommandError::Validation {
+                field: "project_id".to_owned(),
+                detail: error.to_string(),
+            })?),
+        };
+        Ok(Enrolling {
+            idempotency_key: self.idempotency_key.clone(),
+            proposed_project,
+            occurred_at: now,
+        })
+    }
+
     fn submitted(&self, now: Timestamp) -> Result<Submitted, CommandError> {
         let project = self
             .project_id
@@ -653,8 +673,8 @@ async fn enroll<S: EventStore + Send + Sync + 'static>(
             });
         }
     };
-    let submitted = match requete.worker.submitted(maintenant()) {
-        Ok(submitted) => submitted,
+    let enrolling = match requete.worker.enrolling(maintenant()) {
+        Ok(enrolling) => enrolling,
         Err(error) => return commande_refusee(&error),
     };
 
@@ -669,7 +689,7 @@ async fn enroll<S: EventStore + Send + Sync + 'static>(
 
     let maintenant = maintenant();
     match hors_du_fil(&desk, move |runtime| {
-        runtime.lep_enroll(&requete.request, &endpoint, &submitted, maintenant)
+        runtime.lep_enroll(&requete.request, &endpoint, &enrolling, maintenant)
     })
     .await
     {

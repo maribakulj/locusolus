@@ -13570,3 +13570,47 @@ worker : un worker qui choisit son propre projet écrit dans un projet que perso
 pas de doctrine d'autorité, il ouvre une porte d'amorçage qui n'accorde rien de neuf.
 
 **Prochain item.** `W20.w`, ci-dessus. Puis `W12.d`, dont c'est la première étape.
+
+## 2026-08-24 — W20.w — Le projet d'un worker enrôlé vient de son grant
+
+**Périmètre.** `apps/locusd/src/enrollment.rs` (`Grant.project_id`, `lep_enroll` prend un
+`Enrolling`), `apps/locusd/src/lep.rs` (type `Enrolling`, distinct de `Submitted`),
+`apps/locusd/src/http.rs` (`WorkerBody::enrolling`), `apps/locusd/src/bootstrap.rs` (`PROJECT_ENV`),
+`apps/locusd/tests/{bootstrap,enrollment}.rs` (11 + 12 tests), `docs/10_V1_ROADMAP.md`.
+
+**Comment le manque a été trouvé.** En enrôlant un worker `canterel` **réel** contre un `locusd`
+réel, une fois `W20.v` livré :
+`« project_id » : sans projet, un fait n'a pas d'endroit où appartenir`. Le champ vivait dans
+`WorkerBody`, donc dans ce que le worker envoie, et `canterel` ne l'envoie pas — il ne peut pas,
+puisque c'est l'enrôlement qui le lui apprendrait.
+
+**Décisions prises.**
+
+1. **Le projet vient du grant, jamais de la demande.** Le corriger côté worker aurait été la
+   mauvaise moitié : un worker qui choisit son propre projet écrit dans un projet que personne ne
+   lui a assigné, donc ses faits atterrissent là où un lecteur ne les cherche pas. `Grant` portait
+   déjà `workspace_id` et `principal_id` pour exactement cette raison — ce sont des choses que
+   l'institution décide **de** lui.
+2. **`Enrolling` est un type distinct de `Submitted`.** Un worker déjà enrôlé sait dans quel projet
+   il écrit et le dit ; un worker qui s'enrôle ne le sait pas encore. Les fondre obligeait le second
+   à fournir ce que seul le premier possède, et c'est précisément ce qui rendait l'enrôlement d'un
+   worker réel impossible.
+3. **Une proposition qui diverge est refusée, pas ignorée.** L'ignorer en silence laisserait le
+   worker croire qu'il écrit dans le projet qu'il a nommé, et découvrir le contraire des mois plus
+   tard en lisant une projection. Le refus nomme le champ et dit **qui** décide. Un test tient aussi
+   le pendant : répéter le projet de son grant n'est pas une faute.
+
+**Tests exécutés.** `cargo test -p locusd` vert, dont `bootstrap` 11 et `enrollment` 12.
+`npm run check` — voir ci-dessous.
+
+**Ce que l'item ne débloque pas encore.** L'enrôlement d'un worker réel va maintenant **jusqu'à
+l'écriture du fait**, et reçoit `503` : « aucune source d'identifiants n'est câblée : `locusd` ne
+tire pas d'entropie — cela demande un crate, donc un ADR et une entrée dans `dependencies.json` — et
+il refuse d'inventer un identifiant de commande ». Vérifié avec une demande **correctement signée**,
+construite à la main avec une vraie paire Ed25519 : la signature, la clé et l'endpoint passent tous.
+C'est `W20.x`, ajouté à la roadmap. Le refus **nomme lui-même son remède**, ce qui est le meilleur
+cas de figure — et il est en `503`, donc « réessaie », donc un worker qui boucle sur une panne
+définitive : l'item aura ça à corriger aussi.
+
+**Prochain item.** `W20.x`. Il demande un ADR — quel crate pour l'entropie, et ses transitives
+mesurées — ce que `CLAUDE.md` exige pour toute dépendance externe du workspace Rust.
