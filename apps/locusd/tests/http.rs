@@ -410,11 +410,57 @@ fn la_liaison_http_ne_peut_rien_muter() {
 fn les_collections_servies_sont_celles_du_routeur() {
     let source = include_str!("../src/http.rs");
     for collection in served() {
+        let litteral = collection.strip_prefix('/').unwrap_or(collection);
         assert!(
-            source.contains(&format!("/{collection}\"")),
+            source.contains(&format!("/{litteral}\""))
+                || source.contains(&format!(".route({})", nom_de_constante(collection))),
             "« {collection} » est annoncée servie mais n'a pas de route"
         );
     }
+}
+
+/// Le nom de la constante qui porte ce chemin, ou une chaîne qui ne peut apparaître nulle part.
+///
+/// Les trois chemins de §15.2 sont montés depuis leurs constantes plutôt que depuis un littéral :
+/// chercher `"/lep/v1/claim"` dans le routeur ne les trouverait pas.
+fn nom_de_constante(chemin: &str) -> &'static str {
+    match chemin {
+        "/lep/v1/claim" => "CLAIM_PATH",
+        "/lep/v1/events" => "EVENTS_PATH",
+        "/lep/v1/result" => "RESULT_PATH",
+        _ => "\u{0}",
+    }
+}
+
+/// **Et l'autre sens** : toute route montée est annoncée.
+///
+/// Le test ci-dessus ne vérifiait que « toute annonce a une route », et c'est ce qui a laissé passer
+/// `history`, puis `diff`. Le déstructurage de `Collection::ALL` a rattrapé la première et pas la
+/// seconde : `diff` ne pagine rien, donc n'est pas une `Collection`, donc échappait au compilateur —
+/// servie sans être annoncée depuis `W17.h`, découvert en écrivant `W20.k`.
+///
+/// Le compte des `.route(` est ce qui tient les deux listes ensemble quelle que soit l'origine du
+/// chemin. Il est grossier — il ne dit pas *laquelle* manque — et c'est acceptable : il ne peut pas
+/// être vert à tort, et le test précédent nomme celles qui existent.
+#[test]
+fn toute_route_montee_est_annoncee() {
+    let source = include_str!("../src/http.rs");
+    // **Les lignes dont le premier caractère non blanc est `.route(`**, et non les occurrences de
+    // la chaîne. La première rédaction comptait les secondes, et elle en a trouvé onze pour dix
+    // routes : la onzième était dans la documentation de `served()`, qui explique ce test. C'est la
+    // douzième fois dans ce chantier qu'une garde mord sur la prose qui la justifie — assez pour
+    // que ce soit une règle et non une malchance : un motif qui vise du code se contraint à la
+    // **forme** du code, jamais à ses caractères.
+    let montees = source
+        .lines()
+        .filter(|ligne| ligne.trim_start().starts_with(".route("))
+        .count();
+    assert_eq!(
+        montees,
+        served().len(),
+        "{montees} route(s) montée(s) pour {} annoncée(s) : une liste écrite à la main a encore dérivé",
+        served().len()
+    );
 }
 
 /// L'écoute par défaut est la boucle locale.

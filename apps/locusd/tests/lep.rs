@@ -1,0 +1,831 @@
+//! Le test de sortie de `W20.k` — la surface §15.2, vérifiée sur des réponses **réelles**.
+//!
+//! # Ce que ces tests éprouvent, et pourquoi c'est le bon bout
+//!
+//! La clause d'origine de l'item disait « le harnais de conformance de `W0.9` tourne contre le
+//! daemon réel ». Elle a été écrite en marquant `W2.21` et n'a pas survécu à la lecture du harnais,
+//! une heure plus tard : `packages/testing` **joue le serveur** — « il n'y a personne pour
+//! compenser » — donc le faire tourner contre le daemon opposait deux serveurs et ne voulait rien
+//! dire.
+//!
+//! Ce qui la remplace tient la même propriété par un autre bout. Les corps qui traversent sont les
+//! types **générés** de `packages/lep`, décodés depuis les fixtures de `W0.7` — les mêmes que
+//! `canterel` consomme en TypeScript. Les deux moitiés du fil viennent d'un seul schéma, donc un
+//! changement de schéma casse les deux côtés à la compilation au lieu de les laisser diverger en
+//! silence.
+//!
+//! # Un vrai socket, comme `W20.g`
+//!
+//! Requêtes HTTP/1.1 écrites à la main, réponses lues en octets. Un appel de service en mémoire
+//! court-circuiterait le parsing de la requête et l'écriture de la réponse : il vérifierait un
+//! handler, pas une liaison.
+
+use std::fmt::Write as _;
+use std::sync::Arc;
+
+use locus_lep::{Event, Lease, MissionEnvelope};
+use locus_protocol::id::{Agent, Command as CommandId, Event as EventId, Project, Workspace};
+use locus_protocol::{Id, IdKind, Timestamp};
+use locusd::http::{CLAIM_PATH, EVENTS_PATH, RESULT_PATH, router};
+use locusd::lep::{
+    Desk, Identities, MemoryQueue, MemoryRegistry, NoIdentities, Offer, WorkerIdentity,
+    stream_of_task,
+};
+use locusd::{CommandError, Runtime};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::{TcpListener, TcpStream};
+
+const CREANCE: &str = "creance-de-worker";
+const WORKER: &str = "canterel-vm-linux-01";
+
+fn id<K: IdKind>(seed: u8) -> Id<K> {
+    let mut entropy = [0_u8; 10];
+    entropy[9] = seed;
+    Id::from_parts(Timestamp::from_millis(1_700_000_000_000), entropy)
+        .expect("l'instant de fixture tient sur 48 bits")
+}
+
+/// Une source d'identifiants **de test**, et son nom le dit.
+///
+/// Elle tire des identités par un compteur, ce que `NoIdentities` refuse de faire en production
+/// pour une raison qui vaut ici aussi : au redémarrage, elle réattribuerait les mêmes. Dans un test
+/// il n'y a pas de redémarrage, et le déterminisme est un avantage — un fait écrit porte une
+/// identité qu'on peut prédire.
+#[derive(Debug, Default)]
+struct IdentitesDeTest {
+    prochain: std::sync::atomic::AtomicU8,
+}
+
+impl Identities for IdentitesDeTest {
+    fn events(&self, count: usize) -> Result<Vec<Id<EventId>>, CommandError> {
+        Ok((0..count)
+            .map(|_| {
+                id::<EventId>(
+                    self.prochain
+                        .fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+                )
+            })
+            .collect())
+    }
+
+    fn command(&self) -> Result<Id<CommandId>, CommandError> {
+        Ok(id::<CommandId>(
+            self.prochain
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+        ))
+    }
+}
+
+fn fixture<T: serde::de::DeserializeOwned>(nom: &str) -> T {
+    let chemin = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../schemas/examples")
+        .join(nom);
+    let brut = std::fs::read_to_string(&chemin).expect("fixture lisible");
+    let mut valeur: serde_json::Value =
+        serde_json::from_str(&brut).expect("fixture en JSON valide");
+    valeur
+        .as_object_mut()
+        .expect("une fixture est un objet")
+        .remove("_fixture");
+    serde_json::from_value(valeur).expect("la fixture se décode dans le type généré")
+}
+
+fn offre() -> Offer {
+    let mission: MissionEnvelope = fixture("mission-envelope-nominal.json");
+    let mut lease: Lease = fixture("lease-expired.json");
+    // La fixture de bail porte l'expiration qu'elle vient éprouver ailleurs ; ce qui est éprouvé
+    // ici est l'appariement bail/mission, et le worker qu'il désigne.
+    lease.task_id.clone_from(&mission.task_id);
+    WORKER.clone_into(&mut lease.worker_id);
+    Offer { mission, lease }
+}
+
+fn identite() -> WorkerIdentity {
+    WorkerIdentity {
+        worker_id: WORKER.to_owned(),
+        workspace_id: id::<Workspace>(2),
+        principal_id: id::<Agent>(3),
+    }
+}
+
+/// Un daemon prêt à parler §15.2, et la file qu'on lui a remplie.
+fn daemon(offres: Vec<Offer>) -> Runtime<locus_event_store::MemoryEventStore> {
+    let file = Arc::new(MemoryQueue::new());
+    for offre in offres {
+        file.push(offre);
+    }
+    let registre = Arc::new(MemoryRegistry::new());
+    registre.admit(CREANCE, identite());
+    Runtime::in_memory().with_lep(Desk::new(
+        file,
+        registre,
+        Arc::new(IdentitesDeTest::default()),
+    ))
+}
+
+async fn servir(runtime: Runtime<locus_event_store::MemoryEventStore>) -> String {
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("la boucle locale accepte un port libre");
+    let adresse = listener
+        .local_addr()
+        .expect("l'adresse est connue")
+        .to_string();
+    let app = router(Arc::new(runtime));
+    tokio::spawn(async move {
+        let _ = axum::serve(listener, app).await;
+    });
+    adresse
+}
+
+/// Un `POST` écrit à la main, et la réponse brute.
+async fn poster(adresse: &str, cible: &str, creance: Option<&str>, corps: &str) -> String {
+    let mut flux = TcpStream::connect(adresse).await.expect("le daemon écoute");
+    let mut requete = format!(
+        "POST {cible} HTTP/1.1\r\nHost: {adresse}\r\nConnection: close\r\ncontent-type: application/json\r\ncontent-length: {}\r\n",
+        corps.len()
+    );
+    if let Some(creance) = creance {
+        let _ = write!(requete, "authorization: Bearer {creance}\r\n");
+    }
+    requete.push_str("\r\n");
+    requete.push_str(corps);
+    flux.write_all(requete.as_bytes())
+        .await
+        .expect("la requête part");
+    let mut reponse = Vec::new();
+    flux.read_to_end(&mut reponse)
+        .await
+        .expect("la réponse revient");
+    String::from_utf8_lossy(&reponse).into_owned()
+}
+
+/// Un `GET` écrit à la main.
+async fn demander(adresse: &str, cible: &str) -> String {
+    let mut flux = TcpStream::connect(adresse).await.expect("le daemon écoute");
+    let requete = format!("GET {cible} HTTP/1.1\r\nHost: {adresse}\r\nConnection: close\r\n\r\n");
+    flux.write_all(requete.as_bytes())
+        .await
+        .expect("la requête part");
+    let mut reponse = Vec::new();
+    flux.read_to_end(&mut reponse)
+        .await
+        .expect("la réponse revient");
+    String::from_utf8_lossy(&reponse).into_owned()
+}
+
+/// Les types d'événements écrits sur un stream, **relus par la surface publique**.
+///
+/// Par `/timeline` plutôt que par un accesseur de test sur le journal, et c'est délibéré : le
+/// journal sort de `locusd` en lecture seule par les queries de §22.4, et lui ajouter une porte
+/// « pour les tests » créerait le chemin que `W20.b` a fermé. Ce qui est vérifié devient du même
+/// coup plus fort — non seulement le fait est écrit, mais **un client le voit**.
+async fn faits_sur(adresse: &str, stream: &str) -> Vec<String> {
+    let reponse = demander(adresse, "/timeline?limit=100").await;
+    let corps = reponse
+        .split_once("\r\n\r\n")
+        .map_or("", |(_, corps)| corps);
+    let valeur: serde_json::Value =
+        serde_json::from_str(corps).unwrap_or_else(|_| panic!("timeline lisible :\n{reponse}"));
+    valeur["items"]
+        .as_array()
+        .map(|items| {
+            items
+                .iter()
+                .filter(|item| item["stream_id"] == stream)
+                .filter_map(|item| item["event_type"].as_str().map(str::to_owned))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Un corps de worker, sous une clé d'idempotence **nommée**.
+///
+/// Une première rédaction câblait `idem-1` dans tous les corps. Quatre tests sont tombés, et le
+/// diagnostic vaut d'être gardé : le registre faisait exactement son travail. La clé est scopée par
+/// `(workspace, principal)` — pas par commande —, donc réclamer puis rendre sous la même clé est
+/// **une resoumission**, et la seconde a rendu le verdict de la première sans rien écrire.
+///
+/// C'est le comportement que §22.5 décrit et il est juste : la clé appartient au client, à lui de ne
+/// pas la resservir pour autre chose. Ce qui était faux était la fixture, pas le code — et un test
+/// qui aurait été « corrigé » en relâchant l'assertion aurait caché la seule chose que ces quatre
+/// échecs avaient à dire.
+fn corps(cle: &str, extra: &str) -> String {
+    format!(
+        "{{\"idempotency_key\":\"{cle}\",\"project_id\":\"{}\"{extra}}}",
+        id::<Project>(4)
+    )
+}
+
+/// Le corps d'une réclamation, sous une clé qui n'est employée nulle part ailleurs.
+fn corps_minimal(extra: &str) -> String {
+    corps("idem-claim", extra)
+}
+
+// ---------------------------------------------------------------------------------------------
+// 1. « Rien pour toi » n'est pas « je n'ai pas pu demander » — des DEUX côtés du fil.
+// ---------------------------------------------------------------------------------------------
+
+/// **`204` sur une file vide, et non une erreur.**
+///
+/// C'est la séparation de l'ADR 0028 décision 4, que `W2.21` tient déjà côté client : un `204` y
+/// devient un tour `idle`, une panne de transport y lève. Répondre `404` ou `503` à une file vide
+/// enverrait le worker chercher un lien cassé là où il n'y a que du calme — et un worker qui
+/// cherche un lien cassé s'arrête, alors qu'un worker au calme revient.
+#[tokio::test]
+async fn une_file_vide_rend_204_et_non_une_erreur() {
+    let adresse = servir(daemon(Vec::new())).await;
+    let reponse = poster(&adresse, CLAIM_PATH, Some(CREANCE), &corps_minimal("")).await;
+
+    assert!(
+        reponse.starts_with("HTTP/1.1 204"),
+        "une file vide doit répondre 204 :\n{reponse}"
+    );
+}
+
+/// **Et une créance inconnue reçoit un refus, pas du calme.**
+///
+/// Le pendant du test précédent, et celui qui l'empêche de passer pour de mauvaises raisons : un
+/// daemon qui répondrait `204` à tout le monde passerait le premier test sans rien servir.
+#[tokio::test]
+async fn une_creance_inconnue_est_refusee_et_non_servie() {
+    let adresse = servir(daemon(vec![offre()])).await;
+
+    let sans = poster(&adresse, CLAIM_PATH, None, &corps_minimal("")).await;
+    assert!(
+        sans.starts_with("HTTP/1.1 401"),
+        "sans porteur, 401 :\n{sans}"
+    );
+
+    let fausse = poster(
+        &adresse,
+        CLAIM_PATH,
+        Some("pas-la-bonne"),
+        &corps_minimal(""),
+    )
+    .await;
+    assert!(
+        fausse.starts_with("HTTP/1.1 403"),
+        "une créance inconnue est une faute d'autorisation, pas un défaut interne :\n{fausse}"
+    );
+    // Et la créance refusée ne se relit nulle part dans la réponse : `CLAUDE.md` interdit de
+    // journaliser un token, et un message d'erreur qui la citerait la ferait fuir dans le premier
+    // rapport de bug venu.
+    assert!(
+        !fausse.contains("pas-la-bonne"),
+        "une créance refusée ne se cite pas :\n{fausse}"
+    );
+}
+
+/// **La file n'est pas entamée par une requête non authentifiée.**
+///
+/// Retirer l'offre avant de savoir qui parle la perdrait au profit de personne — et c'est le genre
+/// de faute qu'aucun journal ne montre, puisqu'il ne se passe rien.
+#[tokio::test]
+async fn une_requete_refusee_ne_consomme_pas_la_file() {
+    let file = Arc::new(MemoryQueue::new());
+    file.push(offre());
+    let registre = Arc::new(MemoryRegistry::new());
+    registre.admit(CREANCE, identite());
+    let runtime = Runtime::in_memory().with_lep(Desk::new(
+        Arc::clone(&file) as Arc<dyn locusd::MissionQueue>,
+        registre,
+        Arc::new(IdentitesDeTest::default()),
+    ));
+    let adresse = servir(runtime).await;
+
+    let _ = poster(
+        &adresse,
+        CLAIM_PATH,
+        Some("pas-la-bonne"),
+        &corps_minimal(""),
+    )
+    .await;
+
+    assert_eq!(
+        file.len(),
+        1,
+        "une réclamation refusée ne doit rien retirer de la file"
+    );
+}
+
+// ---------------------------------------------------------------------------------------------
+// 2. Le fait atteint le journal — ce que `W23.b` compte, et que rien ne faisait exister.
+// ---------------------------------------------------------------------------------------------
+
+/// **Une réclamation servie écrit `task.leased` dans le journal.**
+///
+/// C'est le test de sortie au sens strict. `W23.b` compte `generating`, un fait qu'aucun journal
+/// n'écrivait ; son marqueur a visé `W2.20` puis `W2.21`, deux jalons voisins, parce qu'il n'y
+/// avait pas d'item à viser. Celui-ci écrit le fait, et le test le **relit du journal** plutôt que
+/// de croire la réponse HTTP.
+#[tokio::test]
+async fn une_reclamation_servie_atteint_le_journal() {
+    let adresse = servir(daemon(vec![offre()])).await;
+
+    let reponse = poster(&adresse, CLAIM_PATH, Some(CREANCE), &corps_minimal("")).await;
+    assert!(
+        reponse.starts_with("HTTP/1.1 200"),
+        "une offre disponible se sert :\n{reponse}"
+    );
+    // La mission part bien sur le fil, sous les noms que `canterel` lit.
+    assert!(
+        reponse.contains("\"mission\""),
+        "la mission voyage :\n{reponse}"
+    );
+    assert!(reponse.contains("\"lease\""), "le bail voyage :\n{reponse}");
+
+    let ecrits = faits_sur(&adresse, "task/task-nominal").await;
+    assert_eq!(
+        ecrits.len(),
+        1,
+        "un fait, et un seul : la réclamation a été confiée une fois"
+    );
+    assert_eq!(
+        ecrits[0], "task.leased",
+        "le fait écrit nomme ce qui a eu lieu : la tâche est confiée sous bail (§7.1)"
+    );
+}
+
+/// **Un résultat rendu écrit l'achèvement de la tentative.**
+///
+/// `task.leased` ouvre, `run.completed` referme — les deux bornes de ce que `W23.b` compte.
+///
+/// Ce fait ne dit **pas** que la tâche a réussi, et ce n'est pas un oubli : le corps que `W2.21`
+/// envoie ne porte aucune issue. En déduire un succès parce qu'un résultat est arrivé serait
+/// affirmer ce que personne n'a dit — et §7.1 fait de `succeeded` le contrat technique rempli, que
+/// l'institution lit ensuite pour décider d'accepter.
+#[tokio::test]
+async fn un_resultat_rendu_acheve_la_tentative_sans_la_declarer_reussie() {
+    let offre = offre();
+    let tache = offre.mission.task_id.clone();
+    let adresse = servir(daemon(vec![offre])).await;
+
+    let _ = poster(&adresse, CLAIM_PATH, Some(CREANCE), &corps_minimal("")).await;
+    let rendu = corps(
+        "idem-result",
+        &format!(
+            ",\"task_id\":\"{tache}\",\"attempt_id\":\"attempt-nominal\",\"session_id\":\"ses_01\",\"output\":{{\"resume\":\"fait\"}}"
+        ),
+    );
+    let reponse = poster(&adresse, RESULT_PATH, Some(CREANCE), &rendu).await;
+
+    assert!(
+        reponse.starts_with("HTTP/1.1 202"),
+        "un résultat rendu est accepté :\n{reponse}"
+    );
+    let ecrits = faits_sur(&adresse, "task/task-nominal").await;
+    assert_eq!(ecrits, vec!["task.leased", "run.completed"]);
+    assert!(
+        !ecrits.iter().any(|kind| kind.contains("succeeded")),
+        "aucun fait ne déclare un succès que personne n'a annoncé : {ecrits:?}"
+    );
+}
+
+/// **Les événements de §15.6 atteignent le journal, traduits dans les namespaces de §10.3.**
+///
+/// §15.6 nomme `attempt.started` et `tool.completed` — une taxonomie de **protocole**. §10.3 nomme
+/// les namespaces du **journal**, où `attempt` et `tool` n'existent pas. Les faire passer tels
+/// quels écrirait dans un namespace que personne ne relit ; la traduction est explicite, et ce test
+/// la lit sur le journal.
+#[tokio::test]
+async fn les_evenements_du_worker_atteignent_le_journal_sous_les_namespaces_de_10_3() {
+    let offre = offre();
+    let tache = offre.mission.task_id.clone();
+    let adresse = servir(daemon(vec![offre])).await;
+    let _ = poster(&adresse, CLAIM_PATH, Some(CREANCE), &corps_minimal("")).await;
+
+    let mut demarrage: Event = fixture("event-reconnection-1-started.json");
+    demarrage.task_id = Some(tache.clone());
+    demarrage.worker_id = Some(WORKER.to_owned());
+    let mut outil: Event = fixture("event-reconnection-3-tool-completed.json");
+    outil.task_id = Some(tache.clone());
+    outil.worker_id = Some(WORKER.to_owned());
+
+    let evenements = serde_json::to_string(&vec![demarrage, outil]).expect("sérialisable");
+    let reponse = poster(
+        &adresse,
+        EVENTS_PATH,
+        Some(CREANCE),
+        &corps("idem-events", &format!(",\"events\":{evenements}")),
+    )
+    .await;
+
+    assert!(
+        reponse.starts_with("HTTP/1.1 202"),
+        "une remontée est acceptée :\n{reponse}"
+    );
+    let ecrits = faits_sur(&adresse, "task/task-nominal").await;
+    assert_eq!(
+        ecrits,
+        vec!["task.leased", "run.started", "run.tool_completed"],
+        "`attempt.*` devient `run.*`, et `tool.completed` ne se confond pas avec le démarrage de la \
+         tentative elle-même"
+    );
+}
+
+/// **Un worker ne parle pas au nom d'un autre.**
+///
+/// La créance dit qui parle ; le corps de la requête n'est qu'une déclaration. Un événement qui
+/// prétend venir d'un autre worker est refusé plutôt qu'écrit sous le nom qu'il annonce — c'est ce
+/// que §7 existe pour empêcher, et le refus est **typé**.
+#[tokio::test]
+async fn un_evenement_au_nom_d_un_autre_worker_est_refuse() {
+    let offre = offre();
+    let tache = offre.mission.task_id.clone();
+    let adresse = servir(daemon(vec![offre])).await;
+    let _ = poster(&adresse, CLAIM_PATH, Some(CREANCE), &corps_minimal("")).await;
+
+    let mut usurpe: Event = fixture("event-reconnection-1-started.json");
+    usurpe.task_id = Some(tache.clone());
+    usurpe.worker_id = Some("un-autre-worker".to_owned());
+    let evenements = serde_json::to_string(&vec![usurpe]).expect("sérialisable");
+
+    let reponse = poster(
+        &adresse,
+        EVENTS_PATH,
+        Some(CREANCE),
+        &corps("idem-usurpation", &format!(",\"events\":{evenements}")),
+    )
+    .await;
+
+    assert!(
+        reponse.starts_with("HTTP/1.1 403"),
+        "une usurpation est une faute d'autorisation :\n{reponse}"
+    );
+    assert_eq!(
+        faits_sur(&adresse, "task/task-nominal").await,
+        vec!["task.leased"],
+        "un refus n'écrit rien : c'est la transaction qui écrit, et elle n'écrit qu'un `Ok`"
+    );
+}
+
+// ---------------------------------------------------------------------------------------------
+// 3. Ce que le daemon refuse de faire à la place de quelqu'un d'autre.
+// ---------------------------------------------------------------------------------------------
+
+/// **Sans source d'identifiants, le daemon refuse — il n'invente pas.**
+///
+/// `NoIdentities` est le défaut, et il ne fabrique rien. Un défaut qui rendrait des identifiants
+/// séquentiels aurait marché en test, marché au premier démarrage, et réattribué les mêmes
+/// identités au redémarrage suivant : un journal dont deux faits différents portent la même
+/// identité, découvert des mois plus tard.
+///
+/// Le refus est `503` — le service ne peut pas répondre **maintenant**, ce qui est exact et se
+/// répare par configuration — et non `500`, qui enverrait chercher un défaut dans le code.
+#[tokio::test]
+async fn sans_source_d_identifiants_le_daemon_refuse_plutot_que_d_inventer() {
+    let file = Arc::new(MemoryQueue::new());
+    file.push(offre());
+    let registre = Arc::new(MemoryRegistry::new());
+    registre.admit(CREANCE, identite());
+    let runtime = Runtime::in_memory().with_lep(Desk::new(file, registre, Arc::new(NoIdentities)));
+    let adresse = servir(runtime).await;
+
+    let reponse = poster(&adresse, CLAIM_PATH, Some(CREANCE), &corps_minimal("")).await;
+
+    assert!(
+        reponse.starts_with("HTTP/1.1 503"),
+        "sans source d'identifiants, le service est indisponible, pas en panne :\n{reponse}"
+    );
+}
+
+/// **Sans projet, le fait n'a pas d'endroit où appartenir — et le daemon ne le devine pas.**
+#[tokio::test]
+async fn un_corps_sans_projet_est_refuse_par_validation() {
+    let adresse = servir(daemon(vec![offre()])).await;
+
+    let reponse = poster(
+        &adresse,
+        CLAIM_PATH,
+        Some(CREANCE),
+        "{\"idempotency_key\":\"idem-1\"}",
+    )
+    .await;
+
+    assert!(
+        reponse.starts_with("HTTP/1.1 400"),
+        "un champ manquant est une faute du client, à corriger dans sa requête :\n{reponse}"
+    );
+    assert!(
+        reponse.contains("project_id"),
+        "le refus nomme le champ, il ne dit pas « requête invalide » :\n{reponse}"
+    );
+}
+
+/// **Une resoumission sous la même clé n'écrit pas deux fois** — §15.5, §22.5.
+///
+/// La clé est **scopée** par `(workspace, principal)`, tous deux lus du registre : deux workers qui
+/// choisissent `idem-1` ne se répondent pas l'un à l'autre. Ce que ce test tient est l'autre moitié
+/// — le même worker qui retente ne produit pas le doublon que §15.5 existe pour empêcher.
+///
+/// La **durabilité** de ce registre reste `W20.j` : il vit en mémoire vive, et un redémarrage le
+/// perd. Les deux ne se confondent pas, et le dire ici évite de croire l'un livré avec l'autre.
+#[tokio::test]
+async fn une_resoumission_sous_la_meme_cle_n_ecrit_pas_deux_fois() {
+    let offre = offre();
+    let tache = offre.mission.task_id.clone();
+    let adresse = servir(daemon(vec![offre])).await;
+    let _ = poster(&adresse, CLAIM_PATH, Some(CREANCE), &corps_minimal("")).await;
+
+    // La **même** clé, deux fois, sur la **même** commande : c'est ce que §15.5 appelle une
+    // resoumission, et c'est cela qu'on éprouve ici.
+    let rendu = corps(
+        "idem-result",
+        &format!(
+            ",\"task_id\":\"{tache}\",\"attempt_id\":\"attempt-nominal\",\"session_id\":\"ses_01\",\"output\":{{}}"
+        ),
+    );
+    let premier = poster(&adresse, RESULT_PATH, Some(CREANCE), &rendu).await;
+    let second = poster(&adresse, RESULT_PATH, Some(CREANCE), &rendu).await;
+
+    assert!(premier.starts_with("HTTP/1.1 202"), "{premier}");
+    assert!(
+        second.starts_with("HTTP/1.1 202"),
+        "une resoumission rend le résultat d'origine, elle n'échoue pas :\n{second}"
+    );
+    assert_eq!(
+        faits_sur(&adresse, "task/task-nominal").await,
+        vec!["task.leased", "run.completed"],
+        "deux envois de la même clé produisent un fait, pas deux"
+    );
+}
+
+// ---------------------------------------------------------------------------------------------
+// 4. La règle 4 de `boundaries.json` n'a pas bougé.
+// ---------------------------------------------------------------------------------------------
+
+/// **Servir un worker n'ouvre aucun socket de runtime.**
+///
+/// La règle 4 est vérifiée par `check:boundaries` sur tout le crate ; ce test la tient sur le
+/// fichier qui aurait le plus de raisons d'y contrevenir — celui qui parle aux workers. Deux
+/// vérifications indépendantes valent mieux qu'une, et celle-ci est lisible ici, à côté du code
+/// qu'elle protège.
+///
+/// `locusd` reçoit un compte rendu d'exécution ; il n'exécute pas. C'est ce que l'ADR 0004 sépare,
+/// et la tentation de parler à Podman « juste pour le profil local » est exactement ce que la
+/// séparation empêche.
+#[test]
+fn la_surface_worker_ne_touche_aucun_socket_de_runtime() {
+    let source = include_str!("../src/lep.rs");
+    for interdit in ["bollard", "podman", "docker", "UnixStream", "os::unix::net"] {
+        assert!(
+            !source.contains(interdit),
+            "« {interdit} » dans la surface §15.2 : `locusd` ne détient jamais de socket de runtime, \
+             c'est le rôle de `locus-execd` (ADR 0004, règle 4)"
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// 5. Ce qu'une passe de mutation a trouvé, et que rien ne tenait.
+// ---------------------------------------------------------------------------------------------
+
+/// **Les trois chemins de §15.2, littéralement.**
+///
+/// Une première rédaction n'employait que les constantes — donc la même valeur des deux côtés de
+/// l'égalité, donc rien. Une passe de mutation l'a montré en remplaçant `/lep/v1/claim` par
+/// `/lep/v1/claimx` sans faire rougir un seul test. C'est la deuxième fois de la journée que ce
+/// défaut apparaît : `worker-client.ts` de `canterel` le portait ce matin, contre la même
+/// constante, de l'autre côté du même fil.
+#[test]
+fn les_chemins_de_15_2_sont_ceux_que_le_protocole_nomme() {
+    assert_eq!(CLAIM_PATH, "/lep/v1/claim");
+    assert_eq!(EVENTS_PATH, "/lep/v1/events");
+    assert_eq!(RESULT_PATH, "/lep/v1/result");
+}
+
+/// **Le stream d'une tâche porte le préfixe que le journal attend.**
+///
+/// Même défaut, même remède : les tests de journal comparaient à `stream_of_task(&tache)`, donc à
+/// eux-mêmes. Renommer le préfixe en `tache/` passait. Un stream renommé silencieusement rendrait
+/// invisible tout l'historique déjà écrit — les faits resteraient, et plus personne ne les lirait.
+#[test]
+fn le_stream_d_une_tache_porte_son_prefixe() {
+    assert_eq!(stream_of_task("task-nominal"), "task/task-nominal");
+}
+
+/// **Un en-tête d'autorisation sans `Bearer ` n'est pas une créance.**
+///
+/// La mutation qui remplaçait `strip_prefix("Bearer ")` par `trim_start_matches` survivait : tous
+/// les tests envoyaient soit un porteur bien formé, soit rien du tout. Un jeton nu accepté serait
+/// une créance lue d'un en-tête que §15.2 ne définit pas, donc une porte que personne n'a décidée.
+#[tokio::test]
+async fn un_entete_sans_bearer_n_est_pas_une_creance() {
+    let adresse = servir(daemon(vec![offre()])).await;
+
+    let mut flux = TcpStream::connect(&adresse)
+        .await
+        .expect("le daemon écoute");
+    let corps = corps_minimal("");
+    let requete = format!(
+        "POST {CLAIM_PATH} HTTP/1.1\r\nHost: {adresse}\r\nConnection: close\r\ncontent-type: application/json\r\ncontent-length: {}\r\nauthorization: {CREANCE}\r\n\r\n{corps}",
+        corps.len()
+    );
+    flux.write_all(requete.as_bytes())
+        .await
+        .expect("la requête part");
+    let mut reponse = Vec::new();
+    flux.read_to_end(&mut reponse)
+        .await
+        .expect("la réponse revient");
+    let reponse = String::from_utf8_lossy(&reponse);
+
+    assert!(
+        reponse.starts_with("HTTP/1.1 401"),
+        "un jeton nu, sans `Bearer `, n'est pas une créance :\n{reponse}"
+    );
+}
+
+/// **Un bail émis pour un autre worker ne confie rien.**
+///
+/// Le bail est ce qui autorise. En honorer un émis pour quelqu'un d'autre transférerait un droit
+/// d'exécution que personne n'a décidé de transférer — et la file, elle, ne le remarquerait pas :
+/// elle a bien une offre à donner.
+///
+/// La mutation qui neutralisait ce contrôle survivait : aucune fixture ne dépareillait la paire.
+#[tokio::test]
+async fn un_bail_emis_pour_un_autre_worker_ne_confie_rien() {
+    let mut offre = offre();
+    offre.lease.worker_id = "un-autre-worker".to_owned();
+    let adresse = servir(daemon(vec![offre])).await;
+
+    let reponse = poster(&adresse, CLAIM_PATH, Some(CREANCE), &corps_minimal("")).await;
+
+    assert!(
+        reponse.starts_with("HTTP/1.1 403"),
+        "un bail émis pour un autre est une faute d'autorisation :\n{reponse}"
+    );
+    assert!(
+        faits_sur(&adresse, "task/task-nominal").await.is_empty(),
+        "un refus n'écrit rien"
+    );
+}
+
+/// **Et un bail qui ne désigne pas la mission qu'il accompagne non plus.**
+///
+/// §11.1 : « aucune de ces identités ne doit être substituée aux autres ». Une paire dépareillée
+/// confierait un travail sous l'autorisation d'un autre — et le refus est une **validation**, pas
+/// une autorisation : la requête est mal formée, il y a quelque chose à y corriger.
+#[tokio::test]
+async fn un_bail_qui_ne_designe_pas_sa_mission_est_refuse() {
+    let mut offre = offre();
+    offre.lease.task_id = "une-autre-tache".to_owned();
+    let adresse = servir(daemon(vec![offre])).await;
+
+    let reponse = poster(&adresse, CLAIM_PATH, Some(CREANCE), &corps_minimal("")).await;
+
+    assert!(
+        reponse.starts_with("HTTP/1.1 400"),
+        "une paire dépareillée est une requête à corriger :\n{reponse}"
+    );
+    assert!(
+        reponse.contains("lease.task_id"),
+        "le refus nomme le champ :\n{reponse}"
+    );
+}
+
+/// **Une réserve d'identités trop courte refuse en disant combien il en manquait.**
+///
+/// Ce crate ne fabrique pas d'identifiants ; ce qu'il peut faire est refuser d'en manquer. La
+/// mutation qui comblait le trou par un identifiant fabriqué survivait, faute de test — et c'est le
+/// scénario le plus coûteux qui soit : deux faits différents portant la même identité, dans un
+/// journal qui est la vérité institutionnelle.
+#[tokio::test]
+async fn une_reserve_d_identites_trop_courte_refuse_en_la_nommant() {
+    /// Une source qui n'a qu'une identité à donner, quoi qu'on lui demande.
+    #[derive(Debug)]
+    struct Avare;
+
+    impl Identities for Avare {
+        fn events(&self, _count: usize) -> Result<Vec<Id<EventId>>, CommandError> {
+            Ok(vec![id::<EventId>(1)])
+        }
+
+        fn command(&self) -> Result<Id<CommandId>, CommandError> {
+            Ok(id::<CommandId>(2))
+        }
+    }
+
+    let offre = offre();
+    let tache = offre.mission.task_id.clone();
+    let file = Arc::new(MemoryQueue::new());
+    file.push(offre);
+    let registre = Arc::new(MemoryRegistry::new());
+    registre.admit(CREANCE, identite());
+    let adresse =
+        servir(Runtime::in_memory().with_lep(Desk::new(file, registre, Arc::new(Avare)))).await;
+    let _ = poster(&adresse, CLAIM_PATH, Some(CREANCE), &corps_minimal("")).await;
+
+    // Deux événements, une seule identité disponible.
+    let mut premier: Event = fixture("event-reconnection-1-started.json");
+    premier.task_id = Some(tache.clone());
+    premier.worker_id = Some(WORKER.to_owned());
+    let mut second: Event = fixture("event-reconnection-3-tool-completed.json");
+    second.task_id = Some(tache);
+    second.worker_id = Some(WORKER.to_owned());
+    let evenements = serde_json::to_string(&vec![premier, second]).expect("sérialisable");
+
+    let reponse = poster(
+        &adresse,
+        EVENTS_PATH,
+        Some(CREANCE),
+        &corps("idem-avare", &format!(",\"events\":{evenements}")),
+    )
+    .await;
+
+    assert!(
+        reponse.starts_with("HTTP/1.1 400"),
+        "une réserve trop courte se dit, elle ne se comble pas :\n{reponse}"
+    );
+    assert!(
+        reponse.contains("context.event_ids"),
+        "le refus nomme ce qui manque :\n{reponse}"
+    );
+    assert_eq!(
+        faits_sur(&adresse, "task/task-nominal").await,
+        vec!["task.leased"],
+        "et rien n'est écrit : un lot s'écrit d'un bloc ou pas du tout"
+    );
+}
+
+/// **`NoIdentities` refuse les deux, indépendamment.**
+///
+/// Une passe de mutation a laissé vivant le remplacement de son refus d'identités d'événement par
+/// une liste vide : sur le chemin d'écriture, l'autre méthode refusait juste après, et le statut
+/// rendu ne changeait pas. Le mutant était donc masqué, pas inoffensif — un appelant qui n'aurait
+/// besoin que d'identités d'événement recevrait un `Ok` vide, c'est-à-dire un silence.
+///
+/// Le contrat du port se vérifie donc **méthode par méthode**, sans passer par un chemin qui les
+/// appelle toutes les deux.
+#[test]
+fn la_source_par_defaut_refuse_les_deux_sortes_d_identifiants() {
+    let refus = NoIdentities
+        .events(1)
+        .expect_err("aucune identité n'est fabriquée");
+    assert!(
+        matches!(refus, CommandError::Unavailable { .. }),
+        "le service ne peut pas répondre maintenant — ce n'est pas un défaut du code : {refus:?}"
+    );
+    assert!(
+        NoIdentities.events(0).is_err(),
+        "même pour zéro : une source absente ne devient pas présente parce qu'on ne lui demande rien"
+    );
+    assert!(matches!(
+        NoIdentities
+            .command()
+            .expect_err("aucune identité de commande non plus"),
+        CommandError::Unavailable { .. }
+    ),);
+}
+
+/// **Ce que `W20.k` rend observable et ne corrige pas : les projections n'avancent pas.**
+///
+/// `catch_up` prend `&mut self`, et la liaison HTTP ne tient qu'un `&Runtime`. C'était sans
+/// conséquence tant que la surface était en lecture seule — rien n'était écrit pendant que le
+/// daemon servait, donc rien ne pouvait devenir périmé. Les trois routes de §15.2 écrivent, et le
+/// graphe d'exécution ne les voit jamais : `/workers` reste vide alors qu'un worker a réclamé et
+/// rendu.
+///
+/// Ce test **atteste l'état actuel**, il ne l'approuve pas. Il rougira le jour où `W20.l` fera
+/// avancer les projections à l'écriture, et c'est son objet : une limite tue se redécouvre en
+/// production, une limite testée se signale d'elle-même au moment où elle cesse d'exister.
+///
+/// C'est aussi pourquoi le dernier mutant de la passe de `W20.k` reste vivant. Le `worker_id` écrit
+/// dans la charge de `run.completed` vient de la créance et non du corps ; le seul chemin public
+/// qui l'exposerait est `/workers`, via ce graphe — et il est inerte. Ni `/timeline` ni `/events`
+/// ne portent de charge. La propriété est tenue par le type — `Complete::worker_id` est privé au
+/// module, donc seul `lep_result` peut l'écrire — et non par un test, et le dire vaut mieux que de
+/// laisser croire l'inverse.
+#[tokio::test]
+async fn les_projections_ne_voient_pas_encore_ce_que_la_surface_ecrit() {
+    let offre = offre();
+    let tache = offre.mission.task_id.clone();
+    let adresse = servir(daemon(vec![offre])).await;
+    let _ = poster(&adresse, CLAIM_PATH, Some(CREANCE), &corps_minimal("")).await;
+    let rendu = corps(
+        "idem-result",
+        &format!(
+            ",\"task_id\":\"{tache}\",\"attempt_id\":\"a\",\"session_id\":\"s\",\"output\":{{}}"
+        ),
+    );
+    let _ = poster(&adresse, RESULT_PATH, Some(CREANCE), &rendu).await;
+
+    // Le journal, lui, a bien les deux faits — la surface écrit.
+    assert_eq!(
+        faits_sur(&adresse, "task/task-nominal").await,
+        vec!["task.leased", "run.completed"]
+    );
+
+    // Et le graphe d'exécution ne les a pas vus. `W20.l` : quand ce sera corrigé, cette assertion
+    // devra être remplacée par son contraire — `/workers` doit alors nommer le worker de la créance.
+    let reponse = demander(&adresse, "/workers").await;
+    assert!(
+        reponse.contains("\"items\":[]"),
+        "tant que `W20.l` n'est pas fait, `/workers` reste vide malgré les écritures :\n{reponse}"
+    );
+    assert!(
+        !reponse.contains(WORKER),
+        "si le worker apparaît ici, `W20.l` a été livré et ce test doit être inversé :\n{reponse}"
+    );
+}

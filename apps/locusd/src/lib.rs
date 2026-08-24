@@ -46,6 +46,7 @@ pub mod cursor;
 pub mod error;
 pub mod handler;
 pub mod http;
+pub mod lep;
 pub mod messaging;
 pub mod organisation;
 pub mod outcome;
@@ -60,6 +61,10 @@ pub use composition::{Readiness, Runtime, Wired};
 pub use cursor::{Collection, Cursor, CursorError};
 pub use error::{CommandError, Conflict, EmptyResourceRef, Family, ResourceRef, Revision};
 pub use handler::{Batch, Decide, IdempotencyScope, Submission};
+pub use lep::{
+    Claim, Complete, Desk, Identities, LepContext, MemoryQueue, MemoryRegistry, MissionQueue,
+    Offer, Rendered, Report, WorkerRegistry, stream_of_task,
+};
 pub use messaging::{MessageContext, Send};
 pub use organisation::{
     Commit, Create, OrganisationContext, ReplayError, replay, resolve, resolve_at, stream_of,
