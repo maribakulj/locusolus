@@ -87,6 +87,7 @@ fn daemon() -> (
             worker_id: WORKER.to_owned(),
             workspace_id: id::<Workspace>(2),
             principal_id: id::<Agent>(3),
+            project_id: id::<Project>(4),
         },
     );
     let octets = Arc::new(MemoryBlobs::new());
@@ -110,6 +111,7 @@ fn daemon_sans_stockage() -> Runtime<locus_event_store::MemoryEventStore> {
             worker_id: WORKER.to_owned(),
             workspace_id: id::<Workspace>(2),
             principal_id: id::<Agent>(3),
+            project_id: id::<Project>(4),
         },
     );
     Runtime::in_memory().with_lep(Desk::new(
@@ -498,9 +500,9 @@ async fn deposer_sans_declaration_est_refuse() {
 #[test]
 fn un_stream_sans_declaration_reste_non_declare() {
     let (runtime, octets) = daemon();
-    let soumis = locusd::lep::Submitted {
+    let soumis = locusd::lep::WorkerSubmission {
         idempotency_key: "idem".to_owned(),
-        project_id: id::<Project>(4),
+        proposed_project: Some(id::<Project>(4)),
         occurred_at: Timestamp::from_millis(1_700_000_000_000),
     };
 
@@ -563,9 +565,11 @@ fn une_declaration_expiree_n_ouvre_plus_le_depot() {
     let (runtime, octets) = daemon();
     let declaration = Timestamp::from_millis(1_700_000_000_000);
     let apres = Timestamp::from_millis(1_700_000_000_000 + (UPLOAD_WINDOW_SECONDS + 1) * 1_000);
-    let soumis = locusd::lep::Submitted {
+    // `W20.z` : un worker **propose** un projet, il n'en décide pas. Celui-ci est le même que celui
+    // du grant de sa créance, donc il passe ; un autre serait refusé, et un test le tient.
+    let soumis = locusd::lep::WorkerSubmission {
         idempotency_key: "idem".to_owned(),
-        project_id: id::<Project>(4),
+        proposed_project: Some(id::<Project>(4)),
         occurred_at: declaration,
     };
 
@@ -602,9 +606,11 @@ fn a_l_interieur_de_la_fenetre_le_depot_a_lieu() {
     let declaration = Timestamp::from_millis(1_700_000_000_000);
     let juste_avant =
         Timestamp::from_millis(1_700_000_000_000 + (UPLOAD_WINDOW_SECONDS - 1) * 1_000);
-    let soumis = locusd::lep::Submitted {
+    // `W20.z` : un worker **propose** un projet, il n'en décide pas. Celui-ci est le même que celui
+    // du grant de sa créance, donc il passe ; un autre serait refusé, et un test le tient.
+    let soumis = locusd::lep::WorkerSubmission {
         idempotency_key: "idem".to_owned(),
-        project_id: id::<Project>(4),
+        proposed_project: Some(id::<Project>(4)),
         occurred_at: declaration,
     };
 

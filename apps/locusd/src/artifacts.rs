@@ -43,7 +43,7 @@ use crate::command::CommandEnvelope;
 use crate::composition::Runtime;
 use crate::error::CommandError;
 use crate::handler::Decide;
-use crate::lep::{LepContext, Submitted};
+use crate::lep::{LepContext, WorkerSubmission};
 
 /// Le préfixe de stream d'un artefact.
 ///
@@ -317,7 +317,7 @@ impl<S: EventStore> Runtime<S> {
         &self,
         credential: &str,
         document: &WireManifest,
-        submitted: &Submitted,
+        submitted: &WorkerSubmission,
         now: Timestamp,
     ) -> Result<Ticket, CommandError> {
         let identity = self.identify(credential)?;
@@ -359,7 +359,7 @@ impl<S: EventStore> Runtime<S> {
         credential: &str,
         artifact_id: &str,
         bytes: &[u8],
-        submitted: &Submitted,
+        submitted: &WorkerSubmission,
         now: Timestamp,
     ) -> Result<Receipt, CommandError> {
         let identity = self.identify(credential)?;

@@ -74,6 +74,27 @@ export const ADMINISTRATION = {
   projectId: "prj_01HF7YAT000000000000000004",
 } as const;
 
+/**
+ * Le token d'amorçage d'enrôlement, et les variables qui le portent — `W20.v`, `W20.z`.
+ *
+ * Le worker de la chaîne s'enrôle **pour de vrai** : `canterel worker enroll` consomme ce token et
+ * reçoit une créance. Sans cela, il démarrerait sans identité et son tour se lirait comme un constat
+ * de configuration, ce qui n'exerce rien de §15.2.
+ *
+ * Le workspace, le principal et le projet sont ceux de [`ADMINISTRATION`] : c'est le **même**
+ * grant, donc les faits d'un worker et ceux d'un exploitant atterrissent au même endroit, ce qui est
+ * ce qu'une chaîne d'une seule institution doit produire.
+ */
+export const ENROLLMENT = {
+  token: "jeton-e2e",
+  env: {
+    token: "LOCUSD_ENROLLMENT_TOKEN",
+    workspace: "LOCUSD_ENROLLMENT_WORKSPACE",
+    principal: "LOCUSD_ENROLLMENT_PRINCIPAL",
+    project: "LOCUSD_ENROLLMENT_PROJECT",
+  },
+} as const;
+
 /** Les variables par lesquelles `locusd` reçoit son amorçage d'administration — `W20.y`. */
 export const ADMINISTRATION_ENV = {
   credential: "LOCUSD_ADMIN_CREDENTIAL",
@@ -229,6 +250,55 @@ async function waitReachable(
 }
 
 /**
+ * Enrôler le worker de la chaîne, et **échouer bruyamment** s'il ne s'enrôle pas — `W20.z`.
+ *
+ * # Pourquoi c'est une commande et non un appel HTTP
+ *
+ * Poster nous-mêmes sur `/lep/v1/enroll` serait plus court et prouverait moins : la moitié cliente
+ * de §7.2 — la paire de clés, la signature, l'écriture de la créance dans le répertoire d'état —
+ * est du code `canterel`, et c'est elle qu'on veut exercer. Un harnais qui l'imiterait dirait que
+ * `locusd` répond à ce que le harnais sait écrire.
+ *
+ * @throws {HarnessFailure} quand l'enrôlement échoue, avec ce que la commande a écrit — sans quoi
+ * le worker démarrerait sans identité et le tour suivant se lirait comme un banal `inert`, à deux
+ * étages de sa cause.
+ */
+async function enroll(repo: string, stateDir: string, controlPlane: string): Promise<void> {
+  const commande = start(
+    "canterel worker enroll",
+    "bun",
+    [
+      "run",
+      join(repo, "backend", "cli", "src", "index.ts"),
+      "worker",
+      "enroll",
+      "--locus",
+      controlPlane,
+      "--enrollment-token",
+      ENROLLMENT.token,
+    ],
+    { ...process.env, [WORKER_HOME_ENV]: stateDir },
+  );
+
+  const code = await new Promise<number>((resolve) => {
+    commande.child.on("exit", (statut) => resolve(statut ?? -1));
+  });
+  if (code !== 0) {
+    throw new HarnessFailure("canterel worker enroll", `sorti en ${code}`, commande.output());
+  }
+  // Le code de sortie ne suffit pas : `worker enroll` attrape les erreurs Locus, les affiche et pose
+  // `process.exitCode = 1` — mais un chemin qui rendrait `0` sans rien écrire laisserait la chaîne
+  // continuer avec un worker anonyme. Ce que la commande **dit** est donc vérifié aussi.
+  if (!commande.output().includes("enrôlé")) {
+    throw new HarnessFailure(
+      "canterel worker enroll",
+      "sorti en 0 sans annoncer d'enrôlement",
+      commande.output(),
+    );
+  }
+}
+
+/**
  * Monter la chaîne : `locusd`, `locus-execd`, puis le worker réel.
  *
  * # L'ordre porte
@@ -300,12 +370,23 @@ export async function startChain(options: {
       [ADMINISTRATION_ENV.credential]: ADMINISTRATION.credential,
       [ADMINISTRATION_ENV.workspace]: ADMINISTRATION.workspaceId,
       [ADMINISTRATION_ENV.principal]: ADMINISTRATION.principalId,
+      // `W20.v` : l'amorçage d'enrôlement, pour que le worker de la chaîne puisse s'enrôler.
+      [ENROLLMENT.env.token]: ENROLLMENT.token,
+      [ENROLLMENT.env.workspace]: ADMINISTRATION.workspaceId,
+      [ENROLLMENT.env.principal]: ADMINISTRATION.principalId,
+      [ENROLLMENT.env.project]: ADMINISTRATION.projectId,
     });
     demarres.push(daemon);
     // `/projections/status` plutôt qu'un `/health` : il n'y en a pas, et en inventer un pour le
     // harnais ajouterait au produit une route dont seul le test aurait besoin. Celle-ci répond
     // toujours et dit quelque chose de vrai sur l'état du daemon.
     await waitReachable(daemon, `${controlPlane}/projections/status`);
+
+    // `W20.z` : le worker s'enrôle **avant** de boucler, et c'est une commande à part — §7.2 veut
+    // que le premier enrôlement soit explicite, et `canterel` le tient par une sous-commande.
+    // Attendue jusqu'à son terme : la boucle démarrée pendant l'enrôlement lirait un répertoire
+    // d'état à moitié écrit, ce qui produirait un `inert` intermittent plutôt qu'une panne.
+    await enroll(repo, workerStateDir, controlPlane);
 
     const worker = start(
       "canterel worker",
