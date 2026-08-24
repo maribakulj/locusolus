@@ -345,6 +345,16 @@ async fn une_reclamation_servie_atteint_le_journal() {
         ecrits[0], "task.leased",
         "le fait écrit nomme ce qui a eu lieu : la tâche est confiée sous bail (§7.1)"
     );
+
+    // **Dès cette écriture-ci**, et non à la suivante — `W20.l`. Une passe de mutation a montré
+    // qu'un rattrapage placé *avant* la soumission passait tous les tests : ils faisaient deux
+    // écritures, et la seconde rendait visible le fait de la première. Une seule écriture est donc
+    // le seul cas qui distingue « rattraper après » de « rattraper avant ».
+    let workers = demander(&adresse, "/workers").await;
+    assert!(
+        workers.contains(WORKER),
+        "le fait de cette écriture doit être visible sans en attendre une autre :\n{workers}"
+    );
 }
 
 /// **Un résultat rendu écrit l'achèvement de la tentative.**
@@ -779,26 +789,18 @@ fn la_source_par_defaut_refuse_les_deux_sortes_d_identifiants() {
     ),);
 }
 
-/// **Ce que `W20.k` rend observable et ne corrige pas : les projections n'avancent pas.**
+/// **Ce que `W20.k` rendait observable, `W20.l` le corrige : les projections voient les écritures.**
 ///
-/// `catch_up` prend `&mut self`, et la liaison HTTP ne tient qu'un `&Runtime`. C'était sans
-/// conséquence tant que la surface était en lecture seule — rien n'était écrit pendant que le
-/// daemon servait, donc rien ne pouvait devenir périmé. Les trois routes de §15.2 écrivent, et le
-/// graphe d'exécution ne les voit jamais : `/workers` reste vide alors qu'un worker a réclamé et
-/// rendu.
+/// Ce test était écrit à l'envers il y a un sprint, et **c'était son objet**. Il attestait que
+/// `/workers` restait vide alors qu'un worker avait réclamé et rendu — `catch_up` prenait
+/// `&mut self`, la liaison HTTP ne tient qu'un `&Runtime` —, et il disait en toutes lettres qu'il
+/// rougirait le jour où `W20.l` serait livré. Il a rougi. Une limite tue se redécouvre en
+/// production ; une limite testée se signale d'elle-même au moment où elle cesse d'exister.
 ///
-/// Ce test **atteste l'état actuel**, il ne l'approuve pas. Il rougira le jour où `W20.l` fera
-/// avancer les projections à l'écriture, et c'est son objet : une limite tue se redécouvre en
-/// production, une limite testée se signale d'elle-même au moment où elle cesse d'exister.
-///
-/// C'est aussi pourquoi le dernier mutant de la passe de `W20.k` reste vivant. Le `worker_id` écrit
-/// dans la charge de `run.completed` vient de la créance et non du corps ; le seul chemin public
-/// qui l'exposerait est `/workers`, via ce graphe — et il est inerte. Ni `/timeline` ni `/events`
-/// ne portent de charge. La propriété est tenue par le type — `Complete::worker_id` est privé au
-/// module, donc seul `lep_result` peut l'écrire — et non par un test, et le dire vaut mieux que de
-/// laisser croire l'inverse.
+/// Ce qu'il vérifie maintenant est la propriété que l'item promet : **sans redémarrage**, le graphe
+/// d'exécution nomme le worker qui a réclamé.
 #[tokio::test]
-async fn les_projections_ne_voient_pas_encore_ce_que_la_surface_ecrit() {
+async fn les_projections_voient_ce_que_la_surface_ecrit() {
     let offre = offre();
     let tache = offre.mission.task_id.clone();
     let adresse = servir(daemon(vec![offre])).await;
@@ -811,21 +813,148 @@ async fn les_projections_ne_voient_pas_encore_ce_que_la_surface_ecrit() {
     );
     let _ = poster(&adresse, RESULT_PATH, Some(CREANCE), &rendu).await;
 
-    // Le journal, lui, a bien les deux faits — la surface écrit.
+    // Le journal a les deux faits.
     assert_eq!(
         faits_sur(&adresse, "task/task-nominal").await,
         vec!["task.leased", "run.completed"]
     );
 
-    // Et le graphe d'exécution ne les a pas vus. `W20.l` : quand ce sera corrigé, cette assertion
-    // devra être remplacée par son contraire — `/workers` doit alors nommer le worker de la créance.
+    // Et le graphe d'exécution les a vus — c'est le test de sortie de `W20.l`.
     let reponse = demander(&adresse, "/workers").await;
     assert!(
-        reponse.contains("\"items\":[]"),
-        "tant que `W20.l` n'est pas fait, `/workers` reste vide malgré les écritures :\n{reponse}"
+        reponse.contains(WORKER),
+        "le worker de la créance doit être visible sans redémarrage :\n{reponse}"
+    );
+}
+
+/// **Et c'est bien la créance qui nomme le worker, pas le corps de la requête.**
+///
+/// Le seizième mutant de la passe de `W20.k` était rapporté vivant faute de chemin public exposant
+/// la charge d'un fait : `/timeline` et `/events` n'en portent pas, et `/workers` — qui la lit par
+/// le graphe d'exécution — était inerte. `W20.l` l'a rendue lisible, et le mutant meurt ici.
+///
+/// La propriété est celle de §7 : un worker ne parle pas au nom d'un autre. Le corps annonce ce
+/// qu'il veut ; ce qui atteint le journal est ce que la créance identifie.
+#[tokio::test]
+async fn le_worker_du_journal_est_celui_de_la_creance() {
+    let offre = offre();
+    let tache = offre.mission.task_id.clone();
+    let adresse = servir(daemon(vec![offre])).await;
+    let _ = poster(&adresse, CLAIM_PATH, Some(CREANCE), &corps_minimal("")).await;
+
+    // Le corps annonce un autre worker sur un champ que le daemon ne lit pas — et ce nom-là ne doit
+    // apparaître nulle part dans le graphe.
+    let rendu = corps(
+        "idem-result",
+        &format!(
+            ",\"task_id\":\"{tache}\",\"attempt_id\":\"a\",\"session_id\":\"s\",\"worker_id\":\"usurpateur\",\"output\":{{}}"
+        ),
+    );
+    let _ = poster(&adresse, RESULT_PATH, Some(CREANCE), &rendu).await;
+
+    let reponse = demander(&adresse, "/workers").await;
+    assert!(
+        reponse.contains(WORKER),
+        "la créance nomme le worker :\n{reponse}"
     );
     assert!(
-        !reponse.contains(WORKER),
-        "si le worker apparaît ici, `W20.l` a été livré et ce test doit être inversé :\n{reponse}"
+        !reponse.contains("usurpateur"),
+        "ce que le corps annonce ne fait pas foi :\n{reponse}"
+    );
+}
+
+/// **Une projection en quarantaine ne bloque pas l'écriture canonique** — §9.5, promesse de `W1.d`.
+///
+/// C'est la clause que `W20.l` avait le plus de chances de trahir : le rattrapage vit désormais
+/// dans le chemin d'écriture, donc c'est de là qu'une faute de projection pourrait remonter jusqu'à
+/// faire échouer une commande. `catch_up` ne rend jamais d'erreur, et ce test le vérifie du dehors
+/// plutôt que de le croire.
+///
+/// La quarantaine est provoquée par un fait **réel** que le graphe d'exécution refuse — un
+/// `artifact.declared` sans `artifact_id` —, et non par une projection d'épreuve : une fixture
+/// fautive éprouverait le harnais, pas la promesse.
+#[tokio::test]
+async fn une_projection_en_quarantaine_ne_bloque_pas_l_ecriture() {
+    let offre = offre();
+    let tache = offre.mission.task_id.clone();
+    let adresse = servir(daemon(vec![offre])).await;
+    let _ = poster(&adresse, CLAIM_PATH, Some(CREANCE), &corps_minimal("")).await;
+
+    // `artifact.declared` sans `artifact_id` : le graphe d'exécution met en quarantaine.
+    let mut fautif: Event = fixture("event-reconnection-1-started.json");
+    fautif.event_type = "artifact.declared".to_owned();
+    fautif.task_id = Some(tache.clone());
+    fautif.worker_id = Some(WORKER.to_owned());
+    fautif.payload = Some(serde_json::json!({ "task_id": tache }));
+    let evenements = serde_json::to_string(&vec![fautif]).expect("sérialisable");
+    let refus = poster(
+        &adresse,
+        EVENTS_PATH,
+        Some(CREANCE),
+        &corps("idem-fautif", &format!(",\"events\":{evenements}")),
+    )
+    .await;
+    assert!(
+        refus.starts_with("HTTP/1.1 202"),
+        "l'écriture aboutit : c'est la projection qui a un problème, pas le journal :\n{refus}"
+    );
+
+    // Et l'écriture suivante aboutit encore.
+    let rendu = corps(
+        "idem-result",
+        &format!(
+            ",\"task_id\":\"{tache}\",\"attempt_id\":\"a\",\"session_id\":\"s\",\"output\":{{}}"
+        ),
+    );
+    let apres = poster(&adresse, RESULT_PATH, Some(CREANCE), &rendu).await;
+    assert!(
+        apres.starts_with("HTTP/1.1 202"),
+        "une projection en quarantaine ne bloque pas l'écriture canonique :\n{apres}"
+    );
+
+    // Le journal a tout, et le rapport de disponibilité dit laquelle va mal.
+    assert_eq!(
+        faits_sur(&adresse, "task/task-nominal").await,
+        vec!["task.leased", "artifact.declared", "run.completed"]
+    );
+    // La quarantaine est **lue**, pas supposée : sans cette assertion, le test passerait aussi bien
+    // si le fait fautif n'avait jamais atteint la projection — et il ne prouverait alors rien de la
+    // promesse de `W1.d`. Un compteur qui n'a rien lu ne vaut pas zéro.
+    let sante = demander(&adresse, "/projections/status").await;
+    assert!(
+        sante.contains("{\"name\":\"execution_graph\",\"healthy\":false}"),
+        "le graphe d'exécution doit être en quarantaine — sinon rien n'a été éprouvé :\n{sante}"
+    );
+    assert!(
+        sante.contains("\"ready\":false"),
+        "un daemon dont une projection est en quarantaine ne se dit pas prêt :\n{sante}"
+    );
+}
+
+/// **Une lecture ne fait pas avancer les projections.**
+///
+/// `readiness()` le refusait déjà, et cela doit le rester : une query qui rattraperait rendrait le
+/// résultat dépendant de qui a lu en dernier — deux clients identiques verraient deux états, et le
+/// second ne saurait pas pourquoi.
+///
+/// `W20.l` déplace le rattrapage dans le chemin d'**écriture** précisément pour cela. Ce test lit
+/// deux fois de suite après une écriture faite hors de ce chemin, et exige que les deux lectures
+/// rendent la même chose.
+#[tokio::test]
+async fn une_lecture_ne_fait_pas_avancer_les_projections() {
+    let adresse = servir(daemon(Vec::new())).await;
+
+    let premiere = demander(&adresse, "/workers").await;
+    let seconde = demander(&adresse, "/workers").await;
+
+    let corps_de = |reponse: &str| {
+        reponse
+            .split_once("\r\n\r\n")
+            .map_or(String::new(), |(_, corps)| corps.to_owned())
+    };
+    assert_eq!(
+        corps_de(&premiere),
+        corps_de(&seconde),
+        "deux lectures consécutives rendent le même état"
     );
 }

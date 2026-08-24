@@ -12563,3 +12563,87 @@ dans `locusd`.
 trois nominations. `W12.d` garde `W20.i`.
 
 **Prochain item.** `W20.l`, `W20.i`, `W20.j`, `W23.a`, `W23.b`, `W23.c`, `W4.i` — tous ouverts.
+
+## 2026-08-24 — W20.l — Les projections voient enfin ce que la surface écrit
+
+**Périmètre.** `apps/locusd/src/composition.rs` — les quatre projections et le rapport de
+disponibilité derrière des `RwLock`, `catch_up(&self)`, et `Runtime::commit` —,
+`apps/locusd/src/lep.rs` — le chemin d'écriture passe par `commit` —, `apps/locusd/src/query.rs`,
+`apps/locusd/src/main.rs`, et les trois fichiers de tests qui lisaient une projection.
+`docs/10_V1_ROADMAP.md` : `W20.l` marqué.
+
+**Tests exécutés.** `cargo test -p locusd` : verts, dont `--test lep` à 22.
+`cargo clippy --all-targets` : zéro avertissement. `npm run check` : les treize portes.
+
+**Ce que l'item corrige.** `catch_up` prenait `&mut self` et la liaison HTTP ne tient qu'un
+`&Runtime` : les quatre projections de §9.5 ne voyaient jamais ce que les routes de `W20.k`
+écrivaient. `/workers` restait vide alors qu'un worker avait réclamé et rendu.
+
+Ce n'était pas un défaut introduit par `W20.k` mais un défaut qu'il a **rendu visible** : tant que
+la surface était en lecture seule, rien n'était écrit pendant que le daemon servait, donc rien ne
+pouvait devenir périmé.
+
+**Le test écrit à l'envers a fait son travail.** `W20.k` avait laissé un test qui attestait la
+staleness et annonçait qu'il rougirait le jour où `W20.l` serait livré. Il a rougi, et c'est ce qui
+a rendu l'inversion mécanique plutôt que discrétionnaire. Une limite tue se redécouvre en production
+; une limite testée se signale d'elle-même au moment où elle cesse d'exister.
+
+**Le rattrapage vit dans le chemin d'écriture, pas à côté.** Demander à chaque route d'appeler
+`catch_up` après son écriture aurait marché et aurait dérivé à la première route ajoutée — la dérive
+de `served()`, rencontrée quatre fois dans ce chantier. `Runtime::commit` soumet **et** rattrape, et
+c'est par lui que les trois routes de §15.2 écrivent.
+
+L'ordre est celui-là et pas un autre : la transaction écrit d'abord, les projections rattrapent
+ensuite. Rattraper avant n'aurait rien à voir ; rattraper **pendant** tiendrait le verrou d'écriture
+du stream pendant un travail de lecture, et ferait attendre des écritures sans rapport.
+
+**Les accesseurs prennent une fermeture, et ce n'est pas une coquetterie.** Une projection derrière
+un verrou ne peut pas rendre de référence sans publier le garde. Un appelant qui le retiendrait
+bloquerait toutes les écritures pour la durée de sa lecture, sans que rien dans son code ne le
+laisse voir. La fermeture rend cela **inexprimable** : la référence ne survit pas à l'appel, donc le
+verrou non plus. Quatre call sites à adapter, et la garantie ne dépend plus de personne.
+
+**Les verrous absorbent le poison.** Une projection empoisonnée par la panique d'un autre fil ne
+rend pas le daemon muet — ce qu'elle contient reste lisible. §9.5 veut qu'une projection fautive ne
+bloque rien, et la quarantaine est le mécanisme prévu pour dire qu'une projection va mal ; un
+`unwrap` sur le poison en ajouterait un second, silencieux et global.
+
+**La promesse de `W1.d` est celle que cet item avait le plus de chances de trahir.** Le rattrapage
+vit maintenant dans le chemin d'écriture, donc c'est de là qu'une faute de projection pourrait
+remonter jusqu'à faire échouer une commande. Un test la tient **du dehors**, et il provoque la
+quarantaine par un fait réel que le graphe d'exécution refuse — un `artifact.declared` sans
+`artifact_id` — plutôt que par une projection d'épreuve : une fixture fautive éprouverait le
+harnais, pas la promesse. Et la quarantaine est **lue** dans `/projections/status`, pas supposée :
+sans cette assertion, le test passerait aussi bien si le fait fautif n'avait jamais atteint la
+projection.
+
+**Le seizième mutant de `W20.k` meurt ici.** Il était rapporté vivant faute de chemin public
+exposant la charge d'un fait : `/timeline` et `/events` n'en portent pas, et `/workers` — qui la lit
+par le graphe d'exécution — était inerte. Il est lisible maintenant, et un test vérifie que le
+worker nommé au journal est celui de la **créance**, pas celui que le corps annonce.
+
+**La passe de mutation, et deux mutants qui n'en étaient pas.** Cinq mutants, cinq tués — après
+correction de deux d'entre eux :
+
+- _« le rattrapage précède l'écriture »_ survivait, et c'était un vrai trou : tous les tests
+  faisaient **deux** écritures, et la seconde rendait visible le fait de la première. Une seule
+  écriture est le seul cas qui distingue « rattraper après » de « rattraper avant » ; le test de la
+  réclamation le fait maintenant.
+- _« la quarantaine devient une erreur d'écriture »_ survivait parce que **le mutant était mal
+  écrit** — un `assert!(… || true)`, c'est-à-dire rien. Réécrit pour faire réellement échouer la
+  commande, il meurt sur le test de `W1.d`. Un mutant qui ne mute rien se lit « survivant » et
+  raconte le contraire de ce qui est.
+- _« un refus rattrape aussi »_ a été **retiré** de la liste plutôt que corrigé : l'état atteint est
+  le même, c'est du travail évité et non une propriété observable. La documentation le dit ainsi, au
+  lieu de laisser croire qu'un test le tient.
+
+**Écart avec la spec.** Aucun. Aucune dépendance nouvelle : `RwLock` vient de `std::sync`.
+
+**Ce que cet item ne fait pas.** Le rattrapage est **synchrone** : une écriture applique les quatre
+projections avant de répondre. C'est le bon choix pour le profil `personal-local` de `docs/05` et
+pour ce que ce dépôt sait mesurer aujourd'hui ; une file de notification et un rattrapage en tâche
+de fond seraient une amélioration de latence, pas une correction de sémantique, et elles
+coupleraient le composition root au runtime asynchrone. À nommer le jour où une mesure le demande,
+pas avant.
+
+**Prochain item.** `W20.i`, `W20.j`, `W23.a`, `W23.b`, `W23.c`, `W4.i` — tous ouverts.

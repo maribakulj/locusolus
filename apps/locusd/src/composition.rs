@@ -28,6 +28,7 @@
 //! toujours par mentir ; celui-ci ne parle que des projections, qu'il tient.
 
 use std::fmt;
+use std::sync::{PoisonError, RwLock};
 
 use locus_event_store::{EventStore, MemoryEventStore};
 use locus_policy::{Facts, Policy, Run};
@@ -45,12 +46,12 @@ use crate::transaction::Transaction;
 /// de type est là pour garantir.
 pub struct Runtime<S> {
     transaction: Transaction<S>,
-    execution: ProjectionRunner<ExecutionGraph>,
-    organisation: ProjectionRunner<OrganisationGraph>,
-    conflicts: ProjectionRunner<ConflictRegistry>,
-    validation: ProjectionRunner<ValidationState>,
+    execution: RwLock<ProjectionRunner<ExecutionGraph>>,
+    organisation: RwLock<ProjectionRunner<OrganisationGraph>>,
+    conflicts: RwLock<ProjectionRunner<ConflictRegistry>>,
+    validation: RwLock<ProjectionRunner<ValidationState>>,
     policy: Policy,
-    readiness: Readiness,
+    readiness: RwLock<Readiness>,
     lep: crate::lep::Desk,
 }
 
@@ -71,14 +72,14 @@ impl<S: EventStore> Runtime<S> {
     pub fn assemble(store: S, policy: Policy) -> Self {
         Self {
             transaction: Transaction::new(store),
-            execution: ProjectionRunner::new(ExecutionGraph::new()),
-            organisation: ProjectionRunner::new(OrganisationGraph::new()),
-            conflicts: ProjectionRunner::new(ConflictRegistry::new()),
-            validation: ProjectionRunner::new(ValidationState::new()),
+            execution: RwLock::new(ProjectionRunner::new(ExecutionGraph::new())),
+            organisation: RwLock::new(ProjectionRunner::new(OrganisationGraph::new())),
+            conflicts: RwLock::new(ProjectionRunner::new(ConflictRegistry::new())),
+            validation: RwLock::new(ProjectionRunner::new(ValidationState::new())),
             policy,
-            readiness: Readiness {
+            readiness: RwLock::new(Readiness {
                 projections: Vec::new(),
-            },
+            }),
             // Une file vide et un registre vide : un daemon sans ordonnanceur répond `204` à toute
             // réclamation et refuse toute créance, ce qui est exact. `W20.k` livre les ports ; ce
             // qui les remplira est `W23.c`, nommé plutôt que simulé ici.
@@ -126,26 +127,32 @@ impl<S: EventStore> Runtime<S> {
 
     /// Le graphe d'exécution, en lecture — §9.5.
     ///
-    /// Les projections sortent **en lecture seule**, comme le journal. `W20.e` servira les queries
-    /// de §22.4 depuis ces accesseurs ; leur donner une variante mutable ouvrirait un chemin où une
-    /// query modifierait ce qu'elle lit.
-    pub const fn execution_graph(&self) -> &ExecutionGraph {
-        self.execution.projection()
+    /// # Pourquoi une fermeture et non une référence — `W20.l`
+    ///
+    /// La projection vit derrière un verrou depuis que `W20.l` la fait avancer à l'écriture, et une
+    /// référence rendue par cet accesseur obligerait à publier le garde du verrou. Un appelant qui
+    /// le retiendrait bloquerait toutes les écritures pour la durée de sa lecture — sans que rien
+    /// dans son code ne le laisse voir.
+    ///
+    /// La fermeture rend cela **inexprimable** : la référence ne survit pas à l'appel, donc le
+    /// verrou non plus. Les projections restent en lecture seule, comme le journal.
+    pub fn with_execution_graph<T>(&self, read: impl FnOnce(&ExecutionGraph) -> T) -> T {
+        read(read_lock(&self.execution).projection())
     }
 
     /// Le graphe d'organisation, en lecture.
-    pub const fn organisation_graph(&self) -> &OrganisationGraph {
-        self.organisation.projection()
+    pub fn with_organisation_graph<T>(&self, read: impl FnOnce(&OrganisationGraph) -> T) -> T {
+        read(read_lock(&self.organisation).projection())
     }
 
     /// Le registre des conflits, en lecture — invariant 12 : rien n'y est supprimé.
-    pub const fn conflict_registry(&self) -> &ConflictRegistry {
-        self.conflicts.projection()
+    pub fn with_conflict_registry<T>(&self, read: impl FnOnce(&ConflictRegistry) -> T) -> T {
+        read(read_lock(&self.conflicts).projection())
     }
 
     /// L'état de validation, en lecture — §8.1.
-    pub const fn validation_state(&self) -> &ValidationState {
-        self.validation.projection()
+    pub fn with_validation_state<T>(&self, read: impl FnOnce(&ValidationState) -> T) -> T {
+        read(read_lock(&self.validation).projection())
     }
 
     /// Évaluer une politique sans droit d'agir — §20.2, le chemin `dry`.
@@ -163,27 +170,72 @@ impl<S: EventStore> Runtime<S> {
     /// se lit dans le rapport. C'est la promesse de `W1.d` — une projection fautive ne bloque pas
     /// l'écriture canonique — et le composition root serait le seul endroit d'où l'on pourrait la
     /// trahir, en propageant l'erreur.
-    pub fn catch_up(&mut self) -> Readiness {
+    pub fn catch_up(&self) -> Readiness {
         let store = self.transaction.store();
         let readiness = Readiness {
             projections: vec![
-                wired(&self.execution.catch_up(store).health, ExecutionGraph::NAME),
                 wired(
-                    &self.organisation.catch_up(store).health,
+                    &write_lock(&self.execution).catch_up(store).health,
+                    ExecutionGraph::NAME,
+                ),
+                wired(
+                    &write_lock(&self.organisation).catch_up(store).health,
                     OrganisationGraph::NAME,
                 ),
                 wired(
-                    &self.conflicts.catch_up(store).health,
+                    &write_lock(&self.conflicts).catch_up(store).health,
                     ConflictRegistry::NAME,
                 ),
                 wired(
-                    &self.validation.catch_up(store).health,
+                    &write_lock(&self.validation).catch_up(store).health,
                     ValidationState::NAME,
                 ),
             ],
         };
-        self.readiness = readiness.clone();
+        write_lock(&self.readiness).clone_from(&readiness);
         readiness
+    }
+
+    /// Écrire, puis **faire voir** — `W20.l`.
+    ///
+    /// # Pourquoi le rattrapage vit ici et pas dans chaque appelant
+    ///
+    /// `W20.k` a fait de la surface HTTP une surface qui écrit, et les projections ne voyaient rien
+    /// de ce qu'elle écrivait : `catch_up` prenait `&mut self`, la liaison ne tient qu'un
+    /// `&Runtime`. Rien ne l'avait révélé plus tôt parce que rien n'était écrit pendant le service.
+    ///
+    /// Demander à chaque route d'appeler `catch_up` après son écriture aurait marché, et aurait
+    /// dérivé à la première route ajoutée — c'est la dérive de `served()`, quatre fois rencontrée
+    /// dans ce chantier. Le rattrapage est donc **dans le chemin d'écriture**, pas à côté.
+    ///
+    /// # L'ordre, et ce qu'il garantit
+    ///
+    /// La transaction écrit d'abord, les projections rattrapent ensuite. Un rattrapage qui
+    /// précéderait n'aurait rien à voir ; un rattrapage **pendant** tiendrait le verrou d'écriture
+    /// du stream pendant un travail de lecture, et ferait attendre des écritures sans rapport.
+    ///
+    /// Un refus ne rattrape pas : il n'a rien écrit, donc il n'y a rien de neuf à voir. C'est du
+    /// travail évité, **pas** une propriété observable du dehors — une passe de mutation l'a
+    /// confirmé en faisant rattraper les refus sans qu'aucun test bouge, et c'est exact : l'état
+    /// atteint est le même. Le dire ainsi vaut mieux que de laisser croire qu'un test le tient.
+    ///
+    /// # Ce que le rattrapage ne peut pas faire échouer
+    ///
+    /// Rien. `catch_up` ne rend jamais d'erreur : une faute met la projection en quarantaine (§9.5)
+    /// et se lit dans le rapport. C'est la promesse de `W1.d` — une projection fautive ne bloque pas
+    /// l'écriture canonique — et ce chemin serait le seul endroit d'où l'on pourrait la trahir.
+    pub fn commit<D: crate::handler::Decide>(
+        &self,
+        handler: &D,
+        command: &crate::command::CommandEnvelope,
+        state: &D::State,
+        now: locus_protocol::Timestamp,
+    ) -> crate::outcome::Outcome {
+        let outcome = self.transaction.submit(handler, command, state, now);
+        if outcome.accepted().is_some() {
+            self.catch_up();
+        }
+        outcome
     }
 
     /// Le dernier rapport de disponibilité, **sans rattraper**.
@@ -194,8 +246,23 @@ impl<S: EventStore> Runtime<S> {
     /// rend une liste **vide** plutôt qu'un « prêt » supposé.
     #[must_use]
     pub fn readiness(&self) -> Readiness {
-        self.readiness.clone()
+        read_lock(&self.readiness).clone()
     }
+}
+
+/// Un verrou en lecture, **poison compris**.
+///
+/// Une projection empoisonnée par la panique d'un autre fil ne rend pas le daemon muet : ce qu'elle
+/// contient reste lisible, et c'est ce que veut §9.5 — une projection fautive ne bloque rien. La
+/// quarantaine est le mécanisme prévu pour dire qu'une projection va mal ; un `unwrap` sur le poison
+/// en ajouterait un second, silencieux et global.
+fn read_lock<T>(lock: &RwLock<T>) -> std::sync::RwLockReadGuard<'_, T> {
+    lock.read().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// Un verrou en écriture, poison compris — voir [`read_lock`].
+fn write_lock<T>(lock: &RwLock<T>) -> std::sync::RwLockWriteGuard<'_, T> {
+    lock.write().unwrap_or_else(PoisonError::into_inner)
 }
 
 /// Ce que l'assemblage a produit — de quoi diagnostiquer sans ouvrir un débogueur.

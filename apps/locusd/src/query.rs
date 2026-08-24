@@ -126,12 +126,13 @@ impl<S: EventStore> Runtime<S> {
         limit: Option<usize>,
     ) -> Result<Page<String>, CursorError> {
         let rank = position_of(after, Collection::Workers)?;
-        let mut keys: Vec<String> = self
-            .execution_graph()
-            .of_kind(NodeKind::Worker)
-            .into_iter()
-            .cloned()
-            .collect();
+        let mut keys: Vec<String> = self.with_execution_graph(|graph| {
+            graph
+                .of_kind(NodeKind::Worker)
+                .into_iter()
+                .cloned()
+                .collect()
+        });
         keys.sort_unstable();
         Ok(paginate(keys, rank, bounded(limit), Collection::Workers))
     }
@@ -147,12 +148,8 @@ impl<S: EventStore> Runtime<S> {
         limit: Option<usize>,
     ) -> Result<Page<ConflictEntry>, CursorError> {
         let rank = position_of(after, Collection::Conflicts)?;
-        let mut entries: Vec<ConflictEntry> = self
-            .conflict_registry()
-            .open()
-            .into_iter()
-            .cloned()
-            .collect();
+        let mut entries: Vec<ConflictEntry> =
+            self.with_conflict_registry(|registry| registry.open().into_iter().cloned().collect());
         entries.sort_by(|left, right| {
             left.stream_id
                 .cmp(&right.stream_id)

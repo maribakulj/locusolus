@@ -81,7 +81,7 @@ fn commande() -> CommandEnvelope {
 /// si une projection était remplacée par une autre, ou par la même deux fois.
 #[test]
 fn l_assemblage_cable_les_quatre_projections() {
-    let mut runtime = Runtime::in_memory();
+    let runtime = Runtime::in_memory();
     let readiness = runtime.catch_up();
 
     let noms: Vec<&str> = readiness.projections.iter().map(|w| w.name).collect();
@@ -143,12 +143,9 @@ fn le_moteur_de_politique_est_cable_et_decide() {
 /// composition root puisse passer aux projections est immuable.
 #[test]
 fn une_ecriture_traverse_la_transaction_puis_les_projections() {
-    let mut runtime = Runtime::in_memory();
+    let runtime = Runtime::in_memory();
     assert!(
-        runtime
-            .execution_graph()
-            .of_kind(NodeKind::Worker)
-            .is_empty(),
+        runtime.with_execution_graph(|graph| graph.of_kind(NodeKind::Worker).is_empty()),
         "avant l'écriture, le graphe est vide"
     );
 
@@ -164,7 +161,7 @@ fn une_ecriture_traverse_la_transaction_puis_les_projections() {
     // aurait laissé passer un rattrapage qui lit un journal vide : il est « prêt » lui aussi. Un
     // mutant l'a montré.
     assert_eq!(
-        runtime.execution_graph().of_kind(NodeKind::Worker).len(),
+        runtime.with_execution_graph(|graph| graph.of_kind(NodeKind::Worker).len()),
         1,
         "le fait écrit a atteint le graphe d'exécution"
     );
@@ -193,7 +190,7 @@ fn une_faute_reelle_met_en_quarantaine_et_se_lit_dans_le_rapport() {
         }
     }
 
-    let mut runtime = Runtime::in_memory();
+    let runtime = Runtime::in_memory();
     runtime
         .transaction()
         .submit(&Anonyme, &commande(), &(), NOW)
