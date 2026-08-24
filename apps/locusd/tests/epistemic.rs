@@ -18,13 +18,13 @@ use std::sync::Arc;
 use locus_broker::port::{BrokerPort, Loopback};
 use locus_broker::protocol::Verdict;
 use locus_domain::{Status, ValidationLevel};
-use locus_lep::{Event, Lease, MissionEnvelope};
+use locus_lep::{Event, MissionEnvelope};
 use locus_protocol::id::{Agent, Command as CommandId, Event as EventId, Project, Workspace};
 use locus_protocol::{Id, IdKind, Timestamp};
 use locusd::epistemic::{Integrate, Stage, fact_type, staging};
 use locusd::http::{EVENTS_PATH, router};
 use locusd::lep::{
-    Desk, Identities, MemoryQueue, MemoryRegistry, Offer, Submitted, WorkerIdentity,
+    Desk, Identities, MemoryQueue, MemoryRegistry, Queued, Submitted, WorkerIdentity,
 };
 use locusd::mission::Authority;
 use locusd::{CommandError, Runtime};
@@ -60,6 +60,13 @@ impl Identities for Identites {
     }
 
     fn command(&self) -> Result<Id<CommandId>, CommandError> {
+        Ok(id::<CommandId>(
+            self.prochain
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+        ))
+    }
+
+    fn lease(&self) -> Result<Id<CommandId>, CommandError> {
         Ok(id::<CommandId>(
             self.prochain
                 .fetch_add(1, std::sync::atomic::Ordering::Relaxed),
@@ -104,17 +111,20 @@ fn soumission(cle: &str) -> Submitted {
     }
 }
 
-fn offre() -> Offer {
+/// Ce qu'une mise en file dépose — `W20.v` : la mission, et le rang que la proposition a fixé.
+///
+/// **Aucun bail** : il est frappé à la réclamation, pour le worker que le placement admet.
+fn en_file() -> Queued {
     let mission: MissionEnvelope = fixture("mission-envelope-nominal.json");
-    let mut lease: Lease = fixture("lease-expired.json");
-    lease.task_id.clone_from(&mission.task_id);
-    WORKER.clone_into(&mut lease.worker_id);
-    Offer { mission, lease }
+    Queued {
+        mission,
+        attempt: 1,
+    }
 }
 
 fn daemon() -> Runtime<locus_event_store::MemoryEventStore> {
     let file = Arc::new(MemoryQueue::new());
-    file.push(offre());
+    file.push(en_file());
     let registre = Arc::new(MemoryRegistry::new());
     registre.admit(CREANCE, identite());
     let broker: Arc<dyn BrokerPort + Send + Sync> =

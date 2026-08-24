@@ -25,13 +25,13 @@ use std::sync::Arc;
 
 use locus_broker::port::{BrokerError, BrokerPort, Placement};
 use locus_broker::protocol::Verdict;
-use locus_lep::{CapabilityManifest, Event, Lease, MissionEnvelope, ResourceSpec, SandboxSpec};
+use locus_lep::{CapabilityManifest, Event, ResourceSpec, SandboxSpec};
 use locus_protocol::id::{Agent, Command as CommandId, Event as EventId, Project, Workspace};
 use locus_protocol::{Id, IdKind, Timestamp};
 use locusd::http::{CLAIM_PATH, EVENTS_PATH, RESULT_PATH, router};
 use locusd::lep::{
-    Desk, Identities, MemoryQueue, MemoryRegistry, NoIdentities, Offer, WorkerIdentity,
-    stream_of_task,
+    Desk, HEARTBEAT_INTERVAL_SECONDS, Identities, LEASE_TTL_SECONDS, MemoryQueue, MemoryRegistry,
+    NoIdentities, Offer, Queued, WorkerIdentity, stream_of_task,
 };
 use locusd::{CommandError, Runtime};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -76,6 +76,13 @@ impl Identities for IdentitesDeTest {
                 .fetch_add(1, std::sync::atomic::Ordering::Relaxed),
         ))
     }
+
+    fn lease(&self) -> Result<Id<CommandId>, CommandError> {
+        Ok(id::<CommandId>(
+            self.prochain
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+        ))
+    }
 }
 
 fn fixture<T: serde::de::DeserializeOwned>(nom: &str) -> T {
@@ -92,14 +99,26 @@ fn fixture<T: serde::de::DeserializeOwned>(nom: &str) -> T {
     serde_json::from_value(valeur).expect("la fixture se décode dans le type généré")
 }
 
-fn offre() -> Offer {
-    let mission: MissionEnvelope = fixture("mission-envelope-nominal.json");
-    let mut lease: Lease = fixture("lease-expired.json");
-    // La fixture de bail porte l'expiration qu'elle vient éprouver ailleurs ; ce qui est éprouvé
-    // ici est l'appariement bail/mission, et le worker qu'il désigne.
-    lease.task_id.clone_from(&mission.task_id);
-    WORKER.clone_into(&mut lease.worker_id);
-    Offer { mission, lease }
+/// Ce qu'une mise en file dépose — `W20.v` : la mission, et le rang que la proposition a fixé.
+///
+/// **Aucun bail.** Il n'a pas d'objet avant qu'un worker soit choisi, et c'est le daemon qui le
+/// frappe à la réclamation. Le type le rend inexprimable : `Queued` ne porte pas le champ.
+/// Le rang d'attempt de ces tests.
+///
+/// **Trois, et non un.** Un premier jeu portait `1`, et une passe de mutation a montré ce que ça
+/// vaut : remplacer `queued.attempt` par la constante `1` survivait, parce que l'attendu et le
+/// fourni étaient le même chiffre. C'est le défaut que `SOCKET_MODE` a eu, puis les chemins de
+/// §15.2, puis `served()` — une valeur comparée à elle-même ne vérifie rien.
+///
+/// Trois dit en plus quelque chose de vrai : §12.3 veut qu'une tâche **réattribuée** conserve son
+/// numéro, donc un rang supérieur à un est le cas normal d'une reprise, pas une curiosité.
+const RANG: i64 = 3;
+
+fn en_file() -> Queued {
+    Queued {
+        mission: fixture("mission-envelope-nominal.json"),
+        attempt: RANG,
+    }
 }
 
 /// Ce que le worker annonce — la fixture Linux de `W0.7`, dont le `worker_id` **est** [`WORKER`].
@@ -115,6 +134,26 @@ fn manifeste() -> CapabilityManifest {
          elle qu'on éprouve"
     );
     manifeste
+}
+
+/// Le manifeste d'un worker nommé — le même document, sous un autre `worker_id`.
+///
+/// Retouché sur ce seul champ, et pour une raison précise : le manifeste doit s'accorder à la
+/// créance, sans quoi la réclamation est refusée avant tout placement (`W20.q`). Ce qu'on éprouve
+/// ici est le bail, pas le manifeste.
+fn manifeste_de(worker: &str) -> String {
+    let mut manifeste = manifeste();
+    worker.clone_into(&mut manifeste.worker_id);
+    serde_json::to_string(&manifeste).expect("le manifeste se sérialise")
+}
+
+/// L'offre lue du corps d'une réponse HTTP.
+fn offre_de(reponse: &str) -> Offer {
+    let corps = reponse
+        .split_once("\r\n\r\n")
+        .map_or("", |(_, corps)| corps);
+    serde_json::from_str(corps)
+        .unwrap_or_else(|erreur| panic!("offre lisible ({erreur}) :\n{reponse}"))
 }
 
 /// Un broker de test, qui **retient ce qu'on lui a demandé**.
@@ -205,21 +244,21 @@ fn identite() -> WorkerIdentity {
 }
 
 /// Un daemon prêt à parler §15.2, et la file qu'on lui a remplie.
-fn daemon(offres: Vec<Offer>) -> Runtime<locus_event_store::MemoryEventStore> {
-    daemon_brokere(offres, Arc::new(BrokerDeTest::placant())).0
+fn daemon(missions: Vec<Queued>) -> Runtime<locus_event_store::MemoryEventStore> {
+    daemon_brokere(missions, Arc::new(BrokerDeTest::placant())).0
 }
 
 /// Le même, avec le broker qu'on lui donne — et ce broker rendu à l'appelant.
 fn daemon_brokere(
-    offres: Vec<Offer>,
+    missions: Vec<Queued>,
     broker: Arc<BrokerDeTest>,
 ) -> (
     Runtime<locus_event_store::MemoryEventStore>,
     Arc<BrokerDeTest>,
 ) {
     let file = Arc::new(MemoryQueue::new());
-    for offre in offres {
-        file.push(offre);
+    for mission in missions {
+        file.push(mission);
     }
     let registre = Arc::new(MemoryRegistry::new());
     registre.admit(CREANCE, identite());
@@ -360,7 +399,7 @@ async fn une_file_vide_rend_204_et_non_une_erreur() {
 /// daemon qui répondrait `204` à tout le monde passerait le premier test sans rien servir.
 #[tokio::test]
 async fn une_creance_inconnue_est_refusee_et_non_servie() {
-    let adresse = servir(daemon(vec![offre()])).await;
+    let adresse = servir(daemon(vec![en_file()])).await;
 
     let sans = poster(&adresse, CLAIM_PATH, None, &corps_minimal("")).await;
     assert!(
@@ -395,7 +434,7 @@ async fn une_creance_inconnue_est_refusee_et_non_servie() {
 #[tokio::test]
 async fn une_requete_refusee_ne_consomme_pas_la_file() {
     let file = Arc::new(MemoryQueue::new());
-    file.push(offre());
+    file.push(en_file());
     let registre = Arc::new(MemoryRegistry::new());
     registre.admit(CREANCE, identite());
     let runtime = Runtime::in_memory().with_lep(
@@ -435,7 +474,7 @@ async fn une_requete_refusee_ne_consomme_pas_la_file() {
 /// de croire la réponse HTTP.
 #[tokio::test]
 async fn une_reclamation_servie_atteint_le_journal() {
-    let adresse = servir(daemon(vec![offre()])).await;
+    let adresse = servir(daemon(vec![en_file()])).await;
 
     let reponse = poster(&adresse, CLAIM_PATH, Some(CREANCE), &corps_minimal("")).await;
     assert!(
@@ -481,9 +520,9 @@ async fn une_reclamation_servie_atteint_le_journal() {
 /// l'institution lit ensuite pour décider d'accepter.
 #[tokio::test]
 async fn un_resultat_rendu_acheve_la_tentative_sans_la_declarer_reussie() {
-    let offre = offre();
-    let tache = offre.mission.task_id.clone();
-    let adresse = servir(daemon(vec![offre])).await;
+    let en_file = en_file();
+    let tache = en_file.mission.task_id.clone();
+    let adresse = servir(daemon(vec![en_file])).await;
 
     let _ = poster(&adresse, CLAIM_PATH, Some(CREANCE), &corps_minimal("")).await;
     let rendu = corps(
@@ -514,9 +553,9 @@ async fn un_resultat_rendu_acheve_la_tentative_sans_la_declarer_reussie() {
 /// la lit sur le journal.
 #[tokio::test]
 async fn les_evenements_du_worker_atteignent_le_journal_sous_les_namespaces_de_10_3() {
-    let offre = offre();
-    let tache = offre.mission.task_id.clone();
-    let adresse = servir(daemon(vec![offre])).await;
+    let en_file = en_file();
+    let tache = en_file.mission.task_id.clone();
+    let adresse = servir(daemon(vec![en_file])).await;
     let _ = poster(&adresse, CLAIM_PATH, Some(CREANCE), &corps_minimal("")).await;
 
     let mut demarrage: Event = fixture("event-reconnection-1-started.json");
@@ -555,9 +594,9 @@ async fn les_evenements_du_worker_atteignent_le_journal_sous_les_namespaces_de_1
 /// que §7 existe pour empêcher, et le refus est **typé**.
 #[tokio::test]
 async fn un_evenement_au_nom_d_un_autre_worker_est_refuse() {
-    let offre = offre();
-    let tache = offre.mission.task_id.clone();
-    let adresse = servir(daemon(vec![offre])).await;
+    let en_file = en_file();
+    let tache = en_file.mission.task_id.clone();
+    let adresse = servir(daemon(vec![en_file])).await;
     let _ = poster(&adresse, CLAIM_PATH, Some(CREANCE), &corps_minimal("")).await;
 
     let mut usurpe: Event = fixture("event-reconnection-1-started.json");
@@ -600,7 +639,7 @@ async fn un_evenement_au_nom_d_un_autre_worker_est_refuse() {
 #[tokio::test]
 async fn sans_source_d_identifiants_le_daemon_refuse_plutot_que_d_inventer() {
     let file = Arc::new(MemoryQueue::new());
-    file.push(offre());
+    file.push(en_file());
     let registre = Arc::new(MemoryRegistry::new());
     registre.admit(CREANCE, identite());
     // Le broker **place** : sans cela, le `503` viendrait du lien absent et non de la source
@@ -626,7 +665,7 @@ async fn sans_source_d_identifiants_le_daemon_refuse_plutot_que_d_inventer() {
 /// **Sans projet, le fait n'a pas d'endroit où appartenir — et le daemon ne le devine pas.**
 #[tokio::test]
 async fn un_corps_sans_projet_est_refuse_par_validation() {
-    let adresse = servir(daemon(vec![offre()])).await;
+    let adresse = servir(daemon(vec![en_file()])).await;
 
     let reponse = poster(
         &adresse,
@@ -656,9 +695,9 @@ async fn un_corps_sans_projet_est_refuse_par_validation() {
 /// perd. Les deux ne se confondent pas, et le dire ici évite de croire l'un livré avec l'autre.
 #[tokio::test]
 async fn une_resoumission_sous_la_meme_cle_n_ecrit_pas_deux_fois() {
-    let offre = offre();
-    let tache = offre.mission.task_id.clone();
-    let adresse = servir(daemon(vec![offre])).await;
+    let en_file = en_file();
+    let tache = en_file.mission.task_id.clone();
+    let adresse = servir(daemon(vec![en_file])).await;
     let _ = poster(&adresse, CLAIM_PATH, Some(CREANCE), &corps_minimal("")).await;
 
     // La **même** clé, deux fois, sur la **même** commande : c'est ce que §15.5 appelle une
@@ -745,7 +784,7 @@ fn le_stream_d_une_tache_porte_son_prefixe() {
 /// une créance lue d'un en-tête que §15.2 ne définit pas, donc une porte que personne n'a décidée.
 #[tokio::test]
 async fn un_entete_sans_bearer_n_est_pas_une_creance() {
-    let adresse = servir(daemon(vec![offre()])).await;
+    let adresse = servir(daemon(vec![en_file()])).await;
 
     let mut flux = TcpStream::connect(&adresse)
         .await
@@ -770,51 +809,123 @@ async fn un_entete_sans_bearer_n_est_pas_une_creance() {
     );
 }
 
-/// **Un bail émis pour un autre worker ne confie rien.**
+/// **Le bail servi nomme le worker qui a réclamé, et la tâche qu'il accompagne.**
 ///
-/// Le bail est ce qui autorise. En honorer un émis pour quelqu'un d'autre transférerait un droit
-/// d'exécution que personne n'a décidé de transférer — et la file, elle, ne le remarquerait pas :
-/// elle a bien une offre à donner.
+/// Ces deux propriétés étaient tenues par des **gardes** jusqu'à `W20.v` : la file portait des
+/// paires déjà formées, un bail y arrivait avec un `worker_id` que personne n'avait confronté au
+/// réclamant, et deux tests vérifiaient qu'une paire dépareillée était refusée.
 ///
-/// La mutation qui neutralisait ce contrôle survivait : aucune fixture ne dépareillait la paire.
+/// Elles sont désormais vraies **par construction** — le bail est frappé depuis le worker admis et
+/// depuis la mission retirée —, et les gardes ont disparu parce qu'elles ne pouvaient plus se
+/// déclencher : c'est ce que `W20.n` a fait à `Rejection::WrongEndpoint`.
+///
+/// Ce test est ce qui remplace les deux : il ne vérifie plus qu'un refus arrive, il vérifie que
+/// **le bail servi est le bon**. Une garantie de construction qui n'est éprouvée nulle part est une
+/// garantie qu'on croit tenir.
 #[tokio::test]
-async fn un_bail_emis_pour_un_autre_worker_ne_confie_rien() {
-    let mut offre = offre();
-    offre.lease.worker_id = "un-autre-worker".to_owned();
-    let adresse = servir(daemon(vec![offre])).await;
+async fn le_bail_servi_nomme_son_worker_et_sa_tache() {
+    let adresse = servir(daemon(vec![en_file()])).await;
 
     let reponse = poster(&adresse, CLAIM_PATH, Some(CREANCE), &corps_minimal("")).await;
+    assert!(reponse.starts_with("HTTP/1.1 200"), "{reponse}");
 
-    assert!(
-        reponse.starts_with("HTTP/1.1 403"),
-        "un bail émis pour un autre est une faute d'autorisation :\n{reponse}"
+    let offre = offre_de(&reponse);
+    assert_eq!(
+        offre.lease.worker_id, WORKER,
+        "le bail autorise le worker qui a réclamé, et personne d'autre"
     );
-    assert!(
-        faits_sur(&adresse, "task/task-nominal").await.is_empty(),
-        "un refus n'écrit rien"
+    assert_eq!(
+        offre.lease.task_id, offre.mission.task_id,
+        "et il désigne la mission qu'il accompagne — §11.1, aucune identité substituée à une autre"
+    );
+    assert_eq!(
+        offre.lease.attempt, RANG,
+        "le rang vient de la mise en file, pas d'un compteur de réclamations (§12.3)"
     );
 }
 
-/// **Et un bail qui ne désigne pas la mission qu'il accompagne non plus.**
+/// **Deux workers qui réclament la même file reçoivent deux baux distincts.**
 ///
-/// §11.1 : « aucune de ces identités ne doit être substituée aux autres ». Une paire dépareillée
-/// confierait un travail sous l'autorisation d'un autre — et le refus est une **validation**, pas
-/// une autorisation : la requête est mal formée, il y a quelque chose à y corriger.
+/// C'est ce qui rend le placement de `W20.q` non décoratif. Tant que la file portait des paires, un
+/// bail y nommait un worker d'avance : la question posée au broker ne pouvait que **confirmer** ce
+/// choix, jamais le faire. Deux missions, deux workers, deux baux — et chacun le sien.
 #[tokio::test]
-async fn un_bail_qui_ne_designe_pas_sa_mission_est_refuse() {
-    let mut offre = offre();
-    offre.lease.task_id = "une-autre-tache".to_owned();
-    let adresse = servir(daemon(vec![offre])).await;
+async fn deux_workers_recoivent_chacun_leur_bail() {
+    const AUTRE: &str = "creance-de-l-autre-worker";
+    const AUTRE_WORKER: &str = "canterel-vm-linux-02";
 
-    let reponse = poster(&adresse, CLAIM_PATH, Some(CREANCE), &corps_minimal("")).await;
+    let file = Arc::new(MemoryQueue::new());
+    file.push(en_file());
+    file.push(en_file());
+    let registre = Arc::new(MemoryRegistry::new());
+    registre.admit(CREANCE, identite());
+    registre.admit(
+        AUTRE,
+        WorkerIdentity {
+            worker_id: AUTRE_WORKER.to_owned(),
+            workspace_id: id::<Workspace>(2),
+            principal_id: id::<Agent>(3),
+        },
+    );
+    let runtime = Runtime::in_memory().with_lep(
+        Desk::new(file, registre, Arc::new(IdentitesDeTest::default()))
+            .placing(Arc::new(BrokerDeTest::placant())),
+    );
+    let adresse = servir(runtime).await;
 
-    assert!(
-        reponse.starts_with("HTTP/1.1 400"),
-        "une paire dépareillée est une requête à corriger :\n{reponse}"
+    let premier = offre_de(&poster(&adresse, CLAIM_PATH, Some(CREANCE), &corps_minimal("")).await);
+    let second = offre_de(
+        &poster(
+            &adresse,
+            CLAIM_PATH,
+            Some(AUTRE),
+            &corps(
+                "idem-autre",
+                &format!(",\"manifest\":{}", manifeste_de(AUTRE_WORKER)),
+            ),
+        )
+        .await,
+    );
+
+    assert_eq!(premier.lease.worker_id, WORKER);
+    assert_eq!(second.lease.worker_id, AUTRE_WORKER);
+    assert_ne!(
+        premier.lease.lease_id, second.lease.lease_id,
+        "deux baux distincts portent deux identités : les confondre rendrait indistinguables les \
+         deux droits d'exécution"
+    );
+}
+
+/// **Le bail servi porte les bornes de §12.3, et elles tiennent la relation.**
+///
+/// La relation elle-même — le battement sous le tiers du TTL — est tenue **à la compilation** par
+/// un `const` de `lep.rs` : un réglage fautif ne compile pas. Ce test tient l'autre moitié, qui ne
+/// se déduit pas de la première : que le bail réellement servi **porte** ces bornes, et non des
+/// valeurs qu'un chemin aurait recomposées en route.
+#[tokio::test]
+async fn le_bail_servi_porte_les_bornes_de_12_3() {
+    let adresse = servir(daemon(vec![en_file()])).await;
+
+    let offre = offre_de(&poster(&adresse, CLAIM_PATH, Some(CREANCE), &corps_minimal("")).await);
+
+    assert_eq!(offre.lease.ttl_seconds, LEASE_TTL_SECONDS);
+    assert_eq!(
+        offre.lease.heartbeat_interval_seconds,
+        HEARTBEAT_INTERVAL_SECONDS
     );
     assert!(
-        reponse.contains("lease.task_id"),
-        "le refus nomme le champ :\n{reponse}"
+        offre.lease.heartbeat_interval_seconds * 3 <= offre.lease.ttl_seconds,
+        "§12.3 sur le document servi : {} s de battement pour {} s de bail",
+        offre.lease.heartbeat_interval_seconds,
+        offre.lease.ttl_seconds
+    );
+    // Et l'échéance est **postérieure** à l'émission : un bail né expiré se lit comme un bail perdu
+    // (`W2.9`), et le worker rendrait aussitôt une tâche qu'on vient de lui confier.
+    assert!(
+        offre.lease.expires_at > offre.lease.issued_at,
+        "émis {} , expire {}",
+        offre.lease.issued_at,
+        offre.lease.expires_at
     );
 }
 
@@ -838,12 +949,16 @@ async fn une_reserve_d_identites_trop_courte_refuse_en_la_nommant() {
         fn command(&self) -> Result<Id<CommandId>, CommandError> {
             Ok(id::<CommandId>(2))
         }
+
+        fn lease(&self) -> Result<Id<CommandId>, CommandError> {
+            Ok(id::<CommandId>(3))
+        }
     }
 
-    let offre = offre();
-    let tache = offre.mission.task_id.clone();
+    let en_file = en_file();
+    let tache = en_file.mission.task_id.clone();
     let file = Arc::new(MemoryQueue::new());
-    file.push(offre);
+    file.push(en_file);
     let registre = Arc::new(MemoryRegistry::new());
     registre.admit(CREANCE, identite());
     let adresse = servir(Runtime::in_memory().with_lep(
@@ -926,9 +1041,9 @@ fn la_source_par_defaut_refuse_les_deux_sortes_d_identifiants() {
 /// d'exécution nomme le worker qui a réclamé.
 #[tokio::test]
 async fn les_projections_voient_ce_que_la_surface_ecrit() {
-    let offre = offre();
-    let tache = offre.mission.task_id.clone();
-    let adresse = servir(daemon(vec![offre])).await;
+    let en_file = en_file();
+    let tache = en_file.mission.task_id.clone();
+    let adresse = servir(daemon(vec![en_file])).await;
     let _ = poster(&adresse, CLAIM_PATH, Some(CREANCE), &corps_minimal("")).await;
     let rendu = corps(
         "idem-result",
@@ -962,9 +1077,9 @@ async fn les_projections_voient_ce_que_la_surface_ecrit() {
 /// qu'il veut ; ce qui atteint le journal est ce que la créance identifie.
 #[tokio::test]
 async fn le_worker_du_journal_est_celui_de_la_creance() {
-    let offre = offre();
-    let tache = offre.mission.task_id.clone();
-    let adresse = servir(daemon(vec![offre])).await;
+    let en_file = en_file();
+    let tache = en_file.mission.task_id.clone();
+    let adresse = servir(daemon(vec![en_file])).await;
     let _ = poster(&adresse, CLAIM_PATH, Some(CREANCE), &corps_minimal("")).await;
 
     // Le corps annonce un autre worker sur un champ que le daemon ne lit pas — et ce nom-là ne doit
@@ -1000,9 +1115,9 @@ async fn le_worker_du_journal_est_celui_de_la_creance() {
 /// fautive éprouverait le harnais, pas la promesse.
 #[tokio::test]
 async fn une_projection_en_quarantaine_ne_bloque_pas_l_ecriture() {
-    let offre = offre();
-    let tache = offre.mission.task_id.clone();
-    let adresse = servir(daemon(vec![offre])).await;
+    let en_file = en_file();
+    let tache = en_file.mission.task_id.clone();
+    let adresse = servir(daemon(vec![en_file])).await;
     let _ = poster(&adresse, CLAIM_PATH, Some(CREANCE), &corps_minimal("")).await;
 
     // `artifact.declared` sans `artifact_id` : le graphe d'exécution met en quarantaine.
@@ -1096,10 +1211,10 @@ async fn une_lecture_ne_fait_pas_avancer_les_projections() {
 /// été répondu.
 #[tokio::test]
 async fn la_reclamation_soumet_le_manifeste_du_worker_et_l_exigence_de_la_mission() {
-    let offre = offre();
-    let exigence = offre.mission.sandbox.clone();
-    let reservation = offre.mission.resources.clone();
-    let (runtime, broker) = daemon_brokere(vec![offre], Arc::new(BrokerDeTest::placant()));
+    let en_file = en_file();
+    let exigence = en_file.mission.sandbox.clone();
+    let reservation = en_file.mission.resources.clone();
+    let (runtime, broker) = daemon_brokere(vec![en_file], Arc::new(BrokerDeTest::placant()));
     let adresse = servir(runtime).await;
 
     let reponse = poster(&adresse, CLAIM_PATH, Some(CREANCE), &corps_minimal("")).await;
@@ -1135,7 +1250,7 @@ async fn la_reclamation_soumet_le_manifeste_du_worker_et_l_exigence_de_la_missio
 #[tokio::test]
 async fn un_placement_refuse_rend_204_et_laisse_la_mission_en_file() {
     let file = Arc::new(MemoryQueue::new());
-    file.push(offre());
+    file.push(en_file());
     let registre = Arc::new(MemoryRegistry::new());
     registre.admit(CREANCE, identite());
     let runtime = Runtime::in_memory().with_lep(
@@ -1175,7 +1290,7 @@ async fn un_placement_refuse_rend_204_et_laisse_la_mission_en_file() {
 #[tokio::test]
 async fn un_broker_injoignable_rend_unavailable_et_non_204() {
     let file = Arc::new(MemoryQueue::new());
-    file.push(offre());
+    file.push(en_file());
     let registre = Arc::new(MemoryRegistry::new());
     registre.admit(CREANCE, identite());
     let runtime = Runtime::in_memory().with_lep(
@@ -1213,7 +1328,7 @@ async fn un_broker_injoignable_rend_unavailable_et_non_204() {
 #[tokio::test]
 async fn une_reclamation_sans_manifeste_est_refusee_et_ne_consomme_rien() {
     let file = Arc::new(MemoryQueue::new());
-    file.push(offre());
+    file.push(en_file());
     let registre = Arc::new(MemoryRegistry::new());
     registre.admit(CREANCE, identite());
     let runtime = Runtime::in_memory().with_lep(
@@ -1259,7 +1374,7 @@ async fn une_reclamation_sans_manifeste_est_refusee_et_ne_consomme_rien() {
 #[tokio::test]
 async fn un_manifeste_au_nom_d_un_autre_worker_est_refuse() {
     let file = Arc::new(MemoryQueue::new());
-    file.push(offre());
+    file.push(en_file());
     let registre = Arc::new(MemoryRegistry::new());
     registre.admit(CREANCE, identite());
     let runtime = Runtime::in_memory().with_lep(
@@ -1329,5 +1444,117 @@ fn reclamer_ne_choisit_aucun_hote() {
     assert!(
         source.contains("broker.place("),
         "et il passe par le port du broker, jamais par un calcul local"
+    );
+}
+
+// ---------------------------------------------------------------------------------------------
+// 7. Le bail frappé à la réclamation — `W20.v`, et ce qu'une passe de mutation a trouvé.
+// ---------------------------------------------------------------------------------------------
+
+/// **Sans identité de bail, la réclamation est refusée — et la mission reste en file.**
+///
+/// Deux propriétés, et une passe de mutation les a trouvées toutes deux sans test.
+///
+/// La première : le `lease_id` vient de [`Identities::lease`], **pas** de
+/// [`Identities::command`]. §11.1 refuse qu'une identité soit substituée à une autre, et le port
+/// porte deux méthodes pour cela. Emprunter l'une pour l'autre passait inaperçu tant qu'aucune
+/// source ne les distinguait.
+///
+/// La seconde : quand l'identité manque, la mission **retourne dans la file**. Elle n'a pas été
+/// confiée ; la perdre ici la retirerait à qui pouvait la porter, et rien ne le dirait — c'est la
+/// règle que `W20.q` a posée pour un refus de placement, et elle vaut sur tous les chemins qui
+/// renoncent après avoir retiré.
+#[tokio::test]
+async fn sans_identite_de_bail_la_mission_reste_en_file() {
+    /// Une source qui sait tout donner **sauf** un bail.
+    #[derive(Debug, Default)]
+    struct SansBail {
+        prochain: std::sync::atomic::AtomicU8,
+    }
+
+    impl Identities for SansBail {
+        fn events(&self, count: usize) -> Result<Vec<Id<EventId>>, CommandError> {
+            Ok((0..count)
+                .map(|_| {
+                    id::<EventId>(
+                        self.prochain
+                            .fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+                    )
+                })
+                .collect())
+        }
+
+        fn command(&self) -> Result<Id<CommandId>, CommandError> {
+            Ok(id::<CommandId>(
+                self.prochain
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+            ))
+        }
+
+        fn lease(&self) -> Result<Id<CommandId>, CommandError> {
+            Err(CommandError::Unavailable {
+                detail: "aucune source d'identifiant de bail n'est câblée".to_owned(),
+            })
+        }
+    }
+
+    let file = Arc::new(MemoryQueue::new());
+    file.push(en_file());
+    let registre = Arc::new(MemoryRegistry::new());
+    registre.admit(CREANCE, identite());
+    let runtime = Runtime::in_memory().with_lep(
+        Desk::new(
+            Arc::clone(&file) as Arc<dyn locusd::MissionQueue>,
+            registre,
+            Arc::new(SansBail::default()),
+        )
+        .placing(Arc::new(BrokerDeTest::placant())),
+    );
+    let adresse = servir(runtime).await;
+
+    let reponse = poster(&adresse, CLAIM_PATH, Some(CREANCE), &corps_minimal("")).await;
+
+    assert!(
+        reponse.starts_with("HTTP/1.1 503"),
+        "sans identité, le service ne peut pas répondre maintenant :\n{reponse}"
+    );
+    assert!(
+        reponse.contains("bail"),
+        "le refus nomme ce qui manque — et « bail » n'est pas « commande » :\n{reponse}"
+    );
+    assert_eq!(
+        file.len(),
+        1,
+        "la mission n'a pas été confiée : elle retourne dans la file"
+    );
+    assert!(
+        faits_sur(&adresse, "task/task-nominal").await.is_empty(),
+        "et rien n'est écrit"
+    );
+}
+
+/// **Une échéance qui déborderait est refusée, jamais repliée.**
+///
+/// Aucune horloge réelle n'en approche, et c'est précisément pourquoi la garde avait besoin d'un
+/// test : une passe de mutation a remplacé l'addition vérifiée par une addition qui se replie, sans
+/// faire rougir quoi que ce soit.
+///
+/// Ce qu'un repli produirait n'est pas une valeur bizarre, c'est un **bail né expiré** — que `W2.9`
+/// traite comme un bail perdu. Le worker rendrait aussitôt la tâche qu'on vient de lui confier, et
+/// la boucle recommencerait sans que rien ne dise pourquoi.
+#[test]
+fn une_echeance_qui_deborde_est_refusee() {
+    let deborde = locusd::expiration(Timestamp::from_millis(i64::MAX), LEASE_TTL_SECONDS)
+        .expect_err("l'échéance déborde");
+    assert_eq!(deborde.family(), locusd::Family::Internal);
+
+    // Et le cas ordinaire, sans quoi le test précédent passerait pour une fonction qui refuse tout.
+    let ordinaire =
+        locusd::expiration(Timestamp::from_millis(1_700_000_000_000), LEASE_TTL_SECONDS)
+            .expect("une échéance ordinaire se calcule");
+    assert_eq!(
+        ordinaire.millis(),
+        1_700_000_000_000 + LEASE_TTL_SECONDS * 1_000,
+        "l'échéance est l'instant plus le TTL, en millisecondes"
     );
 }

@@ -37,7 +37,7 @@ use crate::command::CommandEnvelope;
 use crate::composition::Runtime;
 use crate::error::CommandError;
 use crate::handler::Decide;
-use crate::lep::{LepContext, Offer, Submitted, stream_of_task};
+use crate::lep::{LepContext, Queued, Submitted, stream_of_task};
 
 /// La version de protocole que ce daemon parle — `lep/1.0`, gelée depuis `W0.5`.
 ///
@@ -87,8 +87,14 @@ pub struct Proposal {
     pub success_conditions: Vec<String>,
     /// La tâche que cette proposition ouvre.
     pub task_id: String,
-    /// La première tentative.
+    /// La première tentative, sous l'identité que §11.1 lui donne.
     pub attempt_id: String,
+    /// Son **rang** — §12.3, et distinct de son identité (§11.1).
+    ///
+    /// Fixé par la proposition et non compté par le daemon : « une tâche réattribuée conserve son
+    /// numéro d'attempt », donc un compteur de réclamations donnerait un rang neuf à une reprise
+    /// après panne — c'est-à-dire le doublon que §15.5 existe pour empêcher.
+    pub attempt: i64,
     /// La branche sur laquelle elle s'inscrit.
     pub branch_id: String,
     /// La vue de contexte, par référence — la mission ne porte jamais son contenu.
@@ -309,6 +315,14 @@ impl<S: EventStore> Runtime<S> {
     /// que le fait soit écrit pourrait être réclamée par un worker plus rapide que l'écriture, et
     /// l'institution lirait un `task.leased` sur une tâche qu'aucun `task.queued` n'a précédée.
     ///
+    /// # Aucun bail ici — `W20.v`
+    ///
+    /// Cette fonction en a exigé un pendant deux items, et c'était faux : un bail autorise **un
+    /// worker**, et aucun n'est choisi à la mise en file. Le lui faire nommer d'avance rendait la
+    /// question de placement de `W20.q` purement décorative — le broker ne pouvait que confirmer le
+    /// worker que le bail avait déjà désigné. Le bail est frappé à la réclamation, par
+    /// [`Runtime::lep_claim`].
+    ///
     /// # Errors
     ///
     /// [`CommandError`] — notamment `Policy` si §7.1 ne permet pas la transition depuis `from`.
@@ -316,7 +330,6 @@ impl<S: EventStore> Runtime<S> {
         &self,
         proposal: &Proposal,
         from: TaskState,
-        lease: locus_lep::Lease,
         authority: Authority,
         submitted: &Submitted,
         now: Timestamp,
@@ -327,9 +340,9 @@ impl<S: EventStore> Runtime<S> {
         };
         let stream = stream_of_task(&proposal.task_id);
         self.write_mission_fact(authority, submitted, &stream, &queue, now)?;
-        self.lep().queue().enqueue(Offer {
+        self.lep().queue().enqueue(Queued {
             mission: proposal.envelope(),
-            lease,
+            attempt: proposal.attempt,
         });
         Ok(())
     }
