@@ -100,6 +100,13 @@ pub struct Offer {
 /// prochaine offre s'il y en a une — et rien de plus. Un port plus large aurait anticipé un
 /// ordonnanceur que personne n'a écrit.
 pub trait MissionQueue: Send + Sync {
+    /// Déposer une offre — `W20.o`.
+    ///
+    /// Sur le trait et non sur l'implémentation de référence : la file cesse d'être garnie par un
+    /// test, donc c'est le **daemon** qui dépose, donc tout port doit savoir le faire. La laisser
+    /// hors du trait ferait de `MemoryQueue` la seule file remplissable.
+    fn enqueue(&self, offer: Offer);
+
     /// Retirer la prochaine offre destinée à ce worker, s'il y en a une.
     ///
     /// `None` veut dire « rien à donner », jamais « je n'ai pas pu regarder ». Une file qui ne sait
@@ -257,6 +264,10 @@ impl MemoryQueue {
 }
 
 impl MissionQueue for MemoryQueue {
+    fn enqueue(&self, offer: Offer) {
+        self.push(offer);
+    }
+
     /// Le `worker_id` est reçu et **délibérément ignoré** par cette implémentation.
     ///
     /// Le port le porte parce qu'un ordonnanceur réel en aura besoin — placer selon ce qu'un hôte a
