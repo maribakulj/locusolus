@@ -73,6 +73,16 @@ impl Standing {
             Ok(Verdict::Provable { ceiling }) => Self::Ready { ceiling },
             Ok(Verdict::HostShort { ceiling, missing }) => Self::HostShort { ceiling, missing },
             Ok(Verdict::Refused { why }) => Self::Refused { why },
+            // Une réponse de **placement** à une question de disponibilité est un désaccord, pas un
+            // état de l'hôte. La lire comme un `Ready` ferait annoncer au démarrage un plafond que
+            // personne n'a mesuré ; l'ignorer laisserait le daemon sans nouvelle. Elle se dit donc,
+            // sous le nom qui envoie regarder la version des deux binaires.
+            Ok(answer @ (Verdict::Placed { .. } | Verdict::NotPlaced { .. })) => Self::Refused {
+                why: format!(
+                    "on a demandé la disponibilité de l'hôte et le broker a répondu sur un \
+                     placement ({answer}) : une réponse hors sujet se dit, elle ne s'interprète pas"
+                ),
+            },
             Err(BrokerError::Unreachable { endpoint, why }) => Self::Unreachable { endpoint, why },
             // Un broker qui parle un vocabulaire qu'on ne lit pas est **joignable** : le dire
             // injoignable enverrait démarrer un service qui tourne déjà. La cause voyage dans la

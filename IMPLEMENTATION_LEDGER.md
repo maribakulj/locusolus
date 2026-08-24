@@ -12959,3 +12959,71 @@ les quatre premières ont enseignée.
 sur les sept.
 
 **Prochain item.** `W20.p`, `W20.q`, `W20.r`, `W20.j`, `W23.a`, `W23.b`, `W23.c`, `W4.i`.
+
+## 2026-08-24 — W20.q — Le placement demandé, et l'annonce qui ne devient jamais une preuve
+
+**Périmètre.** `packages/broker/src/{protocol,port,unix,lib}.rs` — la seconde question du tube,
+`Ask::Place`, et les verdicts `Placed`/`NotPlaced` ; `apps/locus-execd/src/announced.rs` (neuf) —
+relire un `CapabilityManifest` en `Candidate`, et le port `Proven` ; `apps/locus-execd/src/link.rs`
+— un dispatch exhaustif sur l'`Ask` ; `apps/locusd/src/lep.rs` — `Desk` porte un `BrokerPort`, et
+`lep_claim` demande le placement ; `apps/locusd/src/{http,broker,main}.rs` — le champ `manifest`, le
+refus d'un verdict hors sujet, et le câblage du **même** lien que la sonde de démarrage.
+`docs/adr/0032`. Tests neufs : `apps/locus-execd/tests/announced.rs`, cinq de plus dans
+`packages/broker/tests/link.rs`, six dans `apps/locusd/tests/lep.rs`.
+
+**Hors périmètre, et pourquoi.** `canterel`, `backend/cli/src/locus/worker-client.ts` : deux lignes
+— la réclamation porte `manifest`. Sans elles, `locusd` refuserait tout worker réel et l'item aurait
+livré une **promesse** au sens de l'ADR 0022 décision 0 : un serveur qui exige un document que
+personne n'envoie. C'est le périmètre local du fork (`backend/cli/src/locus/**`), donc sans coût de
+synchronisation amont.
+
+**Tests exécutés.** `cargo test --workspace` — vert. Le test de sortie est
+`apps/locus-execd/tests/announced.rs` : `un_worker_macos_ne_recoit_pas_une_mission_qui_exige_s3`
+traverse une vraie socket avec `capability-manifest.json` — le manifeste macOS de `W0.7`, `S1`/`S2`
+— contre `mission-envelope-nominal.json`, qui exige `S3`, et vérifie que les motifs produits
+appartiennent au vocabulaire de `admission-refusal-four-reasons.json`, le refus que `W0.7` apparie
+explicitement à ce manifeste. Son pendant
+`un_worker_linux_qui_a_prouve_s3_est_place_au_niveau_exige` existe pour qu'un broker refusant tout
+le monde ne passe pas le premier. Côté `locusd` :
+`un_broker_injoignable_rend_unavailable_et_non_204`,
+`un_placement_refuse_rend_204_et_laisse_la_mission_en_file`,
+`la_reclamation_soumet_le_manifeste_du_worker_et_l_exigence_de_la_mission` et l'absence
+`reclamer_ne_choisit_aucun_hote`. Côté `canterel` : `bun test test/locus/worker-client.test.ts`, 15
+verts, dont « la réclamation annonce le manifeste de cet hôte ».
+
+**Décisions prises.** ADR 0032, sept décisions. Les deux qui contraignent le plus la suite :
+`Proven` a un défaut qui **ne connaît personne**, donc un broker sans campagne de self-tests ne
+place rien au-dessus de `S0` et le dit sous `level_not_attested` — l'attestation reste `W12.e` ; et
+une mission qu'on ne confie pas **retourne dans la file**, dans les trois cas de non-confiance, sans
+quoi un worker incompatible ferait disparaître une mission qu'un autre pouvait porter.
+
+**Écart avec la spec.** Un, nommé : §15.3 fait annoncer le manifeste au **handshake**, et il voyage
+ici sur chaque **réclamation**. Trois raisons dans l'ADR 0032 décision 1, dont celle qui décide : un
+inventaire vieillit, et `capability-watch` (`W2.6`) existe parce que cela arrive. Un manifeste figé
+à l'enrôlement ferait placer sur de l'espace disque qui n'existe plus.
+
+**Ce que l'item a rendu visible et ne corrige pas.** §15.3 n'annonce ni quota PID, ni horizon, ni
+applicabilité d'un quota disque, et §15.4 n'a pas de champ pour le confinement qu'obtient une
+exécution **native** — donc `AcceleratorReach::NativeOnly` reste hors de portée d'une traduction de
+manifeste. Chacune est neutralisée nommément plutôt que devinée, et deux tests épinglent les
+neutralités qui pourraient dériver : l'horizon et le profil prêté.
+
+**Passe de mutation.** Treize mutants, zéro motif absent. Trois ont survécu au premier tour, et tous
+les trois étaient des propriétés **écrites en commentaire et éprouvées par personne** — le motif
+`(a)` de ce chantier, pour la énième fois : le choix de l'accélérateur par genre plutôt que par
+position ; les deux orthographes de `connector-only` (tiret sur le fil, tiret bas dans le domaine),
+dont la confusion aurait produit un refus permanent et silencieux sur une capacité réelle ; et la
+traduction d'une demande illisible en `Refused` plutôt qu'en `NotPlaced` vide.
+
+Le troisième tour a livré mieux qu'un test. Le mutant de l'accélérateur **survivait encore** après
+son test, et le diagnostic est un défaut réel : `offered` recopiait le genre **demandé** dans
+l'accélérateur rendu au lieu du genre que l'hôte annonce. Les deux sont égaux par construction —
+c'est ainsi qu'on l'a trouvé — donc rien n'était faux ; mais la comparaison en aval réussissait
+alors quel que soit le matériel réel, et aucun test n'aurait pu tuer ce mutant. Écrire ce que la
+donnée dit plutôt que ce qu'on espérait y trouver ne change rien au comportement correct et rend le
+comportement faux **exprimable**, donc constatable. 13/13 après correction.
+
+**Prochain item.** `W20.r` — un `EpistemicCommit` entre au journal et l'institution l'intègre. Ses
+dépendances sont satisfaites : `W2.15` plafonne le worker à `staged` côté client,
+`packages/validation` porte la propagation, et la surface §15.2 de `W20.k` est servie. `W12.d`
+n'attend plus que `W20.p` et `W20.r`.

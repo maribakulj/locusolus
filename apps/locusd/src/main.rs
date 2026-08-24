@@ -93,14 +93,22 @@ fn demarrer<S: EventStore + Send + Sync + 'static>(runtime: Runtime<S>) -> ExitC
     // `W4.h` : l'état du lien vers `locus-execd` se dit **au démarrage**, et le daemon démarre quand
     // même. Le déclarer seulement au moment où quelqu'un bute dessus produirait un `locusd` qui a
     // l'air d'aller bien et qui échoue à la première mission réelle — ADR 0028 décision 4.
-    let broker = UnixSocketBroker::at(
-        std::env::var("LOCUSD_BROKER_SOCKET").unwrap_or_else(|_| DEFAULT_BROKER_SOCKET.to_owned()),
-    );
-    let standing = Standing::probe(&broker);
+    let broker: Arc<dyn locus_broker::port::BrokerPort + Send + Sync> =
+        Arc::new(UnixSocketBroker::at(
+            std::env::var("LOCUSD_BROKER_SOCKET")
+                .unwrap_or_else(|_| DEFAULT_BROKER_SOCKET.to_owned()),
+        ));
+    let standing = Standing::probe(broker.as_ref());
     println!("locusd : {standing}");
     if let Some(refus) = standing.refusal() {
         eprintln!("locusd : {refus}");
     }
+
+    // `W20.q` : le **même** lien sert la réclamation. Deux clients vers deux chemins différents
+    // auraient permis à un daemon d'annoncer un broker au démarrage et d'en interroger un autre à
+    // la première mission, sans que rien ne le dise.
+    let desk = runtime.lep().clone();
+    let runtime = runtime.with_lep(desk.placing(broker));
 
     let adresse = std::env::var("LOCUSD_BIND").unwrap_or_else(|_| DEFAULT_BIND.to_owned());
     println!("  écoute : http://{adresse} — {}", served().join(", "));

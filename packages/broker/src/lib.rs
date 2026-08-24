@@ -19,9 +19,10 @@
 //!
 //! # Les quatre modules
 //!
-//! - [`protocol`] : ce qui traverse, et une seule question aujourd'hui ;
+//! - [`protocol`] : ce qui traverse — deux questions depuis `W20.q`, la disponibilité et le
+//!   placement ;
 //! - [`frame`] : un objet JSON par ligne, et une ligne a une fin ;
-//! - [`port`] : le trait, ses trois issues, et l'implémentation de référence ;
+//! - [`port`] : le trait, ses issues, et l'implémentation de référence ;
 //! - [`unix`] : la socket, ses deux barrières à l'entrée, et l'écoute.
 //!
 //! # Le sens unique
@@ -48,7 +49,7 @@ pub mod protocol;
 pub mod unix;
 
 pub use frame::{FrameError, MAX_LINE, read_frame, write_frame};
-pub use port::{BrokerError, BrokerPort, Loopback};
-pub use protocol::{Ask, Missing, PROTOCOL, Request, Response, Verdict};
+pub use port::{BrokerError, BrokerPort, Loopback, Placement, as_placement};
+pub use protocol::{Ask, Missing, PROTOCOL, Request, Response, Shortfall, Verdict};
 #[cfg(unix)]
 pub use unix::{DIRECTORY_MODE, ListenError, SOCKET_MODE, UnixSocketBroker, answer, listen};

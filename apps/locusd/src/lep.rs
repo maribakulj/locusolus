@@ -65,9 +65,10 @@
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex, PoisonError, RwLock};
 
+use locus_broker::port::{BrokerError, BrokerPort, Loopback, Placement};
 use locus_domain::task::TaskState;
 use locus_event_store::{Actor, ActorKind, Draft as EventDraft, EventStore, EventType};
-use locus_lep::{Event, Lease, MissionEnvelope};
+use locus_lep::{CapabilityManifest, Event, Lease, MissionEnvelope};
 use locus_protocol::Id;
 use locus_protocol::Timestamp;
 use locus_protocol::id::{Agent, Command as CommandId, Event as EventId, Project, Workspace};
@@ -345,6 +346,7 @@ pub struct Desk {
     registry: Arc<dyn WorkerRegistry>,
     identities: Arc<dyn Identities>,
     enrollment: Arc<dyn crate::enrollment::EnrollmentTokens>,
+    broker: Arc<dyn BrokerPort + Send + Sync>,
 }
 
 impl std::fmt::Debug for Desk {
@@ -353,15 +355,30 @@ impl std::fmt::Debug for Desk {
     }
 }
 
+/// Ce que dit un daemon dont personne n'a câblé le broker.
+///
+/// Pas une panne feinte : c'est **exactement** la situation, dite avec la phrase qui envoie au bon
+/// endroit. La rendre `Placed` par défaut aurait confié des missions sans que rien ne les place ;
+/// la rendre `NotPlaced` aurait dit « ce worker ne convient pas » alors que personne ne l'a
+/// regardé — l'ignorance rangée comme une absence, ce que `W22.e` refuse partout ailleurs.
+fn broker_absent() -> Loopback {
+    Loopback::unreachable(
+        "aucun broker n'est câblé",
+        "`Desk::default()` n'en porte pas : un placement demande `locus-execd`, et ce daemon ne \
+         décide d'aucun hôte lui-même",
+    )
+}
+
 impl Default for Desk {
-    /// Une file vide et un registre vide : un daemon qui répond `204` à tout le monde et refuse
-    /// toute créance. C'est exact, et c'est ce qu'un daemon sans ordonnanceur doit faire.
+    /// Une file vide, un registre vide, et aucun broker : un daemon qui répond `204` à tout le monde
+    /// et refuse toute créance. C'est exact, et c'est ce qu'un daemon sans ordonnanceur doit faire.
     fn default() -> Self {
         Self {
             queue: Arc::new(MemoryQueue::new()),
             registry: Arc::new(MemoryRegistry::new()),
             identities: Arc::new(NoIdentities),
             enrollment: Arc::new(crate::enrollment::MemoryTokens::new()),
+            broker: Arc::new(broker_absent()),
         }
     }
 }
@@ -379,6 +396,7 @@ impl Desk {
             registry,
             identities,
             enrollment: Arc::new(crate::enrollment::MemoryTokens::new()),
+            broker: Arc::new(broker_absent()),
         }
     }
 
@@ -387,6 +405,19 @@ impl Desk {
     pub fn enrolling(mut self, tokens: Arc<dyn crate::enrollment::EnrollmentTokens>) -> Self {
         self.enrollment = tokens;
         self
+    }
+
+    /// Câbler le broker qui décide du placement — `W20.q`.
+    #[must_use]
+    pub fn placing(mut self, broker: Arc<dyn BrokerPort + Send + Sync>) -> Self {
+        self.broker = broker;
+        self
+    }
+
+    /// Le broker, en lecture.
+    #[must_use]
+    pub fn broker(&self) -> &(dyn BrokerPort + Send + Sync) {
+        self.broker.as_ref()
     }
 
     /// L'émetteur de tokens, en lecture.
@@ -767,6 +798,39 @@ fn fact(
     })
 }
 
+/// Ce que le worker annonce, ou le refus qui dit ce qui manque — `W20.q`.
+///
+/// # Le manifeste ne dit pas **qui** parle
+///
+/// La créance le dit, et elle seule. Un manifeste au nom d'un autre worker est donc refusé plutôt
+/// qu'ignoré : le laisser passer ferait placer sur les capacités d'une machine et exécuter sur une
+/// autre — c'est la même règle que [`Report`] applique déjà à un événement, et que [`Complete`]
+/// rend inexprimable en ne portant pas le champ du tout.
+///
+/// Une fonction libre, et non une méthode : elle ne consulte **rien** du daemon. La rendre méthode
+/// laisserait croire qu'elle regarde un état, alors que tout ce qu'elle compare lui est passé.
+fn announced<'a>(
+    identity: &WorkerIdentity,
+    manifest: Option<&'a CapabilityManifest>,
+) -> Result<&'a CapabilityManifest, CommandError> {
+    let manifest = manifest.ok_or_else(|| CommandError::Validation {
+        field: "manifest".to_owned(),
+        detail: "§15.3 : un worker annonce ce qu'il sait faire avant qu'on lui confie quoi que ce \
+                 soit. Sans manifeste il n'y a rien à placer, et servir la première mission venue \
+                 reviendrait à l'exécuter sur un hôte dont personne ne sait rien"
+            .to_owned(),
+    })?;
+    if manifest.worker_id != identity.worker_id {
+        return Err(CommandError::Authorization {
+            action: format!(
+                "réclamer avec le manifeste de « {} » sous la créance de « {} »",
+                manifest.worker_id, identity.worker_id
+            ),
+        });
+    }
+    Ok(manifest)
+}
+
 /// Ce qu'un verdict devient pour un appelant qui ne sait qu'échouer ou continuer.
 ///
 /// Le verdict reste un [`Outcome`] partout ailleurs — `W20.a` tient à ce qu'un refus ne ressemble
@@ -798,31 +862,68 @@ pub struct Submitted {
 impl<S: EventStore> Runtime<S> {
     /// Réclamer du travail pour la créance donnée — `POST /lep/v1/claim`.
     ///
-    /// # Trois issues, et elles ne se confondent pas
+    /// # Quatre issues, et elles ne se confondent pas
     ///
     /// - `Err(Authorization)` : la créance n'identifie personne. Le worker doit s'enrôler.
-    /// - `Ok(None)` : personne n'a de travail. Le worker attend.
+    /// - `Err(Validation)` : le worker n'a pas annoncé ce qu'il sait faire. Rien n'est retiré.
+    /// - `Err(Unavailable)` : on n'a **pas pu demander** au broker. Le worker retentera.
+    /// - `Ok(None)` : personne n'a de travail **pour lui**. Le worker attend.
     /// - `Ok(Some(offer))` : une mission est confiée, **et le fait est écrit**.
     ///
     /// Les fondre enverrait chercher un réglage manquant là où il n'y a que du calme, ou l'inverse.
     /// C'est la séparation que `W2.21` tient de l'autre côté du fil ; celle-ci la rend vraie ici.
     ///
+    /// # Le placement est demandé, jamais décidé ici — `W20.q`
+    ///
+    /// `locusd` ne choisit aucun hôte : il transmet au broker le `CapabilityManifest` du worker et
+    /// l'exigence de la mission, et il obéit. C'est la règle 4 de `boundaries.json` prise à sa
+    /// racine — le binaire qui parle au monde ne décide pas de ce qui s'exécute où — et un test
+    /// d'absence le tient sur le source, comme `W20.o` le fait déjà pour la création de mission.
+    ///
+    /// # Une mission qui ne convient pas **retourne dans la file**
+    ///
+    /// [`MissionQueue::take`] retire. Si le placement échoue ensuite, la mission serait perdue au
+    /// profit de personne : un worker macOS qui sonde une file portant une mission `S3` la ferait
+    /// disparaître, et le worker Linux qui pouvait la porter ne la verrait jamais. Elle est donc
+    /// **remise**, dans tous les cas où elle n'est pas confiée — refus de placement, broker
+    /// injoignable, broker qui refuse.
+    ///
+    /// Une seule offre est examinée par réclamation, et c'est délibéré : parcourir la file jusqu'à
+    /// en trouver une qui convienne serait de l'ordonnancement, donc `W23.c`, et l'écrire ici le
+    /// rendrait invisible.
+    ///
     /// # Errors
     ///
-    /// [`CommandError`] : `Authorization` sur créance inconnue, `Unavailable` sans source
-    /// d'identifiants, ou ce que la transaction refuse.
+    /// [`CommandError`] : `Authorization` sur créance inconnue ou manifeste usurpé, `Validation`
+    /// sans manifeste, `Unavailable` sans source d'identifiants ou sans broker joignable, ou ce que
+    /// la transaction refuse.
     pub fn lep_claim(
         &self,
         credential: &str,
+        manifest: Option<&CapabilityManifest>,
         submitted: &Submitted,
         now: Timestamp,
     ) -> Result<Option<Offer>, CommandError> {
         let identity = self.identify(credential)?;
+        // Vérifié **avant** de retirer quoi que ce soit : une réclamation qu'on va refuser ne doit
+        // pas coûter une mission à la file.
+        let manifest = announced(&identity, manifest)?;
         // La file est consultée **après** l'authentification : un daemon qui retirerait une offre
         // avant de savoir qui parle la perdrait au profit de personne.
         let Some(offer) = self.lep().queue().take(&identity.worker_id) else {
             return Ok(None);
         };
+        match self.placed(manifest, &offer) {
+            Ok(true) => {}
+            Ok(false) => {
+                self.lep().queue().enqueue(offer);
+                return Ok(None);
+            }
+            Err(error) => {
+                self.lep().queue().enqueue(offer);
+                return Err(error);
+            }
+        }
         let stream = stream_of_task(&offer.mission.task_id);
         let claim = Claim {
             offer: offer.clone(),
@@ -830,6 +931,40 @@ impl<S: EventStore> Runtime<S> {
         };
         self.write_worker_fact(&identity, submitted, &stream, 1, &claim, now)?;
         Ok(Some(offer))
+    }
+
+    /// Demander au broker si cette offre peut aller sur ce worker — `W20.q`.
+    ///
+    /// Rend `false` quand le broker a répondu **non**, et une erreur quand il n'a pas répondu. Les
+    /// deux sont l'ADR 0028 décision 4 : « rien pour toi » se traduit en `204`, « je n'ai pas pu
+    /// demander » en `unavailable`. Les fondre ferait attendre en silence un worker dont le lien est
+    /// coupé.
+    fn placed(&self, manifest: &CapabilityManifest, offer: &Offer) -> Result<bool, CommandError> {
+        let broker = self.lep().broker();
+        match broker.place(manifest, &offer.mission.sandbox, &offer.mission.resources) {
+            Ok(Placement::Placed { .. }) => Ok(true),
+            Ok(Placement::NotPlaced { .. }) => Ok(false),
+            // Un broker qui refuse de nous parler n'a pas dit que le worker ne convient pas : il a
+            // dit qu'il ne répondra pas. Le ranger en `204` ferait attendre indéfiniment un worker
+            // capable, pour un problème d'identité entre deux services.
+            Ok(Placement::Refused { why }) => Err(CommandError::Unavailable {
+                detail: format!(
+                    "le broker {} refuse de placer : {why}. Aucune mission n'est confiée tant que \
+                     personne ne peut dire sur quoi elle s'exécuterait",
+                    broker.endpoint()
+                ),
+            }),
+            Err(
+                error @ (BrokerError::Unreachable { .. }
+                | BrokerError::Malformed { .. }
+                | BrokerError::TooLong { .. }),
+            ) => Err(CommandError::Unavailable {
+                detail: format!(
+                    "{error} — « je n'ai pas pu demander » n'est pas « rien pour toi » : la mission \
+                     reste en file, et le worker retentera"
+                ),
+            }),
+        }
     }
 
     /// Faire remonter des événements — `POST /lep/v1/events`.

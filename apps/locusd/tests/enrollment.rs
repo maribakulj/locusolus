@@ -129,6 +129,20 @@ fn daemon() -> (
     (Runtime::in_memory().with_lep(desk), registre)
 }
 
+/// Ce que le worker annonce — la fixture Linux de `W0.7`, dont le `worker_id` est [`WORKER`].
+fn manifeste() -> locus_lep::CapabilityManifest {
+    let chemin =
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../schemas/examples");
+    let brut = std::fs::read_to_string(chemin.join("capability-manifest-vm-linux.json"))
+        .expect("fixture lisible");
+    let mut valeur: serde_json::Value = serde_json::from_str(&brut).expect("JSON valide");
+    valeur.as_object_mut().expect("un objet").remove("_fixture");
+    let manifeste: locus_lep::CapabilityManifest =
+        serde_json::from_value(valeur).expect("manifeste");
+    assert_eq!(manifeste.worker_id, WORKER);
+    manifeste
+}
+
 async fn servir(runtime: Runtime<locus_event_store::MemoryEventStore>) -> String {
     let listener = TcpListener::bind("127.0.0.1:0")
         .await
@@ -209,11 +223,19 @@ async fn un_worker_signe_s_enrole_et_peut_ensuite_reclamer() {
 
     // Et la créance obtenue ouvre §15.2. Une file vide rend `204` — ce qui prouve que la créance
     // est **reconnue** : une créance inconnue rendrait `403`.
+    //
+    // Le manifeste est exigé même sur une file vide — `W20.q`. C'est délibéré : sans lui, un worker
+    // mal configuré recevrait des `204` indéfiniment et lirait sa panne comme du calme. Le refus
+    // arrive donc au premier appel, avant qu'il y ait quoi que ce soit à confier.
     let claim = poster(
         &adresse,
         CLAIM_PATH,
         Some(&creance.credential),
-        &format!("{{\"project_id\":\"{}\"}}", id::<Project>(4)),
+        &format!(
+            "{{\"project_id\":\"{}\",\"manifest\":{}}}",
+            id::<Project>(4),
+            serde_json::to_string(&manifeste()).expect("le manifeste se sérialise")
+        ),
     )
     .await;
     assert!(
