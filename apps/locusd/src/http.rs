@@ -47,7 +47,7 @@ use crate::composition::Runtime;
 use crate::cursor::{Collection, Cursor, CursorError};
 use crate::enrollment::EnrollmentRequest;
 use crate::error::{CommandError, Family};
-use crate::lep::{Enrolling, Rendered, Submitted};
+use crate::lep::{Enrolling, Rendered, Submitted, WorkerSubmission};
 use crate::offload::Offload;
 use crate::organisation::ReplayError;
 use crate::query::Page;
@@ -462,13 +462,21 @@ fn bearer(headers: &axum::http::HeaderMap) -> Option<&str> {
 }
 
 /// Ce qu'un worker envoie sur les trois chemins — la part que le daemon ne décide pas à sa place.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 struct WorkerBody {
     /// La clé d'idempotence de §15.2. Absente, une chaîne vide : le worker n'annonce alors aucune
     /// resoumission, et deux envois identiques produisent deux faits — ce qui est ce qu'il a demandé.
     #[serde(default)]
     idempotency_key: String,
-    /// Le projet. Absent, celui-ci est refusé plutôt que deviné.
+    /// Le projet **proposé**, s'il en propose un — `W20.z`.
+    ///
+    /// Facultatif, et l'était déjà syntaxiquement ; ce qui change est qu'il ne devient plus
+    /// obligatoire à la lecture. Le projet d'un fait de worker vient de son **grant** :
+    /// `WorkerIdentity` le porte depuis l'enrôlement, et `project_of` confronte ce champ-ci
+    /// lorsqu'il est présent, pour refuser une divergence plutôt que de l'ignorer.
+    ///
+    /// Avant, un worker qui n'en envoyait pas recevait `400`. Il n'avait pas tort de ne pas en
+    /// envoyer — c'est l'institution qui décide où un worker écrit (`W20.w`).
     #[serde(default)]
     project_id: Option<String>,
     /// Les événements, sur `/lep/v1/events`.
@@ -515,23 +523,24 @@ impl WorkerBody {
         })
     }
 
-    fn submitted(&self, now: Timestamp) -> Result<Submitted, CommandError> {
-        let project = self
-            .project_id
-            .as_deref()
-            .ok_or_else(|| CommandError::Validation {
+    fn submission(&self, now: Timestamp) -> Result<WorkerSubmission, CommandError> {
+        // Un projet **proposé**, jamais exigé — `W20.z`. Celui qui décide est le grant, que
+        // `WorkerIdentity` porte depuis l'enrôlement. Ce champ n'existe plus que pour être
+        // confronté : un worker qui en enverrait un autre est refusé plutôt qu'ignoré.
+        //
+        // Il reste **relu** ici même quand il ne décide rien : une chaîne illisible est une erreur
+        // de client, et la laisser passer en silence pour la comparer plus loin ferait dire au
+        // refus « ce n'est pas ton projet » là où il fallait dire « ce n'est pas un identifiant ».
+        let proposed_project = match self.project_id.as_deref() {
+            None => None,
+            Some(brut) => Some(Id::parse(brut).map_err(|error| CommandError::Validation {
                 field: "project_id".to_owned(),
-                detail: "sans projet, un fait n'a pas d'endroit où appartenir : le deviner \
-                         écrirait dans un projet que personne n'a choisi"
-                    .to_owned(),
-            })?;
-        let project_id = Id::parse(project).map_err(|error| CommandError::Validation {
-            field: "project_id".to_owned(),
-            detail: error.to_string(),
-        })?;
-        Ok(Submitted {
+                detail: error.to_string(),
+            })?),
+        };
+        Ok(WorkerSubmission {
             idempotency_key: self.idempotency_key.clone(),
-            project_id,
+            proposed_project,
             // L'instant de l'acte est celui de la réception : le worker date ses **événements**
             // (§15.6 `occurred_at`), pas son enveloppe, et prendre une date qu'il n'a pas envoyée
             // serait l'inventer. §10.1 garde les deux distincts par `recorded_at`, que le journal
@@ -568,7 +577,7 @@ async fn claim<S: EventStore + Send + Sync + 'static>(
     let now = maintenant();
     let credential = credential.to_owned();
     match hors_du_fil(&desk, move |runtime| {
-        body.submitted(now).and_then(|submitted| {
+        body.submission(now).and_then(|submitted| {
             runtime.lep_claim(&credential, body.manifest.as_deref(), &submitted, now)
         })
     })
@@ -604,7 +613,7 @@ async fn worker_events<S: EventStore + Send + Sync + 'static>(
     let now = maintenant();
     let credential = credential.to_owned();
     match hors_du_fil(&desk, move |runtime| {
-        body.submitted(now).and_then(|submitted| {
+        body.submission(now).and_then(|submitted| {
             runtime.lep_events(&credential, body.events.clone(), &submitted, now)
         })
     })
@@ -640,7 +649,7 @@ async fn result<S: EventStore + Send + Sync + 'static>(
     };
     let credential = credential.to_owned();
     match hors_du_fil(&desk, move |runtime| {
-        body.submitted(now)
+        body.submission(now)
             .and_then(|submitted| runtime.lep_result(&credential, rendered, &submitted, now))
     })
     .await
@@ -907,7 +916,7 @@ async fn declare<S: EventStore + Send + Sync + 'static>(
         runtime.lep_declare_artifact(
             &credential,
             &corps.manifest,
-            &corps.worker.submitted(now)?,
+            &corps.worker.submission(now)?,
             now,
         )
     })
@@ -940,9 +949,12 @@ async fn upload<S: EventStore + Send + Sync + 'static>(
     let Some(credential) = bearer(&headers) else {
         return sans_creance();
     };
-    let submitted = CommandBody {
+    // `W20.z` : les mêmes deux en-têtes, lues comme le corps des autres chemins de worker — une
+    // clé d'idempotence, et un projet **proposé** que le grant tranchera.
+    let submitted = WorkerBody {
         idempotency_key: entete(&headers, "locus-idempotency-key").unwrap_or_default(),
         project_id: entete(&headers, "locus-project-id"),
+        ..WorkerBody::default()
     };
     let credential = credential.to_owned();
     let now = maintenant();
@@ -951,7 +963,7 @@ async fn upload<S: EventStore + Send + Sync + 'static>(
             &credential,
             &artifact_id,
             &body,
-            &submitted.submitted(now)?,
+            &submitted.submission(now)?,
             now,
         )
     })

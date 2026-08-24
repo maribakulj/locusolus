@@ -13778,3 +13778,69 @@ mutation sur `locusd` — **6 mutants posés, 0 survivant, 0 motif absent**.
 **Prochain item.** `W12.d`, deuxième clause : « un worker s'enregistre et est placé sur ce qu'il a
 prouvé ». Le harnais devra amorcer l'enrôlement (`W20.v`) et faire passer `canterel worker enroll`
 avant la boucle.
+
+---
+
+## 2026-08-24 — W20.z — Le projet d'un fait de worker vient de son grant, sur les cinq chemins
+
+**Le constat, obtenu en exécutant.** Un worker `canterel` enrôlé pour de vrai, sa boucle lancée
+contre un `locusd` réel : `/lep/v1/claim` rend
+
+```json
+{
+  "family": "validation",
+  "detail": "« project_id » : sans projet, un fait n'a pas d'endroit où appartenir"
+}
+```
+
+**Le worker n'a pas tort de ne pas l'envoyer.** `W20.w` a tranché la même question pour l'enrôlement
+— « c'est l'institution qui décide où un worker écrit », parce qu'un worker qui choisit son projet
+écrit là où personne ne l'a assigné. La trancher pour l'enrôlement **seul** laissait la surface
+§15.2 redemander à chaque acte ce que la créance savait déjà : le workspace et le principal venaient
+du registre depuis `W20.k`, le projet se lisait dans le corps de la requête.
+
+**Un test affirmait le défaut**, et c'est le genre de test qui coûte le plus cher :
+`un_corps_sans_projet_est_refuse_par_validation` exigeait `400 project_id` sur une réclamation sans
+projet. Il tenait pour une **exigence** ce qui était une **omission**, et il l'aurait tenu
+indéfiniment — aucune passe de mutation ne peut trouver ça, puisque le code et le test étaient
+d'accord. Ce qui l'a trouvé est un worker réel qui a envoyé ce qu'il avait à envoyer.
+
+Il est remplacé par trois : la réclamation sans projet **aboutit** ; un projet qui n'est pas celui
+du grant est **refusé** en nommant le champ ; un projet **illisible** est refusé pour ce qu'il est.
+
+**Deux types plutôt qu'un, et ce qu'ils séparent.** `Submitted` porte un projet **décidé** ;
+`WorkerSubmission` porte un projet **proposé**, facultatif. Syntaxiquement un seul type aurait
+suffi, avec un `Option`. Ce que la séparation dit est **qui décide** — et c'est exactement la forme
+que `W20.w` avait donnée à `Enrolling`, retrouvée ici sans l'avoir cherchée.
+
+**Ce qui ne se collapse pas.** Un projet illisible et un projet qui n'est pas le bon sont deux refus
+distincts, et le champ reste **relu** même quand il ne décide plus rien : « ce n'est pas ton projet
+» fait relire un grant, « ce n'est pas un identifiant » fait relire une chaîne. Les fondre enverrait
+chercher au mauvais endroit.
+
+**Ce que ça débloque.** La **deuxième clause de `W12.d`** — « un worker s'enregistre » — tient de
+bout en bout. Le harnais amorce l'enrôlement et fait passer `canterel worker enroll` **avant** la
+boucle, en échouant bruyamment si la commande ne s'enrôle pas ; `worker.registered` est ensuite lu
+**au journal**, pas déduit d'un code HTTP — `202` dit qu'un daemon a accepté, pas qu'il a écrit.
+
+L'enrôlement passe par la **commande** et non par un `POST` que le harnais écrirait lui-même : la
+moitié cliente de §7.2 — paire de clés, signature, écriture de la créance — est du code `canterel`,
+et l'imiter dirait seulement que `locusd` répond à ce que le harnais sait écrire.
+
+**Deux défauts jumeaux, livrés dans `canterel`** (PR #34) : une garde sur `locus.identity` qui
+rendait `inert` un worker correctement enrôlé — elle datait d'avant que l'enrôlement existe —, et un
+`lepCall` qui jetait le corps des refus typés, ce qui a coûté un rejeu manuel pour lire une phrase
+que le serveur avait déjà envoyée.
+
+**Ce que la sonde a trouvé et que cet item ne traite pas.** Le worker s'enregistre, et **aucun
+`worker.claimed` n'est écrit** dans le même tour : la réclamation aboutit sans mission. La cause n'a
+pas été établie — l'hôte de cette session est plafonné `S1` avec quatre manques de cgroup, et
+distinguer « le placement a refusé » de « la file n'a rien servi » demande une sonde propre. C'est
+écrit comme une **question ouverte**, pas comme un diagnostic : une cause supposée dans un ledger
+vaut moins que rien, puisqu'elle dispense de chercher.
+
+**Vérifié.** `npm run check` → vert ; `npm run e2e` → 6 pass (1 nouveau) ; mutation sur `locusd` —
+**4 mutants posés, 0 survivant, 0 motif absent**.
+
+**Prochain item.** `W12.d`, troisième clause : « un worker est placé sur ce qu'il a prouvé ». La
+première chose à faire est la sonde ci-dessus.

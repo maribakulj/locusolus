@@ -62,6 +62,27 @@ function proposition() {
   };
 }
 
+/**
+ * Les faits au journal, une fois que celui qu'on attend y est — ou après la dernière tentative.
+ *
+ * Rend la liste **dans tous les cas** plutôt que de lever sur l'attente : l'appelant veut affirmer
+ * sur ce qu'il a vu, et un `throw` ici priverait son message des faits réellement écrits — c'est-à-
+ * dire du seul renseignement utile quand la clause échoue.
+ */
+async function attendre(controlPlane: string, fait: string, tours = 40): Promise<string[]> {
+  let vus: string[] = [];
+  for (let tour = 0; tour < tours; tour += 1) {
+    const reponse = await fetch(`${controlPlane}/timeline?limit=100`);
+    if (reponse.status === 200) {
+      const corps = (await reponse.json()) as { readonly items: readonly { event_type: string }[] };
+      vus = corps.items.map((item) => item.event_type);
+      if (vus.includes(fait)) return vus;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  return vus;
+}
+
 describe("la chaîne monte, se voit et s'arrête — W12.f", () => {
   let chain: Chain | undefined;
 
@@ -185,6 +206,38 @@ describe("la chaîne monte, se voit et s'arrête — W12.f", () => {
     assert.equal(refus.status, 403);
     const corps = (await refus.json()) as { readonly family: string };
     assert.equal(corps.family, "authorization");
+  });
+
+  /**
+   * **La deuxième clause de `W12.d` : un worker s'enregistre — `W20.z`.**
+   *
+   * Ce que ce test ajoute au premier, et qui manquait entièrement : le worker de la chaîne
+   * s'enrôle **pour de vrai** — paire de clés, signature, créance écrite —, puis sa boucle
+   * s'adresse à §15.2 sous cette créance, et le daemon **écrit** le fait.
+   *
+   * Trois défauts se tenaient sur ce chemin, et aucun n'était visible autrement :
+   *
+   * - `runWorker` exigeait un `locus.identity` que l'enrôlement ne remplit pas, donc un worker
+   *   correctement enrôlé restait `inert` ;
+   * - `lepCall` jetait le corps des refus typés, donc le suivant a demandé un rejeu manuel ;
+   * - `/lep/v1/claim` exigeait un `project_id` que le worker n'envoie pas — et n'avait pas à
+   *   envoyer, puisque son grant le porte (`W20.w`, généralisé par `W20.z`).
+   *
+   * Le fait est lu **au journal** et non déduit d'un code HTTP : `202` dit que le daemon a accepté,
+   * pas qu'il a écrit, et c'est l'écriture qui est la clause.
+   */
+  it("un worker réel s'enrôle et s'enregistre — W12.d, deuxième clause", async () => {
+    assert.ok(chain, "la chaîne est montée par le premier test");
+
+    // La boucle du worker tourne depuis `startChain` ; le fait arrive de façon asynchrone. On
+    // sonde plutôt qu'on attend une durée fixe — une temporisation choisie au jugé rend un test
+    // lent sur une machine rapide et intermittent sur une machine lente.
+    const registre = await attendre(chain.controlPlane, "worker.registered");
+
+    assert.ok(
+      registre.includes("worker.registered"),
+      `le worker ne s'est pas enregistré — faits au journal : ${registre.join(", ")}`,
+    );
   });
 
   it("tout s'arrête, et le port se libère", async () => {

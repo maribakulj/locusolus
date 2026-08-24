@@ -163,6 +163,49 @@ pub struct WorkerIdentity {
     pub workspace_id: Id<Workspace>,
     /// Le principal sous lequel il agit.
     pub principal_id: Id<Agent>,
+    /// Le projet auquel ses faits appartiennent — `W20.z`.
+    ///
+    /// # Il vient du grant, jamais de la requête
+    ///
+    /// Les deux champs ci-dessus venaient déjà de là ; celui-ci se lisait dans le **corps** de
+    /// chaque requête, et c'est l'incohérence que `W20.z` retire. `W20.w` a tranché la question
+    /// pour l'enrôlement — « c'est l'institution qui décide où un worker écrit » — et la trancher
+    /// pour l'enrôlement seul laissait la surface §15.2 demander à chaque acte ce que la créance
+    /// savait déjà.
+    ///
+    /// Constaté contre la chaîne réelle : la première réclamation d'un worker `canterel` recevait
+    /// `400 « project_id » : sans projet, un fait n'a pas d'endroit où appartenir`. Le worker
+    /// n'avait pas tort de ne pas l'envoyer — un worker qui choisit son projet écrit là où personne
+    /// ne l'a assigné.
+    pub project_id: Id<Project>,
+}
+
+/// Ce qu'un worker envoie **avec** son acte, sur les cinq chemins de §15.2 et §19.1 — `W20.z`.
+///
+/// # Pourquoi ce n'est pas un [`Submitted`]
+///
+/// [`Submitted`] porte un `project_id` **décidé**. Un worker n'en décide pas : il en propose un, au
+/// mieux, et le daemon le confronte à son grant. Le type dit donc ce qui est vrai — un projet
+/// *proposé*, facultatif — plutôt que de faire porter à un champ obligatoire une valeur que le
+/// worker n'a pas autorité pour choisir.
+///
+/// C'est exactement la forme que `W20.w` a donnée à [`Enrolling`], et pour la même raison. Deux
+/// types là où un seul aurait suffi *syntaxiquement* : ce qu'ils séparent est **qui décide**.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkerSubmission {
+    /// La clé d'idempotence de §15.2, telle que le worker l'a choisie.
+    ///
+    /// Vide est admis, et c'est le worker qui l'a demandé : deux envois identiques produisent alors
+    /// deux faits. Ce n'est pas le cas du projet, qu'aucune valeur par défaut ne peut remplacer.
+    pub idempotency_key: String,
+    /// Le projet **proposé**. Lu pour être confronté au grant, jamais pour être utilisé.
+    ///
+    /// Absent : le grant tranche, ce qui est le cas courant. Présent et différent : la requête est
+    /// **refusée** plutôt qu'ignorée — un worker qui croit écrire ailleurs doit l'apprendre, et un
+    /// silence lui laisserait croire que le champ a servi.
+    pub proposed_project: Option<Id<Project>>,
+    /// Quand l'acte a eu lieu — distinct de l'écriture (§10.1).
+    pub occurred_at: Timestamp,
 }
 
 /// Qui a le droit de parler à cette surface.
@@ -1049,6 +1092,37 @@ pub struct Submitted {
     pub occurred_at: Timestamp,
 }
 
+/// Le projet d'un fait de worker — celui du grant, confronté à ce que le worker a proposé.
+///
+/// # Trois issues, et la troisième est celle qui compte
+///
+/// - rien de proposé : le grant tranche. C'est le cas courant, et celui du worker `canterel` réel ;
+/// - le même que le grant : le grant tranche, et l'accord n'est pas une coïncidence à saluer ;
+/// - un autre : **refus**, en nommant le champ. L'ignorer laisserait un worker croire qu'il écrit
+///   ailleurs, et découvrir le contraire en relisant le journal — ou ne jamais le découvrir.
+///
+/// La règle est celle de `W20.w`, appliquée à l'acte plutôt qu'au seul enrôlement.
+///
+/// # Errors
+///
+/// [`CommandError::Validation`] quand le projet proposé diffère de celui du grant.
+fn project_of(
+    identity: &WorkerIdentity,
+    submitted: &WorkerSubmission,
+) -> Result<Id<Project>, CommandError> {
+    match submitted.proposed_project {
+        None => Ok(identity.project_id),
+        Some(propose) if propose == identity.project_id => Ok(identity.project_id),
+        Some(propose) => Err(CommandError::Validation {
+            field: "project_id".to_owned(),
+            detail: format!(
+                "« {propose} » n'est pas le projet de ce worker : son grant dit « {} », et                  l'institution décide où un worker écrit",
+                identity.project_id
+            ),
+        }),
+    }
+}
+
 impl<S: EventStore> Runtime<S> {
     /// Réclamer du travail pour la créance donnée — `POST /lep/v1/claim`.
     ///
@@ -1091,7 +1165,7 @@ impl<S: EventStore> Runtime<S> {
         &self,
         credential: &str,
         manifest: Option<&CapabilityManifest>,
-        submitted: &Submitted,
+        submitted: &WorkerSubmission,
         now: Timestamp,
     ) -> Result<Option<Offer>, CommandError> {
         let identity = self.identify(credential)?;
@@ -1230,7 +1304,7 @@ impl<S: EventStore> Runtime<S> {
         &self,
         credential: &str,
         events: Vec<Event>,
-        submitted: &Submitted,
+        submitted: &WorkerSubmission,
         now: Timestamp,
     ) -> Result<(), CommandError> {
         let identity = self.identify(credential)?;
@@ -1252,7 +1326,7 @@ impl<S: EventStore> Runtime<S> {
         &self,
         credential: &str,
         rendered: Rendered,
-        submitted: &Submitted,
+        submitted: &WorkerSubmission,
         now: Timestamp,
     ) -> Result<(), CommandError> {
         let identity = self.identify(credential)?;
@@ -1279,15 +1353,19 @@ impl<S: EventStore> Runtime<S> {
     pub(crate) fn write_worker_fact<D: Decide<State = LepContext>>(
         &self,
         identity: &WorkerIdentity,
-        submitted: &Submitted,
+        submitted: &WorkerSubmission,
         stream: &str,
         facts: usize,
         decider: &D,
         now: Timestamp,
     ) -> Result<(), CommandError> {
+        // `W20.z` : les **trois** coordonnées institutionnelles viennent de la créance. Le workspace
+        // et le principal en venaient déjà ; le projet se lisait dans le corps de la requête, ce qui
+        // laissait un worker désigner l'endroit où ses faits atterrissent.
+        let project_id = project_of(identity, submitted)?;
         let identities = self.lep().identities();
         let context = LepContext {
-            project_id: submitted.project_id,
+            project_id,
             event_ids: identities.events(facts)?,
             occurred_at: submitted.occurred_at,
             payload_hash: String::new(),

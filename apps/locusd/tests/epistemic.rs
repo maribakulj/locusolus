@@ -93,6 +93,7 @@ fn identite() -> WorkerIdentity {
         worker_id: WORKER.to_owned(),
         workspace_id: id::<Workspace>(2),
         principal_id: id::<Agent>(3),
+        project_id: id::<Project>(4),
     }
 }
 

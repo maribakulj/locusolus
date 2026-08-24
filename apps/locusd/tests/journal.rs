@@ -213,6 +213,7 @@ fn desk(offres: usize) -> Desk {
             worker_id: "canterel-vm-linux-01".to_owned(),
             workspace_id: id::<Workspace>(2),
             principal_id: id::<Agent>(3),
+            project_id: id::<Project>(4),
         },
     );
     // `W20.q` : la réclamation demande le placement au broker. Un `Loopback` qui **place** est ce
@@ -237,10 +238,11 @@ fn manifeste() -> locus_lep::CapabilityManifest {
     serde_json::from_value(valeur).expect("manifeste")
 }
 
-fn submitted() -> locusd::lep::Submitted {
-    locusd::lep::Submitted {
+fn submitted() -> locusd::lep::WorkerSubmission {
+    locusd::lep::WorkerSubmission {
         idempotency_key: "idem-redemarrage".to_owned(),
-        project_id: id::<Project>(4),
+        // `W20.z` : proposé, pas décidé — et identique à celui du grant de la créance de fixture.
+        proposed_project: Some(id::<Project>(4)),
         occurred_at: Timestamp::from_millis(1_700_000_000_000),
     }
 }

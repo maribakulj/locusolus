@@ -240,6 +240,7 @@ fn identite() -> WorkerIdentity {
         worker_id: WORKER.to_owned(),
         workspace_id: id::<Workspace>(2),
         principal_id: id::<Agent>(3),
+        project_id: id::<Project>(4),
     }
 }
 
@@ -662,26 +663,90 @@ async fn sans_source_d_identifiants_le_daemon_refuse_plutot_que_d_inventer() {
     );
 }
 
-/// **Sans projet, le fait n'a pas d'endroit où appartenir — et le daemon ne le devine pas.**
+/// **Un worker n'a pas à dire son projet : son grant le dit — `W20.z`.**
+///
+/// Ce test disait exactement le contraire, et le contraire était le défaut. Il exigeait `400
+/// project_id` sur une réclamation sans projet, et c'est ce refus qu'un worker `canterel` réel a
+/// reçu à sa toute première réclamation contre un `locusd` réel.
+///
+/// Le worker n'avait pas tort. `W20.w` a tranché la même question pour l'enrôlement — « c'est
+/// l'institution qui décide où un worker écrit » —, et la trancher pour l'enrôlement seul laissait
+/// la surface §15.2 redemander à chaque acte ce que la créance savait déjà. Le workspace et le
+/// principal venaient du registre depuis `W20.k` ; le projet est la coordonnée qui manquait.
 #[tokio::test]
-async fn un_corps_sans_projet_est_refuse_par_validation() {
+async fn un_corps_sans_projet_est_servi_depuis_le_grant() {
+    let adresse = servir(daemon(vec![en_file()])).await;
+    let annonce = serde_json::to_string(&manifeste()).expect("le manifeste se sérialise");
+
+    let reponse = poster(
+        &adresse,
+        CLAIM_PATH,
+        Some(CREANCE),
+        &format!("{{\"idempotency_key\":\"idem-sans-projet\",\"manifest\":{annonce}}}"),
+    )
+    .await;
+
+    assert!(
+        reponse.starts_with("HTTP/1.1 200"),
+        "la réclamation aboutit sans que le worker nomme son projet :\n{reponse}"
+    );
+}
+
+/// **Un projet qui n'est pas celui du grant est refusé, pas ignoré — `W20.z`.**
+///
+/// Le pendant du test précédent, et il porte la moitié qui compte. Sans lui, rendre le champ
+/// facultatif reviendrait à le rendre **décoratif** : un worker qui croit écrire dans un projet
+/// verrait ses faits atterrir ailleurs sans que rien ne le lui dise, et le découvrirait en relisant
+/// le journal — ou ne le découvrirait jamais.
+///
+/// C'est la règle que `W20.w` tient déjà pour l'enrôlement, appliquée à l'acte.
+#[tokio::test]
+async fn un_projet_qui_n_est_pas_celui_du_grant_est_refuse() {
+    let adresse = servir(daemon(vec![en_file()])).await;
+    let annonce = serde_json::to_string(&manifeste()).expect("le manifeste se sérialise");
+
+    let reponse = poster(
+        &adresse,
+        CLAIM_PATH,
+        Some(CREANCE),
+        &format!(
+            "{{\"idempotency_key\":\"idem-autre-projet\",\"project_id\":\"{}\",\"manifest\":{annonce}}}",
+            id::<Project>(9)
+        ),
+    )
+    .await;
+
+    assert!(
+        reponse.starts_with("HTTP/1.1 400"),
+        "écrire ailleurs que dans son projet est une faute du client :\n{reponse}"
+    );
+    assert!(
+        reponse.contains("project_id"),
+        "le refus nomme le champ :\n{reponse}"
+    );
+}
+
+/// **Un projet illisible est refusé pour ce qu'il est, et non pour ne pas être le bon.**
+///
+/// Deux refus qui se ressembleraient enverraient chercher au mauvais endroit : « ce n'est pas ton
+/// projet » fait relire un grant, « ce n'est pas un identifiant » fait relire une chaîne. Le champ
+/// reste donc **relu** même lorsqu'il ne décide plus rien.
+#[tokio::test]
+async fn un_projet_illisible_est_refuse_avant_d_etre_compare() {
     let adresse = servir(daemon(vec![en_file()])).await;
 
     let reponse = poster(
         &adresse,
         CLAIM_PATH,
         Some(CREANCE),
-        "{\"idempotency_key\":\"idem-1\"}",
+        "{\"idempotency_key\":\"idem-illisible\",\"project_id\":\"pas-un-identifiant\"}",
     )
     .await;
 
+    assert!(reponse.starts_with("HTTP/1.1 400"), "{reponse}");
     assert!(
-        reponse.starts_with("HTTP/1.1 400"),
-        "un champ manquant est une faute du client, à corriger dans sa requête :\n{reponse}"
-    );
-    assert!(
-        reponse.contains("project_id"),
-        "le refus nomme le champ, il ne dit pas « requête invalide » :\n{reponse}"
+        !reponse.contains("son grant dit"),
+        "un identifiant illisible n'est pas une divergence de projet :\n{reponse}"
     );
 }
 
@@ -865,6 +930,7 @@ async fn deux_workers_recoivent_chacun_leur_bail() {
             worker_id: AUTRE_WORKER.to_owned(),
             workspace_id: id::<Workspace>(2),
             principal_id: id::<Agent>(3),
+            project_id: id::<Project>(4),
         },
     );
     let runtime = Runtime::in_memory().with_lep(

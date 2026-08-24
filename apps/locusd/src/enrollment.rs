@@ -432,6 +432,10 @@ impl<S: EventStore> Runtime<S> {
                 worker_id: request.worker_id.clone(),
                 workspace_id: grant.workspace_id,
                 principal_id: grant.principal_id,
+                // `W20.z` : la troisième coordonnée entre ici, où les deux autres entraient déjà.
+                // C'est le seul endroit qui la connaît de source sûre — le grant, redeemé une fois
+                // et à usage unique.
+                project_id: grant.project_id,
             },
         );
 
