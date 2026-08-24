@@ -12359,3 +12359,35 @@ mode de preuve qui change.
 
 **Prochain item.** `W20.i` — le driver PostgreSQL, qui rejouera la suite de contract tests à
 l'identique, ou `W20.j` — la migration d'idempotence. Les deux sont ouverts.
+
+---
+
+## 2026-08-24 — Roadmap — `W2.20` marqué, et trois marqueurs qui nommaient la mauvaise condition
+
+**Ce qui est livré.** `W2.20` porte son marqueur, `W2.21` — le client de réclamation — entre au
+plan, et trois blocages sont repointés. Aucun code.
+
+**Ce que la garde a trouvé, et pourquoi c'est plus qu'un marquage.** Marquer `W2.20` a fait
+protester `blocage-perime` sur `W23.b`, `W23.c` et `W23.d`, qui l'attendaient tous les trois. La
+garde avait raison sur le fait — `W2.20` est livré — et **mes marqueurs avaient tort sur la
+condition**.
+
+`W23.b` compte `generating`, un fait qu'aucun journal n'écrit. J'avais écrit `attend:W2.20` en
+croyant que la boucle du worker suffirait. Elle ne suffit pas : la boucle existe, elle traverse ses
+états, et **personne ne la lance** — donc aucun fait n'atteint le journal. La condition réelle est
+le client de réclamation, c'est-à-dire `W2.21`. Même chose pour `W23.c`, qui ordonnance des
+instances qui s'exécutent. `W23.d` est une **campagne** et suppose la chaîne complète : sa condition
+est `W12.d`, dont `W2.20` n'était qu'un maillon.
+
+**La leçon, et elle porte sur l'outillage.** `W0.16` a rendu un blocage périssable en lui faisant
+nommer ce qu'il attend. Cela ne le rend juste que si le nom désigne la **condition** et non un jalon
+voisin qui en est proche. Un marqueur qui nomme le mauvais item se périme quand même — et il se
+périme **à tort**, ce qui est pire qu'un blocage qui traîne : il ouvre un item que rien ne débloque.
+
+C'est la garde qui l'a révélé, en refusant trois lignes d'un coup, et c'est exactement ce pour quoi
+elle a été réparée en `W20.h`. Sans le correctif de `satisfied` de la PR #176, `W2.20` — alors
+`**bloqué**` — aurait été lu « satisfait », et les trois lignes seraient restées muettes.
+
+**Écart avec la spec.** Aucun.
+
+**Prochain item.** `W2.21` chez canterel, ou `W20.i` / `W20.j` chez `locusolus`.
