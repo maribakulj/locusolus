@@ -47,13 +47,39 @@ L'ordre retenu est donc plus fin que celui de l'audit :
   qu'aucun journal n'écrit encore. Les six états de `InstanceState` (§7.1) n'en portent pas
   l'équivalent. **Inventer ce fait pour avoir quoi compter** serait bâtir une fonctionnalité afin de
   justifier une métrique, ce que `W21.g` a déjà refusé sous ce nom.
-- **`W23.c` et `W23.d`** attendent des instances qui s'exécutent : l'un ordonnance, l'autre mesure
-  une campagne. Aucun des deux ne se teste sur des fixtures seules.
+- **`W23.d`** attend des instances qui s'exécutent : c'est une **campagne**, donc la chaîne
+  complète, et elle ne se teste pas sur des fixtures seules.
+- ~~**`W23.c`** attend des instances qui s'exécutent.~~ **Amendé le 2026-08-24, en marquant
+  `W2.21`.** Voir ci-dessous.
 - **`W24` et `W25` ne sont pas bloqués du tout.** L'audit les plaçait après `W20.h` sans nommer de
   dépendance ; ce sont du domaine pur et des tests d'absence, exerçables aujourd'hui.
 
 La leçon est la même que celle de l'ADR 0025 : une affirmation sur l'état du système se vérifie,
 fût-elle dans un audit qu'on suit par ailleurs.
+
+### Amendement du 2026-08-24 — la décision 0 s'était appliquée à elle-même de travers
+
+Cette décision existe pour **retirer** de l'ordre de l'audit tout ce qui n'était que « aucun appelant
+ne l'utilise encore ». Elle a fait ce tri pour `W23.a`, pour `W24` et pour `W25`, et l'a manqué pour
+`W23.c` : la formule « attendent des instances qui s'exécutent » y range ensemble deux items dont un
+seul en a besoin.
+
+Le test de sortie de `W23.c`, écrit à la même heure et dans le même document, se lit ainsi : les
+quatre verbes de cycle de vie viennent de `coordination::lifecycle` et de nulle part ailleurs ;
+`place`, qui vit chez `locus-execd`, reste **seul juge de l'hôte** ; une décision locale n'émet
+**aucun** événement de portefeuille. Trois vérifications sur fixtures, dont deux sont des tests
+d'absence. Aucune n'exige qu'une instance tourne — un ordonnanceur décide *au sujet* d'instances, il
+ne les exécute pas.
+
+`W23.c` est donc débloqué, et la mention « aucun des deux ne se teste sur des fixtures seules »
+retirée : elle était fausse pour l'un des deux, et vérifiable en lisant la ligne d'à côté.
+
+Deux choses valent d'être retenues plutôt que la correction elle-même. La première : une règle
+appliquée trois fois de suite avec succès ne s'applique pas toute seule la quatrième, et c'est
+précisément après les trois réussites qu'on cesse de regarder. La seconde : ce qui a fini par lever
+l'erreur n'est pas une relecture mais le garde de `W0.16`, qui a exigé qu'un marqueur périmé soit
+réexaminé. Une affirmation fausse **inerte** peut vivre indéfiniment dans un document ; celle-ci a
+été rattrapée parce qu'un outil avait une raison mécanique d'y revenir.
 
 ---
 
