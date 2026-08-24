@@ -47,6 +47,40 @@ export const WORKER_REPO_ENV = "LOCUS_E2E_WORKER";
  */
 export const WORKER_HOME_ENV = "OPENSCIENCE_TEST_HOME";
 
+/**
+ * L'autorité d'administration que le harnais amorce sur `locusd` — `W20.y`.
+ *
+ * # Pourquoi le harnais en a besoin
+ *
+ * Les deux commandes de §22.3 — proposer et mettre en file — sont servies depuis `W20.s`, et
+ * `NoAdministrators` les refusait à **toute** créance tant que rien n'amorçait l'administration.
+ * Sans cet amorçage, la première clause de `W12.d` — « une question produit une mission » — ne peut
+ * pas s'exécuter contre un daemon réel.
+ *
+ * # Des identifiants figés, et pas tirés au hasard
+ *
+ * Un harnais qui tirerait des ULID neufs à chaque exécution rendrait ses échecs irreproductibles :
+ * le message d'un refus citerait un identifiant qu'on ne retrouve dans aucune trace. Ceux-ci sont
+ * les identifiants de fixture des tests Rust, sous la même graine — un identifiant vu dans une
+ * sortie de CI se retrouve donc dans le code.
+ *
+ * La créance, elle, n'est pas un secret : elle vaut sur un daemon éphémère lié à un port local, et
+ * l'écrire ici est ce qui permet à un lecteur de savoir exactement ce que le harnais accorde.
+ */
+export const ADMINISTRATION = {
+  credential: "creance-e2e-locale",
+  workspaceId: "ws_01HF7YAT000000000000000002",
+  principalId: "agent_01HF7YAT000000000000000003",
+  projectId: "prj_01HF7YAT000000000000000004",
+} as const;
+
+/** Les variables par lesquelles `locusd` reçoit son amorçage d'administration — `W20.y`. */
+export const ADMINISTRATION_ENV = {
+  credential: "LOCUSD_ADMIN_CREDENTIAL",
+  workspace: "LOCUSD_ADMIN_WORKSPACE",
+  principal: "LOCUSD_ADMIN_PRINCIPAL",
+} as const;
+
 /** Combien de temps un processus a pour devenir joignable avant qu'on le déclare mort. */
 const BOOT_TIMEOUT_MS = 30_000;
 
@@ -261,6 +295,11 @@ export async function startChain(options: {
       ...process.env,
       LOCUSD_BIND: `127.0.0.1:${port}`,
       LOCUSD_BROKER_SOCKET: brokerSocket,
+      // `W20.y` : l'amorçage d'administration. Sans lui, `NoAdministrators` refuse §22.3 à toute
+      // créance, et rien ne peut proposer de mission à ce daemon.
+      [ADMINISTRATION_ENV.credential]: ADMINISTRATION.credential,
+      [ADMINISTRATION_ENV.workspace]: ADMINISTRATION.workspaceId,
+      [ADMINISTRATION_ENV.principal]: ADMINISTRATION.principalId,
     });
     demarres.push(daemon);
     // `/projections/status` plutôt qu'un `/health` : il n'y en a pas, et en inventer un pour le

@@ -109,9 +109,9 @@ pub fn read(
         return Ok(None);
     };
 
-    let workspace_id = required_id::<Workspace>(&lookup, WORKSPACE_ENV)?;
-    let principal_id = required_id::<Agent>(&lookup, PRINCIPAL_ENV)?;
-    let project_id = required_id::<Project>(&lookup, PROJECT_ENV)?;
+    let workspace_id = required_id::<Workspace>(&lookup, WORKSPACE_ENV, TOKEN_ENV)?;
+    let principal_id = required_id::<Agent>(&lookup, PRINCIPAL_ENV, TOKEN_ENV)?;
+    let project_id = required_id::<Project>(&lookup, PROJECT_ENV, TOKEN_ENV)?;
 
     Ok(Some((
         token,
@@ -125,15 +125,23 @@ pub fn read(
     )))
 }
 
-/// Un identifiant que le token exige, ou le refus qui nomme sa variable.
-fn required_id<K: locus_protocol::IdKind>(
+/// Un identifiant qu'un amorçage exige, ou le refus qui nomme sa variable.
+///
+/// `demandeur` est la variable **à cause de laquelle** celle-ci devient obligatoire — `TOKEN_ENV`
+/// ici, `CREDENTIAL_ENV` pour l'amorçage d'administration de `W20.y`. Le passer plutôt que de le
+/// coder en dur est ce qui rend cette fonction partageable entre les deux amorçages : le message
+/// « absente, alors que `X` demande un amorçage » n'a de valeur que s'il nomme le **bon** `X`, et
+/// un helper qui nommerait toujours le token enverrait l'opérateur d'un amorçage d'administration
+/// chercher une variable d'enrôlement qu'il n'a pas posée.
+pub(crate) fn required_id<K: locus_protocol::IdKind>(
     lookup: &impl Fn(&str) -> Option<String>,
     variable: &'static str,
+    demandeur: &'static str,
 ) -> Result<Id<K>, BootstrapRefusal> {
     let Some(brut) = lookup(variable).filter(|value| !value.trim().is_empty()) else {
         return Err(BootstrapRefusal {
             variable,
-            reason: format!("absente, alors que `{TOKEN_ENV}` demande un amorçage"),
+            reason: format!("absente, alors que `{demandeur}` demande un amorçage"),
         });
     };
     Id::parse(brut.trim()).map_err(|erreur| BootstrapRefusal {
