@@ -111,7 +111,7 @@ describe("la chaîne monte, se voit et s'arrête — W12.f", () => {
    *
    * # Et ce qu'il mesure, en passant
    *
-   * La roadmap de `W5.u` laisse une question ouverte, écrite dans le workflow : le fichier déposé
+   * La roadmap de `W5.aa` laisse une question ouverte, écrite dans le workflow : le fichier déposé
    * par le job `sandbox` n'est lu par aucun `locus-execd` de CI, parce que le consommateur vivrait
    * dans un autre job — donc sur un autre runner — et que **rien n'établit que deux runners rendent
    * la même empreinte**. Le job `e2e` démarre le seul `locus-execd` de toute la CI qui monte par le
@@ -142,7 +142,7 @@ describe("la chaîne monte, se voit et s'arrête — W12.f", () => {
     );
 
     // La mesure, dans le log du job. Sans cette ligne, l'empreinte de ce runner reste dans un
-    // tampon que le harnais ne rend que sur un échec — et la question de `W5.u` resterait ouverte
+    // tampon que le harnais ne rend que sur un échec — et la question de `W5.aa` resterait ouverte
     // sur un tour vert, ce qui est précisément la façon dont elle a survécu à trois items.
     t.diagnostic(`empreinte d'hôte du runner e2e : ${vue}`);
   });

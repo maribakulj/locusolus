@@ -181,7 +181,7 @@ pub enum QuotaTarget {
     WritableRoot,
 }
 
-// `QuotaTarget::Workspace` a existé ici, de `W5.j` à `W5.s`, et **ne pouvait pas fonctionner**.
+// `QuotaTarget::Workspace` a existé ici, de `W5.j` à `W5.y`, et **ne pouvait pas fonctionner**.
 //
 // Elle rendait un `--mount type=volume,destination={target}` sur un `target` **pris d'un montage
 // déjà déclaré**, que `invocation::mount_argument` émet en `--mount type=bind`. Podman recevait donc
@@ -444,7 +444,7 @@ fn quota_target(
     else {
         return Err(PlanError::QuotaWithoutWritableSpace { level });
     };
-    // Il y a bien un espace inscriptible — et le runtime ne sait pas le **borner**. `W5.s` : tout
+    // Il y a bien un espace inscriptible — et le runtime ne sait pas le **borner**. `W5.y` : tout
     // `Mount` est un bind, et Podman ne dimensionne pas un bind ; superposer un volume dimensionné
     // à la même destination produisait une spécification qu'il refusait en bloc.
     //
@@ -589,7 +589,7 @@ pub enum PlanError {
         /// Le niveau qui monte la racine en lecture seule.
         level: SandboxLevel,
     },
-    /// Un quota disque demandé sur un espace que **le runtime ne sait pas borner** — `W5.s`.
+    /// Un quota disque demandé sur un espace que **le runtime ne sait pas borner** — `W5.y`.
     ///
     /// Distinct de [`PlanError::QuotaWithoutWritableSpace`], et la distinction envoie à des endroits
     /// opposés : « rien à borner » se répare en montant un espace de travail, « la borne n'est pas

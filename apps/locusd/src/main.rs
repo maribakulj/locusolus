@@ -107,7 +107,7 @@ fn demarrer<S: EventStore + Send + Sync + 'static>(runtime: Runtime<S>) -> ExitC
     // `W20.q` : le **même** lien sert la réclamation. Deux clients vers deux chemins différents
     // auraient permis à un daemon d'annoncer un broker au démarrage et d'en interroger un autre à
     // la première mission, sans que rien ne le dise.
-    // `W20.v` : l'amorçage d'enrôlement, s'il est demandé. Lu **avant** d'ouvrir le port : un
+    // `W20.ab` : l'amorçage d'enrôlement, s'il est demandé. Lu **avant** d'ouvrir le port : un
     // amorçage illisible est une intention d'enrôler que le daemon ne peut pas honorer, et démarrer
     // quand même laisserait l'opérateur chercher pendant que son worker reçoit « token inconnu ».
     let tokens = match locusd::bootstrap::tokens(|name| std::env::var(name).ok()) {

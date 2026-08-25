@@ -13513,7 +13513,7 @@ a maintenant un répertoire, un script et un job.
 levés : `W20.s`, `W20.t`, `W20.u`, `W2.22` et `W12.f`. Il s'écrit dans `tests/e2e/`, en s'appuyant
 sur `startChain`.
 
-## 2026-08-24 — W20.v — L'amorçage d'enrôlement, pour que la chaîne puisse commencer
+## 2026-08-24 — W20.ab — L'amorçage d'enrôlement, pour que la chaîne puisse commencer
 
 **Périmètre.** `apps/locusd/src/bootstrap.rs` (nouveau), `apps/locusd/src/lib.rs`,
 `apps/locusd/src/main.rs` (lecture avant l'ouverture du port), `apps/locusd/tests/bootstrap.rs`
@@ -13579,7 +13579,7 @@ pas de doctrine d'autorité, il ouvre une porte d'amorçage qui n'accorde rien d
 `apps/locusd/tests/{bootstrap,enrollment}.rs` (11 + 12 tests), `docs/10_V1_ROADMAP.md`.
 
 **Comment le manque a été trouvé.** En enrôlant un worker `canterel` **réel** contre un `locusd`
-réel, une fois `W20.v` livré :
+réel, une fois `W20.ab` livré :
 `« project_id » : sans projet, un fait n'a pas d'endroit où appartenir`. Le champ vivait dans
 `WorkerBody`, donc dans ce que le worker envoie, et `canterel` ne l'envoie pas — il ne peut pas,
 puisque c'est l'enrôlement qui le lui apprendrait.
@@ -13735,7 +13735,7 @@ n'est câblé. Établi par l'**absence de l'appel** — `grep` sur `main.rs` —
 rapportent pas du même ton.
 
 **La forme, pour la troisième fois.** Un port dont le défaut refuse, correct séparément, qu'aucun
-assemblage de production ne remplace — `W20.v` pour les tokens, `W20.x` pour l'entropie, celui-ci
+assemblage de production ne remplace — `W20.ab` pour les tokens, `W20.x` pour l'entropie, celui-ci
 pour l'autorité et le stockage. Elle se reconnaît maintenant à l'œil, et l'item la traite comme les
 deux précédents plutôt que d'improviser une troisième réponse. Ce que la répétition apprend n'est
 pas « il faut moins de ports par défaut » — les défauts qui refusent sont ce qui a rendu chaque
@@ -13745,13 +13745,13 @@ exerçait déjà les deux routes, sur un `Runtime` dont le registre était rempl
 
 **Ce qui a été décidé, et pourquoi.**
 
-1. **L'amorçage passe par l'environnement du daemon**, comme en `W20.v` et pour le même argument :
+1. **L'amorçage passe par l'environnement du daemon**, comme en `W20.ab` et pour le même argument :
    une route qui accorderait l'autorité d'administration demanderait une créance pour être appelée,
    et la première créance de l'installation est précisément celle qu'on cherche à obtenir.
    L'environnement, lui, appartient déjà à qui démarre le daemon — **aucune autorité nouvelle n'est
    accordée**.
 2. **Une créance d'administration est un secret durable, pas un token consommable.** C'est la
-   différence avec `W20.v`, et elle a deux conséquences tenues plutôt que supposées : elle **ne
+   différence avec `W20.ab`, et elle a deux conséquences tenues plutôt que supposées : elle **ne
    s'imprime jamais** — un test tient l'annonce de démarrage par les deux bouts, le secret absent et
    le renseignement présent, parce qu'une annonce vide tiendrait la première moitié et serait
    inutile ; et elle **n'est pas** le token d'enrôlement — deux variables, deux registres, tenu par
@@ -13776,7 +13776,7 @@ monde administre ».
 mutation sur `locusd` — **6 mutants posés, 0 survivant, 0 motif absent**.
 
 **Prochain item.** `W12.d`, deuxième clause : « un worker s'enregistre et est placé sur ce qu'il a
-prouvé ». Le harnais devra amorcer l'enrôlement (`W20.v`) et faire passer `canterel worker enroll`
+prouvé ». Le harnais devra amorcer l'enrôlement (`W20.ab`) et faire passer `canterel worker enroll`
 avant la boucle.
 
 ---
@@ -13926,7 +13926,7 @@ rend la phrase ci-dessus là où elle rendait un `204` muet.
 
 ---
 
-## 2026-08-25 — W5.s — Le quota disque de `S2` produisait une spécification que Podman refuse toujours
+## 2026-08-25 — W5.y — Le quota disque de `S2` produisait une spécification que Podman refuse toujours
 
 **Comment c'est arrivé sous les yeux.** En cherchant si la CI pouvait exercer la troisième clause de
 `W12.d`, j'ai lu la sortie du job `sandbox`. Il rend `success`, et il contient :
@@ -13999,7 +13999,7 @@ aucun `ref:`.
 
 ---
 
-## 2026-08-25 — W5.t — `locus-execd` garde ce qu'une campagne a conclu, et une attestation ne voyage pas
+## 2026-08-25 — W5.z — `locus-execd` garde ce qu'une campagne a conclu, et une attestation ne voyage pas
 
 **Le constat était écrit d'avance.** `main.rs` portait ceci, en toutes lettres :
 
@@ -14072,9 +14072,9 @@ job e2e, et le workflow n'a aucun `ref:`.
 
 ---
 
-## 2026-08-25 — W5.u — La campagne dépose ce qu'elle a conclu
+## 2026-08-25 — W5.aa — La campagne dépose ce qu'elle a conclu
 
-**Pourquoi c'était la suite immédiate de `W5.t`.** Celui-ci a livré la **lecture** des attestations.
+**Pourquoi c'était la suite immédiate de `W5.z`.** Celui-ci a livré la **lecture** des attestations.
 Sans écriture, elle n'avait rien à lire — et un lecteur qu'aucun producteur n'alimente est
 exactement ce que l'ADR 0022 décision 0 refuse de compter comme une capacité. Les deux moitiés font
 une capacité ; l'une seule n'en fait pas.
@@ -14110,7 +14110,7 @@ la seule chose qui compte pour un fichier qu'un daemon va croire.
 **Une supposition écrite plutôt que tue.** L'empreinte porte sur l'hôte de `locus-execd` ; `Proven`
 est indexé par **worker**. Les deux ne coïncident que si le worker s'exécute là où `locus-execd`
 tourne — vrai du profil `personal-local`, et de tout déploiement où la sandbox est celle que ce
-daemon pilote. J'ai d'abord cru que le keying par worker était une erreur de `W5.t` à corriger ;
+daemon pilote. J'ai d'abord cru que le keying par worker était une erreur de `W5.z` à corriger ;
 `announced.rs` dit le contraire en toutes lettres — « ce que le worker a **prouvé** vient du port
 `Proven`, que la campagne de self-tests remplit ». Vérifié avant de « corriger », et il n'y avait
 rien à corriger.
@@ -14132,8 +14132,8 @@ son empreinte à celle qu'un autre runner produit. Reste en attente : l'ADR 0033
 
 ## 2026-08-25 — W5.v — L'empreinte d'hôte portait de la prose, et le premier dépôt réel l'a démentie
 
-**L'outil a démenti son auteur, une heure après.** `W5.t` calculait l'empreinte par
-`format!("{facts:?}")` et son commentaire la disait « grossière et exacte ». `W5.u` a fait déposer
+**L'outil a démenti son auteur, une heure après.** `W5.z` calculait l'empreinte par
+`format!("{facts:?}")` et son commentaire la disait « grossière et exacte ». `W5.aa` a fait déposer
 un fichier en CI, et voici ce qu'il contenait :
 
 ```text
@@ -14199,7 +14199,7 @@ il précise « **comme le SDK** ». L'étape « Le dépôt worker » de `ci.yml`
 
 Et le commentaire placé **juste au-dessus** de cette étape affirmait « le worker réel, à une
 révision épinglée ». Une décision écrite, non appliquée, sous une phrase qui disait le contraire de
-ce que le YAML faisait — la même forme que la tolérance de `W5.s`, dont le motif avait survécu à sa
+ce que le YAML faisait — la même forme que la tolérance de `W5.y`, dont le motif avait survécu à sa
 cause, et que le `locus.identity` de `canterel`, dont la garde avait survécu à ce qu'elle gardait.
 
 **La conséquence n'était pas cosmétique.** Le verdict e2e de `locusolus` dépendait silencieusement
@@ -14246,7 +14246,7 @@ qui s'est révélée fausse deux fois cette nuit.
 
 ## 2026-08-25 — W5.w — Un refus d'attestation nommait le problème et cachait le remède
 
-**Le constat.** `W5.t` compte les attestations écartées, `W5.u` les dépose, `W5.v` a rendu
+**Le constat.** `W5.z` compte les attestations écartées, `W5.aa` les dépose, `W5.v` a rendu
 l'empreinte stable — et aucun des trois ne disait **quelle est l'empreinte de cet hôte**. Un
 exploitant lisait donc :
 
@@ -14283,9 +14283,9 @@ survivant, 0 motif absent**.
 
 **Ce que ça rend mesurable.** Le job e2e démarre un `locus-execd` par le harnais : son empreinte
 apparaîtra désormais dans le log de ce job. Comparée à celle que le job `sandbox` dépose, elle
-répondra en **une exécution** à la question laissée ouverte par `W5.u` — deux runners rendent-ils la
-même empreinte —, au lieu de la laisser à la conjecture. C'était l'intention de l'item autant que le
-diagnostic : produire la mesure plutôt que la supposer.
+répondra en **une exécution** à la question laissée ouverte par `W5.aa` — deux runners rendent-ils
+la même empreinte —, au lieu de la laisser à la conjecture. C'était l'intention de l'item autant que
+le diagnostic : produire la mesure plutôt que la supposer.
 
 **Prochain item.** Lire les deux empreintes dans la prochaine CI et trancher.
 
@@ -14348,7 +14348,7 @@ e2e, pas ici : un test qui monterait de faux processus prouverait que `spawn` fo
 
 **La mesure, enfin posée.** Les deux empreintes — celle du runner `sandbox`, déposée avec les
 attestations, et celle du runner `e2e`, annoncée par son broker — sont désormais dans le résumé du
-**même** passage. La question que `W5.u` a écrite dans le workflow et que trois items ont laissée à
+**même** passage. La question que `W5.aa` a écrite dans le workflow et que trois items ont laissée à
 la conjecture — deux runners rendent-ils la même empreinte, et une attestation peut-elle donc
 voyager d'un job à l'autre — se lit au prochain tour au lieu de se supposer.
 
@@ -14358,3 +14358,78 @@ diffèrent, le convoyeur ne sert à rien et il faudrait le retirer. Et il coûte
 décision 3 : « un verdict qui peut rougir pour une raison étrangère cesse d'être lu », et faire
 dépendre e2e du job sandbox est exactement cela. Mesurer d'abord, assembler ensuite si la mesure le
 justifie.
+
+---
+
+## 2026-08-25 — W0.18 — Un identifiant de roadmap désignait deux items, et le garde affirmait l'unicité qu'il ne vérifiait pas
+
+**Le constat.** `tooling/repo/roadmap.ts` le dit dans son en-tête, en toutes lettres : « les
+identifiants sont uniques sur l'ensemble du chantier ». C'est de cette unicité que dépend la
+recherche dans les **quatre** registres — un identifiant qui désigne deux items ne peut pas être
+cherché dans un registre. Rien ne la vérifiait, et **quatre paires** y contrevenaient :
+
+| identifiant | premier à le porter                                           | second, renommé                                                           |
+| ----------- | ------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| `W5.s`      | 2026-08-19 — « absent » et « il a refusé » sont deux erreurs  | 2026-08-25 → **`W5.y`** — le quota disque de `S2` que Podman refuse       |
+| `W5.t`      | 2026-08-19 — aucun appel au runtime ne dure indéfiniment      | 2026-08-25 → **`W5.z`** — `locus-execd` garde ce qu'une campagne a conclu |
+| `W5.u`      | 2026-08-19 — la tolérance tombe, les seize sondes font rougir | 2026-08-25 → **`W5.aa`** — la campagne dépose ce qu'elle a conclu         |
+| `W20.v`     | 2026-08-24 — le bail est frappé à la réclamation              | 2026-08-24 → **`W20.ab`** — l'amorçage d'enrôlement                       |
+
+**Trois des quatre ont été posées par les sessions qui venaient d'écrire les items.** Le mécanisme
+est bête et reproductible : le prochain item se choisit en prenant la lettre suivante de la série
+qu'on a sous les yeux, et la lettre suivante avait déjà servi trois cents lignes plus haut, dans un
+sprint antérieur du même workstream. Personne ne relit six cents lignes de tableau pour poser une
+lettre.
+
+**Ce n'est pas une gêne de lecture.** `delivered`, `marked`, `decided` et `planned` sont des
+**ensembles**. Deux lignes homonymes s'y confondent, et la seconde devient invisible aux deux règles
+centrales :
+
+- `marque-non-livre` — une ligne marquée **fait** sans entrée à elle passe, parce que l'entrée de sa
+  jumelle a mis l'identifiant dans `delivered` ;
+- `livre-non-marque` — une ligne à faire passe sans marque, parce que la marque de sa jumelle a mis
+  l'identifiant dans `marked`.
+
+Autrement dit : un identifiant partagé permet exactement ce que `W0.11` avait retiré — que le plan
+mente sur son état sans qu'aucune règle ne le dise. C'est la troisième fois cette session qu'une
+**prose affirme une propriété que le code ne tient pas** : après la tolérance de CI dont le motif
+avait expiré (`W5.y`) et l'ADR qui décidait un pin que le workflow n'appliquait pas (`W12.g`), c'est
+le garde lui-même.
+
+**La règle.** `identifiant-partage`, rapportée **en premier** comme `ligne-non-reconnue` et pour la
+même raison : elle n'invalide pas un constat, elle invalide la **portée** de tous les autres. Le
+comptage se fait à l'endroit — le seul — où la multiplicité existe encore : avant l'ajout à
+`planned`, qui la détruit.
+
+**Trois tests, et le second est celui qui compte.** Deux lignes homonymes produisent l'écart. Un
+document où les deux règles centrales sont muettes **par confusion** — une ligne faite avec son
+entrée, une ligne à faire — rend cet écart et lui seul : sans la règle, `reconcile` rendrait la
+liste vide et la CI dirait « ok ». Tenu par le verdict, pas par la prose. Le troisième garde la
+garde d'elle-même : un identifiant **cité** dans une autre ligne n'est pas une seconde ligne — les
+lignes du plan se renvoient l'une à l'autre en permanence, et une règle qui compterait les mentions
+serait retirée dans la semaine, ce qui est la pire fin possible pour un garde.
+
+**Le renommage suit une règle unique : le premier à porter le label le garde.** C'est la moins
+surprenante, et c'est celle que le garde applique désormais de fait. Les quatre lignes renommées
+portent « **Renommé depuis `X`** — collision d'identifiant, voir `W0.18` », et les renvois ont été
+repris un par un — pas par `sed` : sur les cent-huit mentions, chacune désignait l'un **ou** l'autre
+membre de sa paire, et un remplacement aveugle en aurait corrompu la moitié. Les commits antérieurs
+au renommage nomment encore l'ancien label ; c'est le coût assumé, et il est plus petit que celui
+d'un identifiant qui reste ambigu.
+
+**Vérifié.** `npm run check` → vert. 33 tests sur le garde, dont « le dépôt lui-même est réconcilié
+» qui passe désormais sur un plan sans collision. **4 mutants posés, 0 survivant** — la règle
+muette, le seuil à `> 0`, le compteur qui n'incrémente pas, et le partage rapporté après les autres.
+
+**La mesure de `W5.x` est tombée dans le même tour, et elle tranche.** Le job e2e de la PR 210 a
+annoncé :
+
+```text
+cgroup_v2=available controllers=cpu,cpuset,io,memory,pids userns=available seccomp=available disk_quota=undetermined
+```
+
+… et c'est **caractère pour caractère** ce que le job `sandbox` dépose. Deux runners rendent donc la
+même empreinte, et une attestation peut voyager d'un job à l'autre. La question ouverte depuis
+`W5.z` — trois items de conjecture — est close par une lecture. Ce qu'elle débloque : le convoyeur
+d'artefact entre les deux jobs, que `W5.x` refusait de construire avant de savoir, est désormais
+justifié par une mesure. C'est l'item suivant.

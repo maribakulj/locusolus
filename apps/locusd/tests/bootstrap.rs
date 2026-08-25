@@ -1,4 +1,4 @@
-//! L'amorçage d'enrôlement — `W20.v`, §7.2.
+//! L'amorçage d'enrôlement — `W20.ab`, §7.2.
 //!
 //! # Ce que ces tests protègent
 //!

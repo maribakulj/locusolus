@@ -1,4 +1,4 @@
-//! Le token d'enrôlement d'amorçage — `W20.v`, §7.2.
+//! Le token d'enrôlement d'amorçage — `W20.ab`, §7.2.
 //!
 //! # Ce que `W20.n` avait laissé, et pourquoi c'est maintenant le moment
 //!

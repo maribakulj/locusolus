@@ -319,7 +319,7 @@ jobs:
       # message du runtime mot pour mot. L'écarter ici n'est pas la sauter en silence : elle a son
       # propre pas, juste en dessous, et ce qu'elle dit y reste lisible.
       #
-      # `W5.s` — ce que cette tolérance a **coûté**, écrit pour qu'on ne la repose pas ainsi. Le
+      # `W5.y` — ce que cette tolérance a **coûté**, écrit pour qu'on ne la repose pas ainsi. Le
       # motif ci-dessus était exact au premier passage : `--storage-opt size=` demande XFS. Puis
       # `W5.j` a déplacé le quota vers l'espace de travail, la spécification s'est mise à porter deux
       # montages sur `/work`, et Podman a commencé à refuser pour une raison **entièrement
@@ -333,7 +333,7 @@ jobs:
       # toutes les machines, y compris celles qui n'ont pas de Podman.
       - name: Les seize sondes contre un conteneur réel
         env:
-          # `W5.u` : la campagne dépose ce qu'elle a conclu. C'est **ce** pas qui tourne à chaque
+          # `W5.aa` : la campagne dépose ce qu'elle a conclu. C'est **ce** pas qui tourne à chaque
           # passage, donc c'est lui qui produit le fichier ; celui du quota attend un hôte capable
           # de borner un espace et n'a jamais conclu ailleurs.
           #
@@ -489,7 +489,7 @@ jobs:
           exit "${PIPESTATUS[0]}"
 
       # `W5.x` : l'empreinte d'hôte de **ce** runner, à côté de celle que `sandbox` publie dans le
-      # même résumé. La roadmap de `W5.u` laissait la question ouverte — le fichier d'attestations
+      # même résumé. La roadmap de `W5.aa` laissait la question ouverte — le fichier d'attestations
       # déposé là-bas n'est lu par aucun `locus-execd` de CI parce que le consommateur vivrait sur
       # un autre runner, et rien n'établissait que deux runners rendent la même empreinte. Les deux
       # valeurs côte à côte y répondent par une lecture.

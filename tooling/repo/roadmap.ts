@@ -62,6 +62,11 @@ import type { Finding } from "../lib/findings.ts";
  * la garde cherche donc chaque item dans **les quatre** registres, les dépôts voisins étant
  * attendus à côté de celui-ci.
  *
+ * Cette unicité était **affirmée ici et vérifiée nulle part**, et quatre paires y contrevenaient —
+ * trois posées par les sessions qui ont écrit les items juste au-dessus. La règle
+ * `identifiant-partage` la tient désormais (`W0.17`) : elle est ce dont dépendent les quatre
+ * registres, puisqu'un identifiant qui désigne deux items ne peut pas être cherché dans un registre.
+ *
  * # Ce que cette garde ne verra jamais
  *
  * Elle confronte deux documents : elle attrape leur **désaccord**, pas leur **silence commun**. Un
@@ -229,6 +234,31 @@ export type Reconciliation = {
    * ce fichier qui invalide **tous** les autres constats, et il se rapporte comme tel.
    */
   readonly unrecognised: readonly string[];
+  /**
+   * Les identifiants que **deux lignes d'item ou plus** portent — `W0.17`.
+   *
+   * # La propriété que ce fichier affirmait sans jamais la vérifier
+   *
+   * Le commentaire d'en-tête dit, en toutes lettres : « les identifiants sont uniques sur
+   * l'ensemble du chantier ». Rien ne le vérifiait, et quatre paires y avaient contrevenu — trois
+   * d'entre elles posées par les deux sessions qui ont précédé cette garde.
+   *
+   * # Pourquoi c'est un trou dans la garde, et pas une gêne de lecture
+   *
+   * `delivered`, `marked`, `decided` et `planned` sont des **ensembles**. Deux lignes qui partagent
+   * un identifiant s'y confondent, et les deux règles centrales cessent de voir la seconde :
+   *
+   * - `marque-non-livre` — une ligne marquée **fait** sans entrée à elle passe, parce que l'entrée
+   *   de sa jumelle a mis l'identifiant dans `delivered` ;
+   * - `livre-non-marque` — une ligne non marquée passe, parce que la marque de sa jumelle a mis
+   *   l'identifiant dans `marked`.
+   *
+   * Autrement dit : un identifiant partagé permet exactement ce que `W0.11` avait retiré — que le
+   * plan mente sur son état sans qu'aucune règle ne le dise. Il se rapporte donc **en premier**,
+   * comme `unrecognised` et pour la même raison : il n'invalide pas un constat, il invalide la
+   * portée de tous les autres.
+   */
+  readonly duplicated: readonly string[];
   readonly unread: readonly string[];
   /** Pour chaque ligne décidée qui l'a déclaré, ce qu'elle attend — voir `awaits`. */
   readonly awaiting: ReadonlyMap<string, readonly string[]>;
@@ -298,10 +328,15 @@ export async function readReconciliation(root: string): Promise<Reconciliation> 
   const decided = new Set<string>();
   const planned = new Set<string>();
   const frontier: string[] = [];
+  // Compté **avant** l'ajout à `planned` — `W0.17`. C'est le seul endroit où la multiplicité existe
+  // encore : la ligne suivante la détruit, et toutes les règles d'après travaillent sur des
+  // ensembles où deux lignes homonymes n'en font plus qu'une.
+  const vues = new Map<string, number>();
   for (const [, item, tail] of roadmap.matchAll(roadmapRow)) {
     if (item === undefined || tail === undefined) {
       continue;
     }
+    vues.set(item, (vues.get(item) ?? 0) + 1);
     planned.add(item);
     if (tail.includes("fait")) {
       marked.add(item);
@@ -311,6 +346,11 @@ export async function readReconciliation(root: string): Promise<Reconciliation> 
       frontier.push(item);
     }
   }
+
+  const duplicated = [...vues]
+    .filter(([, combien]) => combien > 1)
+    .map(([item]) => item)
+    .sort();
 
   const recognisable = new RegExp(String.raw`^${ITEM}$`);
   const unrecognised: string[] = [];
@@ -348,6 +388,7 @@ export async function readReconciliation(root: string): Promise<Reconciliation> 
     frontier,
     recognised,
     unrecognised,
+    duplicated,
     unread,
     awaiting,
   };
@@ -407,6 +448,18 @@ function satisfied(what: string, state: Reconciliation): boolean {
  */
 export function reconcile(state: Reconciliation): readonly Finding[] {
   const findings: Finding[] = [];
+
+  // Avec `ligne-non-reconnue`, et avant tout le reste : un identifiant partagé ne fausse pas un
+  // constat, il fausse la **portée** de tous. Deux lignes homonymes se confondent dans les ensembles,
+  // et la seconde devient invisible aux deux règles centrales — celle qui exige une entrée au ledger
+  // comme celle qui exige une marque au tableau. C'est `W0.11` défait en silence.
+  for (const item of [...state.duplicated].sort()) {
+    findings.push({
+      rule: "identifiant-partage",
+      where: "docs/10_V1_ROADMAP.md",
+      message: `« ${item} » est porté par plus d'une ligne d'item : les deux se confondent dans les ensembles du garde, et la seconde échappe alors aux règles « livré non marqué » et « marqué non livré » — le plan peut mentir sur son état sans qu'aucune règle ne le dise`,
+    });
+  }
 
   // En premier, et sous son nom : une ligne que le motif ne reconnaît pas n'est dans aucun des
   // ensembles, donc aucune des règles suivantes ne parle d'elle. Les rapporter après les autres

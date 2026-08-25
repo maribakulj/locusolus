@@ -1,4 +1,4 @@
-//! Ce qu'une campagne a conclu, et ce qui empêche de le rejouer ailleurs — `W5.t`, §12.2.
+//! Ce qu'une campagne a conclu, et ce qui empêche de le rejouer ailleurs — `W5.z`, §12.2.
 //!
 //! # Ce que ces tests protègent
 //!
@@ -264,7 +264,7 @@ fn le_registre_expose_l_empreinte_de_son_hote() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// 5. Ce qu'une campagne dépose — `W5.u`.
+// 5. Ce qu'une campagne dépose — `W5.aa`.
 // ---------------------------------------------------------------------------------------------
 
 /// **Une campagne qui tient dépose une attestation liée à cet hôte.**
@@ -338,7 +338,7 @@ fn lire_et_deposer_ne_partagent_pas_leur_variable() {
 
 /// **Aucun motif de `Support` n'entre dans l'empreinte.**
 ///
-/// C'est le test qui aurait attrapé `W5.t`, et il n'existait pas. Le premier dépôt réel en CI a
+/// C'est le test qui aurait attrapé `W5.z`, et il n'existait pas. Le premier dépôt réel en CI a
 /// écrit ceci dans le champ `host` :
 ///
 /// ```text

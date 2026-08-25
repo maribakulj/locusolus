@@ -75,7 +75,7 @@ export const ADMINISTRATION = {
 } as const;
 
 /**
- * Le token d'amorçage d'enrôlement, et les variables qui le portent — `W20.v`, `W20.z`.
+ * Le token d'amorçage d'enrôlement, et les variables qui le portent — `W20.ab`, `W20.z`.
  *
  * Le worker de la chaîne s'enrôle **pour de vrai** : `canterel worker enroll` consomme ce token et
  * reçoit une créance. Sans cela, il démarrerait sans identité et son tour se lirait comme un constat
@@ -210,7 +210,7 @@ export const EMPREINTE_PREFIXE = "empreinte de cet hôte :";
  *
  * # Ce que cette lecture tient
  *
- * `W5.t` a livré la lecture des attestations, `W5.u` leur dépôt, `W5.w` l'empreinte imprimée au
+ * `W5.z` a livré la lecture des attestations, `W5.aa` leur dépôt, `W5.w` l'empreinte imprimée au
  * démarrage pour que l'exploitant qui prépare un fichier sache à quel hôte le lier. Les trois
  * reposent sur la **même** phrase, et rien ne vérifiait qu'un binaire réel la produise : les tests
  * de `attestation.rs` exercent la fonction, pas le démarrage.
@@ -468,7 +468,7 @@ export async function startChain(options: {
       [ADMINISTRATION_ENV.credential]: ADMINISTRATION.credential,
       [ADMINISTRATION_ENV.workspace]: ADMINISTRATION.workspaceId,
       [ADMINISTRATION_ENV.principal]: ADMINISTRATION.principalId,
-      // `W20.v` : l'amorçage d'enrôlement, pour que le worker de la chaîne puisse s'enrôler.
+      // `W20.ab` : l'amorçage d'enrôlement, pour que le worker de la chaîne puisse s'enrôler.
       [ENROLLMENT.env.token]: ENROLLMENT.token,
       [ENROLLMENT.env.workspace]: ADMINISTRATION.workspaceId,
       [ENROLLMENT.env.principal]: ADMINISTRATION.principalId,
