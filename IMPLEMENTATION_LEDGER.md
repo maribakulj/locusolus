@@ -14567,3 +14567,65 @@ désormais, et jamais deux : sorti en `0`, sorti autrement, pas fini.
 
 **Vérifié.** `npm run check` → vert. La chaîne complète montée localement contre le `canterel` réel
 : **10 sous-tests, 2 suites, 0 échec**, et le diagnostic imprime les deux côtés de la décision.
+
+---
+
+## 2026-08-25 — W5.ac — L'attestation était adressée à un worker qui n'existe pas
+
+**Deux constats vrais en même temps, sur le même runner et dans le même tour.** Le job e2e de la PR
+213 a rapporté, à quelques secondes d'intervalle :
+
+```text
+# attestations : {"kind":"lues","honorees":1,"etrangeres":0} (le workflow en a posé)
+# le daemon : … « confinement S2 annoncé mais jamais prouvé, aucune campagne n'a conclu — lancer les self-tests
+```
+
+Le premier se lit « le convoyeur de `W5.ab` fonctionne ». Le second dit qu'aucune campagne n'a
+conclu. Les deux sont exacts, et c'est leur conjonction qui est le défaut.
+
+**La cause.** `RecordedProven` indexe **par worker**. La campagne déposait sous
+`env::var("LOCUS_EXECD_ATTESTATION_WORKER").unwrap_or_else(|_| "canterel-local".to_owned())` — un
+**défaut** écrit dans le code de la campagne et lu par personne — pendant que le réclamant réel
+s'appelle `canterel-145fad11-dc7b-4201-bd19-458f3e4286a0`. L'attestation était donc retenue pour cet
+hôte, honorée, comptée… et introuvable par quiconque réclame.
+
+C'est la forme que ce dépôt refuse partout, à une nuance près qui la rend pire : `NoIdentities`,
+`NoAdministrators` et `NothingProven` étaient des défauts qui **refusent**, corrects séparément et
+jamais remplacés. Celui-ci ne refusait pas — il **inventait une identité**, et produisait un
+artefact que le reste du système traitait comme authentique.
+
+**Ce qui est livré.** Le défaut disparaît. Un nom de worker absent ou vide **refuse de déposer**,
+avec la raison de l'autre refus du même fichier : « une campagne lancée à la main ne dépose pas un
+fichier que `locus-execd` croira ». `EMIT_WORKER_ENV` rejoint `RECORD_ENV` et `EMIT_ENV` comme
+constante nommée, documentée à l'endroit où un lecteur la cherche. Le workflow **déclare** le nom,
+et écrit à côté qu'il ne correspond à aucun worker enrôlé.
+
+**Les trois motifs du refus de placement, et leurs trois causes distinctes.** Le diagnostic a
+demandé de lire le code des deux côtés, et il vaut d'être consigné parce qu'il ne se redevine pas :
+
+| motif rendu par `locusd`                             | cause réelle                                                                                                                    |
+| ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| « l'hôte ne sait pas dépasser S1 »                   | `sandboxLevels` de `canterel` rend `["S1"]` quand `sandboxBackend` vaut `"none"` — pas de `bwrap` qui démarre sur le runner e2e |
+| « l'hôte ne sait pas appliquer le mode réseau Deny » | `networkModes` rend `["full"]`, même cause                                                                                      |
+| « S2 annoncé mais jamais prouvé »                    | l'attestation existe, et elle est adressée à `canterel-local`                                                                   |
+
+**Et l'observation de fond, qui n'est pas un défaut.** Le `S2` du worker signifie **bubblewrap** ;
+celui du broker signifie **podman rootless**. Même nom de niveau, deux mécanismes, mesurés
+indépendamment — et ils peuvent légitimement diverger sur la même machine, ce que ce tour montre :
+le runner prouve `S2` à `locus-execd` (les seize sondes passent) et seulement `S1` à `canterel` (pas
+de `bwrap`). Les deux ont raison. Le worker exécute ses sessions sur son propre hôte ; le broker est
+un chemin d'exécution privilégié séparé.
+
+**L'arbitrage qui reste, et pourquoi il n'est pas pris ici.** Une campagne s'exécute sur un **hôte**
+; l'identité d'un worker naît à son **enrôlement**, plus tard, parfois sur un autre tour. Une
+campagne d'hôte ne peut donc pas connaître le worker qui la consommera. Indexer une attestation
+d'hôte par **empreinte d'hôte** plutôt que par worker en serait la réponse — et `W5.x` a déjà mesuré
+que l'empreinte est stable d'un runner à l'autre, ce qui la rend praticable. C'est une décision
+d'architecture, pas un correctif, et la prendre en passant est exactement ce que ce dépôt reproche
+ailleurs. Elle est écrite plutôt que tue.
+
+**Ce qui est exercé de bout en bout après cet item** : le transport d'une attestation d'un job à
+l'autre, et sa lecture par un broker réel. **Ce qui ne l'est pas** : le placement, qui attend
+l'arbitrage ci-dessus.
+
+**Vérifié.** `npm run check` → vert.

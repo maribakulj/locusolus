@@ -342,6 +342,18 @@ jobs:
           # l'instant que deux runners rendent la même empreinte d'hôte. Le produire d'abord est ce
           # qui permettra de le vérifier plutôt que de le supposer.
           LOCUS_EXECD_ATTESTATION_OUT: ${{ github.workspace }}/attestations.json
+          # `W5.ac` : **pour quel worker** cette campagne atteste. La campagne n'a plus de défaut —
+          # elle en avait un, `canterel-local`, et le premier convoyeur réel a montré ce qu'il
+          # produisait : une attestation retenue pour cet hôte et adressée à un worker qui n'existe
+          # pas, donc introuvable par le réclamant.
+          #
+          # **Ce nom ne correspond à aucun worker enrôlé, et c'est écrit plutôt que caché.** Le job
+          # e2e enrôle un worker dont l'identité — `canterel-<uuid>` — naît à l'enrôlement, après ce
+          # job. Une campagne d'hôte ne peut donc pas connaître le worker qui la consommera. Ce que
+          # ce dépôt exerce aujourd'hui est le **transport** et la **lecture**, de bout en bout ; ce
+          # qu'il n'exerce pas est le placement, et `W5.ac` porte l'arbitrage — indexer une
+          # attestation d'hôte par empreinte d'hôte plutôt que par worker en serait la réponse.
+          LOCUS_EXECD_ATTESTATION_WORKER: campagne-sandbox-ci
         run: |
           # `--test-threads=1` n'est pas une précaution de confort. Les tests construisent chacun
           # leur `PodmanBackend`, dont le compteur de noms repart à zéro : lancés en parallèle dans
