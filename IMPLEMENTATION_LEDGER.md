@@ -14685,3 +14685,58 @@ exacte pour laquelle sa clause de placement ne peut pas encore aboutir sur un ru
 
 **Vérifié.** `npm run check` → vert. Aucun code changé : cet item est une décision, et son coût est
 d'avoir lu les deux côtés du placement avant de l'écrire.
+
+---
+
+## 2026-08-25 — W5.ae — L'enregistrement porte son `backend`, et le protocole l'exigeait déjà
+
+**Ce que j'ai trouvé en commençant, et qui change le sens de l'item.** ADR 0035 décision 1 demandait
+qu'une attestation nomme son mécanisme. En allant l'ajouter, `lep/1.0` s'est avéré **l'exiger depuis
+le gel** : `SandboxAttestation` range `backend` parmi ses **sept champs requis**, et
+`CapabilityManifestSandbox` en porte un aussi, du côté de ce que le worker annonce.
+
+Ce n'était donc pas une idée neuve. Le type inventé par `W5.z` pour la forme sur disque avait
+**perdu** un champ que le protocole tenait pour obligatoire, et personne ne l'a vu tant qu'une seule
+campagne existait — c'est-à-dire tant que la question « par quoi ? » n'avait qu'une réponse
+possible.
+
+Le mot repris est celui de `lep/1.0`, pas un synonyme. `CLAUDE.md` interdit un vocabulaire
+parallèle, et « mécanisme » posé à côté de `backend` en aurait été un — j'avais écrit « mécanisme »
+dans l'ADR, et c'est le code qui a corrigé le vocabulaire.
+
+**Ce qui est livré.**
+
+- Le champ, **obligatoire**. Un enregistrement qui l'omet ou le laisse vide **refuse le fichier
+  entier**, comme un niveau inconnu et pour la même raison : écarter la ligne ferait honorer trois
+  attestations sur quatre sans le dire.
+- Absent et vide sont deux refus au même message parce que ce qui manque est le même — on ne sait
+  pas par quoi le confinement a été obtenu — mais ils se produisent différemment : l'un par une
+  version antérieure du type, l'autre par une campagne qui passerait une chaîne vide. Le test qui
+  couvre le premier **retire le champ du JSON** plutôt que de le vider dans la structure, parce que
+  c'est ce qu'un fichier écrit par la version d'hier contient réellement.
+- Une constante `BACKEND` **unique** : le driver l'écrit dans la `SandboxAttestation` qu'il produit,
+  la campagne l'écrit dans ce qu'elle dépose. Deux littéraux auraient divergé au premier
+  remaniement, et un enregistrement parfaitement valide aurait alors cessé d'être reconnu comme
+  portant sur ce mécanisme-ci.
+
+**Vérifié.** `npm run check` → vert ; 20 tests sur `attestation.rs` (3 nouveaux) ; **3 mutants
+posés, 0 survivant** — la garde muette, `is_empty` sans `trim`, et la constante changée en
+`"podman"`.
+
+**Ce qui reste bloqué, et c'est une découverte de cet item.** La décision 3 de l'ADR — un worker ne
+tire d'une attestation que si le mécanisme est un des siens — **ne peut pas se coder aujourd'hui**.
+Vérifié en lisant les schémas, pas supposé : `backend` est une chaîne libre `minLength: 1` dans
+`capability-manifest.schema.json` **et** dans `sandbox-attestation.schema.json`. Ce qui s'y écrit
+n'a pas de style commun — `bubblewrap` et `seatbelt` côté `canterel` sont des **noms de binaire**,
+`podman-rootless` côté driver et `rootless-oci` / `lima-podman` dans les exemples de `lep/1.0` sont
+des **familles de mécanisme**.
+
+Une égalité de chaînes rendrait faux partout ; une comparaison approximative rendrait vrai au
+hasard, ce qui est pire pour un champ dont dépend un placement. `lep/1.0` étant **gelé**, une
+énumération passe par le mineur d'ADR 0017, ou par une table de normalisation tenue en un seul
+endroit et versionnée avec les schémas. Les deux sont des arbitrages : `W5.ag`, qui attend une
+décision et pas du travail.
+
+**La moitié livrée est celle qui ne demandait aucun arbitrage**, et elle vaut seule : un
+enregistrement dit désormais ce qu'il atteste, et un fichier qui ne le dit pas est refusé bruyamment
+au lieu d'être cru.

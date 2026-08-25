@@ -41,6 +41,7 @@ fn attestation(worker: &str, level: &str, host: &str) -> Attestation {
     Attestation {
         worker_id: worker.to_owned(),
         level: level.to_owned(),
+        backend: locus_execd::linux::BACKEND.to_owned(),
         host: host.to_owned(),
         concluded_at: 1_700_000_000_000,
     }
@@ -173,6 +174,86 @@ fn un_fichier_mal_forme_refuse() {
     assert!(phrase.contains("/attestations.json"), "{phrase}");
 }
 
+/// **Un enregistrement sans `backend` refuse le fichier entier** — `W5.ae`, ADR 0035 décision 1.
+///
+/// # Ce que le protocole exigeait déjà
+///
+/// `SandboxAttestation` de `lep/1.0` range `backend` parmi ses champs **requis**. Le type inventé
+/// par `W5.z` pour la forme sur disque ne l'avait pas repris, et personne ne l'a remarqué tant
+/// qu'une seule campagne existait.
+///
+/// # Pourquoi c'est un refus et non une valeur par défaut
+///
+/// `podman-rootless` et `bubblewrap` ne sont pas deux façons d'écrire la même garantie : le tour de
+/// CI qui a motivé l'ADR les a vus présents **indépendamment** sur la même machine. Un enregistrement
+/// muet sur son mécanisme n'est donc pas dégradé — il est ininterprétable, et lui prêter le mécanisme
+/// courant serait exactement la faute que ce module refuse ailleurs.
+///
+/// Le fichier **entier** est refusé, comme pour un niveau inconnu : écarter la ligne ferait honorer
+/// trois attestations sur quatre sans le dire.
+#[test]
+fn un_enregistrement_sans_backend_refuse_le_fichier_entier() {
+    let facts = faits();
+    let empreinte = fingerprint(&facts);
+    // Le champ retiré du JSON, pas mis à vide dans la structure : c'est ce qu'un fichier écrit par
+    // une version antérieure — ou à la main — contient réellement.
+    let brut = json(&[attestation("canterel-07", "S2", &empreinte)]).replace(
+        &format!("\"backend\":\"{}\",", locus_execd::linux::BACKEND),
+        "",
+    );
+
+    let refus = RecordedProven::read(&brut, "/attestations.json", &facts)
+        .expect_err("un enregistrement sans `backend` ne dit pas ce qu'il atteste");
+
+    assert!(refus.reason.contains("backend"), "{}", refus.reason);
+    assert!(
+        refus.reason.contains("canterel-07"),
+        "le refus nomme la ligne fautive : {}",
+        refus.reason
+    );
+}
+
+/// **Un `backend` vide ne vaut pas mieux qu'un `backend` absent.**
+///
+/// Les deux se ressemblent dans un diff et se produisent différemment — l'un par une version
+/// antérieure du type, l'autre par une campagne qui aurait passé une chaîne vide. Le refus est le
+/// même parce que ce qui manque est le même : on ne sait pas par quoi le confinement a été obtenu.
+#[test]
+fn un_backend_vide_refuse_aussi() {
+    let facts = faits();
+    let empreinte = fingerprint(&facts);
+    let mut record = attestation("canterel-08", "S2", &empreinte);
+    record.backend = "   ".to_owned();
+
+    let refus = RecordedProven::read(&json(&[record]), "/attestations.json", &facts)
+        .expect_err("un `backend` vide n'atteste rien");
+
+    assert!(refus.reason.contains("backend"), "{}", refus.reason);
+}
+
+/// **Ce que la campagne dépose porte le nom du driver, et non un littéral réécrit.**
+///
+/// Un test de constante, comme `WORKER_HOME_ENV` côté harnais et pour la même raison : deux
+/// littéraux auraient divergé au premier remaniement, et un enregistrement parfaitement valide
+/// aurait alors cessé d'être reconnu comme portant sur ce mécanisme-ci.
+#[test]
+fn le_backend_depose_est_celui_du_driver() {
+    let facts = faits();
+    let depose = record(
+        "canterel-09",
+        &Standing::Trusted {
+            level: SandboxLevel::S2,
+        },
+        &facts,
+        locus_execd::linux::BACKEND,
+        1_700_000_000_000,
+    )
+    .expect("une campagne qui tient a quelque chose à déposer");
+
+    assert_eq!(depose.backend, "podman-rootless");
+    assert_eq!(depose.backend, locus_execd::linux::BACKEND);
+}
+
 /// **Un niveau inconnu refuse le fichier entier, pas seulement sa ligne.**
 ///
 /// Écarter la ligne ferait démarrer un daemon qui honore trois attestations sur quatre **sans le
@@ -281,6 +362,7 @@ fn ce_qu_une_campagne_depose_se_relit_et_est_honore() {
             level: SandboxLevel::S2,
         },
         &facts,
+        locus_execd::linux::BACKEND,
         1_700_000_000_000,
     )
     .expect("une campagne qui tient a quelque chose à déposer");
@@ -316,6 +398,7 @@ fn une_campagne_qui_ne_tient_pas_ne_depose_rien() {
                 blocking: Vec::new(),
             },
             &facts,
+            locus_execd::linux::BACKEND,
             1_700_000_000_000,
         )
         .is_none()

@@ -41,6 +41,15 @@ pub struct Execution {
     pub stderr: String,
 }
 
+/// Le nom du mécanisme de confinement que ce driver applique — `W5.ae`, ADR 0035 décision 1.
+///
+/// `lep/1.0` range `backend` parmi les champs **requis** de `SandboxAttestation`, et le mot voyage
+/// donc déjà sur le fil. La constante existe pour qu'il n'y en ait **qu'un** : le driver l'écrit dans
+/// l'attestation qu'il produit, la campagne de self-tests l'écrit dans ce qu'elle dépose, et deux
+/// littéraux auraient divergé au premier remaniement — auquel moment un enregistrement parfaitement
+/// valide aurait cessé d'être reconnu comme portant sur ce mécanisme-ci.
+pub const BACKEND: &str = "podman-rootless";
+
 /// Lancer `podman`.
 ///
 /// `&self` et non `&mut self` : lancer un processus ne mute rien du lanceur, et
@@ -377,7 +386,7 @@ impl<R: Runner> RuntimePort for PodmanBackend<R> {
         let execution = self.expect_success(&inspect_arguments(id.as_str()))?;
         let observed = observations(&execution.stdout)?;
         let level = observed_level(&observed);
-        SandboxAttestation::new(level, "podman-rootless", evidence(&observed)).map_err(|error| {
+        SandboxAttestation::new(level, BACKEND, evidence(&observed)).map_err(|error| {
             RuntimeError::Unsupported {
                 capability: format!("attestation : {error}"),
             }

@@ -320,7 +320,15 @@ fn deposer(conclusion: &Standing) {
     };
     // Une campagne qui n'a rien prouvé ne dépose rien — et le dit, plutôt que d'écrire un fichier
     // vide qu'un exploitant lirait comme « pas de campagne ».
-    let Some(record) = locus_execd::attestation::record(&worker, conclusion, &facts, maintenant())
+    let Some(record) = locus_execd::attestation::record(
+        &worker,
+        conclusion,
+        &facts,
+        // `W5.ae` : la campagne dit **par quoi** elle a confiné, et elle prend le nom du
+        // driver plutôt que de le réécrire — deux littéraux auraient divergé.
+        locus_execd::linux::BACKEND,
+        maintenant(),
+    )
     else {
         println!("campagne : rien à déposer — le niveau n'est pas tenu");
         return;
