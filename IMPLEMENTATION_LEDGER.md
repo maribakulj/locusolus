@@ -13996,3 +13996,76 @@ verte après, sur une machine sans Podman.
 **Prochain item.** L'ADR 0033 décide que `canterel` est cloné dans le job e2e à une **révision
 épinglée** — deux fois, dans le titre de la décision 1 et dans ses conséquences. Le workflow n'a
 aucun `ref:`.
+
+---
+
+## 2026-08-25 — W5.t — `locus-execd` garde ce qu'une campagne a conclu, et une attestation ne voyage pas
+
+**Le constat était écrit d'avance.** `main.rs` portait ceci, en toutes lettres :
+
+> « aucune campagne de self-tests n'est conservée par ce binaire, donc aucun worker n'a rien prouvé
+> à ses yeux, donc il ne place rien au-dessus de `S0` […]. C'est exact — et c'est ce qui rend
+> visible, **au premier placement réel**, qu'il manque la campagne, plutôt que de placer sur une
+> déclaration. »
+
+Le premier placement réel a eu lieu, par le harnais de `W12.f`, et il a rendu exactement ce que la
+phrase annonçait. Une prédiction qui se vérifie est une bonne raison de faire confiance au reste du
+commentaire — et la meilleure justification possible pour l'item qu'elle appelait.
+
+**Quatrième occurrence de la même forme**, après `NoIdentities`, `NoAdministrators` et `NoBlobs` :
+un port dont le défaut refuse, correct séparément, qu'aucun assemblage de production ne remplace. Ce
+qui diffère ici est ce qui rendait l'item mûr : la campagne **tourne déjà**. Le job `sandbox` exerce
+seize sondes contre un conteneur rootless réel à `S2`, et elles tiennent. Ce qui manquait n'était ni
+l'exécution ni le verdict, mais un endroit où le verdict **survit au processus qui l'a rendu**.
+
+### La décision qui compte : une attestation est liée à l'hôte qui l'a subie
+
+Un enregistrement disant seulement « ce worker tient `S2` » serait copiable sur n'importe quelle
+machine et ferait placer des missions confinées sur un hôte où aucune sonde n'a jamais tourné. Ce ne
+serait plus une attestation mais une **déclaration** — précisément ce que le défaut refusait de
+croire. Chaque enregistrement porte donc l'empreinte de l'hôte contre lequel la campagne a conclu.
+
+**Et l'empreinte vient des faits que `locus-execd` lit de sa propre machine, jamais du manifeste du
+worker.** C'est la moitié qu'il aurait été facile de rater : `HostCapabilities` dérive de ce que le
+worker **déclare**, et y lier une attestation serait circulaire — un worker qui façonnerait son
+manifeste pour coïncider avec un enregistrement volé se ferait attester par sa propre déclaration.
+Toute la valeur du module tient dans ce choix.
+
+L'empreinte est **dérivée** de `HostFacts` par `Debug`, pas déclarée : un champ que l'appelant
+remplirait serait une chose de plus à falsifier, et une liste écrite à la main se périmerait au
+premier ajout de champ. Grossier, et exact.
+
+**Une date de péremption a été écartée.** Elle se règle au jugé et ne dit rien : un hôte peut se
+dégrader en une minute et rester identique un an. L'identité de l'hôte, elle, cesse de correspondre
+**toute seule** quand un contrôleur cgroup disparaît ou qu'un plafond baisse.
+
+### Ce qui ne se collapse pas
+
+- Une attestation d'un autre hôte est **écartée et comptée**, jamais tue. Une attestation ignorée en
+  silence est indiscernable d'une attestation absente, et les deux se réparent différemment — l'une
+  en relançant la campagne ici, l'autre en posant le fichier. L'annonce de démarrage porte les deux
+  comptes.
+- Un niveau inconnu refuse le fichier **entier**, pas sa seule ligne : écarter la ligne ferait
+  démarrer un daemon qui honore trois attestations sur quatre sans le dire.
+- Un fichier **nommé** et absent refuse, là où une variable absente ne refuse pas. Poser le chemin
+  est une intention ; démarrer sans les attestations laisserait l'exploitant lire
+  `level_not_attested` en cherchant pourquoi son fichier n'a rien fait.
+- Aucun `NotTrusted` n'est conservé. `proven_level` l'ignore, donc un enregistrement qui le
+  porterait ne changerait aucun placement — et laisserait croire qu'il le pourrait.
+
+**Une note sur la forme sur disque.** Le niveau voyage en **code** (`"S2"`), pas en type :
+`SandboxLevel` ne dérive pas serde, et le lui ajouter aurait fait entrer une forme de fil dans le
+domaine. `code()` et `parse()` existaient déjà et se répondent ; la forme sur disque est l'affaire
+de ce module.
+
+**Vérifié.** `npm run check` → vert ; 9 tests ; mutation sur `locus-execd` — **5 mutants posés, 0
+survivant, 0 motif absent**.
+
+**Ce que ça ne débloque pas encore.** L'hôte de cette session ne tient pas `S2` — pas de backend de
+conteneur, aucune campagne. La troisième clause de `W12.d` reste donc à exercer là où la sandbox est
+réelle, et il y manque encore le pas qui **écrit** le fichier depuis une campagne de CI. C'est
+l'item suivant, et il est petit : la campagne rend déjà un `Standing`.
+
+**Prochain item.** Écrire les attestations depuis la campagne de CI, puis reprendre `W12.d`. Reste
+aussi en attente : l'ADR 0033 décide que `canterel` est cloné à une révision **épinglée** dans le
+job e2e, et le workflow n'a aucun `ref:`.

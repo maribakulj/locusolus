@@ -63,11 +63,32 @@ fn main() -> ExitCode {
         }
     };
     println!("locus-execd : à l'écoute sur {path}");
-    // `NothingProven` : aucune campagne de self-tests n'est conservée par ce binaire, donc aucun
-    // worker n'a rien prouvé à ses yeux, donc il ne place rien au-dessus de `S0` et le refus le dit
-    // sous le nom `level_not_attested`. C'est exact — et c'est ce qui rend visible, au premier
-    // placement réel, qu'il manque la campagne, plutôt que de placer sur une déclaration.
-    serve(&listener, &facts, &NothingProven, |trouble| {
+
+    // `W5.t` : les attestations conservées, si l'exploitant en a posé.
+    //
+    // Le commentaire qui vivait ici disait que « aucune campagne n'est conservée par ce binaire […]
+    // c'est ce qui rend visible, au premier placement réel, qu'il manque la campagne ». Le premier
+    // placement réel a eu lieu — par le harnais de `W12.f` — et il a rendu exactement cela. La
+    // phrase a fait son travail ; ce qui la remplace est la source qu'elle appelait.
+    //
+    // Le défaut ne change pas : sans la variable, `NothingProven`, donc rien au-dessus de `S0`,
+    // donc `level_not_attested`. Un fichier **nommé et illisible** refuse le démarrage, comme les
+    // amorçages de `locusd` : un exploitant qui l'a posé veut que ses attestations comptent.
+    let recorded = match locus_execd::attestation::load(|name| std::env::var(name).ok(), &facts) {
+        Ok(recorded) => recorded,
+        Err(refus) => {
+            eprintln!("locus-execd : {refus}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let proven: &dyn locus_execd::announced::Proven = if let Some(recorded) = recorded.as_ref() {
+        println!("  {}", locus_execd::attestation::annonce(recorded));
+        recorded
+    } else {
+        println!("  attestations : aucune — rien ne sera placé au-dessus de S0");
+        &NothingProven
+    };
+    serve(&listener, &facts, proven, |trouble| {
         eprintln!("locus-execd : {trouble}");
     });
     ExitCode::SUCCESS
