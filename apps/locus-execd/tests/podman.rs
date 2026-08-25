@@ -12,8 +12,8 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use locus_execd::linux::{
-    Execution, InvocationError, PodmanBackend, RestrictedProfile, Runner, SeccompProfiles,
-    SystemRunner, Workload, create_arguments, inspect_arguments, plan,
+    Execution, InvocationError, PlanError, PodmanBackend, RestrictedProfile, Runner,
+    SeccompProfiles, SystemRunner, Workload, create_arguments, inspect_arguments, plan,
 };
 use locus_execd::{RuntimeError, RuntimePort, SandboxId};
 use locus_execution::{
@@ -215,6 +215,85 @@ fn les_quotas_traversent_l_invocation_sans_se_perdre() {
             "{expected} manque"
         );
     }
+}
+
+/// **Deux montages ne visent jamais la même destination.**
+///
+/// # Ce que ce test a trouvé, et pourquoi rien ne l'avait vu
+///
+/// `quota_target` choisit `QuotaTarget::Workspace { target }` **en prenant un montage inscriptible
+/// existant** de la spécification (`plan.rs`), puis `disk_quota_arguments` en fait un
+/// `--mount type=volume,destination={target}`. Or le même montage est déjà émis par
+/// `mount_argument` en `--mount type=bind,…,destination={target}`. Podman reçoit donc deux montages
+/// sur `/work` et refuse : `Error: /work: duplicate mount destination`.
+///
+/// Aucun test ne l'exerçait : ceux de ce fichier passent `Vec::new()` pour les montages **et**
+/// `disk_bytes = 0`, donc ni le montage ni le quota n'existent, donc la collision est inatteignable.
+/// Il a fallu lire la sortie d'un job de CI pour la voir.
+///
+/// # Ce n'est pas l'affaire du système de fichiers
+///
+/// Le pas de CI qui tolère cet échec dit qu'il « attend un hôte XFS ». C'était vrai du **premier**
+/// message — « storage option overlay.size … only supported for backingFS XFS » —, celui que
+/// `QuotaTarget::WritableRoot` produisait avant que `W5.j` déplace le quota vers l'espace de travail
+/// sur racine en lecture seule. Le message d'aujourd'hui est autre, et un hôte XFS n'y changerait
+/// rien : `duplicate mount destination` est un refus de **validation de spécification**, rendu
+/// avant que Podman regarde le moindre système de fichiers.
+///
+/// La tolérance a survécu à son motif. C'est la forme que `W0.16` nomme, et ce test est la garde
+/// qui l'empêche de recommencer : elle ne demande **aucun** runtime, donc elle tient sur toutes les
+/// machines, y compris celles qui n'ont pas de Podman.
+#[test]
+fn deux_montages_ne_visent_jamais_la_meme_destination() {
+    let espace = || {
+        Mount::new("/tmp/espace-de-travail", "/work", MountMode::ReadWrite).expect("montage licite")
+    };
+    let avec_quota = |level| {
+        SandboxSpec::new(
+            level,
+            SandboxProfile::UntrustedRepository,
+            NetworkMode::Full,
+            vec![espace()],
+            // Un quota disque **non nul** : c'est lui qui fait choisir une cible, et les autres
+            // tests de ce fichier passent `0`, ce qui rendait la collision inatteignable.
+            ResourceSpec::new(1_500, 2 << 30, 128, 1 << 30, 600).expect("quotas non nuls"),
+        )
+        .expect("spécification valide")
+    };
+
+    // 1. Ce qui atteint Podman ne porte jamais deux montages sur une même destination.
+    let confinement = plan(&avec_quota(SandboxLevel::S1)).expect("plan");
+    let arguments =
+        create_arguments(&confinement, &workload(), &profiles(), "locus-0001").expect("invocation");
+
+    let mut vues = std::collections::BTreeSet::new();
+    for argument in &arguments {
+        let Some(destination) = argument
+            .split(',')
+            .find_map(|champ| champ.strip_prefix("destination="))
+        else {
+            continue;
+        };
+        assert!(
+            vues.insert(destination),
+            "« {destination} » est monté deux fois : Podman refuse la spécification avant de \
+             regarder l'hôte, et le refus se lit « duplicate mount destination ». Arguments : \
+             {arguments:?}"
+        );
+    }
+
+    // 2. Et le cas qui produisait la collision est **refusé**, non rendu autrement.
+    //
+    // Les deux moitiés comptent. Sans la première, retirer tout quota ferait passer le test ; sans
+    // la seconde, réintroduire un volume dimensionné à une destination libre le ferait passer aussi,
+    // en bornant un endroit où la charge n'écrit pas.
+    assert!(
+        matches!(
+            plan(&avec_quota(SandboxLevel::S2)),
+            Err(PlanError::DiskQuotaNotEnforceable { .. })
+        ),
+        "à S2 la racine est en lecture seule, et un montage lié n'a pas de taille bornable"
+    );
 }
 
 #[test]

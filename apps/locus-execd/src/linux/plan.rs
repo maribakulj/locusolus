@@ -179,15 +179,22 @@ pub enum QuotaTarget {
     None,
     /// La couche inscriptible du conteneur — quand la racine est inscriptible.
     WritableRoot,
-    /// L'espace de travail monté, désigné par son chemin **dans** la sandbox.
-    ///
-    /// Le chemin dans la sandbox et non celui de l'hôte : c'est là que la sonde écrira, et c'est ce
-    /// que le processus confiné peut nommer.
-    Workspace {
-        /// Le point de montage, vu de l'intérieur.
-        target: String,
-    },
 }
+
+// `QuotaTarget::Workspace` a existé ici, de `W5.j` à `W5.s`, et **ne pouvait pas fonctionner**.
+//
+// Elle rendait un `--mount type=volume,destination={target}` sur un `target` **pris d'un montage
+// déjà déclaré**, que `invocation::mount_argument` émet en `--mount type=bind`. Podman recevait donc
+// deux montages sur la même destination et refusait la spécification entière :
+// `Error: /work: duplicate mount destination`.
+//
+// Ce n'était pas rattrapable en changeant la destination : un volume dimensionné ailleurs ne borne
+// pas l'endroit où la charge écrit. Et tout `Mount` de `packages/execution` est un **bind** — il
+// porte une source et une cible, il n'y a pas d'autre forme —, donc la collision était certaine à
+// chaque fois que la variante était choisie.
+//
+// Un type qui annonce un effet qui n'a pas lieu est ce que l'ADR 0022 décision 0 appelle une
+// **promesse**. Elle est retirée, et le refus la remplace.
 
 /// Un montage, tel que le backend devra le déclarer.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -430,13 +437,25 @@ fn quota_target(
     if !read_only_rootfs {
         return Ok(QuotaTarget::WritableRoot);
     }
-    spec.mounts()
+    let Some(mount) = spec
+        .mounts()
         .iter()
         .find(|mount| mount.mode() == MountMode::ReadWrite)
-        .map(|mount| QuotaTarget::Workspace {
-            target: mount.target().to_owned(),
-        })
-        .ok_or(PlanError::QuotaWithoutWritableSpace { level })
+    else {
+        return Err(PlanError::QuotaWithoutWritableSpace { level });
+    };
+    // Il y a bien un espace inscriptible — et le runtime ne sait pas le **borner**. `W5.s` : tout
+    // `Mount` est un bind, et Podman ne dimensionne pas un bind ; superposer un volume dimensionné
+    // à la même destination produisait une spécification qu'il refusait en bloc.
+    //
+    // Les deux refus ne se confondent pas, et c'est la règle de `W5.h` : « rien à borner » envoie
+    // monter un espace de travail, « la borne n'est pas applicable » envoie changer d'hôte ou de
+    // système de fichiers. Le second est le motif `disk_quota_not_enforceable` de §10.2, qui existe
+    // dans `packages/lep` depuis `W5.g` — et que rien ne produisait.
+    Err(PlanError::DiskQuotaNotEnforceable {
+        level,
+        target: mount.target().to_owned(),
+    })
 }
 
 /// La posture réseau, et la seule dimension où le niveau et la mission ne sont pas indépendants.
@@ -570,6 +589,23 @@ pub enum PlanError {
         /// Le niveau qui monte la racine en lecture seule.
         level: SandboxLevel,
     },
+    /// Un quota disque demandé sur un espace que **le runtime ne sait pas borner** — `W5.s`.
+    ///
+    /// Distinct de [`PlanError::QuotaWithoutWritableSpace`], et la distinction envoie à des endroits
+    /// opposés : « rien à borner » se répare en montant un espace de travail, « la borne n'est pas
+    /// applicable » se répare en changeant d'hôte ou de système de fichiers. C'est la règle de
+    /// `W5.h`, et c'est aussi ce que §10.2 sépare en `capacity_exceeded` et
+    /// `disk_quota_not_enforceable`.
+    ///
+    /// Le cas : à partir de `S2` la racine est en lecture seule, donc le seul espace inscriptible
+    /// est un montage — et tout montage est un **bind**, dont Podman ne dimensionne pas la taille.
+    /// La borne existe côté hôte (quota de projet sur le répertoire source), jamais côté runtime.
+    DiskQuotaNotEnforceable {
+        /// Le niveau qui monte la racine en lecture seule.
+        level: SandboxLevel,
+        /// L'espace de travail concerné, vu de l'intérieur.
+        target: String,
+    },
 }
 
 impl fmt::Display for PlanError {
@@ -597,6 +633,11 @@ impl fmt::Display for PlanError {
             ),
             Self::QuotaNeedsContainment => formatter
                 .write_str("un quota disque a été demandé en S0, qui ne contient aucune écriture"),
+            Self::DiskQuotaNotEnforceable { level, target } => write!(
+                formatter,
+                "un quota disque a été demandé en {}, dont la racine est en lecture seule : le seul espace inscriptible est le montage « {target} », et un montage lié n'a pas de taille que le runtime sache borner — la borne se pose sur l'hôte, par un quota de projet sur le répertoire source",
+                level.code()
+            ),
             Self::QuotaWithoutWritableSpace { level } => write!(
                 formatter,
                 "un quota disque a été demandé en {}, qui monte la racine en lecture seule, et aucun espace de travail n'est monté : la borne n'aurait rien à borner",

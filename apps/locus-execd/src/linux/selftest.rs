@@ -791,7 +791,6 @@ fn probe_context<R: Runner>(
             super::plan::QuotaTarget::None => None,
             // La racine inscriptible n'a pas de chemin à nommer : la sonde y écrit depuis `/`.
             super::plan::QuotaTarget::WritableRoot => Some(("/".to_owned(), bytes)),
-            super::plan::QuotaTarget::Workspace { target } => Some((target.clone(), bytes)),
         }
     });
     ProbeContext {
