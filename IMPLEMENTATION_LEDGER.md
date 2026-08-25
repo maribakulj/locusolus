@@ -15201,3 +15201,69 @@ Huit mutants posés, zéro survivant.
 la source, le même idiome que `W23.d` demande pour la taille de cellule. Un compteur qui saurait
 dire « c'est trop » aurait décidé à la place de `W23.d`, qui doit **mesurer** avant que `W23.e`
 construise.
+
+---
+
+## 2026-08-25 — W23.c — L'ordonnanceur d'instances, et la règle que personne n'appliquait
+
+**Ce qu'il ferme, et qui attendait depuis `W13`.** `lifecycle::may_leave_the_version` existe depuis
+que le module de cycle de vie existe, avec cette docstring : « `REMOVE_NODE` retire un nœud de
+l'organisation, et le retirer pendant que son instance tourne ferait dire à la version qu'un agent
+est parti alors qu'il travaille encore. La version ne peut pas le savoir seule — elle ne détient que
+des identités — donc c'est **ici** que la question se pose, et le scheduler compose les deux. »
+
+Le scheduler n'existait pas. La fonction n'avait donc **aucun appelant** hors de ses propres tests,
+et `Version::apply` retirait un nœud sans jamais demander si son instance tournait.
+
+Ce n'est **pas** un lecteur sans producteur comme `W20.ad` et `W20.ae` : c'est l'inverse — une
+**règle sans applicateur**. La conséquence est identique, et c'est ce qui rend les deux formes
+également invisibles : chaque moitié est correcte, testée, documentée, et rien ne les met bout à
+bout. Après avoir nommé la première forme trois fois dans la journée, il aura fallu la rencontrer
+retournée pour voir que c'était la même.
+
+**Aucun verbe propre, et le type le porte.** `SchedulerDecision` a deux variantes : l'une transporte
+un `lifecycle::Command` tel quel, l'autre une `version::Operation` telle quelle. `docs/13` énumère
+treize choses que « le scheduler doit savoir faire » et l'en-tête de `lifecycle` avait déjà fait le
+tri ; les réécrire ici produirait un second chemin qui divergerait du premier, et personne ne
+saurait lequel décrit ce qui sera commité.
+
+Le nom est long parce que `Decision` désigne déjà autre chose dans ce crate — une demande
+d'approbation de §20. Deux types du même nom se confondent à la lecture même quand le compilateur
+les sépare, et `W0.18` a mesuré ce que coûte un identifiant qui en désigne deux.
+
+**`departures()` est exhaustif, et c'est ce qui rend la règle durable.** Quatre opérations font
+sortir un nœud : `REMOVE_NODE`, le `from` de `REPLACE_NODE`, le nœud de `SPLIT_NODE`, et les
+**deux** sources de `MERGE_NODES`. Le `match` couvre les dix opérations sans branche fourre-tout,
+donc une opération ajoutée au domaine ne compilera pas tant que la question n'aura pas reçu de
+réponse. C'est la seule façon de garantir que la règle suive le domaine au lieu de prendre du retard
+sur lui en silence.
+
+Le refus n'est pas réemballé : `LifecycleError::StillRunning` dit déjà ce qu'il faut, en nommant le
+nœud et son état, et un type propre à ce module serait un vocabulaire de plus pour la même chose.
+
+**L'absence d'hôte est tenue à deux niveaux.** Le manifeste — `packages/coordination` ne déclare
+aucun crate d'exécution, lu depuis `Cargo.toml` comme `W23.a` le fait pour `serde` — et le type,
+dont les deux variantes portent une identité d'agent et une opération de version, rien qui nomme une
+machine. Le premier dit « personne ne peut », le second « rien ne transporte » ; aucun des deux ne
+suffit seul.
+
+**Un test de la clause 3 était vide dans sa première rédaction.** Il appelait `admit`, constatait le
+refus, puis vérifiait qu'une transaction **neuve** ne contenait rien — ce qui est vrai de toute
+transaction neuve. Le chemin d'écriture n'était jamais touché, et le test aurait passé avec un
+`admit` qui accepte tout. Il exerce désormais le flux gardé, celui qu'un appelant compose, et le
+contraste porte la propriété : même opération, même transaction, et le seul écart est l'état de
+l'instance.
+
+Sept mutants posés, zéro survivant.
+
+**Un défaut que j'ai livré et corrigé dans l'heure.** En débloquant `W23.c` deux items plus tôt, ma
+réécriture de sa cellule s'est arrêtée sur « Test de sortie : » et a laissé derrière elle l'ancienne
+explication de blocage : la ligne annonçait un test de sortie et servait un constat périmé, et elle
+est partie dans la PR #222. Deux fois dans la même journée le même geste — remplacer le préfixe
+d'une cellule sans relire ce qui suit. La leçon est petite et concrète : une cellule de ce tableau
+est un paragraphe, pas un champ, et un remplacement de préfixe s'y relit en entier.
+
+**Ce que je n'ai pas fait.** Aucun ordonnanceur qui _décide_ — `admit` valide une décision, il n'en
+choisit pas. Choisir suppose une politique, et la politique de §13 est le portefeuille de `W14`,
+dont la fonction de valeur attend l'anti-gaming de `W7.f`. Écrire ici une heuristique de choix
+aurait été décréter ce que `W23.d` doit mesurer.
