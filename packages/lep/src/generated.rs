@@ -787,6 +787,31 @@ pub struct AttemptResourcesObserved {
     pub wall_time_seconds: Option<f64>,
 }
 
+/// Ce que ce sous-agent a coûté. Facultatif : un harnais qui ne mesure pas ne déclare pas, et zéro dirait « mesuré à zéro » là où la vérité est « non mesuré » — l'aveu s'appelle ici l'absence, comme pour tout champ `1.1`.
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AttemptSubagentsItemCost {
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub calls: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub tokens: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub wall_time_seconds: Option<f64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AttemptSubagentsItem {
+    /// Le nom du sous-agent dans le harnais. Une **désignation**, jamais son contexte : deux sous-agents du même nom sont deux exécutions du même rôle.
+    pub name: String,
+    /// Sa classe de cognition, au sens de `W25.a` — une **classe**, jamais un identifiant de modèle. Chaîne libre et non énumération : un mineur ajoute des champs et jamais des valeurs (ADR 0017, interdit 3), et une classe nouvelle dans une énumération fermée ferait échouer la désérialisation chez tout consommateur `1.0`.
+    pub cognition: String,
+    /// Ce qu'il a rendu — le **résultat**, pas le raisonnement qui y mène. Les trois valeurs sont celles qu'un exploitant distingue : abouti, échoué, ou interrompu avant terme. Confondre les deux derniers ferait lire un budget épuisé comme une erreur de sous-agent.
+    pub outcome: String,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    /// Ce que ce sous-agent a coûté. Facultatif : un harnais qui ne mesure pas ne déclare pas, et zéro dirait « mesuré à zéro » là où la vérité est « non mesuré » — l'aveu s'appelle ici l'absence, comme pour tout champ `1.1`.
+    pub cost: Option<AttemptSubagentsItemCost>,
+}
+
 /// Une tentative d'exécution d'une tâche (SPEC_V1 §15.5). Un attempt ne produit jamais directement un état canonique : il soumet des artefacts et un EpistemicCommit. `succeeded` veut dire que le worker a rempli son contrat technique — jamais que ses claims sont validés, et les deux mots restent séparés partout ici.
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -813,6 +838,9 @@ pub struct Attempt {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     /// Ce qui a réellement été consommé, face à ce que ResourceSpec avait réservé. L'écart est ce que le rapprochement de coûts (§4) exploite.
     pub resources_observed: Option<AttemptResourcesObserved>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    /// Ce que l'institution voit des sous-agents internes du harnais — `W16.d`, tranche 4 du mineur `lep/1.1` (ADR 0017 §5.4), tranché par l'ADR 0027 décision 7. **Facultatif** : un harnais qui ne subdivise pas n'a rien à déclarer, et l'obliger à déclarer « aucun » ferait payer la fonctionnalité à ceux qui ne l'utilisent pas. La feature `subagent-visibility` la négocie au handshake ; absente, ce champ ne s'attend pas. **Quatre choses, et pas une cinquième** : qu'un sous-agent a existé, sa classe de cognition, son coût et son résultat. Le contexte et le raisonnement n'y sont pas, et ce n'est pas un oubli — voir qu'un sous-agent existe et voir son contexte sont deux choses, et la seconde traverse l'invariant 11. Un sous-agent reviewer interne au harnais ne doit pas devenir le chemin par lequel le raisonnement privé du générateur remonte. Sa lecture, quand elle est due, passe par les trois classes de lecteurs de l'ADR 0027 décision 2 et jamais par un chemin propre au harnais.
+    pub subagents: Option<Vec<AttemptSubagentsItem>>,
 }
 
 /// Le droit, borné dans le temps, d'exécuter un attempt (SPEC_V1 §12.3). Une lease expire ; c'est ce qui distingue un worker en panne d'un worker lent, et ce qui permet à `task.orphaned` d'exister sans qu'on interroge personne.
@@ -1080,10 +1108,11 @@ pub const LEP_DOCUMENTS: [&str; 14] = [
 ];
 
 /// Les features négociables au handshake, avec le mineur qui les introduit.
-pub const LEP_FEATURES: [(&str, &str); 5] = [
+pub const LEP_FEATURES: [(&str, &str); 6] = [
     ("late-results", "1.0"),
     ("human-input", "1.0"),
     ("pull-queue", "1.0"),
     ("artifact-streaming", "1.0"),
     ("signed-events", "1.0"),
+    ("subagent-visibility", "1.1"),
 ];

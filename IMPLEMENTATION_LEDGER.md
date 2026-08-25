@@ -16145,3 +16145,87 @@ erreur ? — par un mécanisme complet plutôt que par une position : on retient
 lecture est un fait, les agents ne voient pas sauf règle nommée et bornée, et le reviewer aveugle le
 reste jusqu'à son verdict, après quoi un dévoilement se paie en second verdict plutôt qu'en
 crédibilité.
+
+## 2026-08-25 — W16.d — La visibilité institutionnelle facultative des sous-agents du harnais
+
+**Fichiers** : `apps/locusd/src/subagents.rs` (neuf), `apps/locusd/tests/subagents.rs` (neuf, 10
+tests), `schemas/lep/1.0/attempt.schema.json` (champ `subagents`, `x-since: 1.1`),
+`schemas/lep/1.0/features.json` (feature `subagent-visibility`, `since: 1.1`),
+`packages/lep/src/generated.{ts,rs}` régénérés, `apps/locusd/src/lib.rs`.
+
+C'est la **tranche 4** du mineur `lep/1.1`, la dernière que l'ADR 0017 décision 7 énumérait.
+
+### L'item a attendu deux choses successives, et pas la même
+
+D'abord une **décision** : l'ADR 0017 §5.4 laissait ouvert « ce que l'institution voit d'un
+sous-agent », en disant pourquoi — « trancher cela ici, sans consommateur sous les yeux, serait de
+la spéculation ». L'ADR 0027 décision 7 l'a tranché : qu'il a existé, sa classe de cognition, son
+coût, son résultat ; son contexte et son raisonnement seulement par les décisions 1 à 5.
+
+Ensuite un **lecteur**, que `W26.b` a livré. Le blocage était passé d'`attend:externe` — qui ne se
+périme jamais — à `attend:W26.b`, qui se vérifie ; il s'est périmé, et `check:roadmap` l'a dit.
+
+Ce que la ligne posait comme **question** — « voir qu'un sous-agent existe et voir son contexte sont
+deux choses » — est devenu la **réponse**.
+
+### Facultative veut dire facultative, et c'est la clause qui porte l'item
+
+`Visibility` distingue deux absences :
+
+- `NotDeclared` — le harnais ne sait pas subdiviser, ou n'a pas négocié la feature. **Rien n'est
+  su.**
+- `Declared(vec![])` — il a regardé, il n'y en a pas.
+
+Les confondre est exactement la faute que l'ADR 0017 décision 6 nomme pour `role` : « _l'institution
+n'a pas dit_ indiscernable de _l'institution a dit_, et c'est le second qui se croit tenu ». Les
+deux appellent des questions différentes, et une seule des deux se pose à l'exploitant.
+
+Le décompte le tient aussi — `None` contre `Some(0)`. Un `0` dans les deux cas serait le compteur
+qui n'a rien lu, règle 3 du rythme de session.
+
+### Quatre champs, et un item fermé
+
+`additionalProperties: false` sur l'item, et un test énumère les quatre clés admises. Un item ouvert
+aurait laissé passer un transcript sous un nom que personne ne lit — et personne n'aurait rien «
+fuité » : le champ l'aurait simplement transporté. C'est la moitié de l'item, et c'est l'invariant
+11 : un sous-agent reviewer interne au harnais ne doit pas devenir le chemin par lequel le
+raisonnement privé du générateur remonte.
+
+**Aucun chemin propre au harnais ne lit un raisonnement.** Le module n'importe pas la mémoire ; la
+lecture, quand elle est due, passe par les trois classes de l'ADR 0027 décision 2. Un chemin d'ici
+serait exactement la **quatrième classe de lecteur** que l'ADR refuse — « un lecteur système ou un
+outil d'analyse serait la porte dérobée de ce mécanisme ».
+
+### Trois absences qui ne se remplissent pas d'un défaut
+
+- Un **résultat inconnu** rend `None`. La règle que `SandboxLevel::parse` pose : le compter comme
+  `Failed` inventerait un échec, comme `Succeeded` un succès. L'aveu s'appelle l'absence.
+- `Cancelled` **n'est pas** `Failed`. Confondre les deux ferait lire un budget épuisé comme une
+  erreur de sous-agent, et chercher un défaut là où il n'y a qu'une borne.
+- Un **coût non mesuré** n'est pas un coût nul : zéro dirait « mesuré à zéro » là où la vérité est «
+  non mesuré ».
+
+C'est le test 2 de l'ADR 0017 décision 6 — « celui que l'ADR appelle le plus important des deux » —
+décliné trois fois dans une seule tranche.
+
+### La cognition est une classe, jamais un modèle
+
+Chaîne libre et non énumération, parce qu'un mineur ajoute des **champs** et jamais des **valeurs**
+(ADR 0017, interdit 3) : une classe nouvelle dans une énumération fermée ferait échouer la
+désérialisation chez tout consommateur `1.0`. Le même arbitrage que `role` à la tranche 1.
+
+### Cinquième faux positif de l'idiome de scan de source
+
+L'aiguille « fn read » rougissait sur `read_one`, qui lit un **item déclaré** et aucun raisonnement.
+Retirée — pas parce qu'elle gênait, mais parce qu'elle n'ajoutait rien à `locus_memory`, `Disclosed`
+et `Reader::`, qui tiennent la propriété **exactement** : une lecture de mémoire est impossible sans
+l'un de ces trois noms. Resserrée sur ce qu'elle voulait dire, jamais relâchée, comme les quatre
+autres de la journée.
+
+Sept mutants posés, zéro survivant, plus le mutant de contrôle.
+
+### Ce qui reste sur la frontière
+
+`W4.i` — le credential de pair sur le lien du broker. `W5.af` et `W12.d` attendent un hôte que cette
+machine n'a pas (`bwrap`, et la chaîne complète). Le mineur `lep/1.1` a maintenant ses quatre
+tranches.

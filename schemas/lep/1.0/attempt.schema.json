@@ -6,12 +6,29 @@
   "type": "object",
   "required": ["protocol", "task_id", "attempt", "worker_id", "state", "started_at"],
   "properties": {
-    "protocol": { "$ref": "urn:locus:schema:lep:1.0:vocabulary#/definitions/protocol_version" },
-    "task_id": { "type": "string", "minLength": 1 },
-    "attempt": { "type": "integer", "minimum": 1 },
-    "lease_id": { "type": "string", "minLength": 1 },
-    "worker_id": { "type": "string", "minLength": 1 },
-    "agent_id": { "type": "string", "minLength": 1 },
+    "protocol": {
+      "$ref": "urn:locus:schema:lep:1.0:vocabulary#/definitions/protocol_version"
+    },
+    "task_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "attempt": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "lease_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "worker_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "agent_id": {
+      "type": "string",
+      "minLength": 1
+    },
     "state": {
       "description": "Sous-ensemble des états de tâche de §5 qu'un attempt peut porter côté worker. `accepted`, `rejected` et `superseded` en sont absents exprès : ce sont des verdicts de Locus Solus sur un attempt terminé, pas des états que le worker s'attribue.",
       "type": "string",
@@ -27,8 +44,14 @@
         "orphaned"
       ]
     },
-    "started_at": { "type": "string", "format": "date-time" },
-    "completed_at": { "type": "string", "format": "date-time" },
+    "started_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "completed_at": {
+      "type": "string",
+      "format": "date-time"
+    },
     "late": {
       "description": "Vrai quand le résultat arrive après l'expiration de la lease. §12.3 : un résultat tardif est stocké en quarantaine et ne peut committer sans arbitrage. Le champ existe pour que le worker puisse le dire lui-même plutôt que de le laisser deviner.",
       "type": "boolean"
@@ -38,27 +61,104 @@
       "type": "object",
       "required": ["category", "message"],
       "properties": {
-        "category": { "type": "string", "minLength": 1 },
-        "message": { "type": "string" },
-        "retryable": { "type": "boolean" },
-        "retry_after_seconds": { "type": "integer", "minimum": 0 }
+        "category": {
+          "type": "string",
+          "minLength": 1
+        },
+        "message": {
+          "type": "string"
+        },
+        "retryable": {
+          "type": "boolean"
+        },
+        "retry_after_seconds": {
+          "type": "integer",
+          "minimum": 0
+        }
       }
     },
     "resources_observed": {
       "description": "Ce qui a réellement été consommé, face à ce que ResourceSpec avait réservé. L'écart est ce que le rapprochement de coûts (§4) exploite.",
       "type": "object",
       "properties": {
-        "cpu_seconds": { "type": "number", "minimum": 0 },
-        "memory_peak_mb": { "type": "integer", "minimum": 0 },
-        "disk_peak_mb": { "type": "integer", "minimum": 0 },
-        "wall_time_seconds": { "type": "number", "minimum": 0 }
+        "cpu_seconds": {
+          "type": "number",
+          "minimum": 0
+        },
+        "memory_peak_mb": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "disk_peak_mb": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "wall_time_seconds": {
+          "type": "number",
+          "minimum": 0
+        }
+      }
+    },
+    "subagents": {
+      "description": "Ce que l'institution voit des sous-agents internes du harnais — `W16.d`, tranche 4 du mineur `lep/1.1` (ADR 0017 §5.4), tranché par l'ADR 0027 décision 7. **Facultatif** : un harnais qui ne subdivise pas n'a rien à déclarer, et l'obliger à déclarer « aucun » ferait payer la fonctionnalité à ceux qui ne l'utilisent pas. La feature `subagent-visibility` la négocie au handshake ; absente, ce champ ne s'attend pas. **Quatre choses, et pas une cinquième** : qu'un sous-agent a existé, sa classe de cognition, son coût et son résultat. Le contexte et le raisonnement n'y sont pas, et ce n'est pas un oubli — voir qu'un sous-agent existe et voir son contexte sont deux choses, et la seconde traverse l'invariant 11. Un sous-agent reviewer interne au harnais ne doit pas devenir le chemin par lequel le raisonnement privé du générateur remonte. Sa lecture, quand elle est due, passe par les trois classes de lecteurs de l'ADR 0027 décision 2 et jamais par un chemin propre au harnais.",
+      "type": "array",
+      "x-since": "1.1",
+      "items": {
+        "type": "object",
+        "required": ["name", "cognition", "outcome"],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "description": "Le nom du sous-agent dans le harnais. Une **désignation**, jamais son contexte : deux sous-agents du même nom sont deux exécutions du même rôle.",
+            "type": "string",
+            "minLength": 1
+          },
+          "cognition": {
+            "description": "Sa classe de cognition, au sens de `W25.a` — une **classe**, jamais un identifiant de modèle. Chaîne libre et non énumération : un mineur ajoute des champs et jamais des valeurs (ADR 0017, interdit 3), et une classe nouvelle dans une énumération fermée ferait échouer la désérialisation chez tout consommateur `1.0`.",
+            "type": "string",
+            "minLength": 1
+          },
+          "outcome": {
+            "description": "Ce qu'il a rendu — le **résultat**, pas le raisonnement qui y mène. Les trois valeurs sont celles qu'un exploitant distingue : abouti, échoué, ou interrompu avant terme. Confondre les deux derniers ferait lire un budget épuisé comme une erreur de sous-agent.",
+            "type": "string",
+            "enum": ["succeeded", "failed", "cancelled"]
+          },
+          "cost": {
+            "description": "Ce que ce sous-agent a coûté. Facultatif : un harnais qui ne mesure pas ne déclare pas, et zéro dirait « mesuré à zéro » là où la vérité est « non mesuré » — l'aveu s'appelle ici l'absence, comme pour tout champ `1.1`.",
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "calls": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "tokens": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "wall_time_seconds": {
+                "type": "number",
+                "minimum": 0
+              }
+            }
+          }
+        }
       }
     }
   },
   "allOf": [
     {
-      "if": { "properties": { "state": { "const": "failed" } }, "required": ["state"] },
-      "then": { "required": ["error"] }
+      "if": {
+        "properties": {
+          "state": {
+            "const": "failed"
+          }
+        },
+        "required": ["state"]
+      },
+      "then": {
+        "required": ["error"]
+      }
     }
   ]
 }
