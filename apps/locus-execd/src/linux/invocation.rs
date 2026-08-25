@@ -215,24 +215,18 @@ fn quota_arguments(plan: &ConfinementPlan) -> Vec<String> {
 /// [`QuotaTarget::WritableRoot`] rend le `--storage-opt`, qui est juste là. [`QuotaTarget::None`] ne
 /// rend rien, parce qu'il n'y a rien à borner.
 ///
-/// [`QuotaTarget::Workspace`] rend un **volume dimensionné** monté au point de travail. Podman ne
-/// sait le tenir que sur XFS avec les quotas de projet — précisément le fait que `HostFacts` lit
-/// avant toute création et que l'admission refuse quand il manque, depuis `W5.g`. Le chemin est donc
-/// cohérent de bout en bout : l'hôte est interrogé, la mission refusée si l'hôte ne sait pas, et le
-/// volume dimensionné seulement là où il mordra.
+/// Il n'y a **pas de troisième cas**, et c'est `W5.s` qui l'a retiré. Une variante `Workspace`
+/// rendait ici un volume dimensionné monté au point de travail ; comme ce point venait d'un montage
+/// déjà déclaré, Podman recevait deux montages sur la même destination et refusait la spécification
+/// entière. Le plan refuse désormais en amont, par `PlanError::DiskQuotaNotEnforceable`, ce qui est
+/// le chemin que `W5.g` décrivait déjà : l'hôte est interrogé, et la mission est refusée quand la
+/// borne n'est pas applicable — au lieu d'être transmise sous une forme que le runtime rejette.
 fn disk_quota_arguments(plan: &ConfinementPlan) -> Vec<String> {
     match plan.quota_target() {
         QuotaTarget::None => Vec::new(),
         QuotaTarget::WritableRoot => vec![
             "--storage-opt".to_owned(),
             format!("size={}", plan.disk_bytes()),
-        ],
-        QuotaTarget::Workspace { target } => vec![
-            "--mount".to_owned(),
-            format!(
-                "type=volume,destination={target},volume-opt=size={}",
-                plan.disk_bytes()
-            ),
         ],
     }
 }

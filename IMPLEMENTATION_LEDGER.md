@@ -13923,3 +13923,76 @@ prouvé » — ne peut donc pas être exercée ici. La CI de `locusolus` a une s
 rend la phrase ci-dessus là où elle rendait un `204` muet.
 
 **Prochain item.** Lire ce que la CI dit du placement, là où la sandbox est réelle.
+
+---
+
+## 2026-08-25 — W5.s — Le quota disque de `S2` produisait une spécification que Podman refuse toujours
+
+**Comment c'est arrivé sous les yeux.** En cherchant si la CI pouvait exercer la troisième clause de
+`W12.d`, j'ai lu la sortie du job `sandbox`. Il rend `success`, et il contient :
+
+```text
+test cet_hote_tient_il_s2_sous_une_mission_qui_reserve_du_disque ... FAILED
+    podman create a rendu 125 : Error: /work: duplicate mount destination
+```
+
+**Ma première lecture était fausse et je l'ai corrigée avant d'agir** : j'ai cru à une porte qui
+ment. Elle ne ment pas — le pas est `continue-on-error` **délibérément**, avec son motif écrit, et
+les seize sondes qui comptent tournent dans un pas qui, lui, fait rougir. Vérifier avant d'ouvrir un
+item a évité d'écrire une accusation fausse.
+
+**Ce qui est vrai, en revanche.** Le motif de la tolérance ne correspond plus à ce que le runtime
+dit. Il annonce « attend un hôte XFS », ce qui était exact au **premier** passage — le message était
+alors « storage option overlay.size … only supported for backingFS XFS », produit par
+`QuotaTarget::WritableRoot`. Puis `W5.j` a déplacé le quota vers l'espace de travail sur racine en
+lecture seule, et le refus a changé de **nature** : `duplicate mount destination` est un rejet de
+validation de spécification, qu'aucun système de fichiers ne répare.
+
+C'est `W0.16` sous une autre forme : **un motif qui nomme une cause au lieu d'une condition se
+périme sans prévenir**, et une tolérance rend cette péremption invisible.
+
+**Le défaut, établi sans Podman.** `quota_target` prenait un montage inscriptible **déjà déclaré**
+et en faisait `QuotaTarget::Workspace { target }` ; `disk_quota_arguments` émettait alors
+`--mount type=volume,destination={target}` sur une destination que `mount_argument` émet déjà en
+`type=bind`. J'ai écrit la garde d'abord, et elle est passée au rouge sur cette machine, qui n'a
+aucun Podman :
+
+```text
+"--mount", "type=volume,destination=/work,volume-opt=size=1073741824",
+"--mount", "type=bind,source=/tmp/espace-de-travail,destination=/work",
+```
+
+**Pourquoi la variante n'était pas réparable.** Tout `Mount` de `packages/execution` est un bind —
+il porte une source et une cible, il n'y a pas d'autre forme. La collision était donc **certaine** à
+chaque fois que la variante était choisie. Et la déplacer ne servait à rien : un volume dimensionné
+sur une destination libre ne borne pas l'endroit où la charge écrit. Un type qui annonce un effet
+qui n'a jamais lieu est ce que l'ADR 0022 décision 0 appelle une **promesse** ; elle est retirée.
+
+**Ce qui la remplace.** Le plan refuse, par `PlanError::DiskQuotaNotEnforceable`, distinct de
+`QuotaWithoutWritableSpace` — « rien à borner » se répare en montant un espace de travail, « la
+borne n'est pas applicable » en changeant d'hôte. C'est la règle de `W5.h`, et c'est exactement la
+paire que §10.2 tient entre `capacity_exceeded` et `disk_quota_not_enforceable`. Ce dernier motif
+existait dans `packages/lep` depuis `W5.g` et **rien ne le produisait** ; il a maintenant sa source.
+
+**Deux tests affirmaient le défaut**, et c'est la troisième fois cette nuit. L'un s'arrêtait au
+`QuotaTarget` sans jamais aller jusqu'aux arguments ; l'autre exigeait **littéralement** l'argument
+que Podman refuse. Les deux sont retournés, avec ce qu'ils tiennent désormais écrit dans leur
+docstring. Ceux de `podman.rs` ne pouvaient rien voir : ils passent `Vec::new()` pour les montages
+**et** `disk_bytes = 0`, donc ni montage ni quota, donc collision inatteignable.
+
+**La garde, et ce qu'elle tient par les deux bouts.** Aucune spécification atteignant Podman ne
+porte deux montages sur une même destination — **et** le cas qui produisait la collision est refusé
+plutôt que rendu autrement. Sans la première moitié, retirer tout quota ferait passer ; sans la
+seconde, réintroduire un volume dimensionné à une destination libre passerait aussi, en bornant un
+endroit où personne n'écrit.
+
+**Ce qui reste dû, et ce n'est pas du code.** Borner un montage lié se fait par quota de projet côté
+hôte, sur le répertoire source. C'est une décision d'hôte, de la même famille que `W12.e`, et la
+nommer ici vaut mieux que de laisser croire qu'un correctif l'a réglée.
+
+**Vérifié.** `npm run check` → vert ; 18 suites de `locus-execd` vertes ; la garde rouge avant,
+verte après, sur une machine sans Podman.
+
+**Prochain item.** L'ADR 0033 décide que `canterel` est cloné dans le job e2e à une **révision
+épinglée** — deux fois, dans le titre de la décision 1 et dans ses conséquences. Le workflow n'a
+aucun `ref:`.
