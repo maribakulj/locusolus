@@ -11,5 +11,10 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+# W26.a : une trace de raisonnement est un objet de **mémoire** — niveau et genre — qui voyage
+# comme un **artefact**, par le chemin de §9.1. La dépendance va donc du concept vers le stockage,
+# et pas l'inverse : `packages/artifacts` ne connaît ni rayonnage ni genre, et ne doit pas les
+# apprendre pour porter des octets. Aucun cycle — artifacts ne dépend pas de memory.
+locus-artifacts = { path = "../artifacts" }
 locus-domain = { path = "../domain" }
 locus-protocol = { path = "../protocol" }

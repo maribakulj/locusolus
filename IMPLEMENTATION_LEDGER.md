@@ -15734,3 +15734,98 @@ de l'audit, pas une propriété de ce code.
 **`W25` est clos.** Les trois items sont livrés, et le workstream que l'ADR 0026 appelait « la
 mesure la plus directement rentable du dossier » tient maintenant sur trois pièces qui ne se
 recouvrent pas : la classe déclarée, son plafond, et l'accélérateur qu'on peut ne pas avoir.
+
+## 2026-08-25 — W26.a — La trace de raisonnement comme artefact
+
+**Fichiers** : `packages/memory/src/reasoning.rs` (neuf), `packages/memory/tests/reasoning.rs`
+(neuf, 9 tests), `packages/memory/src/lib.rs`, `packages/memory/Cargo.toml`.
+
+### Ce que l'item corrige, et qui n'était pas un oubli
+
+Le dépôt savait **détecter la fuite** — `Contamination::GeneratorReasoningLeaked`, la première des
+cinq de §16.6. Il avait le **rayonnage privé** — `Level::AgentPrivate`, le plus étroit des sept de
+§16.1. Il avait le **genre qui empêche la contamination épistémique** — `Genre::MetaMemory`, «
+influence le rang, jamais la validité ». Et **rien n'écrivait le raisonnement nulle part**.
+
+Retenir et diffuser sont deux actes. L'invariant 11 interdit le second vers un reviewer indépendant
+; il ne dit rien du premier. Lu comme un ordre de destruction, il fait disparaître la seule chose
+qu'aucun audit ne rattrape — et l'invariant 12 interdit déjà cette disparition pour les résultats
+négatifs, qui sont exactement le même genre de matière gênante.
+
+Les trois pièces étaient donc là, et l'item ne construit que ce qui les relie.
+
+### Les trois premisses, vérifiées avant d'écrire
+
+Trois prémisses fausses payées dans la journée ont fait de cette vérification une habitude :
+`Level::AgentPrivate` existe (`packages/memory/src/level.rs`), `Genre::MetaMemory` existe
+(`packages/memory/src/genre.rs` — un `grep` ne le trouvait d'abord que dans des commentaires écrits
+plus tôt, donc le type a été lu), `ArtifactManifest::declare` existe
+(`packages/artifacts/src/manifest.rs`). Les trois tiennent.
+
+### Le couple n'est pas vérifié : il est inexprimable
+
+`Trace::declaring` ne prend ni niveau, ni genre, ni type MIME. `level()` et `genre()` rendent des
+constantes. Un test qui vérifierait un **refus** supposerait qu'on puisse les demander, ce qui
+serait déjà l'endroit où se tromper ; la vérification porte donc sur la **signature**, lue dans la
+source. C'est l'arbitrage de `W24.a`, dont le test compte les portes d'entrée plutôt que d'essayer
+d'en franchir une qui n'existe pas.
+
+### Deux bornes qui se ressemblent et ne disent pas la même chose
+
+`Confidentiality::Restricted` borne **qui peut recevoir l'octet** — c'est le plafond que
+`ContextView` compare à l'habilitation d'un worker. `Level::AgentPrivate` borne **quel rayonnage de
+mémoire l'indexe**. Une trace a besoin des deux au plus étroit : sans la classification, un worker
+peu habilité recevrait le contenu ; sans le niveau, un rayonnage plus large la référencerait. Un
+test les sépare explicitement, parce qu'une lecture pressée les résumerait en « c'est privé » et
+n'en tiendrait plus qu'un.
+
+### Aucun second stockage, aucun résumé — tenus par l'absence
+
+Le module rend un manifeste et ne retient rien : ni carte, ni registre, ni tampon. C'est ce que
+`W16.e` tient pour les messages — « la messagerie demeure un **usage du journal**, aucun second
+stockage durable » —, et pour la même raison : un stockage de traces serait un endroit de plus où
+chercher, et un endroit de plus à oublier de purger.
+
+Aucune signature ne condense avant écriture. Un résumé est une **lecture**, et une lecture se refait
+; condenser avant écriture décide une fois pour toutes de ce qui méritait d'être gardé, au moment
+précis où personne ne sait encore quelle question sera posée — et ce qui a été jeté ne se retrouve
+pas. La propriété tenue n'est pas « personne n'a résumé », qui se relit à chaque revue, mais «
+personne ne **peut** ».
+
+Le pendant exécutable existe aussi : une trace de taille zéro est refusée, parce que ce serait la
+façon la plus discrète de n'écrire qu'un résumé — c'est-à-dire rien. Le refus est hérité de
+`ArtifactManifest::declare` et non réécrit : redire ses motifs produirait deux vocabulaires pour un
+même refus.
+
+### Le mutant survivant, et c'était encore la prose contre le code
+
+`text/plain` → `application/octet-stream` : **aucun test ne rougissait**. Or l'en-tête du module
+s'appuie sur la propriété pour justifier de poser le type plutôt que de le demander — « deux traces
+de types différents seraient deux choses, et le lecteur institutionnel de `W26.b` devrait alors
+savoir laquelle il lit ».
+
+C'est la troisième forme de la famille de défauts de la journée, celle qui n'a pas de producteur ni
+d'applicateur mais une **affirmation en prose que rien ne tient**. Le test ajouté tient les deux
+moitiés séparément, parce qu'elles ne se déduisent pas l'une de l'autre : **le même** type pour deux
+traces déclarées différemment — ce dont `W26.b` a besoin — et **du texte** — ce sans quoi un lecteur
+aurait des octets et pas un raisonnement. Le scan d'absence couvre au passage `media_type:`, pour la
+raison qui vaut déjà pour le niveau et le genre.
+
+### Le harnais de mutation a un contrôle, maintenant
+
+Six mutants posés, zéro survivant, **plus un mutant de contrôle qui doit survivre** — un commentaire
+modifié. Sans lui, un harnais dont les mutants ne compileraient plus rendrait « tout tué », et le
+rapport serait un compteur qui n'a rien lu. C'est la règle 3 du rythme de session appliquée à
+l'outillage : distinguer « la réponse est zéro » de « il n'y a pas eu de réponse ».
+
+### La direction de la dépendance
+
+`packages/memory` gagne `locus-artifacts`, et pas l'inverse : le concept sait où il se dépose, le
+stockage n'a pas à connaître les concepts qui l'utilisent. Aucun cycle — `artifacts` dépend de
+`domain`, `lep` et `protocol`, jamais de `memory`.
+
+### Ce qui suit
+
+`W26.b` — les trois classes de lecteurs, et la lecture institutionnelle qui produit un fait. C'est
+l'ordre que le bloc pose lui-même : « on ne règle pas la lecture de ce qui n'est pas écrit ». Ce
+lecteur est aussi celui qui débloque `W16.d`.
