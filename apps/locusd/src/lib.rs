@@ -64,6 +64,7 @@ pub mod organisation;
 pub mod outcome;
 pub mod query;
 pub mod stream;
+pub mod subagents;
 pub mod transaction;
 pub mod writes;
 

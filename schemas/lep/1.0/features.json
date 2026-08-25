@@ -31,6 +31,12 @@
       "since": "1.0",
       "source": "SPEC_V1 §10.2",
       "note": "Signature des événements : facultative en local, obligatoire en fédération. La négocier permet à un déploiement local de ne pas la payer sans que le code de fédération ait à la redemander."
+    },
+    {
+      "name": "subagent-visibility",
+      "since": "1.1",
+      "source": "docs/10 `W16.d`, ADR 0017 §5.4, ADR 0027 décision 7",
+      "note": "Le harnais déclare les sous-agents internes d'un attempt : qu'ils ont existé, leur classe de cognition, leur coût et leur résultat. **Facultative** au sens strict — un harnais qui ne subdivise pas n'a rien à déclarer, et l'obliger à déclarer « aucun » ferait payer la fonctionnalité à ceux qui ne l'utilisent pas. Ce qu'elle n'ouvre pas : le contexte et le raisonnement des sous-agents, que l'invariant 11 borne et que les trois classes de lecteurs de l'ADR 0027 gouvernent seules."
     }
   ]
 }
