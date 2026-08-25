@@ -40,6 +40,7 @@
 
 pub mod administration;
 pub mod artifacts;
+pub mod assignment;
 pub mod bootstrap;
 pub mod branch;
 pub mod broker;
@@ -65,6 +66,7 @@ pub mod stream;
 pub mod transaction;
 pub mod writes;
 
+pub use assignment::Assign;
 pub use branch::{Approve, BranchContext, DiffView, HistoryEntry, Rollback};
 pub use command::{CommandEnvelope, Draft};
 pub use composition::{Readiness, Runtime, Wired};

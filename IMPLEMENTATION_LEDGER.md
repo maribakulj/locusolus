@@ -14994,3 +14994,73 @@ deux se seraient écrits sans que rien ne rougisse, sur des fondations que trois
 posées. C'est le même « précisément pourquoi il ne fallait pas » que `W0.19`, et le rencontrer deux
 fois de suite est l'argument le plus fort de la session pour la règle qui l'a produit : ce n'est pas
 la roadmap qui dit ce qui est acquis, c'est le code.
+
+---
+
+## 2026-08-25 — W20.ad — L'assignation d'une tâche atteint le journal
+
+**Le producteur qui manquait.** `packages/projections/src/organisation_graph.rs`, livré par `W13.g`
+et marqué **fait**, lisait `task.assigned` et en tirait l'`agent_id`, avec dans son en-tête : «
+cette projection joint donc `assigned_agent_id` au graphe d'exécution — **et c'est la seule source**
+». Aucun handler ne l'écrivait, et ses tests fabriquaient eux-mêmes les enveloppes qu'elle relit.
+
+Le fait, lui, existait depuis `W13.d` : `Assignment` porte le triplet agent × worker × instant.
+Journaliser un fait de domaine déjà là n'est pas « inventer un fait pour avoir quoi compter », ce
+que `W21.g` a refusé sous ce nom. Ce qui manquait n'était pas le fait, c'était son producteur.
+
+**Ce que l'item a trouvé sans le chercher.** `ActorKind::System` n'était écrit par **aucun**
+producteur du dépôt. Les deux aides existantes — `lep::fact` et `mission::fact` — posent `Agent`, et
+documentent pourquoi : « un worker agit comme agent, jamais comme système ». Or la projection ignore
+**en silence** tout `task.assigned` dont l'acteur n'est pas `System`, au nom de l'invariant 3.
+
+Les deux moitiés étaient donc cohérentes séparément, et incompatibles : emprunter l'une des deux
+aides aurait produit un fait que le seul lecteur laisse tomber sans rien dire — un test de
+production vert, un test de projection vert, et zéro assignation dans le graphe. Ce module écrit le
+premier `System` du dépôt et n'emprunte ni l'une ni l'autre.
+
+`principal_id` reste celui de la commande, et les deux champs ne disent pas la même chose : `kind`
+dit **qui a décidé** — le plan de contrôle —, `principal_id` **sous quelle autorité**. Les confondre
+obligerait à inventer un principal système, que rien n'enrôle.
+
+**Deux absences dans la charge, et ce sont des propriétés.**
+
+- Pas de `state`. `Task::assigned` le dit dans sa propre docstring : « n'est pas une transition —
+  une tâche `running` réassignée reste `running` ». Tous les autres faits de la famille `task`
+  portent l'état atteint ; un `state` ici ferait de `task.assigned` le seul dont l'état ne rapporte
+  aucun changement, et un lecteur qui balaie la famille pour reconstruire §7.1 compterait une
+  transition qui n'a pas eu lieu.
+- Pas de `at`. L'instant de l'acte a déjà un domicile — `occurred_at` de §10.1 — et il est pris **de
+  l'assignation**, pas du contexte : la valeur de domaine est la seule qui sache quand l'acte a eu
+  lieu, et l'écrire aux deux endroits laisserait les deux diverger sans que rien ne le dise.
+
+**Le refus est dérivé, pas transcrit.** Une tâche terminale ne se confie pas, et la garde interroge
+`TaskState::is_terminal`, qui dérive lui-même de la table de §7.1. Un test balaie les **quinze**
+états et vérifie que les **six** terminaux refusent et qu'aucun autre ne le fait — c'est ce qui
+distingue une garde dérivée d'une seconde copie de la table, et un test sur un seul état terminal
+passerait avec un `if state == Accepted` écrit à la main.
+
+**Le test de sortie tient la seule propriété qui compte.** `OrganisationGraph` est pris **tel que
+`W13.g` l'a livré**, et on lui donne ce que le journal porte — pas une enveloppe fabriquée pour
+l'occasion, qui est exactement l'artifice par lequel un lecteur sans producteur reste vert des mois.
+Sept mutants posés, zéro survivant.
+
+**Ce que le déblocage a révélé, et pourquoi `W23.b` reste bloqué.** Le garde de `W0.16` a fait son
+travail : `W23.b` attendait `W20.ad`, qui est livré, donc la ligne est revenue à l'examen au lieu de
+continuer à dire « n'y va pas » pour un motif périmé. L'examen — mené au code, en énumérant **tous**
+les types d'événement que `apps/locusd/src` écrit — donne : `artifact`, `branch`, `message`,
+`resource`, `run`, `task`, `team`, `worker`, et **aucun `agent`**.
+
+Le journal ne porte donc aucun fait d'existence ni d'état d'`AgentInstance`. Le test de sortie de
+`W23.b` demande que les trois compteurs « se recalculent depuis le journal » : `nominal` compte des
+identités dont l'existence n'y est pas écrite, `active` un état qu'il n'y a pas. `W20.ad` a débloqué
+**un tiers** du problème — la jointure — et c'est ce tiers que le motif de l'ADR 0026 visait. Le
+reste tient à ce que la **population elle-même** n'atteint pas le journal, ce que `W20.ae` livre.
+
+Et ce n'est pas `W23.a` qui manquerait : `AgentStateStore` persiste l'état, mais un magasin n'est
+pas le journal, et l'ADR 0026 décision 2 s'est explicitement refusée à en choisir le backend.
+
+**Ce que je n'ai pas fait.** Les trois compteurs, pour la troisième fois — et cette fois le motif
+est plus court qu'il ne l'a jamais été : `nominal` compterait zéro sur un journal qui ne dit rien de
+la population, et zéro est la valeur qu'un compteur vide rend quand il fonctionne. C'est la règle 3
+du rythme de session, transposée du sondage de CI au domaine : **un compteur qui n'a rien lu ne vaut
+pas zéro**.
