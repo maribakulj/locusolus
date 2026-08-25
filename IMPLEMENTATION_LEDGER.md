@@ -15135,3 +15135,69 @@ tenir est la plus courte de toutes : **le fait existait, son producteur manquait
 suite, à deux endroits différents, dans un dépôt où chaque moitié était correcte et testée
 séparément. C'est exactement ce qui rend cette forme invisible, et c'est pourquoi elle a maintenant
 un nom.
+
+---
+
+## 2026-08-25 — W23.b — Les trois compteurs de population
+
+**Ce qu'il aura fallu pour arriver là.** Quatre items, dont deux qui n'écrivaient que de la
+documentation, pour un fichier qui tient en trois cents lignes. L'histoire vaut d'être gardée parce
+que chaque étape paraissait suffisante quand on y était :
+
+1. l'ADR 0026 bloquait `W23.b` au motif que « `generating` compte un fait qu'aucun journal n'écrit
+   ». Vrai, et trop vague pour se périmer tout seul ;
+2. un déblocage a visé le cycle de bail de `W20.k` — journalisé, mais qui nomme un **worker** et non
+   une instance (`W0.19`) ;
+3. `W0.20` a trouvé que le bloc entier reposait sur trois affirmations fausses, dont « `lifecycle`
+   journalise les transitions » ;
+4. `W20.ad` a livré la jointure `task.assigned`, et n'a débloqué qu'**un tiers** : l'énumération de
+   tous les types d'événement écrits par `locusd` montrait qu'`agent` n'y figurait pas du tout ;
+5. `W20.ae` a écrit les faits de cycle de vie, et la population a enfin atteint le journal.
+
+La forme commune aux deux manques réels : **le fait existait dans le domaine, son producteur
+manquait.** Deux fois, à deux endroits, dans un dépôt où chaque moitié était correcte et testée
+séparément — ce qui est exactement ce qui rend cette forme invisible.
+
+**Ce qui est livré.** `packages/projections/src/population.rs`, une projection de plus à côté de
+celles de §9.5. Aucun magasin, aucune route, aucun compteur tenu à la main : les trois nombres se
+recalculent du journal et se rejouent à l'identique, résumé compris.
+
+**Les deux provenances sont asymétriques, et c'est la décision de conception de cet item.** Les
+faits `agent.*` ne sont retenus que du **système** — invariant 3, une population que les workers
+écriraient serait une population qu'ils décident. Le bail, lui, est retenu de n'importe quel acteur,
+parce qu'un bail **est** l'acte d'un worker et que `lep::fact` pose `Agent` en le documentant. Poser
+la même garde des deux côtés par souci de symétrie ne retiendrait aucun bail, et `generating`
+vaudrait zéro sur un système qui tourne — le zéro d'un compteur qui n'a rien lu, encore lui.
+
+**`generating` est compté parmi les actives**, ce qui est à la fois l'invariant tenu par
+construction et la lecture juste. Une instance tuée alors qu'un bail restait ouvert ne raisonne pas
+; la compter ferait passer `generating` au-dessus d'`active`, c'est-à-dire **violer l'invariant par
+la mesure** au lieu de le détecter. Le type `Census` reste faillible pour les appelants qui n'ont
+pas cette garantie, et son refus porte les trois valeurs : un recensement incohérent n'a pas de
+moitié saine, et nommer la seule comparaison qui a échoué enverrait le lecteur chercher les autres.
+
+**Un état d'instance inconnu met la projection en quarantaine** plutôt que de se ranger d'un côté.
+Le supposer non terminal gonflerait `active`, le supposer terminal le raboterait, et les deux
+rendraient un nombre que personne ne saurait faux. §9.5 le permet : la quarantaine n'empêche pas
+l'écriture canonique, elle empêche de croire la projection.
+
+**Une dépendance de crate a été ajoutée, et elle se justifie.** `packages/projections` dépend
+désormais de `locus-coordination`, pour lire `InstanceState::is_terminal` plutôt que de retranscrire
+la liste des états terminaux de §7.1. Une seconde copie divergerait au premier état ajouté, et rien
+ne dirait laquelle est juste. La règle 6 de `boundaries.json` vise `packages/graph` ↔
+`packages/coordination` ; un troisième crate qui lit l'un des deux n'y contrevient pas, et
+`check:boundaries` le confirme sur les sept règles.
+
+**Un mutant a démoli la première rédaction du test de reprise.** Faire gagner la **première**
+assignation y survivait : le bail reste tenu par quelqu'un dans les deux cas, donc le compte est le
+même et rien ne départage l'ancien titulaire du nouveau. C'est la même forme que le mutant du stream
+unique de `W20.ae` — un test qui n'observe pas ce qui distingue les deux hypothèses. Arrêter
+l'ancien titulaire rend la différence visible sans ajouter d'accesseur : si la reprise a eu lieu, le
+nouveau raisonne toujours ; sinon le bail est tenu par un mort et `generating` tombe à zéro.
+
+Huit mutants posés, zéro survivant.
+
+**Ce que je n'ai pas fait.** Aucun seuil, aucun verdict, aucune constante — tenu par un test qui lit
+la source, le même idiome que `W23.d` demande pour la taille de cellule. Un compteur qui saurait
+dire « c'est trop » aurait décidé à la place de `W23.d`, qui doit **mesurer** avant que `W23.e`
+construise.

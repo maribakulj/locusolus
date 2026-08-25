@@ -35,6 +35,7 @@ pub mod conflict_registry;
 pub mod epistemic_graph;
 pub mod execution_graph;
 pub mod organisation_graph;
+pub mod population;
 pub mod projection;
 pub mod runner;
 pub mod validation_state;
@@ -46,6 +47,7 @@ pub use epistemic_graph::{
 };
 pub use execution_graph::{Edge, EdgeKind, ExecutionGraph, NodeKind};
 pub use organisation_graph::{AssignmentRecord, OrganisationGraph};
+pub use population::{Census, CensusError, Population};
 pub use projection::{Projection, ProjectionError, Watermark};
 pub use runner::{Health, Progress, ProjectionRunner};
 pub use validation_state::{ObjectState, ValidationState};
