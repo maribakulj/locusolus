@@ -15549,3 +15549,62 @@ Six mutants posés, zéro survivant.
 propre décision à prendre — budget ne dépend que de `locus-protocol`, donc soit il gagne une
 dépendance vers le domaine, soit il indexe par slug comme la politique le fait ici. La seconde est
 probablement la bonne, mais c'est l'item qui doit la justifier, pas celui-ci qui doit la pré-empter.
+
+---
+
+## 2026-08-25 — W25.b — Le plafond de cognition
+
+**Ce n'est pas une septième dimension, et l'écart avec la lettre de l'ADR se justifie.** L'ADR 0026
+décision 6 écrit qu'« il manque la dimension de cognition et son plafond ». Pris au pied de la
+lettre, cela demanderait une septième valeur à `Dimension` — et il faudrait alors dire en quelle
+**unité** on la compte.
+
+Personne ne sait : la cognition n'a pas d'unité propre. Elle se paie en appels, en jetons et en
+argent, qui sont déjà les dimensions de §7.2. Ce qui manquait n'est pas une unité, c'est une
+**clé**.
+
+Le plafond de cognition est donc un jeu de `Limits` — exprimé dans les dimensions de §7.2, et un
+dépassement nomme la sienne, ce qui est la clause 1 — indexé par le couple `(classe, dépense)`. Le
+levier de l'ADR se pose alors littéralement : borner serré `Frontier`, large `Economy`, sans
+qu'aucune constante de code ne dise lequel des deux est cher.
+
+**La décision que `W25.a` m'avait laissée, et je la tranche autrement que je l'avais devinée.** Le
+ledger de `W25.a` disait : « soit budget gagne une dépendance vers le domaine, soit il indexe par
+slug comme la politique le fait ici. La seconde est probablement la bonne. » C'est la **première**.
+
+La raison n'est apparue qu'en écrivant la clause 2 : la politique et le budget ne font pas la même
+chose d'une clé inconnue.
+
+- La politique **répond**. Une classe qu'elle ne connaît pas rend `None`, l'appelant sait qu'il n'a
+  pas de modèle, et l'espace des clés n'a pas besoin d'être énumérable.
+- Ce crate **borne**. La question « quelles clés sont couvertes ? » doit avoir une réponse complète,
+  et un espace de chaînes ne s'énumère pas.
+
+Un test balaie les quatre couples de `CognitionClass::ALL × Spend::ALL` et vérifie que deux sont
+bornés et deux hors budget. Il n'aurait pas pu s'écrire sur des slugs.
+
+**Quatre verdicts, et aucun booléen.** Non classée, hors budget, dimension non bornée, dépassement.
+Les quatre demandent à un exploitant des gestes différents — classer sa dépense, poser un plafond,
+borner une dimension, relever une borne — et un `bool` les confondrait tous. `Verdict::dimension()`
+rend `None` pour les deux premiers, et c'est exact : dans ces cas la dimension n'a pas été atteinte,
+et prétendre le contraire ferait chercher un plafond de dimension là où il n'y a pas de plafond du
+tout.
+
+**Non bornée n'est pas libre.** `Limits` le posait déjà pour ses dimensions — « une dimension non
+nommée n'est pas _libre_, elle est hors budget » — et le plafond de cognition en hérite plutôt que
+de réinventer la règle. L'inverse ferait d'un oubli de configuration une autorisation de dépenser :
+le silence lu comme un accord, que ce dépôt refuse partout.
+
+**`Spend` gagne `Ord`**, pour exactement la raison que `Dimension` documente déjà : il devient une
+moitié de clé de `BTreeMap`, donc l'ordre de l'énumération devient l'ordre de parcours des plafonds,
+et un ordre instable rendrait deux configurations identiques distinguables.
+
+Six mutants posés, zéro survivant — dont **« non classée devient travail »**, celui que `W21.l`
+existe pour interdire, et **« la classe est ignorée dans la clé »**, qui aurait fait disparaître le
+levier tout en laissant tous les autres tests verts.
+
+**Ce que je n'ai pas fait.** Brancher le plafond sur `BudgetAccount` : réserver et régler restent ce
+que `W21` a livré, et `admits` est une **lecture**. Les câbler demande de décider ce qu'un
+dépassement de cognition fait d'une réservation en cours — l'annuler, la laisser finir, la dégrader
+vers `Economy` — et aucune des trois n'est écrite nulle part. C'est une décision de politique, donc
+`W14`, pas une conséquence de cet item.
