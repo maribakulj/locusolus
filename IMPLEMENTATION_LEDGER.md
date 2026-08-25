@@ -16344,3 +16344,113 @@ Neuf mutants posés, zéro survivant, plus le mutant de contrôle.
 
 `W5.af` et `W12.d` attendent un hôte que cette machine n'a pas — `bwrap`, et la chaîne complète. Ce
 sont les deux derniers de la frontière, et leur blocage est nommé, pas subi.
+
+## 2026-08-25 — W0.23 — Le blocage de `W5.af` nommait un hôte absent, et l'hôte n'était pas le problème
+
+**Fichiers** : `docs/10_V1_ROADMAP.md` — `W0.23` inscrit, `W5.af` corrigé, `R7` ouvert.
+
+### La faute, et elle est de cette session
+
+`bubblewrap` a été déclaré manquant **sans avoir été cherché**. La phrase « `W5.af` et `W12.d`
+attendent un hôte que cette machine n'a pas — `bwrap` » est passée dans **deux entrées de ledger
+consécutives** (`W16.d`, `W4.i`) et dans deux corps de PR, sans qu'une seule commande l'ait
+vérifiée.
+
+Mesuré ensuite : il n'était pas installé, **il s'installe**, et il **isole réellement** ici —
+hostname changé, `/tmp` vide dans la sandbox, et il fonctionne **sans privilège**, sous un uid
+ordinaire, avec `--unshare-user --unshare-net`.
+
+« Absent » et « pas encore installé » ne sont pas la même chose. C'est la distinction exacte que
+`W4.i` passait son temps à défendre dans le même souffle, ce qui rend la faute plus instructive que
+gênante : une session peut tenir une discipline sur l'objet qu'elle regarde et la lâcher sur la
+phrase qu'elle écrit à côté.
+
+La correction est laissée en place plutôt que réécrite dans l'historique. Un registre dont les
+entrées se corrigent en silence ne dit plus qu'une session s'est trompée.
+
+### Le vrai blocage, trouvé en continuant de mesurer
+
+Une fois `bwrap` disponible, la question devient : la campagne peut-elle tourner dessus ? Non, et
+pour une raison qui n'a rien d'un hôte.
+
+La campagne des seize sondes est bâtie sur `create` → `start` → seize `podman exec` → `stop` →
+`remove` — c'est-à-dire sur une sandbox **durable dans laquelle on rentre**. `bubblewrap` n'en a
+pas, et c'est vérifié **aux deux bouts** plutôt que déduit de la documentation :
+
+- il ne garde rien après sortie — un `tmpfs` écrit à la première invocation est vide à la seconde ;
+- il n'a **aucune** sous-commande `exec`, `enter` ou `attach`.
+
+### Pourquoi ce n'est pas une adaptation mécanique
+
+Les deux issues connues coûtent chacune quelque chose que personne n'a tranché.
+
+**Une sandbox par sonde.** Les seize deviennent seize invocations indépendantes. Ce que `W5.o`,
+`W5.p` et `W5.r` ont établi — la contamination _entre_ sondes d'une même sandbox, d'abord refusée
+puis rendue inexprimable — cesse d'être mesurable. Non parce que le problème est réglé, mais parce
+que le montage l'empêche de se poser. Une garantie obtenue en supprimant la question n'est pas celle
+qu'on obtient en y répondant, et le dépôt a payé quatre items pour la seconde.
+
+**Entrer dans les namespaces d'un `bwrap` maintenu vivant.** C'est un **troisième** mécanisme, ni
+podman ni bubblewrap — donc plus celui que le worker emploie. L'ADR 0035 existe précisément pour
+refuser d'attester un mécanisme que le réclamant n'emploie pas ; le contourner par la porte de
+service serait le défaut `canterel-local` sous un autre nom.
+
+### `attend:R7`, et pourquoi pas `attend:R2`
+
+Le marqueur d'abord écrit pour cette correction était `attend:R2`. **`R2` existe déjà et est marqué
+`fait`** — c'est l'attribution de crédit, sans rapport. Le blocage aurait donc été _satisfait à la
+seconde où il était écrit_ : un blocage qui s'auto-périme est exactement le défaut que `W0.16` a
+corrigé, dans l'autre sens. Trouvé en vérifiant le registre plutôt qu'en supposant le numéro libre.
+
+`R7` a donc été ouvert pour porter l'arbitrage — puis **retiré le jour même**, voir ci-dessous.
+
+## 2026-08-25 — R7 — Retiré le jour même : l'arbitrage qu'il posait n'existe pas
+
+**Fichiers** : `docs/10_V1_ROADMAP.md` — `R7` clos par son démenti, `W5.af` rendu non bloqué.
+
+### La seconde erreur, et c'est la même que la première
+
+`W0.23` corrigeait un blocage faux — « pas d'hôte `bwrap` » — et en écrivait un autre : la campagne
+exigerait une sandbox **durable dans laquelle on rentre**, donc `bubblewrap` demanderait de trancher
+entre « une sandbox par sonde » et un troisième mécanisme.
+
+**La première branche était déjà la réalité.** `run_suite` appelle `run_alone` pour chaque sonde —
+`create`, `start`, éprouver, `teardown` —, et c'est `W5.r` qui l'a posé, précisément pour rendre la
+contamination inexprimable.
+
+L'analyse avait été écrite en lisant le **titre** de `W5.r` dans la roadmap — « une sonde par
+sandbox, la contamination inexprimable » — et en le contredisant, sans ouvrir `selftest.rs`. Deux
+fautes du même genre en une heure : affirmer sans mesurer, puis raisonner sur un titre au lieu du
+code. La seconde est plus embarrassante, parce qu'elle s'est produite **pendant** la correction de
+la première, et que la ligne qu'elle contredisait était à trois mots de la réponse.
+
+### Ce qui reste vrai, et ce qui tombe
+
+Reste vrai, et mesuré : `bwrap` s'installe et isole réellement ici, y compris **sans privilège** ;
+il ne garde rien après sortie ; il n'offre ni `exec`, ni `enter`, ni `attach`.
+
+Tombe : que cela constitue un blocage. La campagne n'exec pas seize fois dans une sandbox vivante —
+elle en ouvre une par sonde. Un mécanisme qui n'en garde aucune convient à cette forme-là ; il n'y a
+pas d'arbitrage, il y a un backend à écrire.
+
+### Ce que `W5.af` demande vraiment
+
+Un `BubblewrapBackend` derrière `RuntimePort`, où `create` et `start` sont de la comptabilité et où
+la sonde est la commande que `bwrap` enveloppe. Deux points sont à trancher **dans** l'item, et sont
+nommés dans sa ligne pour qu'ils ne se découvrent pas en chemin :
+
+- ce que `persist_after_teardown` mesure quand le démontage **est** la sortie du processus ;
+- ce que `attestation()` rapporte pour un mécanisme sans conteneur à réinspecter.
+
+Ce sont des questions d'implémentation, pas des décisions de rôle.
+
+### Pourquoi `R7` est clos plutôt que supprimé
+
+Un item retiré en silence ne dit plus qu'une session a posé une fausse question. Le registre garde
+donc les deux mouvements — l'ouverture et le démenti —, comme `W0.23` garde la phrase sur `bwrap`
+qu'il corrige.
+
+### Ce qui reste
+
+`W5.af` et `W12.d`, tous deux sur la frontière et aucun bloqué par autre chose que le travail qu'ils
+demandent.
