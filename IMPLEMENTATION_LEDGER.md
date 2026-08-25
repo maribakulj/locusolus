@@ -14501,3 +14501,61 @@ ont tous été livrés en éprouvant la **fonction**, jamais l'assemblage. Les d
 ci-dessus n'existent que parce que la chaîne a été montée quatre fois.
 
 **Vérifié aussi.** `npm run check` → vert ; 246 tests ; 8 sous-tests dans la chaîne réelle.
+
+---
+
+## 2026-08-25 — W12.d.3 — La troisième clause : la décision de placement se lit, des deux côtés
+
+**Le point de départ.** `W2.24`, livré dans `canterel` juste avant, a fait dire au worker ce que son
+tour a fait. La clause suivante de `W12.d` — « un worker s'enregistre **et est placé sur ce qu'il a
+prouvé** » — devenait donc affirmable : avant, un tour qui réclamait et un tour qui ne trouvait rien
+étaient indiscernables au terminal, et un test n'aurait eu que le journal du plan de contrôle à
+lire.
+
+**Le harnais démarrait le worker trop tôt.** `runLoop` fait **un** tour — réclamer, planifier,
+ouvrir la session, faire remonter, rendre — puis le processus sort ; ce n'est pas une boucle malgré
+son nom. `startChain` le démarrait avant toute mise en file, donc le tour tombait toujours sur «
+aucune mission à réclamer ». `Chain.tourDeWorker` inverse l'ordre, et l'option
+`worker: "à la demande"` laisse la chaîne monter à deux processus.
+
+**Et la première rédaction de la clause s'est fait démentir par une seule exécution.** Elle exigeait
+que le tour **réclame** la mission, sur l'hypothèse que l'ordonnancement était toute la cause.
+L'hypothèse était fausse : la mission était en file — `task.queued` au journal —, le tour a eu lieu
+après, et le worker a quand même annoncé « aucune mission à réclamer ».
+
+La cause était dans la sortie de `locusd`, et elle est **correcte** :
+
+```text
+« task_01HF7YAT000000000000000005 » retourne en file : aucun des 1 worker(s) soumis ne convient —
+« canterel-af5e075e-… » : confinement S2 exigé, l'hôte ne sait pas dépasser S1 — changer de machine ;
+l'hôte ne sait pas appliquer le mode réseau Deny ;
+confinement S2 annoncé mais jamais prouvé, aucune campagne n'a conclu — lancer les self-tests
+```
+
+Le worker s'est bien soumis, et le daemon a refusé pour trois motifs de §10.2 **tous exacts** sur
+cette machine. Rien n'était cassé ; c'est mon affirmation qui l'était. `W20.aa` a fait son travail :
+sans les motifs nommés, ce diagnostic aurait pris une journée.
+
+**Ce qui est affirmé à la place.** Exiger la réclamation aurait fait de cette clause une affirmation
+sur **l'hôte** — rouge sur un conteneur de développement, verte sur un runner capable —, exactement
+ce que `W5.x` avait refusé d'écrire pour l'empreinte quelques heures plus tôt. La clause dit donc :
+**l'un des deux parle**. Ou le worker rapporte la mission qu'il a prise, ou le daemon dit pourquoi
+elle retourne en file, avec ses motifs. Les deux silences à la fois sont le seul échec — un
+placement sans trace et un refus sans motif se ressemblent trait pour trait dans un log.
+
+C'est la propriété que cette session a vue enfreinte quatre fois — `W20.aa` pour le `204`, `W5.w`
+pour l'empreinte, `W5.x` pour le harnais, `W2.24` pour le tour du worker. Elle est tenue ici **des
+deux côtés à la fois**, ce qu'aucun des quatre ne pouvait faire seul.
+
+**Le pin est bumpé** à `b0ac2c9`, la révision de `canterel` qui porte `W2.24`. C'est ce que l'ADR
+0033 décision 1 veut d'un pin : non pas « ne jamais mettre à jour », mais « mettre à jour est un
+acte qui se voit dans un diff ». Et si le pin précédait `W2.24`, le message d'échec de la clause le
+nomme plutôt que de laisser chercher.
+
+**Ce que cette clause ne tient pas.** Que la mission traverse jusqu'au bout — session ouverte,
+événements remontés, artefacts hashés. Ces termes sont la suite de `W12.d`, et les affirmer ici
+rendrait vert sur « le worker s'est soumis » le jour où l'exécution cesserait d'aboutir. La
+complétude n'est toujours pas affirmée, et c'est le fonctionnement voulu.
+
+**Vérifié.** `npm run check` → vert. La chaîne complète montée localement contre le `canterel` réel
+: **10 sous-tests, 2 suites, 0 échec**, et le diagnostic imprime les deux côtés de la décision.

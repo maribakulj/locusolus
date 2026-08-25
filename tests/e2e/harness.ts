@@ -166,9 +166,41 @@ export type Chain = {
    * affirmerait alors sur un silence qu'il a fabriqué lui-même.
    */
   annonce(processus: string): string;
+  /**
+   * Faire faire **un** tour au worker, et rendre ce qu'il a écrit — `W12.d`.
+   *
+   * `runLoop` de `canterel` fait exactement un tour puis sort ; ce n'est pas une boucle malgré son
+   * nom. Un worker démarré avant qu'aucune mission soit en file tombe donc toujours sur « aucune
+   * mission à réclamer », et c'est ce que le harnais faisait sans le dire. Déclencher le tour
+   * **après** la mise en file est la seule façon d'exercer un placement.
+   *
+   * @throws {HarnessFailure} quand le tour sort sur autre chose que `0`, avec ce qu'il a écrit.
+   */
+  tourDeWorker(): Promise<string>;
   /** Tout arrêter. Idempotent. */
   stop(): Promise<void>;
 };
+
+/**
+ * Attendre qu'un processus sorte, et rendre son code — ou `null` s'il n'a pas fini à temps.
+ *
+ * `null` plutôt qu'un `throw` : l'appelant sait, lui, si un tour qui n'a pas fini est une panne ou
+ * l'attendu, et lever ici lui retirerait la sortie du processus, c'est-à-dire le seul renseignement
+ * utile.
+ */
+function attendreSortie(started: Started, timeoutMs = BOOT_TIMEOUT_MS): Promise<number | null> {
+  return new Promise((resolve) => {
+    if (started.child.exitCode !== null) {
+      resolve(started.child.exitCode);
+      return;
+    }
+    const minuterie = setTimeout(() => resolve(null), timeoutMs);
+    started.child.on("exit", (code) => {
+      clearTimeout(minuterie);
+      resolve(code ?? -1);
+    });
+  });
+}
 
 /**
  * Ce qu'un processus nommé a écrit, ou une panne qui nomme ceux qui existent — `W5.x`.
@@ -502,6 +534,16 @@ async function enroll(repo: string, stateDir: string, controlPlane: string): Pro
 export async function startChain(options: {
   readonly root: string;
   readonly port?: number;
+  /**
+   * Quand le worker fait son tour — `W12.d`.
+   *
+   * `« au démarrage »` (le défaut) monte les trois processus, ce que `W12.f` décrit. `« à la
+   * demande »` en monte deux et laisse l'appelant déclencher le tour par [`Chain.tourDeWorker`],
+   * ce qui est la seule façon d'exercer un **placement** : `runLoop` fait un tour et sort, donc un
+   * worker démarré avant qu'aucune mission soit en file tombe toujours sur « aucune mission à
+   * réclamer ».
+   */
+  readonly worker?: "au démarrage" | "à la demande";
 }): Promise<Chain> {
   const repo = workerRepo();
   const locusd = builtBinary(options.root, "locusd");
@@ -575,30 +617,61 @@ export async function startChain(options: {
     // d'état à moitié écrit, ce qui produirait un `inert` intermittent plutôt qu'une panne.
     await enroll(repo, workerStateDir, controlPlane);
 
-    const worker = start(
-      "canterel worker",
-      "bun",
-      ["run", join(repo, "backend", "cli", "src", "index.ts"), "worker", "--locus", controlPlane],
-      // `OPENSCIENCE_TEST_HOME`, et **pas** `XDG_DATA_HOME`.
-      //
-      // La première rédaction posait `XDG_DATA_HOME` en croyant isoler le worker. `canterel` ne lit
-      // pas cette variable : `Global.Path.data` dérive de `OPENSCIENCE_TEST_HOME` ou du home réel.
-      // Le harnais partageait donc l'installation **de la machine**, et son verdict dépendait de
-      // l'état de cet hôte — vert tant qu'aucun worker n'y était enrôlé, rouge dès qu'il l'était.
-      //
-      // C'est la pire espèce de harnais : il croyait isoler, il ne le disait à personne, et il a
-      // fallu qu'un enrôlement réel réussisse pour que le mensonge devienne visible. Vérifié en
-      // lisant `src/global/index.ts`, pas en supposant qu'une variable XDG standard serait lue.
-      { ...process.env, [WORKER_HOME_ENV]: workerStateDir },
-    );
-    demarres.push(worker);
-    await sleep(2_000);
-    if (worker.child.exitCode !== null && worker.child.exitCode !== 0) {
-      throw new HarnessFailure(
+    /**
+     * Lancer un tour de worker — `W12.d`.
+     *
+     * # Pourquoi c'est **un tour**, et non un démarrage
+     *
+     * `runLoop` de `canterel` fait exactement un tour : réclamer, planifier, ouvrir la session,
+     * faire remonter, rendre — puis le processus sort. Ce n'est pas une boucle malgré son nom, et
+     * `W2.24` l'a rendu visible en faisant dire au worker ce que son tour a fait.
+     *
+     * Le harnais le démarrait pourtant **avant** qu'aucune mission soit en file, et le tour tombait
+     * donc toujours sur « aucune mission à réclamer ». Une chaîne qui voudrait voir un placement
+     * doit mettre la mission en file **d'abord**.
+     */
+    const tour = () =>
+      start(
         "canterel worker",
-        `mort au démarrage (code ${worker.child.exitCode})`,
-        worker.output(),
+        "bun",
+        ["run", join(repo, "backend", "cli", "src", "index.ts"), "worker", "--locus", controlPlane],
+        // `OPENSCIENCE_TEST_HOME`, et **pas** `XDG_DATA_HOME`.
+        //
+        // La première rédaction posait `XDG_DATA_HOME` en croyant isoler le worker. `canterel` ne lit
+        // pas cette variable : `Global.Path.data` dérive de `OPENSCIENCE_TEST_HOME` ou du home réel.
+        // Le harnais partageait donc l'installation **de la machine**, et son verdict dépendait de
+        // l'état de cet hôte — vert tant qu'aucun worker n'y était enrôlé, rouge dès qu'il l'était.
+        //
+        // C'est la pire espèce de harnais : il croyait isoler, il ne le disait à personne, et il a
+        // fallu qu'un enrôlement réel réussisse pour que le mensonge devienne visible. Vérifié en
+        // lisant `src/global/index.ts`, pas en supposant qu'une variable XDG standard serait lue.
+        { ...process.env, [WORKER_HOME_ENV]: workerStateDir },
       );
+
+    /** Un tour mené jusqu'à sa fin, et ce qu'il a écrit. */
+    const tourDeWorker = async (): Promise<string> => {
+      const worker = tour();
+      demarres.push(worker);
+      const sortie = await attendreSortie(worker);
+      // `0` ou rien : un tour qui n'a rien trouvé sort proprement, et c'est le cas nominal d'une
+      // file vide. Tout autre code est une panne, et sa sortie est ce qui la diagnostique.
+      if (sortie !== 0 && sortie !== null) {
+        throw new HarnessFailure("canterel worker", `sorti en ${sortie}`, worker.output());
+      }
+      return worker.output();
+    };
+
+    if (options.worker !== "à la demande") {
+      const worker = tour();
+      demarres.push(worker);
+      await sleep(2_000);
+      if (worker.child.exitCode !== null && worker.child.exitCode !== 0) {
+        throw new HarnessFailure(
+          "canterel worker",
+          `mort au démarrage (code ${worker.child.exitCode})`,
+          worker.output(),
+        );
+      }
     }
 
     return {
@@ -606,6 +679,7 @@ export async function startChain(options: {
       workerStateDir,
       processes: demarres.map((started) => started.name),
       annonce: (processus: string) => annonceDe(demarres, processus),
+      tourDeWorker,
       stop,
     };
   } catch (erreur) {
