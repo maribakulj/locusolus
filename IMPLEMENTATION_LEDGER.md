@@ -15382,3 +15382,114 @@ Six mutants posés, zéro survivant.
 prêt : l'ensemble candidat est maintenant calculable, et la clause qui compte demande que
 l'appariement ne puisse pas l'élargir, ce que la signature de `Subscription` rend déjà vrai côté
 lecture. C'est l'item suivant, pas celui-ci.
+
+---
+
+## 2026-08-25 — W24.b — L'appariement sémantique dans l'ensemble autorisé
+
+**La moitié aval de la décision 4.** `W24.a` a livré l'amont — la souscription dérive de la
+`ContextView` et d'elle seule. Restait ceci : qu'un appariement, si intelligent soit-il, ne puisse
+pas ajouter un pair.
+
+**Tenu par la signature, pas par une garde.** `Audience::best` rend une référence **empruntée à
+l'audience**. Un pair non autorisé n'a donc aucune façon de sortir de cette fonction : il faudrait
+qu'il y soit déjà. Ce n'est pas une vérification qu'on pourrait oublier d'écrire, c'est une
+conséquence du type de retour. La fonction d'affinité, elle, ne reçoit qu'un `&Peer` et rend un
+nombre — elle ne voit pas l'audience et n'a rien à quoi l'ajouter.
+
+**Aucune sémantique n'est écrite ici.** Ni embedding, ni similarité, ni seuil. Le mécanisme
+sémantique est un **paramètre**, et ce module est la borne qu'on lui pose. En écrire une mesure
+maintenant ferait entrer dans le domaine un vocabulaire que personne n'a encore eu besoin de lire,
+et décréterait ce que `W23.d` doit mesurer.
+
+**Le test de la clause 2 donne au pair non autorisé le meilleur score possible.** `i64::MAX` pour
+lui, `-1` pour tous les autres : la fonction d'affinité fait donc tout ce qu'un mécanisme sémantique
+peut faire — elle _connaît_ le pair idéal, elle le reconnaîtrait entre mille — et elle ne l'élit
+pas. C'est le cas exact que la source de l'ADR 0026 laisserait passer, puisque chez elle la
+souscription vient de l'agent, donc le pair parfait s'autorise lui-même.
+
+**Clause 3, prise plus fort que demandée.** La roadmap dit « l'aveuglement du reviewer survit à tout
+appariement ». Vérifier qu'il survit supposerait que l'appariement puisse y toucher, ce qui est déjà
+trop : le module **ne voit pas** l'indépendance, et un test refuse `Frozen`, `Party`, `attest`,
+`IndependenceAttestation` et `Blindness` dans sa source. L'attestation est par ailleurs comparée
+avant et après appariement sur un dossier gelé réel, avec ses trois exigences de §17.1, un
+générateur et un relecteur sur des workers et dans des groupes distincts.
+
+**À score égal, le premier de l'audience.** L'appariement doit être reproductible : deux rejeux du
+même journal doivent choisir le même pair, sans quoi la trace ne dit plus ce qui s'est passé. Même
+arbitrage que `place` de `W4.g`, et le test le rejoue cinq fois.
+
+**Cinq mutants tués, et un sixième qui ne compte pas — pour une bonne raison.**
+`.or_else(|| self.members.first())`, ajouté pour simuler un destinataire par défaut, est
+**sémantiquement équivalent** : sur une audience vide, `first()` rend `None` comme `max_by_key`. Et
+il ne peut pas être rendu non équivalent, puisque le retour emprunte à l'audience — un défaut hors
+de l'audience est **inexprimable**. Le mutant qui ne meurt pas est donc la démonstration de la
+propriété plutôt qu'un trou dans les tests, et c'est la première fois de la session qu'un survivant
+se lit comme ça. Le distinguer d'un vrai survivant demande de le regarder ; l'outil ne le fait pas,
+et je ne prétends pas qu'il le fasse.
+
+**Ce que je n'ai pas fait.** `W24.c`, le modèle de réputation — l'ADR 0026 note que celui de la
+source est inutilisable en l'état : `s^F = 1` signifie _faute_, donc `E[P]` filtre `E[P] < τ`,
+tandis que `T` est de polarité inverse et admissible si `E[T] ≥ τ`, sur la même machinerie Beta et
+la même règle de mise à jour. Deux conventions opposées dans un même mécanisme. C'est l'item
+suivant, et il existe précisément pour rendre cette inversion silencieuse impossible.
+
+---
+
+## 2026-08-25 — W24.c — La fiabilité observée, une seule polarité
+
+**Le défaut que cet item rend impossible.** L'ADR 0026 le nomme sous « note d'implémentation à ne
+pas perdre » : chez la source dont il tire le routage par intention, `s^F = 1` signifie _faute_,
+donc `E[P]` est une probabilité de **mauvais** comportement filtrée par `E[P] < τ`, tandis que `T`
+est de polarité **inverse**, admissible si `E[T] ≥ τ` — sur la même machinerie Beta et la même règle
+de mise à jour. Les transcrire produirait un filtre inversé en silence : le code compile, la moitié
+des tests passe, et le système retient exactement les pairs qu'il devait écarter.
+
+**Une seule convention : plus c'est grand, plus c'est fiable.** Et **une seule** comparaison de
+seuil dans le module, dans un seul sens. Le test la compte dans la source, parce que la propriété ne
+s'observe pas à l'exécution : un second `admits` de polarité inverse passerait tous les tests de
+comportement du premier.
+
+**Le vocabulaire fait la moitié du travail.** `Reliability`, pas `Reputation` — ce qui compte des
+fautes ne s'appelle pas réputation. `Observation::Reliable` / `Unreliable`, jamais `success` /
+`fault` : ces deux-là se lisent dans les deux sens selon qu'on parle du pair ou du risque, et c'est
+précisément cette ambiguïté qui a laissé deux polarités cohabiter sans que personne ne s'en
+aperçoive.
+
+**Rien observé vaut le milieu, pas zéro.** Un pair jamais vu qui partirait de zéro serait écarté par
+tout seuil, donc jamais observé — un piège dont on ne sort pas. C'est le prior uniforme qui le
+porte, et c'est la règle 3 du rythme de session transposée au domaine : un compteur qui n'a rien lu
+ne vaut pas zéro.
+
+Entiers partout, jamais de flottant : deux rejeux du même journal doivent trancher pareil au bord du
+seuil.
+
+**Deux de mes propres tests ont rougi avant le module.** `Default` contient « fault », et `->`
+contient « > » : deux faux positifs de la recherche par sous-chaîne, dans les deux gardes de source
+de ce fichier. Ils ont été **resserrés** — retirer d'abord ce qu'on sait innocent — et non relâchés,
+parce qu'une garde qu'on affaiblit au premier faux positif finit par ne plus rien attraper. C'est le
+coût de cet idiome, employé quatre fois aujourd'hui, et il est réel.
+
+**Un mutant a démoli une affirmation du module, et c'est le plus instructif de la journée.**
+Remplacer la comparaison exacte par `expected_per_mille() >= threshold` a **survécu**. J'ai d'abord
+cherché le cas de test qui manquait — puis constaté qu'il n'en existe pas : `floor(x) ≥ t ⟺ x ≥ t`
+pour un `t` entier, donc les deux formes sont équivalentes.
+
+Or le commentaire du module affirmait le contraire : « passer par `expected_per_mille` perdrait la
+partie fractionnaire, et deux pairs séparés par moins d'un millième deviendraient indiscernables ».
+C'est **faux**, et c'est exactement la forme de défaut que cette session passe sa journée à corriger
+chez les autres — une prose qui affirme une propriété que le code ne tient pas —, écrite de ma main
+une heure après avoir livré une garde contre elle.
+
+La phrase est corrigée plutôt que le test relâché. Ce qui reste vrai est plus étroit et se dit sans
+hédger : la forme exacte ne dépend pas du **mode d'arrondi** de `expected_per_mille`. Si cette
+fonction passait à l'arrondi au plus proche, la sémantique du seuil suivrait sans que personne l'ait
+décidé. Un test fige donc la troncature, pour que ce fichier-là rougisse le jour où elle change.
+
+Quatre mutants tués, dont **la polarité inversée** — celui pour lequel l'item existe. Un cinquième
+équivalent, expliqué ci-dessus. C'est le second survivant équivalent de la journée après celui de
+`W24.b`, et les deux ont demandé d'être regardés plutôt que réparés : un outil qui les distinguerait
+tout seul n'existe pas ici, et je ne prétends pas le contraire.
+
+**Ce que je n'ai pas fait.** Aucun seuil n'est écrit : `admits` en **prend** un. Le choisir serait
+une valeur de politique, et §13 n'en a pas encore — même abstention que `W23.b` pour ses compteurs.
