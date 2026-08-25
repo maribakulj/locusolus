@@ -269,7 +269,7 @@ fn les_seize_sondes_sous_une_mission_sans_quota_disque() {
         failures.join("\n"),
     );
 
-    // `W5.u` : c'est **ce** test qui tourne en CI, donc c'est lui qui dépose. Le premier attend un
+    // `W5.aa` : c'est **ce** test qui tourne en CI, donc c'est lui qui dépose. Le premier attend un
     // hôte capable de borner un espace, et n'a jamais conclu ailleurs.
     deposer(&locus_execution::standing(
         LEVEL,
@@ -278,7 +278,7 @@ fn les_seize_sondes_sous_une_mission_sans_quota_disque() {
     ));
 }
 
-/// Déposer ce que la campagne a conclu, si l'environnement dit où — `W5.u`.
+/// Déposer ce que la campagne a conclu, si l'environnement dit où — `W5.aa`.
 ///
 /// # Pourquoi c'est le test qui écrit
 ///

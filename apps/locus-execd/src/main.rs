@@ -74,7 +74,7 @@ fn main() -> ExitCode {
     };
     println!("locus-execd : à l'écoute sur {path}");
 
-    // `W5.t` : les attestations conservées, si l'exploitant en a posé.
+    // `W5.z` : les attestations conservées, si l'exploitant en a posé.
     //
     // Le commentaire qui vivait ici disait que « aucune campagne n'est conservée par ce binaire […]
     // c'est ce qui rend visible, au premier placement réel, qu'il manque la campagne ». Le premier

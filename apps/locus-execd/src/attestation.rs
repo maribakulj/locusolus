@@ -1,4 +1,4 @@
-//! Ce qu'une campagne de self-tests a conclu, et que `locus-execd` peut relire — `W5.t`, §12.2.
+//! Ce qu'une campagne de self-tests a conclu, et que `locus-execd` peut relire — `W5.z`, §12.2.
 //!
 //! # Le constat, et il était **écrit d'avance**
 //!

@@ -215,7 +215,7 @@ fn quota_arguments(plan: &ConfinementPlan) -> Vec<String> {
 /// [`QuotaTarget::WritableRoot`] rend le `--storage-opt`, qui est juste là. [`QuotaTarget::None`] ne
 /// rend rien, parce qu'il n'y a rien à borner.
 ///
-/// Il n'y a **pas de troisième cas**, et c'est `W5.s` qui l'a retiré. Une variante `Workspace`
+/// Il n'y a **pas de troisième cas**, et c'est `W5.y` qui l'a retiré. Une variante `Workspace`
 /// rendait ici un volume dimensionné monté au point de travail ; comme ce point venait d'un montage
 /// déjà déclaré, Podman recevait deux montages sur la même destination et refusait la spécification
 /// entière. Le plan refuse désormais en amont, par `PlanError::DiskQuotaNotEnforceable`, ce qui est

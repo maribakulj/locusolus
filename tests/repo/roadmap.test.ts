@@ -43,6 +43,7 @@ test("un item livré mais non marqué est rapporté", () => {
     frontier: [],
     recognised: 0,
     unrecognised: [],
+    duplicated: [],
     unread: [],
     awaiting: new Map(),
   });
@@ -69,6 +70,7 @@ test("un item marqué sans entrée au ledger est rapporté", () => {
     frontier: [],
     recognised: 0,
     unrecognised: [],
+    duplicated: [],
     unread: [],
     awaiting: new Map(),
   });
@@ -96,6 +98,7 @@ test("un registre non lu suspend « marqué sans entrée », jamais l'inverse", 
     frontier: [],
     recognised: 0,
     unrecognised: [],
+    duplicated: [],
     unread: ["canterel"],
     awaiting: new Map(),
   });
@@ -123,6 +126,7 @@ test("un item livré hors du plan ne compte pas comme un écart", () => {
       frontier: [],
       recognised: 0,
       unrecognised: [],
+      duplicated: [],
       unread: [],
       awaiting: new Map(),
     }),
@@ -294,6 +298,7 @@ test("un item décidé bloqué qui a son entrée au ledger est rapporté", () =>
     frontier: [],
     recognised: 0,
     unrecognised: [],
+    duplicated: [],
     unread: [],
     awaiting: new Map(),
   });
@@ -462,6 +467,7 @@ test("une ligne faite dont l'entrée dit bloqué a son constat à elle", () => {
     frontier: [],
     recognised: 0,
     unrecognised: [],
+    duplicated: [],
     unread: [],
     awaiting: new Map(),
   });
@@ -490,6 +496,7 @@ test("un blocage dont la dépendance est livrée est rapporté", () => {
     frontier: [],
     recognised: 0,
     unrecognised: [],
+    duplicated: [],
     unread: [],
     awaiting: new Map([["W17.f", ["W20"]]]),
   });
@@ -512,6 +519,7 @@ test("un blocage dont la dépendance est incomplète n'est pas rapporté", () =>
     frontier: ["W20.b"],
     recognised: 0,
     unrecognised: [],
+    duplicated: [],
     unread: [],
     awaiting: new Map([["W17.f", ["W20"]]]),
   });
@@ -542,6 +550,7 @@ test("un blocage externe ne se périme pas", () => {
     frontier: [],
     recognised: 0,
     unrecognised: [],
+    duplicated: [],
     unread: [],
     awaiting: new Map([["W18.f", ["externe"]]]),
   });
@@ -812,6 +821,7 @@ test("un item à deux points est vu dans les deux sens", () => {
     frontier: [],
     recognised: 1,
     unrecognised: [],
+    duplicated: [],
     unread: [],
     awaiting: new Map(),
   });
@@ -828,6 +838,7 @@ test("un item à deux points est vu dans les deux sens", () => {
     frontier: [],
     recognised: 1,
     unrecognised: [],
+    duplicated: [],
     unread: [],
     awaiting: new Map(),
   });
@@ -890,4 +901,105 @@ test("le runner déclare le nombre de lignes reconnues", async () => {
   );
   assert.notEqual(borgne.code, 0, "une ligne non reconnue fait échouer la garde");
   assert.match(borgne.out, /1 ligne\(s\) d'item reconnue\(s\) sur 2/);
+});
+
+/**
+ * **Un identifiant porté par deux lignes est rapporté** — `W0.17`.
+ *
+ * L'en-tête de `roadmap.ts` affirmait l'unicité des identifiants « sur l'ensemble du chantier » et
+ * rien ne la vérifiait. Quatre paires y contrevenaient, dont trois posées par les sessions qui
+ * venaient d'écrire les items concernés : le prochain item se choisit en prenant la lettre suivante,
+ * et la lettre suivante avait déjà servi trois cents lignes plus haut.
+ */
+test("un identifiant porté par deux lignes est rapporté", async () => {
+  const root = await fixture({
+    ledger: [
+      "# Ledger",
+      "",
+      "## 2026-08-19 — W5.q — le premier",
+      "",
+      "## 2026-08-25 — W5.q — le second, qui a repris la lettre",
+      "",
+    ].join("\n"),
+    roadmap: [
+      "| # | Commit | Test |",
+      "|---|---|---|",
+      "| W5.q `[R]` **fait** | le premier | oui |",
+      "| W5.q `[R]` **fait** | le second | oui |",
+      "",
+    ].join("\n"),
+  });
+
+  const etat = await readReconciliation(root);
+  assert.deepEqual(etat.duplicated, ["W5.q"]);
+
+  const findings = reconcile(etat);
+  // **En premier**, comme `ligne-non-reconnue` : ce n'est pas un constat parmi d'autres, c'est ce
+  // qui dit que les autres n'ont pas tout regardé.
+  assert.equal(findings[0]?.rule, "identifiant-partage");
+  assert.match(findings[0]?.message ?? "", /W5\.q/);
+});
+
+/**
+ * **Ce que l'identifiant partagé rendait possible, et qui est le vrai coût.**
+ *
+ * Deux lignes homonymes, l'une marquée **fait** avec son entrée au ledger, l'autre **à faire**. Les
+ * ensembles les confondent : `marked` contient l'identifiant à cause de la première, donc la règle
+ * « livré non marqué » ne voit pas la seconde ; `delivered` le contient aussi, donc « marqué non
+ * livré » ne la voit pas davantage. Une ligne entière du plan devient invisible aux deux règles
+ * centrales — `W0.11` défait en silence.
+ *
+ * Le test le tient par le **verdict**, pas par la prose : sans la règle de `W0.17`, `reconcile`
+ * rendrait la liste vide sur ce document, et la CI dirait « ok ».
+ */
+test("deux lignes homonymes se confondent, et une seule règle le dit", async () => {
+  const root = await fixture({
+    ledger: ["# Ledger", "", "## 2026-08-19 — W5.q — le premier, livré", ""].join("\n"),
+    roadmap: [
+      "| # | Commit | Test |",
+      "|---|---|---|",
+      "| W5.q `[R]` **fait** | le premier | oui |",
+      "| W5.q `[R]` | le second, que personne n'a écrit | non |",
+      "",
+    ].join("\n"),
+  });
+
+  const etat = await readReconciliation(root);
+  // La confusion, constatée plutôt que décrite : la seconde ligne est sur la frontière — donc à
+  // faire — et l'identifiant est pourtant dans `marked` **et** dans `delivered`.
+  assert.deepEqual(etat.frontier, ["W5.q"]);
+  assert.equal(etat.marked.has("W5.q"), true);
+  assert.equal(etat.delivered.has("W5.q"), true);
+
+  // Et le seul écart rapporté est celui-ci. Les deux règles centrales sont muettes sur ce document,
+  // ce qui est exactement le trou : sans `identifiant-partage`, la liste serait vide.
+  assert.deepEqual(
+    reconcile(etat).map((finding) => finding.rule),
+    ["identifiant-partage"],
+  );
+});
+
+/**
+ * **Un identifiant cité en prose n'est pas une seconde ligne.**
+ *
+ * Le motif s'ancre sur `^| ` pour cette raison, et il faut que ça reste vrai : les lignes du plan se
+ * citent l'une l'autre en permanence — « la suite de `W5.q` », « une fois `W5.q` livré » —, et une
+ * règle qui compterait les mentions crierait à la collision sur chaque renvoi. Elle serait alors
+ * retirée dans la semaine, ce qui est la pire fin possible pour une garde.
+ */
+test("un identifiant cité dans une autre ligne ne compte pas comme une seconde ligne", async () => {
+  const root = await fixture({
+    ledger: ["# Ledger", "", "## 2026-08-19 — W5.q — le premier", ""].join("\n"),
+    roadmap: [
+      "| # | Commit | Test |",
+      "|---|---|---|",
+      "| W5.q `[R]` **fait** | le premier | oui |",
+      "| W5.r `[R]` | la suite de `W5.q`, et elle le cite deux fois : `W5.q` | non |",
+      "",
+    ].join("\n"),
+  });
+
+  const etat = await readReconciliation(root);
+  assert.deepEqual(etat.duplicated, []);
+  assert.deepEqual(reconcile(etat), []);
 });

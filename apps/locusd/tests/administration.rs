@@ -2,7 +2,7 @@
 //!
 //! # Ce que ces tests protègent
 //!
-//! Les mêmes trois propriétés qu'en `W20.v`, parce que c'est le même genre de porte : le **défaut ne
+//! Les mêmes trois propriétés qu'en `W20.ab`, parce que c'est le même genre de porte : le **défaut ne
 //! change rien**, un amorçage illisible **refuse en nommant sa variable**, et ce qui est accordé
 //! l'est **à cette créance-là et à aucune autre**.
 //!
@@ -17,7 +17,7 @@ use locusd::administration::{
 
 /// Un environnement de fixture, sans toucher au processus.
 ///
-/// Même raison qu'en `W20.v` : les tests Rust partagent un processus, et deux d'entre eux qui
+/// Même raison qu'en `W20.ab` : les tests Rust partagent un processus, et deux d'entre eux qui
 /// muteraient la même variable se verraient l'un l'autre selon l'ordre d'ordonnancement.
 fn env<'a>(pairs: &'a [(&'a str, &'a str)]) -> impl Fn(&str) -> Option<String> + 'a {
     move |name| {
@@ -110,7 +110,7 @@ fn une_creance_vide_ne_demande_aucun_amorcage() {
 /// **Une créance sans workspace refuse, et nomme le workspace.**
 ///
 /// Le refus cite `LOCUSD_ADMIN_CREDENTIAL` comme demandeur, et **pas** le token d'enrôlement : le
-/// helper partagé avec `W20.v` prend le nom du demandeur en paramètre pour exactement cette raison.
+/// helper partagé avec `W20.ab` prend le nom du demandeur en paramètre pour exactement cette raison.
 /// Un message qui nommerait toujours le token enverrait l'opérateur chercher une variable
 /// d'enrôlement qu'il n'a pas posée.
 #[test]
@@ -163,7 +163,7 @@ fn un_identifiant_illisible_refuse_en_citant_la_valeur() {
 /// Le principal est un `Id<Agent>` ; y écrire un identifiant de workspace est l'erreur exacte que
 /// commet un opérateur qui copie la mauvaise ligne de son presse-papiers. Les identifiants typés de
 /// `packages/protocol` la refusent, et ce test le constate au lieu de le supposer — la fixture de
-/// `W20.v` avait commis précisément cette erreur, et c'est le type qui l'a rendue visible.
+/// `W20.ab` avait commis précisément cette erreur, et c'est le type qui l'a rendue visible.
 #[test]
 fn un_identifiant_du_mauvais_genre_refuse() {
     let refus = read(env(&[

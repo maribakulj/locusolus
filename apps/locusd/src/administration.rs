@@ -2,7 +2,7 @@
 //!
 //! # Ce que la chaîne réelle a rendu, et qui n'était pas déduit
 //!
-//! `main.rs` câble le broker (`W20.q`), l'émetteur de tokens (`W20.v`) et la source d'entropie
+//! `main.rs` câble le broker (`W20.q`), l'émetteur de tokens (`W20.ab`) et la source d'entropie
 //! (`W20.x`). Il ne câble **pas** `Administrators`, donc `Desk` garde `NoAdministrators`, dont le
 //! contrat est de n'admettre personne. Vérifié contre un daemon réel, pas lu :
 //!
@@ -17,13 +17,13 @@
 //! routes de §22.3 existent depuis `W20.s` et personne ne peut les appeler.
 //!
 //! C'est la troisième fois que la même forme se présente — un port dont le défaut refuse, correct
-//! séparément, et qu'aucun assemblage de production ne remplace. `W20.v` pour les tokens, `W20.x`
+//! séparément, et qu'aucun assemblage de production ne remplace. `W20.ab` pour les tokens, `W20.x`
 //! pour l'entropie, celui-ci pour l'autorité. La forme se reconnaît maintenant à l'œil, et ce
 //! module la traite comme les deux précédents plutôt que d'improviser une troisième réponse.
 //!
 //! # Pourquoi l'environnement du daemon, et non une route
 //!
-//! Le même argument qu'en `W20.v`, et il tient pour la même raison :
+//! Le même argument qu'en `W20.ab`, et il tient pour la même raison :
 //!
 //! - une route qui accorderait l'autorité d'administration demanderait une créance pour être
 //!   appelée, et la première créance de l'installation est précisément celle qu'on cherche à
@@ -33,7 +33,7 @@
 //!   accordée** : l'opérateur qui pose cette variable peut déjà arrêter le daemon, lire son journal
 //!   et le relancer autrement.
 //!
-//! # Ce qui **diffère** de `W20.v`, et qui n'est pas un détail
+//! # Ce qui **diffère** de `W20.ab`, et qui n'est pas un détail
 //!
 //! Un token d'enrôlement est **à usage unique** : il est consommé, et ce qu'il laisse derrière lui
 //! est une créance de worker. Une créance d'administration, elle, est un **secret durable** — elle

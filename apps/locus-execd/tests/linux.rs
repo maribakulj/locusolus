@@ -278,7 +278,7 @@ fn le_quota_cpu_se_calcule_contre_la_periode() {
 #[test]
 fn le_disque_et_l_horizon_ne_sont_pas_des_limites_cgroup() {
     // `S1` et non `S2` : le sujet de ce test est que cgroup v2 ne porte **ni** le disque **ni**
-    // l'horizon, et il lui faut donc un plan qui aboutisse. Depuis `W5.s`, un quota disque à `S2`
+    // l'horizon, et il lui faut donc un plan qui aboutisse. Depuis `W5.y`, un quota disque à `S2`
     // est refusé — la racine y est en lecture seule, et le runtime ne sait pas borner un montage
     // lié. Le prendre à `S1`, où la racine est inscriptible, garde le sujet intact au lieu de
     // retirer le quota, ce qui aurait vidé l'assertion de son objet.
@@ -808,7 +808,7 @@ fn en_deca_de_s2_le_quota_porte_sur_la_couche_inscriptible() {
     assert_eq!(applied.quota_target(), &QuotaTarget::WritableRoot);
 }
 
-/// **À partir de `S2`, le quota n'est pas applicable — et le plan le dit — `W5.s`.**
+/// **À partir de `S2`, le quota n'est pas applicable — et le plan le dit — `W5.y`.**
 ///
 /// Ce test affirmait le contraire : que le quota « porte sur l'espace de travail ». C'était le
 /// dessein de `W5.j` — la racine est en lecture seule, donc `--storage-opt size=` dimensionnerait
@@ -928,7 +928,7 @@ fn l_invocation_place_le_quota_sur_la_cible_du_plan() {
         ResourceSpec::new(1_000, 1 << 30, 64, 2 << 30, 300).expect("quotas non nuls"),
     )
     .expect("spécification valide");
-    // `W5.s` : il n'y a **plus rien à placer** à `S2`, parce qu'il n'y avait rien de plaçable.
+    // `W5.y` : il n'y a **plus rien à placer** à `S2`, parce qu'il n'y avait rien de plaçable.
     // L'assertion précédente exigeait ici `type=volume,destination=/work,volume-opt=size=…` — un
     // argument que Podman refusait en bloc, puisque `/work` est déjà monté en bind. Le plan refuse
     // désormais en amont, ce qui est le seul endroit où le refus reste lisible.
