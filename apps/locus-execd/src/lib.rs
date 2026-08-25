@@ -31,6 +31,7 @@
 
 pub mod admission;
 pub mod announced;
+pub mod attestation;
 pub mod build;
 pub mod link;
 pub mod linux;
