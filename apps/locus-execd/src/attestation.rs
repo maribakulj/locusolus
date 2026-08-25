@@ -64,7 +64,7 @@ use locus_execution::selftest::Standing;
 use serde::{Deserialize, Serialize};
 
 use crate::announced::Proven;
-use crate::linux::HostFacts;
+use crate::linux::{HostFacts, Support};
 
 /// La variable qui dit où les attestations sont conservées.
 pub const RECORD_ENV: &str = "LOCUS_EXECD_ATTESTATIONS";
@@ -125,16 +125,72 @@ impl std::fmt::Display for RecordRefusal {
 ///
 /// # Dérivée, jamais déclarée
 ///
-/// Un champ que l'appelant remplirait serait une chose de plus à falsifier. Elle se calcule donc par
-/// `Debug` sur les faits — grossier et exact : deux hôtes dont tous les faits coïncident sont
-/// interchangeables pour ce que la campagne a éprouvé, et un fait qui change fait changer
-/// l'empreinte sans que personne ait à s'en souvenir.
+/// Un champ que l'appelant remplirait serait une chose de plus à falsifier. Elle se calcule donc des
+/// faits eux-mêmes : deux hôtes dont toutes les capacités coïncident sont interchangeables pour ce
+/// que la campagne a éprouvé.
 ///
-/// Le jour où [`HostFacts`] gagne un champ, l'empreinte le prend. C'est la propriété qu'une liste
-/// écrite à la main perdrait au premier ajout.
+/// # Elle porte les **verdicts**, jamais leur prose — `W5.v`
+///
+/// La première rédaction faisait `format!("{facts:?}")`, et le premier dépôt réel l'a démentie. Ce
+/// que la CI a écrit contenait ceci :
+///
+/// ```text
+/// disk_quota: Undetermined { reason: "aucune racine de stockage n'a été déclarée : on ne sait
+///   pas quel système de fichiers portera la couche inscriptible" }
+/// ```
+///
+/// Une **phrase** dans l'identité d'un hôte. La corriger d'une virgule — ou clarifier ce message,
+/// ce qui est le genre de chose qu'on fait sans y penser — invaliderait silencieusement **toutes**
+/// les attestations déjà déposées, sur toutes les machines. Elles cesseraient d'être honorées sans
+/// qu'aucun hôte ait changé, et le refus dirait `level_not_attested`, qui envoie relancer une
+/// campagne au lieu de relire un diff.
+///
+/// L'empreinte ne retient donc que ce qui **décide** : la variante de chaque [`Support`], et
+/// l'ensemble des contrôleurs. Elle change quand la capacité change, et pas quand sa formulation
+/// change.
+///
+/// `Undetermined` reste distinct d'`Available` — un hôte dont on sait que seccomp est là n'est pas
+/// un hôte dont on n'a pas pu le dire —, et distinct d'`Unavailable`. Ce sont trois états, comme
+/// partout ailleurs dans ce dépôt ; c'est leur **motif** qui n'a rien à faire ici, et qui reste dans
+/// le rapport de campagne, où on le lit.
+///
+/// # Ce qu'elle inclut, énuméré à la main — et pourquoi c'est le bon compromis
+///
+/// Une liste écrite à la main se périme au premier champ ajouté à [`HostFacts`] : le champ neuf ne
+/// changerait pas l'empreinte, et une attestation survivrait à un hôte devenu différent. C'est le
+/// coût, et il est réel.
+///
+/// Il est **plus petit** que celui de `Debug` : un champ oublié affaiblit l'empreinte, tandis
+/// qu'une prose incluse la casse à la première reformulation. Le premier se répare quand on le
+/// remarque ; la seconde invalide un parc entier sans prévenir. Et un test épingle la liste des
+/// faits pris en compte, pour que l'oubli se voie au moment de l'ajout.
 #[must_use]
 pub fn fingerprint(facts: &HostFacts) -> String {
-    format!("{facts:?}")
+    let controllers = facts
+        .controllers()
+        .iter()
+        .cloned()
+        .collect::<Vec<_>>()
+        .join(",");
+    format!(
+        "cgroup_v2={} controllers={controllers} userns={} seccomp={} disk_quota={}",
+        verdict(facts.cgroup_v2()),
+        verdict(facts.unprivileged_userns()),
+        verdict(facts.seccomp()),
+        verdict(facts.disk_quota()),
+    )
+}
+
+/// Le verdict d'une capacité, sans le motif qui l'accompagne.
+///
+/// Trois états, jamais deux : « l'hôte l'offre », « l'hôte ne l'offre pas » et « on n'a pas pu
+/// savoir » ne se confondent pas — c'est la règle de `W5.h`, et elle vaut ici comme là-bas.
+const fn verdict(support: &Support) -> &'static str {
+    match support {
+        Support::Available => "available",
+        Support::Unavailable { .. } => "unavailable",
+        Support::Undetermined { .. } => "undetermined",
+    }
 }
 
 /// Les attestations conservées, indexées par worker.

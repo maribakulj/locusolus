@@ -303,3 +303,196 @@ fn une_campagne_qui_ne_tient_pas_ne_depose_rien() {
 fn lire_et_deposer_ne_partagent_pas_leur_variable() {
     assert_ne!(RECORD_ENV, EMIT_ENV);
 }
+
+// ---------------------------------------------------------------------------------------------
+// 6. L'empreinte porte des verdicts, pas de la prose — `W5.v`.
+// ---------------------------------------------------------------------------------------------
+
+/// **Aucun motif de `Support` n'entre dans l'empreinte.**
+///
+/// C'est le test qui aurait attrapé `W5.t`, et il n'existait pas. Le premier dépôt réel en CI a
+/// écrit ceci dans le champ `host` :
+///
+/// ```text
+/// disk_quota: Undetermined { reason: "aucune racine de stockage n'a été déclarée : on ne sait
+///   pas quel système de fichiers portera la couche inscriptible" }
+/// ```
+///
+/// Une **phrase** dans l'identité d'un hôte. La reformuler — une virgule, une clarification —
+/// invaliderait silencieusement toutes les attestations déjà déposées, sur toutes les machines,
+/// sans qu'aucun hôte ait changé. Le refus dirait alors `level_not_attested`, qui envoie relancer
+/// une campagne au lieu de relire un diff.
+///
+/// Tenu sur des faits **réels** et non fabriqués : ce que ce test refuse est que la prose des faits
+/// de cette machine-ci se retrouve dans son empreinte.
+#[test]
+fn aucune_prose_n_entre_dans_l_empreinte() {
+    let empreinte = fingerprint(&faits());
+
+    // Les mots qui trahissent un motif recopié. Ils viennent des `reason` que `probe.rs` écrit ;
+    // aucun n'a de raison d'apparaître dans une identité d'hôte.
+    for prose in ["aucune racine", "on ne sait pas", "reason", "déclarée"] {
+        assert!(
+            !empreinte.contains(prose),
+            "« {prose} » est de la prose, pas un verdict : {empreinte}"
+        );
+    }
+}
+
+/// **Les cinq faits qui décident sont dans l'empreinte, nommés.**
+///
+/// Le pendant du test précédent : retirer la prose ne doit pas retirer la substance. La liste est
+/// écrite ici **en clair** pour que l'ajout d'un sixième fait à `HostFacts` se remarque — une
+/// empreinte énumérée à la main se périme au premier champ ajouté, et c'est le coût assumé de ne
+/// pas y mettre de prose.
+#[test]
+fn les_cinq_faits_qui_decident_sont_dans_l_empreinte() {
+    let empreinte = fingerprint(&faits());
+
+    for fait in [
+        "cgroup_v2=",
+        "controllers=",
+        "userns=",
+        "seccomp=",
+        "disk_quota=",
+    ] {
+        assert!(empreinte.contains(fait), "{fait} manque : {empreinte}");
+    }
+}
+
+/// Un noyau de fixture : chaque chemin rend ce qu'on lui dit, et rien d'autre.
+///
+/// Écrit parce qu'une passe de mutation a montré que les tests précédents ne valaient rien contre
+/// les mutants qui comptent — voir [`chaque_fait_contribue_a_l_empreinte`].
+struct Noyau {
+    controleurs: Option<&'static str>,
+    userns: Option<&'static str>,
+    seccomp: Option<&'static str>,
+    /// Le système de fichiers qui porte la racine, tel que `mountinfo` le décrirait.
+    stockage: &'static str,
+    /// Ses options de super-bloc — `prjquota` est ce qui rend un quota de projet **activé**.
+    options: &'static str,
+}
+
+impl Noyau {
+    /// Un hôte qui offre tout.
+    const fn complet() -> Self {
+        Self {
+            controleurs: Some("cpu io memory pids"),
+            userns: Some("15000"),
+            seccomp: Some("act_allow act_errno act_kill_process act_trap"),
+            stockage: "ext4",
+            options: "rw",
+        }
+    }
+}
+
+impl locus_execd::linux::Reader for Noyau {
+    fn read(&self, path: &str) -> Option<String> {
+        // Le prober lit le `cgroup.controllers` de **son propre** répertoire, pas celui de la
+        // racine : `/proc/self/cgroup` le désigne, et le chemin qui en découle doit répondre aussi.
+        // Une fixture qui ne servirait que la racine ferait rendre « illisible » à un hôte complet,
+        // et le test parlerait alors d'autre chose que de ce qu'il croit.
+        if path.ends_with("/cgroup.controllers") {
+            return self.controleurs.map(str::to_owned);
+        }
+        match path {
+            "/proc/self/cgroup" => Some("0::/\n".to_owned()),
+            "/proc/sys/user/max_user_namespaces" => self.userns.map(str::to_owned),
+            "/proc/sys/kernel/seccomp/actions_avail" => self.seccomp.map(str::to_owned),
+            "/proc/self/mountinfo" => Some(format!(
+                "31 1 8:1 / / rw,relatime shared:1 - {} /dev/sda1 {}\n",
+                self.stockage, self.options
+            )),
+            _ => None,
+        }
+    }
+}
+
+/// **Chaque fait qui décide fait bouger l'empreinte, seul.**
+///
+/// # Ce que ce test remplace, et pourquoi
+///
+/// La première rédaction vérifiait que les clés étaient **présentes** et que la prose était
+/// **absente**. Une passe de mutation l'a démolie : vider les contrôleurs, faire lire `seccomp` à
+/// la place de `disk_quota`, ou rendre `Undetermined` indiscernable d'`Available` — les trois
+/// **survivaient**. Des assertions de forme, là où ce qui compte est la **contribution**.
+///
+/// C'est exactement le défaut que ce dépôt nomme partout ailleurs — « comparé champ pour champ, pas
+/// par présence » —, et je l'avais écrit dans mes propres tests. Celui-ci fait varier un fait à la
+/// fois, en pilotant le vrai prober avec un noyau de fixture, et exige que l'empreinte change.
+#[test]
+fn chaque_fait_contribue_a_l_empreinte() {
+    let complet = fingerprint(&HostFacts::probe(&Noyau::complet()));
+
+    // Un contrôleur en moins : l'hôte ne borne plus la même chose.
+    let sans_pids = fingerprint(&HostFacts::probe(&Noyau {
+        controleurs: Some("cpu io memory"),
+        ..Noyau::complet()
+    }));
+    assert_ne!(
+        complet, sans_pids,
+        "l'ensemble des contrôleurs doit peser : sans lui, un hôte qui perd `pids` garderait son \
+         attestation"
+    );
+
+    // `userns` illisible : « on n'a pas pu savoir » n'est pas « l'hôte l'offre ».
+    let userns_inconnu = fingerprint(&HostFacts::probe(&Noyau {
+        userns: None,
+        ..Noyau::complet()
+    }));
+    assert_ne!(complet, userns_inconnu);
+
+    // Et `seccomp` de même — les deux étant lus séparément, un seul accesseur recopié pour l'autre
+    // rendrait ces deux empreintes identiques.
+    let seccomp_inconnu = fingerprint(&HostFacts::probe(&Noyau {
+        seccomp: None,
+        ..Noyau::complet()
+    }));
+    assert_ne!(complet, seccomp_inconnu);
+    assert_ne!(
+        userns_inconnu, seccomp_inconnu,
+        "deux capacités différentes ne rendent pas la même empreinte : un accesseur recopié le \
+         ferait, et la mutation l'a montré"
+    );
+}
+
+/// **Le quota disque pèse, et il pèse séparément.**
+///
+/// `with_storage` est la seconde étape du prober — le quota est une propriété du **chemin** où le
+/// runtime écrira, pas de l'hôte en général. Une empreinte qui l'ignorerait ferait honorer, sur un
+/// hôte où la borne n'est pas applicable, une attestation conclue là où elle l'était.
+#[test]
+fn le_quota_disque_pese_dans_l_empreinte() {
+    let sur_ext4 = Noyau::complet();
+    // `xfs` **et** `prjquota` : le premier seul ne suffit pas — un XFS monté sans l'option est un
+    // hôte où `--storage-opt size=` échouera quand même, et `probe.rs` le range en `Unavailable`
+    // comme `ext4`. Les deux sont alors le même verdict, et l'empreinte a raison de ne pas les
+    // distinguer : pour ce que la campagne a éprouvé, ces hôtes sont interchangeables.
+    //
+    // Ma première rédaction opposait `ext4` à un `xfs` nu et attendait deux empreintes différentes.
+    // C'était le test qui avait tort.
+    let sur_xfs = Noyau {
+        stockage: "xfs",
+        options: "rw,prjquota",
+        ..Noyau::complet()
+    };
+
+    // Sans racine déclarée, le quota est **indéterminé** — personne n'a dit où l'on écrira. Avec
+    // une racine sur `ext4`, il devient **indisponible** : le fait est établi, et négativement.
+    let indetermine = fingerprint(&HostFacts::probe(&sur_ext4));
+    let sur_ext4_declare = fingerprint(&HostFacts::probe(&sur_ext4).with_storage(&sur_ext4, "/"));
+    assert_ne!(
+        indetermine, sur_ext4_declare,
+        "« on ne sait pas où l'on écrira » et « on sait, et la borne n'y est pas applicable » sont \
+         deux états : les fondre ferait honorer une attestation sur un hôte dont on ignore le \
+         système de fichiers"
+    );
+
+    // Et deux systèmes de fichiers différents ne rendent pas la même empreinte : sans quoi un
+    // accesseur recopié — `disk_quota` lisant `seccomp` — passerait inaperçu.
+    assert_ne!(
+        sur_ext4_declare,
+        fingerprint(&HostFacts::probe(&sur_xfs).with_storage(&sur_xfs, "/")),
+    );
+}
