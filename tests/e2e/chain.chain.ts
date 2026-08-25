@@ -376,3 +376,147 @@ describe("la chaîne monte, se voit et s'arrête — W12.f", () => {
     );
   });
 });
+
+/**
+ * Le tour d'un worker sur une mission réellement en file — `W12.d`, troisième clause.
+ *
+ * # Pourquoi une seconde chaîne, sur son propre port
+ *
+ * `runLoop` de `canterel` fait **un** tour — réclamer, planifier, ouvrir la session, faire remonter,
+ * rendre — puis le processus sort. Ce n'est pas une boucle malgré son nom, et `W2.24` l'a rendu
+ * visible en faisant dire au worker ce que son tour a fait : contre la chaîne du bloc précédent, il
+ * annonce « tour : aucune mission à réclamer », **parce que le harnais le démarre avant qu'aucune
+ * mission ne soit en file**.
+ *
+ * Ce n'était pas un défaut du worker, et la chaîne du bloc précédent reste juste : elle décrit
+ * `W12.f`, « les trois processus démarrent, se voient et s'arrêtent ». Exercer un **placement**
+ * demande l'ordre inverse — mettre en file, puis faire le tour —, et les deux ordres ne peuvent pas
+ * vivre dans la même chaîne.
+ *
+ * # Ce que cette clause tient
+ *
+ * Que le tour **atteigne la réclamation**, et que ce qu'il en rapporte soit lisible. Ce qu'elle ne
+ * tient pas encore : que la mission traverse jusqu'au bout — session ouverte, événements remontés,
+ * artefacts hashés. Ces termes sont la suite de `W12.d`, et les affirmer ici rendrait vert sur
+ * « le worker a réclamé » le jour où l'exécution cesserait d'aboutir.
+ */
+describe("un worker fait son tour sur une mission en file — W12.d, troisième clause", () => {
+  let chain: Chain | undefined;
+
+  after(async () => {
+    await chain?.stop();
+  });
+
+  it("la chaîne monte sans worker, et la mission est mise en file d'abord", async () => {
+    chain = await startChain({ root: ROOT, port: 8790, worker: "à la demande" });
+
+    // Deux processus, pas trois : c'est le sens de « à la demande », et l'affirmer ici est ce qui
+    // empêche l'option de redevenir silencieusement le défaut.
+    assert.deepEqual(chain.processes, ["locus-execd", "locusd"]);
+
+    for (const [route, corps] of [
+      [
+        "/commands/task/propose",
+        {
+          idempotency_key: "e2e-tour-propose",
+          project_id: ADMINISTRATION.projectId,
+          proposal: proposition(),
+        },
+      ],
+      [
+        "/commands/task/queue",
+        { idempotency_key: "e2e-tour-queue", project_id: ADMINISTRATION.projectId, task_id: TACHE },
+      ],
+    ] as const) {
+      const reponse = await fetch(`${chain.controlPlane}${route}`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${ADMINISTRATION.credential}`,
+        },
+        body: JSON.stringify(corps),
+      });
+      assert.equal(reponse.status, 202, `${route} — ${await reponse.text()}`);
+    }
+
+    assert.ok((await attendre(chain.controlPlane, "task.queued")).includes("task.queued"));
+  });
+
+  /**
+   * **La décision de placement est lisible — d'un côté ou de l'autre, jamais des deux silences.**
+   *
+   * # Ce que la première rédaction affirmait, et que l'exécution a démentie
+   *
+   * Elle exigeait que le tour **réclame** la mission, sur l'hypothèse que le harnais démarrait
+   * simplement le worker trop tôt. L'hypothèse était fausse, et une seule exécution l'a montré : la
+   * mission était bien en file, le tour a bien eu lieu après, et le worker a quand même annoncé
+   * « aucune mission à réclamer ». La cause est dans la sortie de `locusd`, et elle est **correcte** :
+   *
+   * ```text
+   * « task_… » retourne en file : aucun des 1 worker(s) soumis ne convient — « canterel-… » :
+   *   confinement S2 exigé, l'hôte ne sait pas dépasser S1 — changer de machine ;
+   *   l'hôte ne sait pas appliquer le mode réseau Deny ;
+   *   confinement S2 annoncé mais jamais prouvé, aucune campagne n'a conclu — lancer les self-tests
+   * ```
+   *
+   * Le worker s'est bien soumis, et le daemon a refusé pour trois motifs de §10.2 tous exacts sur
+   * cette machine. Exiger la réclamation aurait donc fait de cette clause une affirmation sur
+   * **l'hôte** — rouge sur un conteneur de développement, verte sur un runner capable —, ce que
+   * `W5.x` a refusé d'écrire quelques heures plus tôt pour l'empreinte.
+   *
+   * # Ce qui est affirmé à la place, et qui vaut sur toute machine
+   *
+   * La décision **se lit**. Ou le worker rapporte la mission qu'il a prise, ou le daemon dit
+   * pourquoi elle retourne en file, avec ses motifs nommés. Les deux silences à la fois seraient le
+   * défaut : une mission en file, un worker soumis, et personne qui dise ce qui a été décidé.
+   *
+   * C'est la propriété que cette session a vue enfreinte cinq fois — `W20.aa` pour le `204`, `W5.w`
+   * pour l'empreinte, `W5.x` pour le harnais, `W2.24` pour le tour du worker. Ici elle est tenue des
+   * deux côtés à la fois, ce qu'aucun des quatre ne pouvait faire seul.
+   */
+  it("une mission en file est soumise, et la décision de placement se lit", async (t) => {
+    assert.ok(chain, "la chaîne est montée par le test précédent");
+
+    const dit = await chain.tourDeWorker();
+    const tour = dit
+      .split("\n")
+      .map((ligne) => ligne.trim())
+      .filter((ligne) => ligne.startsWith("tour :"));
+
+    const daemon = chain
+      .annonce("locusd")
+      .split("\n")
+      .map((ligne) => ligne.trim())
+      .filter((ligne) => ligne.includes(TACHE));
+
+    t.diagnostic(`le worker : ${tour.join(" | ") || "(rien)"}`);
+    t.diagnostic(`le daemon : ${daemon.join(" | ") || "(rien)"}`);
+
+    // Le worker rend compte de son tour, quel qu'il soit — `W2.24`. Son silence voudrait dire que le
+    // pin de `WORKER-PINNED.json` précède cet item, et le message le dit plutôt que de laisser
+    // chercher.
+    assert.ok(
+      tour.length > 0,
+      "le worker n'a rien dit de son tour. Si le pin de `WORKER-PINNED.json` précède `W2.24`, " +
+        `c'est attendu et le bump est le remède. Ce qu'il a écrit : ${dit}`,
+    );
+
+    const reclame = !tour.some((ligne) => ligne.includes("aucune mission à réclamer"));
+    const refuse = daemon.some((ligne) => ligne.includes("retourne en file"));
+
+    // La clause : **l'un des deux**, jamais aucun. Un placement sans trace et un refus sans motif se
+    // ressemblent trait pour trait dans un log, et c'est cette confusion qui est interdite ici.
+    assert.ok(
+      reclame || refuse,
+      "une mission était en file, un worker s'est soumis, et ni le worker ni le daemon ne disent " +
+        `ce qui a été décidé. Le worker : ${tour.join(" | ")}. Le daemon : ${daemon.join(" | ")}`,
+    );
+
+    // Et quand c'est un refus, il **nomme** ses motifs — `W20.aa`. Un « ne convient pas » nu
+    // enverrait chercher sur trois machines à la fois.
+    if (refuse) {
+      const note = daemon.find((ligne) => ligne.includes("retourne en file")) ?? "";
+      assert.match(note, /ne convient|:/, `le refus de placement ne nomme aucun motif : ${note}`);
+    }
+  });
+});
