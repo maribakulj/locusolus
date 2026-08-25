@@ -14288,3 +14288,73 @@ même empreinte —, au lieu de la laisser à la conjecture. C'était l'intentio
 diagnostic : produire la mesure plutôt que la supposer.
 
 **Prochain item.** Lire les deux empreintes dans la prochaine CI et trancher.
+
+---
+
+## 2026-08-25 — W5.x — Le harnais e2e jetait tout ce que la chaîne annonçait
+
+**Le constat, et d'où il vient.** L'entrée précédente finissait par une promesse : « son empreinte
+apparaîtra désormais dans le log de ce job », et « prochain item : lire les deux empreintes ». Je
+suis allé la lire. **Elle n'y était pas.** Le job e2e du passage vert de `W5.w` ne contient, du
+premier `npm run e2e` à la dernière ligne, que le flux TAP et le nettoyage : aucune trace du
+`locus-execd` que le harnais venait pourtant de démarrer.
+
+La cause est dans `startChain`, et elle était écrite depuis `W12.f` :
+
+```ts
+const child = spawn(command, [...args], { env, stdio: ["ignore", "pipe", "pipe"] });
+child.stdout.on("data", (chunk) => {
+  seen += chunk.toString();
+});
+```
+
+Tout ce que les trois processus écrivent part dans un tampon que **seul `HarnessFailure` rend**.
+C'est le bon comportement pour un tour rouge et le pire pour un tour vert : un démarrage qui ne se
+voit que lorsqu'il rate est un démarrage qu'on ne mesure jamais. `W5.w` a livré une ligne exacte,
+utile, imprimée au bon moment — dans le seul job de la CI qui la jette.
+
+**Ce que ça dit du reste.** C'est la même forme que les quatre défauts de cette session : deux
+moitiés correctes séparément — un binaire qui annonce, un harnais qui capture — et aucune assemblée
+qui les joigne. Ici la moitié manquante ne coûtait pas une abstraction : elle coûtait une méthode.
+
+**Ce qui est livré.**
+
+- `Chain.annonce(processus)` rend ce qu'un processus a écrit jusqu'ici. Sur un nom qui n'est pas le
+  sien, il **refuse** — rendre `""` ferait lire une faute de frappe comme « ce processus n'a rien
+  dit », et l'appelant affirmerait sur un silence qu'il a fabriqué lui-même. C'est la règle « un
+  compteur qui n'a rien lu ne vaut pas zéro », appliquée à une lecture de tampon.
+- `empreinte(annonce)` lit la ligne de `W5.w`, et **refuse quand elle manque**. C'est la garde qui
+  manquait à ce `println!` : `attestation.rs` exerce la **fonction**, jamais le **démarrage**. Le
+  jour où la ligne disparaît d'un remaniement, le job e2e rougit, au lieu de laisser le remède de
+  `W5.w` redevenir muet sans que rien ne le dise.
+- Une ligne **absente** et une empreinte **vide** sont deux refus distincts. Ils ne se réparent pas
+  au même endroit — l'un est un binaire qui ne dit plus rien, l'autre une empreinte qui ne décide
+  plus de rien —, et la seconde serait honorée par n'importe quel hôte, ce qui est pire que de
+  manquer.
+- Le préfixe est figé par un test de constante, comme `WORKER_HOME_ENV` avant lui et pour la même
+  raison : c'est un couplage entre deux langages, et un couplage qu'on ne voit pas est un couplage
+  que personne ne vérifie.
+
+**L'assertion porte sur la forme, jamais sur les valeurs.** Exiger `cgroup_v2=available` ferait de
+ce test une affirmation sur les runners GitHub, qui rougirait sur la machine d'un contributeur sans
+que rien ne soit cassé. Ce qui est exigé est que les cinq faits soient là, chacun sous son nom : un
+fait qui disparaîtrait affaiblirait l'empreinte sans que personne ne le voie.
+
+**Et le tube.** Le pas de CI passe maintenant par `tee`, donc par `PIPESTATUS[0]` — le corollaire de
+la règle de session, écrit dans `CLAUDE.md` après qu'un refus bruyant s'est lu « exit 0 ».
+
+**Vérifié.** `npm run check` → vert. La moitié qui demande les trois processus est tenue par le job
+e2e, pas ici : un test qui monterait de faux processus prouverait que `spawn` fonctionne.
+
+**La mesure, enfin posée.** Les deux empreintes — celle du runner `sandbox`, déposée avec les
+attestations, et celle du runner `e2e`, annoncée par son broker — sont désormais dans le résumé du
+**même** passage. La question que `W5.u` a écrite dans le workflow et que trois items ont laissée à
+la conjecture — deux runners rendent-ils la même empreinte, et une attestation peut-elle donc
+voyager d'un job à l'autre — se lit au prochain tour au lieu de se supposer.
+
+**Ce que je n'ai pas fait, et pourquoi.** Pas de `needs: sandbox` ni d'artefact entre les deux jobs.
+Ce serait construire le convoyeur **avant** de savoir si les deux empreintes coïncident : si elles
+diffèrent, le convoyeur ne sert à rien et il faudrait le retirer. Et il coûterait cher — ADR 0033
+décision 3 : « un verdict qui peut rougir pour une raison étrangère cesse d'être lu », et faire
+dépendre e2e du job sandbox est exactement cela. Mesurer d'abord, assembler ensuite si la mesure le
+justifie.
