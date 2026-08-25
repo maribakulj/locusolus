@@ -79,17 +79,55 @@ qu'un appel partira d'un contexte asynchrone, `spawn_blocking` de `tokio` — d�
 
 ## Décision 2 — Deux barrières à l'entrée, et la seconde est une vérification
 
-La socket est créée en `0600`, et le broker **vérifie l'identité du processus appelant** avant de
-répondre : `SO_PEERCRED` sur Linux, `getpeereid` sur macOS, tous deux derrière
-`UnixStream::peer_cred` de la bibliothèque standard. La politique retenue est *le même utilisateur
-que le broker*, et un appelant refusé l'est **en le disant**.
+> **Amendée par `W4.i` (2026-08-25).** Ce qui suit en italique est ce que la décision disait ; les
+> deux affirmations soulignées se sont révélées fausses à l'écriture de `W4.h`, et la rédaction
+> corrigée vient après.
+>
+> *« La socket est créée en `0600`, et le broker vérifie l'identité du processus appelant avant de
+> répondre : `SO_PEERCRED` sur Linux, `getpeereid` sur macOS, tous deux derrière
+> `UnixStream::peer_cred` **de la bibliothèque standard**. La politique retenue est le même
+> utilisateur que le broker […] Les deux sont **gratuites** ; il n'y a aucune raison de n'en prendre
+> qu'une. »*
+
+La socket est créée en `0600`, et un appelant refusé l'est **en le disant**.
+
+**Ce que la rédaction d'origine affirmait à tort, et qui a été mesuré.**
+
+1. `UnixStream::peer_cred` n'est **pas** dans la bibliothèque standard stable : elle est **instable**
+   — vérifié sur `rustc 1.94.1`, issue rust-lang#42839 —, et `unsafe_code = "forbid"` dans les lints
+   d'espace de travail ne se contourne ni par `allow` ni par `expect` : c'est le sens de `forbid`.
+   La créance coûte donc un **crate externe dans le processus privilégié**, ce que tout le reste de
+   cet ADR passe son temps à éviter. Elle n'est pas gratuite.
+2. La politique annoncée — « le même utilisateur que le broker » — admet **exactement** l'ensemble
+   que `0600` admet déjà. Deux barrières qui laissent passer les mêmes appelants ne sont pas une
+   défense en profondeur : c'est une redondance qui coûte une dépendance. Elle n'ajoutait rien.
+
+**Ce qui est décidé à la place, et que `W4.i` a livré.** La créance de pair entre le jour où elle
+sépare quelque chose, c'est-à-dire quand `locusd` et `locus-execd` tournent sous **deux
+utilisateurs différents** : socket en `0660` avec un groupe partagé, et politique qui nomme l'uid
+attendu — « **celui-là** », et non « le même ». Les deux barrières admettent alors des ensembles
+distincts :
+
+| Barrière | Qui passe |
+| --- | --- |
+| permissions `0660` + groupe partagé | le propriétaire, **et tout membre du groupe** |
+| la politique de créance | **un** uid, nommé |
+
+Le mode `0660` et la politique entrent **ensemble**, par la signature de `listen_shared` : les
+offrir séparément laisserait poser le mode large sans la barrière qui le compense, ce qui est pire
+que les deux états d'avant. `0600` reste le défaut, et reste le bon quand les deux binaires tournent
+sous le même compte.
+
+La dépendance est `rustix`, en portée `packages/broker`, **arbre mesuré à 3 paquets** et sans
+`libc` ; `dependencies.json` en porte le motif et les mesures des concurrents.
 
 **Motifs.** Les permissions de fichier protègent des autres utilisateurs de la machine, pas des
 autres programmes du même utilisateur — et sur un poste de travail, tout ce que l'utilisateur lance
 tourne sous son compte. Or ce tube commande la création de conteneurs. La créance de pair, elle,
 vient du noyau : elle ne se falsifie pas depuis l'espace utilisateur, et c'est ce qui en fait une
-**vérification** plutôt qu'une hypothèse. Les deux sont gratuites ; il n'y a aucune raison de n'en
-prendre qu'une.
+**vérification** plutôt qu'une hypothèse. Ce motif-là tient toujours ; ce qui est tombé est l'idée
+qu'elle serait gratuite, et l'idée qu'une politique « le même utilisateur » en ferait une seconde
+barrière.
 
 **Pas de secret partagé.** Pour une socket locale il serait plus faible que la créance de pair — un
 secret se stocke, se copie et fuit, une identité de processus demandée au noyau non. Le jour où le

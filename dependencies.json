@@ -48,6 +48,12 @@
       "adr": "0034",
       "why": "Les dix octets d'aléa d'un ULID, côté locusd (W20.x). `Identities` était un port sans implémentation de production, et son refus nommait lui-même son remède : « locusd ne tire pas d'entropie — cela demande un crate, donc un ADR ». Coût mesuré dans Cargo.lock, pas estimé : `getrandom` 0.4.3 y est **déjà**, tiré par `rand` via `postgres-protocol` et `tokio-postgres` (ADR 0030), et ses quatre dépendances propres — cfg-if, libc, r-efi, rand_core — y sont toutes aussi. Le déclarer ajoute donc **zéro** paquet. Pas `rand`, qui est un générateur : un daemon n'a jamais de raison d'utiliser un générateur ensemencé pour des identifiants qui distinguent des actes institutionnels. Pas /dev/urandom lu à la main, qui serait un pari sur l'hôte — Windows n'a pas ce fichier, un conteneur peut ne pas l'exposer.",
       "scope": "apps/locusd"
+    },
+    {
+      "crate": "rustix",
+      "adr": "0028",
+      "why": "La créance de pair du lien du broker (W4.i). L'ADR 0028 décision 2 annonçait `SO_PEERCRED` « derrière `UnixStream::peer_cred` de la bibliothèque standard » et concluait que « les deux sont gratuites » : les deux moitiés étaient fausses, et l'amendement de l'ADR les corrige. `peer_cred` est **instable** — mesuré sur rustc 1.94.1, issue #42839 — et `unsafe_code = \"forbid\"` ne se contourne ni par `allow` ni par `expect`. **Arbre mesuré : 3 paquets** — rustix, bitflags, linux-raw-sys — en `default-features = false` avec `net` et `std` seuls. **Aucun `libc`** : le dos `linux_raw` parle au noyau par syscalls directs, ce qui évite d'ajouter un lien C au processus privilégié. Les concurrents ont été mesurés, pas supposés : `nix` en coûte 5, `uds` en coûte 2. `uds` est le moins cher et n'est pas retenu — spécialisé et peu maintenu, là où rustix est l'abstraction que l'écosystème vérifie tous les jours ; deux paquets d'écart ne valent pas cette différence dans le processus qui crée des conteneurs. `socket_peercred` est sûre, donc `forbid` tient.",
+      "scope": "packages/broker"
     }
   ],
   "forbiddenFeatures": [

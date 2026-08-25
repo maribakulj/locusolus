@@ -15,6 +15,10 @@ workspace = true
 # `serde_json` sont autorisés en portée `*` depuis l'ADR 0011, et la socket vient de la
 # bibliothèque standard. `check:deps` le vérifie sans qu'on lui ajoute une entrée.
 locus-lep = { path = "../lep" }
+# `W4.i` : la créance de pair. C'est la **seule** dépendance externe que ce crate ait acquise, et
+# l'ADR 0028 amendé en porte le motif — `UnixStream::peer_cred` est instable et `unsafe_code =
+# "forbid"` ne se contourne pas. Trois paquets, sans `libc`.
+rustix = { version = "1", default-features = false, features = ["net", "std"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 
