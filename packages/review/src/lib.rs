@@ -30,6 +30,7 @@
 
 pub mod contamination;
 pub mod context_view;
+pub mod disclosure;
 pub mod dossier;
 pub mod human;
 pub mod rebuttal;
@@ -42,6 +43,9 @@ pub use contamination::{Contamination, ContextItem, Recipient, contradictions_dr
 pub mod from_retrieval;
 
 pub use context_view::{ContextView, ContextViewError, Redaction, Unrestricted, Visible};
+pub use disclosure::{
+    Contestation, Disclosure, DisclosureError, DisclosureGranted, Motive, Reason, Scope,
+};
 pub use dossier::{Blindness, DossierError, Draft, Frozen, IndependenceRequirement};
 pub use human::{HumanReview, HumanReviewError, HumanVerdict};
 pub use rebuttal::{

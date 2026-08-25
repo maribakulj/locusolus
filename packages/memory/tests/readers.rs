@@ -108,6 +108,7 @@ fn les_trois_classes_ont_trois_issues_distinctes() {
         },
         &trace,
         instant(),
+        None,
     );
     let institutionnelle = read(
         &Reader::Institution {
@@ -115,6 +116,7 @@ fn les_trois_classes_ont_trois_issues_distinctes() {
         },
         &trace,
         instant(),
+        None,
     );
     let pair = read(
         &Reader::Peer {
@@ -122,6 +124,7 @@ fn les_trois_classes_ont_trois_issues_distinctes() {
         },
         &trace,
         instant(),
+        None,
     );
 
     assert!(matches!(propre, Reading::Own(_)));
@@ -157,12 +160,12 @@ fn la_lecture_institutionnelle_produit_un_fait_et_l_autre_non() {
     };
 
     let faits_institution = (0..3)
-        .filter(|_| read(&institution, &trace, instant()).fact().is_some())
+        .filter(|_| read(&institution, &trace, instant(), None).fact().is_some())
         .count();
     assert_eq!(faits_institution, 3, "une lecture, un fait");
 
     let faits_generateur = (0..3)
-        .filter(|_| read(&generateur, &trace, instant()).fact().is_some())
+        .filter(|_| read(&generateur, &trace, instant(), None).fact().is_some())
         .count();
     assert_eq!(
         faits_generateur, 0,
@@ -183,6 +186,7 @@ fn le_fait_nomme_la_trace_le_lecteur_et_l_instant() {
         },
         &trace,
         instant(),
+        None,
     );
 
     let fait = lecture
@@ -207,6 +211,7 @@ fn l_institution_lit_sans_condition_d_autorisation() {
             },
             &trace,
             instant(),
+            None,
         );
         assert!(matches!(lecture, Reading::Institutional(_, _)));
     }
@@ -323,6 +328,7 @@ fn un_generateur_ne_lit_pas_la_trace_d_un_autre() {
         },
         &trace_de("agt_kepler"),
         instant(),
+        None,
     );
 
     assert_eq!(
@@ -349,6 +355,7 @@ fn une_trace_sans_generateur_nomme_n_est_reclamee_par_personne() {
         },
         &trace_anonyme(),
         instant(),
+        None,
     );
     assert_eq!(lecture, Reading::Refused(Refusal::UnknownGenerator));
 
@@ -375,6 +382,7 @@ fn un_pair_n_obtient_rien_sans_devoilement() {
         },
         &trace_de("agt_kepler"),
         instant(),
+        None,
     );
 
     assert_eq!(
@@ -404,6 +412,7 @@ fn un_grant_rend_une_reference_et_le_genre_jamais_des_octets() {
         },
         &trace,
         instant(),
+        None,
     ) else {
         panic!("le générateur lit la sienne");
     };
@@ -448,13 +457,13 @@ fn le_module_ne_lit_pas_l_heure() {
     };
 
     assert_eq!(
-        read(&institution, &trace, instant())
+        read(&institution, &trace, instant(), None)
             .fact()
             .map(InstitutionalRead::at),
         Some(instant())
     );
     assert_eq!(
-        read(&institution, &trace, autre)
+        read(&institution, &trace, autre, None)
             .fact()
             .map(InstitutionalRead::at),
         Some(autre),
