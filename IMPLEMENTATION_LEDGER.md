@@ -15608,3 +15608,64 @@ que `W21` a livré, et `admits` est une **lecture**. Les câbler demande de déc
 dépassement de cognition fait d'une réservation en cours — l'annuler, la laisser finir, la dégrader
 vers `Economy` — et aucune des trois n'est écrite nulle part. C'est une décision de politique, donc
 `W14`, pas une conséquence de cet item.
+
+---
+
+## 2026-08-25 — W0.22 — « Transcrite » était une convention que rien ne vérifiait
+
+**Trouvé en payant une CI rouge**, la première de la session, et elle était de ma main.
+
+`tests/e2e/chain.chain.ts` porte une fixture dont l'en-tête dit ceci :
+
+> « La proposition, **transcrite** de `apps/locusd/tests/commands.rs` et non réinventée. Les deux
+> tests décrivent la même question, ce qui est le seul moyen de savoir que ce qui échoue ici est le
+> câblage du binaire et non une proposition écrite de travers. Une fixture propre à ce fichier
+> aurait donné un second corps à maintenir, et un `400` sur un champ oublié se serait lu comme un
+> refus du daemon. »
+
+Le raisonnement est juste de bout en bout. Et **rien ne vérifiait la transcription**.
+
+En livrant `W25.a`, le champ `cognition` est entré dans `mission::Proposal` — obligatoire, sur un
+type désérialisé depuis un corps HTTP — et pas dans la fixture e2e. `npm run check` est resté vert,
+parce qu'il ne joue pas l'e2e ; la CI a rendu `missing field cognition`, c'est-à-dire exactement le
+« `400` sur un champ oublié » que le commentaire annonçait.
+
+Un commentaire qui décrit d'avance la façon dont il va tomber, et qui tombe ainsi, est la forme la
+plus nette du défaut que cette session corrige depuis ce matin : une propriété affirmée en prose,
+sans mécanisme derrière.
+
+**Ce qui est livré.** `check:transcriptions` confronte les champs d'une structure Rust nommée aux
+clés d'une fixture nommée, **dans les deux sens** :
+
+- un champ obligatoire du type qui manque à la fixture — ce qui vient d'arriver ;
+- une clé de la fixture que le type ne porte plus — le symétrique, et il est plus discret. `serde`
+  l'ignorerait en silence : le corps partirait, le daemon l'accepterait, et le test e2e continuerait
+  de passer en exerçant autre chose que ce qu'il annonce. Une garde qui ne dirait que le premier
+  sens serait exacte et à moitié utile.
+
+**La garde a été vérifiée contre le défaut réel.** Retirer `cognition` de la fixture la fait rougir
+en nommant le champ. C'est autre chose que la démontrer sur une fixture inventée — celle-ci prouve
+qu'elle marche, celle-là qu'elle marche **sur ce qui est arrivé** —, et les deux sont faits.
+
+**Ce qu'elle ne fait pas, et je ne prétends pas l'inverse.**
+
+- Elle ne compare pas les **valeurs**. Deux fixtures peuvent porter les mêmes clés et décrire des
+  questions différentes ; c'est licite. « Transcrite » promet la même **forme**, pas le même
+  contenu, et vérifier plus demanderait d'exécuter les deux — ce qui est le travail de l'e2e
+  lui-même.
+- Elle ne lit pas le Rust en général. Un analyseur de Rust dans une garde de dépôt serait un second
+  compilateur à maintenir. Elle lit une structure **nommée** dans un fichier **nommé**, et les deux
+  façons d'échouer à la trouver ont leur propre code de constat plutôt que de se fondre dans un
+  compteur à zéro — règle 3 du rythme de session, appliquée à l'outillage.
+- Elle **ne referme pas** l'autre moitié du problème : `npm run check` ne joue toujours pas l'e2e,
+  et un changement de forme de fil passe en local. Ajouter l'e2e au check demanderait le dépôt
+  `canterel` et des binaires en `release` sur toute machine de développement, ce qui est cher pour
+  un cas que cette garde attrape maintenant à froid. Si un autre cas apparaît que la garde ne voit
+  pas, c'est là qu'il faudra reposer la question.
+
+15 champs confrontés, six tests dont les deux violations délibérées et les deux illisibilités.
+
+**Ce que l'incident aura appris sur le reste.** Ce n'est pas le troisième faux positif de scan de
+source de la journée — c'est l'inverse : une garde qui **n'existait pas** là où une phrase disait
+qu'elle existait. Les deux se ressemblent parce que dans les deux cas c'est la prose qu'on croit
+plutôt que le mécanisme, et la journée en aura donné les deux faces.
