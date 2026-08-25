@@ -41,6 +41,7 @@ pub mod objection;
 pub mod proposal;
 pub mod region;
 pub mod simulation;
+pub mod state;
 pub mod task;
 pub mod team;
 pub mod transfer;

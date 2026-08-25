@@ -246,6 +246,61 @@ impl AgentInstance {
         })
     }
 
+    /// Reposer une instance depuis son état persisté — `W23.a`, ADR 0026 décision 2.
+    ///
+    /// # Ce chemin ne passe pas par `moved_to`, et c'est délibéré
+    ///
+    /// Reconstruire n'est **pas** une transition. Y passer serait faux deux fois : la machine de
+    /// §7.1 refuse de quitter un état terminal, donc une instance `Completed` ne serait pas
+    /// reconstructible ; et une reconstruction est la **même** instance qu'on relit, pas une
+    /// instance qu'on fait avancer — les journaliser comme des transitions ferait compter à `W21.j`
+    /// des durées de vie qui n'ont pas eu lieu.
+    ///
+    /// Le constructeur reste néanmoins **vérifiant** : un support qui rendrait une version nulle ou
+    /// un champ présent et vide décrirait une instance que le domaine n'aurait jamais construite, et
+    /// la reposer telle quelle ferait entrer par la lecture ce que l'écriture refuse.
+    ///
+    /// # Errors
+    ///
+    /// [`AgentError::ZeroVersion`] pour une version nulle, [`AgentError::EmptyField`] pour un
+    /// `worker_id` ou un groupe d'indépendance présent et vide.
+    #[allow(clippy::too_many_arguments)]
+    pub fn from_state(
+        id: Id<Agent>,
+        template_id: Id<Agent>,
+        template_version: u32,
+        program_id: Option<Id<Program>>,
+        branch_id: Option<Id<Branch>>,
+        team_id: Option<Id<TeamKind>>,
+        worker_id: Option<&str>,
+        independence_group: Option<&str>,
+        state: InstanceState,
+    ) -> Result<Self, AgentError> {
+        if template_version == 0 {
+            return Err(AgentError::ZeroVersion);
+        }
+        for (field, value) in [
+            ("worker_id", worker_id),
+            ("independence_group", independence_group),
+        ] {
+            if value.is_some_and(str::is_empty) {
+                return Err(AgentError::EmptyField { field });
+            }
+        }
+
+        Ok(Self {
+            id,
+            template_id,
+            template_version,
+            program_id,
+            branch_id,
+            team_id,
+            worker_id: worker_id.map(str::to_owned),
+            independence_group: independence_group.map(str::to_owned),
+            state,
+        })
+    }
+
     /// La situer dans un programme.
     #[must_use]
     pub const fn in_program(mut self, program_id: Id<Program>) -> Self {
