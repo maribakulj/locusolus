@@ -23,6 +23,7 @@ pub mod dedup;
 pub mod genre;
 pub mod level;
 pub mod plan;
+pub mod readers;
 pub mod reasoning;
 pub mod receipt;
 pub mod retrieval;
@@ -39,6 +40,7 @@ pub use plan::{
     Channel, Escalation, Intent, Plan, PlanError, PremiseShapes, Provenance, RankingIdentity,
     RegionRef, Stop, StructuralChannel,
 };
+pub use readers::{Granted, InstitutionalRead, Reader, Reading, Refusal, read};
 pub use reasoning::Trace;
 pub use receipt::{Coverage, Exclusion, ReceiptError, RetrievalReceipt};
 pub use retrieval::{Candidate, Excluded, Ranking, Results, RetrievalError, Signal, retrieve};
