@@ -40,6 +40,7 @@ pub mod mutations;
 pub mod objection;
 pub mod proposal;
 pub mod region;
+pub mod scheduler;
 pub mod simulation;
 pub mod state;
 pub mod task;
@@ -83,6 +84,7 @@ pub use region::{
 // ici : `region` et `lifecycle` disent déjà « verdict » et « outcome » de leur propre domaine,
 // et aplatir les trois forcerait à renommer celui qui perdrait le mot juste. Le chemin de
 // module porte la distinction sans coûter un nom.
+pub use scheduler::{SchedulerDecision, admit};
 pub use simulation::{Answer, Fidelity, Recorded};
 pub use task::{Assignment, Task, TaskError};
 pub use team::{CoordinationMode, Team, TeamError};
