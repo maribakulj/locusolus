@@ -7,7 +7,6 @@
     "elle a deux sens, chacune ayant son scope et toutes deux le même énoncé.",
     "Vérifié par `npm run check:boundaries`, exécuté en CI."
   ],
-
   "$comment-exclude": [
     "Sorties de build et fixtures. La garde scanne tout ce qui n'est pas listé ici : c'est le",
     "bon défaut, mais il faut lui dire ce qui n'est pas du code source."
@@ -19,7 +18,6 @@
     "**/target/**",
     "tests/boundaries/fixtures/**"
   ],
-
   "extensions": {
     "$comment": [
       "Un fichier source dont l'extension n'est ni analysable ni ignorée est un angle mort :",
@@ -54,7 +52,6 @@
       ".sh"
     ]
   },
-
   "catalogues": {
     "temporal": {
       "$comment": "Règle 2. Le SDK Temporal, dans les écosystèmes où le projet peut aller.",
@@ -71,7 +68,6 @@
         "temporal-client"
       ]
     },
-
     "postgres": {
       "$comment": "Règle 3. Clients PostgreSQL, drivers, et ORM qui en embarquent un.",
       "patterns": [
@@ -108,7 +104,6 @@
         "sqlx"
       ]
     },
-
     "container-runtime": {
       "$comment": [
         "Règle 4. Ce qui parle à un socket de runtime de containers ou à un orchestrateur.",
@@ -142,7 +137,6 @@
         "kube-client"
       ]
     },
-
     "epistemic-objection": {
       "$comment": [
         "Règle 7. La famille d'objection du domaine épistémique — §7.6, quatre cibles.",
@@ -183,7 +177,6 @@
       ],
       "patterns": ["@locus/graph", "locus-graph"]
     },
-
     "coordination": {
       "$comment": [
         "Règle 6, autre sens. Une justification de proposition cite un objet épistémique par son",
@@ -191,7 +184,6 @@
       ],
       "patterns": ["@locus/coordination", "locus-coordination"]
     },
-
     "host-io": {
       "$comment": [
         "Règle 1. Les primitives d'entrée-sortie de l'hôte. Un domaine qui ouvre un fichier ou",
@@ -231,7 +223,6 @@
         "std/env"
       ]
     },
-
     "infrastructure": {
       "$comment": [
         "Règle 1. Définition opposable de « package d'infrastructure » : les packages du dépôt",
@@ -288,9 +279,39 @@
         "rdkafka",
         "async-nats"
       ]
+    },
+    "serving-engine": {
+      "$comment": [
+        "Règle 8. Les moteurs de service d'inférence, et leurs clients.",
+        "ADR 0026 décision 7 : le cache de préfixes partagé et la désagrégation prefill/decode sont",
+        "réels et mesurés, et c'est une **capacité admise** au sens de W18.d — derrière un",
+        "`Published` —, pas un sous-système du dépôt. Locus Solus l'ordonnance ; il ne l'embarque",
+        "pas. Une dépendance déclarée ici ferait entrer un moteur dans le graphe de compilation,",
+        "et son absence cesserait alors de dégrader la seule latence."
+      ],
+      "patterns": [
+        "vllm",
+        "vllm-*",
+        "sglang",
+        "sglang-*",
+        "tensorrt-llm",
+        "tensorrt_llm",
+        "text-generation-inference",
+        "@huggingface/text-generation-inference",
+        "lmdeploy",
+        "llama-cpp-python",
+        "llama_cpp",
+        "llama-cpp-*",
+        "ollama",
+        "ollama-*",
+        "@ollama/*",
+        "triton-inference-server",
+        "tritonclient",
+        "ray[serve]",
+        "ray-serve"
+      ]
     }
   },
-
   "rules": [
     {
       "id": "domain-imports-no-infrastructure",
@@ -300,7 +321,6 @@
       "scope": ["packages/domain/**"],
       "deny": ["infrastructure", "postgres", "temporal", "container-runtime", "host-io"]
     },
-
     {
       "id": "temporal-confined-to-workflow-backends",
       "claudeMd": 2,
@@ -310,7 +330,6 @@
       "except": ["packages/workflow-backends/**"],
       "deny": ["temporal"]
     },
-
     {
       "id": "postgres-confined-to-event-store",
       "claudeMd": 3,
@@ -324,7 +343,6 @@
       "except": ["packages/event-store/**", "packages/projections/**"],
       "deny": ["postgres"]
     },
-
     {
       "id": "locusd-holds-no-runtime-socket",
       "claudeMd": 4,
@@ -333,7 +351,6 @@
       "scope": ["apps/locusd/**"],
       "deny": ["container-runtime"]
     },
-
     {
       "id": "emacs-client-is-self-contained",
       "claudeMd": 5,
@@ -341,7 +358,6 @@
       "kind": "emacs-isolation",
       "unit": "apps/emacs"
     },
-
     {
       "id": "epistemic-graph-imports-no-coordination",
       "claudeMd": 6,
@@ -354,7 +370,6 @@
       "scope": ["packages/graph/**"],
       "deny": ["coordination"]
     },
-
     {
       "id": "coordination-imports-no-epistemic-graph",
       "claudeMd": 6,
@@ -383,6 +398,20 @@
       "kind": "no-co-import",
       "scope": ["**"],
       "families": ["epistemic-objection", "coordination-objection"]
+    },
+    {
+      "id": "no-serving-engine-dependency",
+      "claudeMd": 8,
+      "statement": "Aucun crate n'acquiert de dépendance vers un moteur de service d'inférence.",
+      "$comment": [
+        "W25.c. La fabric d'inférence entre par un `Published` de W5.b, comme le raisonneur",
+        "d'ontologie de W18.h — donc par une image admise, jamais par le graphe de compilation.",
+        "Le scope est le dépôt entier : contrairement aux règles 2, 3 et 4, il n'y a **aucun**",
+        "endroit où un moteur de service serait légitime, puisque le dépôt ne l'exécute nulle part."
+      ],
+      "kind": "imports",
+      "scope": ["**"],
+      "deny": ["serving-engine"]
     }
   ]
 }

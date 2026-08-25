@@ -15669,3 +15669,68 @@ qu'elle marche, celle-là qu'elle marche **sur ce qui est arrivé** —, et les 
 source de la journée — c'est l'inverse : une garde qui **n'existait pas** là où une phrase disait
 qu'elle existait. Les deux se ressemblent parce que dans les deux cas c'est la prose qu'on croit
 plutôt que le mécanisme, et la journée en aura donné les deux faces.
+
+---
+
+## 2026-08-25 — W25.c — La fabric d'inférence comme capacité admise
+
+**Ce que le dépôt ordonnance, et ce qu'il ne réimplémente pas.** Le cache de préfixes partagé et la
+désagrégation prefill/decode sont réels et mesurés — 75 % de requêtes en plus sous SLO, intégrés à
+deux moteurs de service majeurs. L'ADR 0026 décision 7 en tire la conclusion : « c'est une capacité
+admise au sens de `W18.d`, derrière un `Published`, pas un sous-système du dépôt. Locus Solus
+l'ordonnance ; il ne la réimplémente pas, exactement comme `W18.h` a admis le raisonneur
+d'ontologie. »
+
+Le module suit donc `reasoner.rs` trait pour trait, et par le même chemin : `Fabric::admitted` prend
+une `Admission`, qui n'existe que par `admit`, qui exige un `Published` de `W5.b`. Par signature,
+pas par discipline.
+
+**La clause 3 n'est pas tenue par une promesse, elle est tenue par la forme de `Plan`.** Un plan
+porte ce qui est demandé — cela seul détermine la réponse — plus une `Acceleration` facultative qui
+ne dit que _comment_ aller plus vite. La vérification la plus courte est une égalité stricte :
+`plan_accéléré.without_acceleration() == plan_non_accéléré`. Tout ce qui reste après avoir retiré la
+vitesse est ce qui détermine le résultat.
+
+`Acceleration` ne porte donc aucun champ dont dépendrait une réponse — ni modèle, ni gabarit, ni
+température, ni graine, ni sortie — et un test le tient par l'absence dans la source. Un champ de
+plus en ferait un second chemin de décision, et son absence changerait la réponse au lieu de la
+retarder.
+
+**La distinction qui décide de tout : réutiliser un préfixe n'est pas réutiliser une réponse.**
+C'est là qu'un cache devient faux. L'accélération compte des jetons de préfixe déjà calculés — une
+propriété de la requête _présente_ — et ne porte aucune réponse d'une requête passée. Un cache de
+résultats ferait dépendre ce qu'on rend de ce qu'on a rendu avant, et l'absence de fabric changerait
+alors les conclusions, ce que la clause interdit exactement. Le test le montre par ce qui varie :
+deux questions différentes partageant un préfixe obtiennent la **même** réutilisation, ce qu'un
+cache de réponses ne ferait jamais.
+
+**La clause 2 a coûté une huitième frontière.** `boundaries.json` gagne un catalogue
+`serving-engine` — vLLM, SGLang, TensorRT-LLM, TGI, LMDeploy, llama.cpp, Ollama, Triton, Ray Serve —
+et la règle `no-serving-engine-dependency`. Sa portée est **globale**, contrairement aux règles 2, 3
+et 4 qui confinent : il n'y a aucun endroit où un moteur de service serait légitime, puisque le
+dépôt n'en exécute nulle part. Deux violations délibérées la démontrent — une déclaration
+`Cargo.toml` et un import TypeScript — et la garde la vérifie sur 508 fichiers.
+
+**Au passage, le test de contrat des frontières a été dé-durci.** Il comparait la numérotation de
+`CLAUDE.md` à `[1, 2, 3, 4, 5, 6, 7]` écrit en dur, donc toute frontière ajoutée demandait de
+l'éditer — et un test qu'on édite pour le faire passer est un test qu'on finit par éditer sans
+regarder. Il dérive maintenant la suite attendue de ce qu'il a lu, et vérifie séparément qu'il a lu
+quelque chose. Le décompte n'est pas perdu : l'assertion suivante exige que `boundaries.json` couvre
+exactement ces numéros, donc une frontière retirée d'un seul des deux fichiers rougit toujours.
+
+**`plan` prend un `Option<&Fabric>`.** L'absence est le fonctionnement **nominal** d'un déploiement
+qui n'a admis aucune fabric, pas un cas d'erreur qu'on gérerait. C'est ce que « capacité admise »
+veut dire : quelque chose qu'on peut ne pas avoir.
+
+Cinq mutants posés, zéro survivant — dont « la fabric est désignée par nom », qui est la faute que
+`W18.h` avait nommée d'avance : une substitution de capacité par nom ne produit pas d'erreur, elle
+produit des réponses plausibles fondées sur autre chose.
+
+**Ce que je n'ai pas fait.** Chiffrer le gain. Le dépôt n'exécute aucun moteur, et annoncer un
+facteur serait annoncer un effet qui n'a pas lieu ici — `Acceleration` rend une **borne de ce qui
+est réutilisable**, pas une mesure de ce que le moteur fera. Les 75 % du dossier restent une lecture
+de l'audit, pas une propriété de ce code.
+
+**`W25` est clos.** Les trois items sont livrés, et le workstream que l'ADR 0026 appelait « la
+mesure la plus directement rentable du dossier » tient maintenant sur trois pièces qui ne se
+recouvrent pas : la classe déclarée, son plafond, et l'accélérateur qu'on peut ne pas avoir.

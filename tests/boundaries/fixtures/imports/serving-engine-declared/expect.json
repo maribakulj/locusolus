@@ -1,0 +1,6 @@
+{
+  "title": "un crate déclare un moteur de service d'inférence dans Cargo.toml",
+  "violations": [
+    { "rule": "no-serving-engine-dependency", "where": "packages/inference/Cargo.toml" }
+  ]
+}

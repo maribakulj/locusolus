@@ -79,6 +79,7 @@ attrapé le défaut qui l'a motivée ; celui-là s'est trouvé en lisant, et rie
 5. `apps/emacs` démarre en `emacs -Q` avec sa seule `load-path`.
 6. `packages/graph` et le domaine des objets de coordination ne s'importent pas l'un l'autre.
 7. Aucun fichier ne voit les deux familles d'objection à la fois.
+8. Aucun crate n'acquiert de dépendance vers un moteur de service d'inférence.
 
 ---
 
