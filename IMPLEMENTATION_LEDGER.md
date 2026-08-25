@@ -15267,3 +15267,63 @@ est un paragraphe, pas un champ, et un remplacement de préfixe s'y relit en ent
 choisit pas. Choisir suppose une politique, et la politique de §13 est le portefeuille de `W14`,
 dont la fonction de valeur attend l'anti-gaming de `W7.f`. Écrire ici une heuristique de choix
 aurait été décréter ce que `W23.d` doit mesurer.
+
+---
+
+## 2026-08-25 — W0.21 — `§12.4` désignait deux sections différentes, et rien ne pouvait le dire
+
+**Comment c'est arrivé sous les yeux.** En préparant `W24.a`, dont la clause 3 renvoie à « la
+demande d'extension **existante** ». Trois clauses fausses ayant déjà été trouvées dans la journée,
+la réaction acquise est de vérifier avant de coder — et la vérification a d'abord semblé confirmer
+le pire : rien dans le workspace Rust ne portait de demande d'extension, et `docs/SPEC_V1.md` ne
+contient nulle part le mot.
+
+Elle existe pourtant : `context.extension_requested`, dans
+`canterel/backend/cli/src/locus/ context-materializer.ts`, dont le commentaire la rattache à «
+§12.4, dernière phrase ». Or le §12.4 de **ce** spec s'appelle **Backpressure**. J'étais à un pas de
+déclarer fausse une citation parfaitement exacte.
+
+**La mesure, avant la conclusion.** `canterel/docs/locus/SPEC_V1.md` porte le même nom de fichier et
+numérote lui aussi depuis 1. Sur **147** numéros de section communs aux deux documents, **cinq**
+portent le même titre.
+
+Ce ne sont donc pas deux copies divergentes : ce sont deux spécifications **différentes**, l'une du
+plan de contrôle, l'autre du worker. Il n'y a rien à réconcilier — et c'est exactement ce qui rend
+le défaut vicieux. Une citation nue vers l'autre dépôt ne produit aucune erreur : elle se résout
+dans le document que le lecteur a sous les yeux, et y désigne autre chose.
+
+**Deux documents de ce dépôt s'y étaient trompés, mot pour mot.** La section `W24` de la roadmap et
+l'ADR 0026 décision 4 écrivent tous deux « §12.4 (isolation de branche) » — le §12.4 du **worker**.
+La même phrase cite ensuite « §16.6 (contaminations) », qui est bien local. Deux numéros dans une
+phrase, résolus dans deux documents différents, sans que rien ne le signale.
+
+**Ce qui est livré.**
+
+- Les citations fautives nomment leur document. La convention n'est pas inventée : elle était déjà
+  en usage — `` `repos/canterel/SPEC_V1.md` §4 `` dans la roadmap, `§30.1` dans l'ADR 0010 — mais
+  nulle part écrite, donc nulle part opposable.
+- `CLAUDE.md` gagne une section « Citer une section », qui dit la règle **et** son coût.
+- `check:citations` refuse toute citation nue vers un numéro absent du spec local : 489 citations
+  confrontées dans 54 documents, **six** violations à la première exécution — deux `§28.8` visant le
+  spec du worker, quatre `§5.x` où l'ADR 0017 citait ses propres sections sans le dire.
+
+**Ce que la garde n'attrape pas, et pourquoi je n'ai pas essayé plus fort.** Le cas qui l'a motivée.
+`§12.4` existe ici ; il désigne simplement autre chose que ce que l'auteur avait en tête. Aucune
+vérification d'existence ne peut voir ça. Comparer la glose entre parenthèses au titre de la section
+demanderait de décider que « isolation de branche » et « Backpressure » ne parlent pas de la même
+chose — ce qu'aucune règle textuelle ne tranche sans se tromper souvent, et une garde qui se trompe
+souvent finit désactivée.
+
+Ce que la garde rend vrai est donc plus modeste, et se dit sans hédger : **toute citation nue
+désigne une section qui existe ici**. Le reste tient à la convention écrite. C'est moins que ce
+qu'on voudrait, et c'est ce qui se vérifie.
+
+**Elle a attrapé sa propre documentation.** L'exemple de `CLAUDE.md` — un renvoi qui nomme son ADR —
+a été coupé en deux par le formateur, mettant le nom du document sur une ligne et le `§` sur la
+suivante. La garde lit ligne à ligne, elle a rougi, et la règle a gagné une phrase qu'aucune
+relecture n'aurait produite : le nom doit rester sur la même ligne que le `§`.
+
+**Ce que je n'ai pas fait.** `W24.a`, pour lequel toute cette vérification était un préalable. Sa
+clause 3 est **vraie** — la demande d'extension existe, côté worker, et c'est bien le chemin par
+lequel un agent demande un élargissement. L'item est donc prêt, et il commence par une clause de
+moins à vérifier.

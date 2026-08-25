@@ -211,8 +211,16 @@ ensemble autorisé. Il ne détermine **jamais** l'autorisation. Une souscription
 **Motifs.** C'est la borne que la source omet et qui la rend inutilisable telle quelle : chez elle,
 la souscription « s'aligne naturellement sur le *system prompt* configuré quand chaque agent rejoint
 le réseau » — c'est-à-dire que l'agent déclare lui-même ce qu'il veut recevoir. Transposé ici, cela
-ferait négocier aux agents leur propre accès à l'information, ce qui casse §12.4 (isolation de
-branche), l'invariant 11 (aveuglement du reviewer) et §16.6 (contaminations) d'un seul geste.
+ferait négocier aux agents leur propre accès à l'information, ce qui casse l'isolation
+informationnelle du worker — `repos/canterel/SPEC_V1.md` §12.4 —, l'invariant 11 (aveuglement du
+reviewer) et §16.6 (contaminations) d'un seul geste.
+
+**Citation corrigée le 2026-08-25 (`W0.21`).** La rédaction d'origine écrivait « §12.4 (isolation de
+branche) » sans nommer de document. Le §12.4 de `docs/SPEC_V1.md` s'appelle **Backpressure**, et ce
+dépôt n'a nulle part de section d'isolation informationnelle : la section visée est celle du spec du
+**worker**. Les deux documents portent le même nom de fichier et numérotent chacun depuis 1 — sur 147
+numéros communs, **cinq** portent le même titre —, donc une citation nue y désigne autre chose sans
+erreur visible.
 
 **Note d'implémentation à ne pas perdre.** Le modèle de réputation de la même source est
 **inutilisable en l'état** : `s^F = 1` signifie *faute*, donc `E[P]` est une probabilité de mauvais
