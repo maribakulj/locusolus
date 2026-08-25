@@ -14557,5 +14557,13 @@ nomme plutôt que de laisser chercher.
 rendrait vert sur « le worker s'est soumis » le jour où l'exécution cesserait d'aboutir. La
 complétude n'est toujours pas affirmée, et c'est le fonctionnement voulu.
 
+**Et un défaut que j'ai posé en écrivant cette clause, retiré avant qu'il serve.** La première
+rédaction de `tourDeWorker` confondait deux états : elle traitait le **délai dépassé** — le tour n'a
+pas fini — comme une sortie propre, et rendait la sortie **partielle** d'un processus encore vivant.
+L'appelant y aurait lu « le worker n'a rien dit de son tour », qui est le symptôme d'un pin périmé,
+et serait parti chercher un pin parfaitement à jour. C'est la faute que ce dépôt nomme partout — un
+silence lu pour un constat — commise dans le harnais qui vient de la retirer d'ailleurs. Trois états
+désormais, et jamais deux : sorti en `0`, sorti autrement, pas fini.
+
 **Vérifié.** `npm run check` → vert. La chaîne complète montée localement contre le `canterel` réel
 : **10 sous-tests, 2 suites, 0 échec**, et le diagnostic imprime les deux côtés de la décision.

@@ -653,9 +653,24 @@ export async function startChain(options: {
       const worker = tour();
       demarres.push(worker);
       const sortie = await attendreSortie(worker);
-      // `0` ou rien : un tour qui n'a rien trouvé sort proprement, et c'est le cas nominal d'une
-      // file vide. Tout autre code est une panne, et sa sortie est ce qui la diagnostique.
-      if (sortie !== 0 && sortie !== null) {
+      // **Trois états, et jamais deux.** La première rédaction en confondait deux : elle traitait
+      // `null` — le tour n'a pas fini — comme une sortie propre, et rendait la sortie **partielle**
+      // d'un processus encore vivant. L'appelant y aurait lu « le worker n'a rien dit de son tour »,
+      // qui est le symptôme d'un pin périmé, et serait parti chercher un pin parfaitement à jour.
+      //
+      // C'est la faute que ce dépôt nomme partout — un silence lu pour un constat — commise dans le
+      // harnais qui vient de la retirer d'ailleurs.
+      if (sortie === null) {
+        throw new HarnessFailure(
+          "canterel worker",
+          `n'a pas fini son tour en ${BOOT_TIMEOUT_MS} ms. Ce n'est ni un tour vide ni une panne : ` +
+            "le processus vit encore, et ce qu'il a écrit jusqu'ici est partiel",
+          worker.output(),
+        );
+      }
+      // `0` : un tour qui n'a rien trouvé sort proprement, et c'est le cas nominal d'une file vide.
+      // Tout autre code est une panne, et sa sortie est ce qui la diagnostique.
+      if (sortie !== 0) {
         throw new HarnessFailure("canterel worker", `sorti en ${sortie}`, worker.output());
       }
       return worker.output();
