@@ -13,7 +13,9 @@
 use locus_domain::{ContentHash, RevisionId};
 use locus_memory::{Disclosed, Reader, Reading, Refusal, Trace, read};
 use locus_protocol::{Id, IdKind, Timestamp, id::Agent};
-use locus_review::disclosure::{Contestation, Disclosure, DisclosureError, Reason, Scope};
+use locus_review::disclosure::{
+    Contestation, Disclosure, DisclosureError, Reason, Scope, Standing,
+};
 use locus_review::rebuttal::Rebuttal;
 
 use locus_artifacts::ProducedBy;
@@ -96,6 +98,7 @@ fn devoilement() -> Disclosure {
     Disclosure::granting(
         motif(),
         Scope::one("art_raisonnement", agent(2)),
+        &Standing::OutsideReview,
         octroi(),
         instant(ECHEANCE),
     )
@@ -141,6 +144,7 @@ fn le_devoilement_ecrit_un_fait_a_sa_construction() {
     let (devoile, fait) = Disclosure::granting(
         motif(),
         Scope::one("art_raisonnement", agent(2)),
+        &Standing::OutsideReview,
         octroi(),
         instant(ECHEANCE),
     )
@@ -168,6 +172,7 @@ fn un_devoilement_expire_a_sa_naissance_est_refuse() {
         let refus = Disclosure::granting(
             motif(),
             Scope::one("art_raisonnement", agent(2)),
+            &Standing::OutsideReview,
             octroi(),
             echeance,
         );
@@ -436,6 +441,7 @@ fn un_devoilement_qui_ne_couvre_pas_vaut_pas_de_devoilement() {
     let ailleurs = Disclosure::granting(
         motif(),
         Scope::one("art_ailleurs", agent(2)),
+        &Standing::OutsideReview,
         octroi(),
         instant(ECHEANCE),
     )

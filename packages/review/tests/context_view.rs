@@ -38,6 +38,7 @@ fn item(seed: u8) -> ContextItem {
         cites: Vec::new(),
         is_external_source: true,
         produced_by: Some(id::<Agent>(1)),
+        disclosed: None,
     }
 }
 
@@ -59,8 +60,14 @@ fn reviewer() -> Recipient {
 /// ne la refuse pas ici.
 #[test]
 fn une_vue_ne_peut_pas_contenir_un_evenement_posterieur_a_son_watermark() {
-    let refused = ContextView::build(&[(item(1), 42)], &reviewer(), 10, hash("ab"))
-        .expect_err("la position 42 est au-delà du watermark 10");
+    let refused = ContextView::build(
+        &[(item(1), 42)],
+        &reviewer(),
+        10,
+        hash("ab"),
+        Timestamp::from_millis(1_700_000_000_000),
+    )
+    .expect_err("la position 42 est au-delà du watermark 10");
 
     assert_eq!(
         refused,
@@ -79,8 +86,14 @@ fn une_vue_ne_peut_pas_contenir_un_evenement_posterieur_a_son_watermark() {
 #[test]
 fn un_evenement_exactement_au_watermark_est_connaissable() {
     // La borne est inclusive : le watermark est « jusqu'où on a lu », pas « avant où ».
-    let view = ContextView::build(&[(item(1), 10)], &reviewer(), 10, hash("ab"))
-        .expect("la position 10 est atteinte");
+    let view = ContextView::build(
+        &[(item(1), 10)],
+        &reviewer(),
+        10,
+        hash("ab"),
+        Timestamp::from_millis(1_700_000_000_000),
+    )
+    .expect("la position 10 est atteinte");
     assert_eq!(view.included(), [revision(1)]);
     assert!(view.could_know(10));
     assert!(!view.could_know(11));
@@ -90,8 +103,14 @@ fn un_evenement_exactement_au_watermark_est_connaissable() {
 /// événement postérieur à sa vue reviendrait à lui reprocher de n'être pas devin.
 #[test]
 fn la_vue_dit_ce_qui_etait_connaissable_et_ce_qui_ne_l_etait_pas() {
-    let view =
-        ContextView::build(&[(item(1), 5)], &reviewer(), 10, hash("ab")).expect("vue valide");
+    let view = ContextView::build(
+        &[(item(1), 5)],
+        &reviewer(),
+        10,
+        hash("ab"),
+        Timestamp::from_millis(1_700_000_000_000),
+    )
+    .expect("vue valide");
     assert!(view.could_know(0));
     assert!(view.could_know(10));
     assert!(!view.could_know(999));
@@ -108,8 +127,22 @@ fn la_vue_dit_ce_qui_etait_connaissable_et_ce_qui_ne_l_etait_pas() {
 #[test]
 fn deux_vues_du_meme_instant_sont_la_meme_vue() {
     let candidates = [(item(1), 3), (item(2), 7)];
-    let first = ContextView::build(&candidates, &reviewer(), 10, hash("ab")).expect("vue valide");
-    let second = ContextView::build(&candidates, &reviewer(), 10, hash("ab")).expect("vue valide");
+    let first = ContextView::build(
+        &candidates,
+        &reviewer(),
+        10,
+        hash("ab"),
+        Timestamp::from_millis(1_700_000_000_000),
+    )
+    .expect("vue valide");
+    let second = ContextView::build(
+        &candidates,
+        &reviewer(),
+        10,
+        hash("ab"),
+        Timestamp::from_millis(1_700_000_000_000),
+    )
+    .expect("vue valide");
 
     assert_eq!(first, second);
     assert_eq!(first.content_hash(), second.content_hash());
@@ -121,8 +154,22 @@ fn deux_vues_du_meme_instant_sont_la_meme_vue() {
 #[test]
 fn deux_vues_d_instants_differents_ne_se_confondent_pas() {
     let candidates = [(item(1), 3)];
-    let early = ContextView::build(&candidates, &reviewer(), 5, hash("ab")).expect("vue valide");
-    let late = ContextView::build(&candidates, &reviewer(), 50, hash("cd")).expect("vue valide");
+    let early = ContextView::build(
+        &candidates,
+        &reviewer(),
+        5,
+        hash("ab"),
+        Timestamp::from_millis(1_700_000_000_000),
+    )
+    .expect("vue valide");
+    let late = ContextView::build(
+        &candidates,
+        &reviewer(),
+        50,
+        hash("cd"),
+        Timestamp::from_millis(1_700_000_000_000),
+    )
+    .expect("vue valide");
 
     assert_ne!(early, late);
     assert_ne!(
@@ -146,8 +193,14 @@ fn un_element_contamine_n_entre_pas_dans_la_vue() {
     let mut leak = item(1);
     leak.is_generator_reasoning = true;
 
-    let view = ContextView::build(&[(leak, 3), (item(2), 4)], &reviewer(), 10, hash("ab"))
-        .expect("vue valide");
+    let view = ContextView::build(
+        &[(leak, 3), (item(2), 4)],
+        &reviewer(),
+        10,
+        hash("ab"),
+        Timestamp::from_millis(1_700_000_000_000),
+    )
+    .expect("vue valide");
 
     assert_eq!(view.included(), [revision(2)]);
     assert_eq!(view.redactions().len(), 1);
@@ -169,9 +222,22 @@ fn une_vue_qui_a_tout_ecarte_ne_ressemble_pas_a_une_vue_qui_n_avait_rien_a_ecart
     let mut secret = item(1);
     secret.classification = Confidentiality::Restricted;
 
-    let redacted =
-        ContextView::build(&[(secret, 3)], &reviewer(), 10, hash("ab")).expect("vue valide");
-    let empty = ContextView::build(&[], &reviewer(), 10, hash("ab")).expect("vue valide");
+    let redacted = ContextView::build(
+        &[(secret, 3)],
+        &reviewer(),
+        10,
+        hash("ab"),
+        Timestamp::from_millis(1_700_000_000_000),
+    )
+    .expect("vue valide");
+    let empty = ContextView::build(
+        &[],
+        &reviewer(),
+        10,
+        hash("ab"),
+        Timestamp::from_millis(1_700_000_000_000),
+    )
+    .expect("vue valide");
 
     assert!(redacted.included().is_empty());
     assert!(empty.included().is_empty());
@@ -186,7 +252,14 @@ fn une_vue_qui_a_tout_ecarte_ne_ressemble_pas_a_une_vue_qui_n_avait_rien_a_ecart
 fn le_plafond_de_confidentialite_de_la_vue_est_celui_du_destinataire() {
     let mut cleared = reviewer();
     cleared.clearance = Confidentiality::Confidential;
-    let view = ContextView::build(&[(item(1), 3)], &cleared, 10, hash("ab")).expect("vue valide");
+    let view = ContextView::build(
+        &[(item(1), 3)],
+        &cleared,
+        10,
+        hash("ab"),
+        Timestamp::from_millis(1_700_000_000_000),
+    )
+    .expect("vue valide");
     assert_eq!(
         view.confidentiality_ceiling(),
         Confidentiality::Confidential
@@ -201,12 +274,25 @@ fn deux_destinataires_ne_recoivent_pas_la_meme_vue() {
     secret.classification = Confidentiality::Restricted;
     let candidates = [(secret, 3), (item(2), 4)];
 
-    let ordinary =
-        ContextView::build(&candidates, &reviewer(), 10, hash("ab")).expect("vue valide");
+    let ordinary = ContextView::build(
+        &candidates,
+        &reviewer(),
+        10,
+        hash("ab"),
+        Timestamp::from_millis(1_700_000_000_000),
+    )
+    .expect("vue valide");
 
     let mut cleared = reviewer();
     cleared.clearance = Confidentiality::Restricted;
-    let privileged = ContextView::build(&candidates, &cleared, 10, hash("ab")).expect("vue valide");
+    let privileged = ContextView::build(
+        &candidates,
+        &cleared,
+        10,
+        hash("ab"),
+        Timestamp::from_millis(1_700_000_000_000),
+    )
+    .expect("vue valide");
 
     assert_eq!(ordinary.included(), [revision(2)]);
     assert_eq!(privileged.included(), [revision(1), revision(2)]);
@@ -222,10 +308,22 @@ fn deux_destinataires_ne_recoivent_pas_la_meme_vue() {
 /// connaître au moment où elle a été arrêtée.
 #[test]
 fn voir_plus_demande_une_autre_vue() {
-    let first =
-        ContextView::build(&[(item(1), 3)], &reviewer(), 5, hash("ab")).expect("vue valide");
-    let second = ContextView::build(&[(item(1), 3), (item(2), 8)], &reviewer(), 10, hash("cd"))
-        .expect("vue valide");
+    let first = ContextView::build(
+        &[(item(1), 3)],
+        &reviewer(),
+        5,
+        hash("ab"),
+        Timestamp::from_millis(1_700_000_000_000),
+    )
+    .expect("vue valide");
+    let second = ContextView::build(
+        &[(item(1), 3), (item(2), 8)],
+        &reviewer(),
+        10,
+        hash("cd"),
+        Timestamp::from_millis(1_700_000_000_000),
+    )
+    .expect("vue valide");
 
     assert_eq!(first.included().len(), 1);
     assert_eq!(second.included().len(), 2);

@@ -16050,3 +16050,98 @@ Onze mutants posés, zéro survivant, plus le mutant de contrôle.
 
 `W26.d` — l'aveuglement du reviewer, et le second verdict qui paie le dévoilement. Dernier du bloc,
 « parce qu'il modifie une garde existante et que le rouge doit être vu sur une garde qui marchait ».
+
+## 2026-08-25 — W26.d — L'aveuglement du reviewer, et le second verdict qui paie le dévoilement
+
+**Fichiers** : `packages/review/src/disclosure.rs` (`Standing`, `Reconsidered`),
+`packages/review/src/contamination.rs` (`ContextItem::disclosed`, `disclosed_to`, `inspect` prend
+l'instant), `packages/review/tests/blindness.rs` (neuf, 12 tests),
+`packages/review/src/{context_view,from_retrieval}.rs`, et les sites d'appel du workspace.
+
+### Clause 1 — une revue ouverte n'a pas de représentation, et c'est là qu'est la garantie
+
+`Standing` n'a pas de barreau « ouverte ». Ce n'est pas un oubli : une revue ouverte est
+l'**absence** d'une `Review` rendue, et `Standing::recorded` en exige une. Qui n'a pas le verdict
+n'a pas la valeur, donc n'a pas de `Standing`, donc n'obtient pas de dévoilement.
+
+L'invariant 11 est ainsi une borne sur le **mécanisme**, et non un défaut qu'un motif surclasserait.
+Le test le tient par l'absence : rien ne s'appelle `Open`, `InProgress`, `Pending`, `force` ou
+`override`.
+
+**`OutsideReview` est une affirmation de l'appelant, et c'est écrit.** Ce crate ne tient pas le
+registre de qui relit quoi ; prétendre le vérifier ici aurait été la prose-qui-ment de la journée,
+rencontrée trois fois déjà. Ce qui la rattrape est la clause 3 : **les deux mécanismes ne se font
+pas confiance l'un l'autre**, et c'est le seul agencement qui tienne.
+
+**Le verdict d'autrui n'ouvre rien.** Sans ce refus, présenter n'importe quel verdict enregistré
+aurait suffi à dévoiler vers n'importe qui, et le témoin serait devenu un laissez-passer
+transférable. Un test le pose, et sa contre-épreuve — le verdict du lecteur visé, lui, passe — sans
+quoi un refus universel aurait satisfait le premier.
+
+### Clause 2 — les deux verdicts, et rien n'efface le premier
+
+`Reconsidered` porte l'aveugle et l'informé. Aucune signature n'efface le premier : `supersede`,
+`replace`, `retract`, `withdraw`, `discard`, `overrule` sont refusés par l'absence. L'invariant 12
+le demande, et une signature qui l'offrirait serait utilisée le jour où le premier verdict gênera.
+
+**L'écart entre les deux est l'information que le conflit prolongé cherchait.** L'effacer
+reviendrait à jeter la réponse — c'est la raison, et pas seulement la règle.
+
+Une reconsidération ne change pas de relecteur, **aux deux bouts** : ni un dévoilement visant
+quelqu'un d'autre, ni un second verdict signé par quelqu'un d'autre. Sans ces deux refus, «
+reconsidérer » serait un mot pour « faire relire par un autre », ce qui est une revue de plus et non
+une reconsidération.
+
+### Clause 3 — le défaut reste la fuite, et c'était rouge d'abord
+
+Les deux tests de cette clause ont **échoué** avant que `inspect` n'apprenne la différence, sur une
+garde qui marchait — c'est l'ordre que la roadmap exigeait pour cet item, et la raison pour laquelle
+il venait en dernier du bloc. Le rouge a été vu, puis levé.
+
+Un dévoilement **absent**, **expiré**, ou visant **un autre lecteur** laisse
+`GeneratorReasoningLeaked`. « Présumer régulier ce qui n'est pas prouvé irrégulier ferait de l'oubli
+d'attacher le dévoilement un silence » — et le cas adverse le plus utile est le troisième : un
+dévoilement parfaitement régulier, simplement attaché au mauvais contexte. Une garde qui vérifierait
+seulement « un dévoilement est présent » le laisserait passer, et l'attacher deviendrait une
+formalité.
+
+Le dévoilement **voyage avec l'élément** (ADR 0027 décision 6). Un dévoilement qu'il faudrait
+retrouver dans un registre serait introuvable exactement le jour où il compte, et la garde crierait
+alors sur ce qui est juste — la leçon de `W22.d`, qui dit qu'une garde qui crie sur du juste se fait
+désactiver.
+
+**Un dévoilement ne blanchit que la fuite de raisonnement.** Un test le montre en gardant
+`ConfidentialDataOnUnauthorisedWorker` sur le même élément : un dévoilement autorise à lire un
+raisonnement, il ne dit rien d'une donnée confidentielle sur un worker non habilité. Les confondre
+en ferait un passe-partout.
+
+### Ce que l'inspection ne vérifie pas, écrit plutôt que sous-entendu
+
+La moitié « quelle trace » de la portée n'est **pas** vérifiée dans `inspect` : un `ContextItem`
+désigne une **révision**, pas un artefact, et comparer les deux serait comparer deux choses qui ne
+sont pas du même genre.
+
+Cette moitié est tenue là où l'artefact est nommé — `memory::read`, qui confronte les trois
+questions ensemble. Les deux gardes se partagent donc le travail **sans se recouvrir**, et le dire
+dans la source évite qu'on lise `disclosed_to` comme vérifiant la portée entière. Une garde dont on
+croit qu'elle vérifie plus qu'elle ne vérifie est le genre de chose qui laisse un trou pendant des
+mois.
+
+### Le coût de la traversée, et pourquoi il était dû
+
+`inspect`, `ContextView::build`, `ContextView::build_under`, `view_from_retrieval` et
+`replay_receipt` prennent désormais l'instant. Une échéance ne se vérifie pas sans heure, et ces
+crates ne lisent pas l'horloge — même discipline que `domain::Envelope` et que `memory::readers`.
+C'était la modification d'une garde existante que la roadmap annonçait, et elle a touché huit
+fichiers de tests dans trois crates.
+
+Huit mutants posés, zéro survivant, plus le mutant de contrôle.
+
+### `W26` est clos
+
+Les quatre items sont livrés : la trace écrite, les trois lecteurs, le dévoilement, l'aveuglement.
+Le bloc répond à la question posée à l'ADR 0027 — perdre le raisonnement des agents est-il une
+erreur ? — par un mécanisme complet plutôt que par une position : on retient, l'humain voit et sa
+lecture est un fait, les agents ne voient pas sauf règle nommée et bornée, et le reviewer aveugle le
+reste jusqu'à son verdict, après quoi un dévoilement se paie en second verdict plutôt qu'en
+crédibilité.

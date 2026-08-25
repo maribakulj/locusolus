@@ -42,6 +42,7 @@ fn item(seed: u8) -> ContextItem {
         cites: Vec::new(),
         is_external_source: true,
         produced_by: Some(id::<Agent>(1)),
+        disclosed: None,
     }
 }
 
@@ -58,8 +59,14 @@ fn destinataire(seed: u8) -> Recipient {
 fn pair(seed: u8, revisions: &[u8]) -> Peer {
     let candidates: Vec<(ContextItem, u64)> =
         revisions.iter().map(|graine| (item(*graine), 1)).collect();
-    let vue = ContextView::build(&candidates, &destinataire(seed), 10, hash("ab"))
-        .expect("la fixture est cohérente");
+    let vue = ContextView::build(
+        &candidates,
+        &destinataire(seed),
+        10,
+        hash("ab"),
+        Timestamp::from_millis(1_700_000_000_000),
+    )
+    .expect("la fixture est cohérente");
     Peer::authorised(destinataire(seed), Subscription::derived_from(&vue))
 }
 
