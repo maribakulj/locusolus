@@ -15941,3 +15941,112 @@ au harnais.
 `W26.c` — `Disclosure` : motif, portée, échéance, journal. C'est l'ordre du bloc, « `W26.c` après
 `W26.b`, dont il borne une des trois classes », et c'est lui qui conditionnera le refus opposé
 aujourd'hui aux pairs.
+
+## 2026-08-25 — W26.c — `Disclosure` : motif, portée, échéance, journal
+
+**Fichiers** : `packages/review/src/disclosure.rs` (neuf), `packages/review/tests/disclosure.rs`
+(neuf, 13 tests), `packages/memory/src/readers.rs` (le port `Disclosed`, et `read` qui le consulte),
+`packages/review/{Cargo.toml,src/lib.rs}`, `packages/memory/src/lib.rs`.
+
+### La décision de conception est un port, et c'est une affaire de dépendance
+
+Un dévoilement porte un motif ; le premier motif est l'objection non résolue après un nombre borné
+de tours de contestation ; **ce qui compte ces tours est la revue**, qui dépend déjà de
+`packages/memory`. Faire connaître les motifs à la mémoire aurait inversé la dépendance.
+
+D'où `memory::Disclosed`, un port à une méthode : ce dévoilement couvre-t-il **cette trace, ce
+lecteur, cet instant** ? `memory::read` ne sait pas pourquoi un dévoilement existe, et n'a pas à le
+savoir. `review::Disclosure` en est l'implémenteur.
+
+### La faiblesse d'un port, dite plutôt que cachée
+
+N'importe quel crate peut implémenter `Disclosed` et rendre `true`. Aucune signature ne l'empêche,
+et écrire que « seul un dévoilement valide ouvre la lecture d'un pair » sans le dire serait une
+prose qui affirme ce que le code ne tient pas — la famille de défauts de la journée.
+
+Ce qui la tient est une garde : un test parcourt les sources du workspace et exige **exactement un**
+implémenteur. Il échoue bruyamment s'il n'a pas vu la racine ou s'il a lu trop peu de fichiers — un
+balayage qui n'a rien lu ne conclut pas à zéro.
+
+### Un motif ne s'écrit pas, il se constate
+
+`Motive` n'a **aucun** constructeur public. Le seul chemin est `Contestation::unresolved_after`, qui
+compte de vrais tours. Un `Motive::new` aurait permis de fabriquer le motif d'un dévoilement qu'on
+souhaitait accorder — c'est-à-dire d'écrire l'autorisation et sa justification du même geste.
+
+L'énumération `Reason` a un barreau, et le décompte porte la clause : autant de chemins produisant
+un `Motive` que de barreaux. Un barreau de plus sans son mécanisme fait rougir le test, ce qui est
+la règle du dépôt rendue exécutable.
+
+### Un tour n'est pas une réponse
+
+Un tour est un `Rebuttal` qui **conteste** et **demande un recheck**. Une réponse qui accepte n'est
+pas une contestation ; une contestation qui ne relance pas n'ouvre pas de tour.
+
+Compter toutes les réponses aurait fait du dialogue ordinaire un conflit prolongé, et un dévoilement
+se serait déclenché sur une revue qui se passait bien. Trois réponses n'ayant chacune qu'une des
+deux propriétés valent **zéro** tour, et un test le montre.
+
+### Strictement au-delà de la borne
+
+`bound` est le nombre de tours acceptés **sans** dévoiler. À `bound` tours exactement, la
+contestation est encore dans ce qui était prévu ; c'est le tour suivant qui la fait sortir. Un `>=`
+aurait dévoilé au dernier tour admis — un tour trop tôt — et la borne aurait dit autre chose que ce
+que son nom annonce. Le test la passe de part et d'autre.
+
+### La portée n'a pas de forme plus large à écrire
+
+Une trace, un lecteur. Ce n'est pas un filtre restreint : il n'existe pas de `Scope::all`, pas de
+portée de branche, pas de motif générique, et un test d'absence refuse le vocabulaire qui en
+ouvrirait une. « _Toutes les traces de cette branche_ n'est pas une portée : c'est une politique de
+diffusion déguisée en autorisation ponctuelle. »
+
+### L'échéance est dans `covers`, pas à côté
+
+Un dévoilement expiré ne donne plus rien, et c'est la **même** réponse que « ce n'est pas la bonne
+trace ». `memory::read` n'a donc aucun cas particulier à écrire pour l'expiration, et n'aurait aucun
+moyen de l'oublier.
+
+Le test passe de part et d'autre de l'heure **jusque dans `read`** : vérifier le seul accesseur
+aurait laissé ouverte la possibilité que la lecture ne le consulte pas. Et un dévoilement déjà
+expiré à sa naissance est refusé — ce serait une ligne de journal disant qu'on a autorisé, sans que
+rien ne l'ait jamais été.
+
+Le refus d'un pair est le **même** qu'on ne présente rien ou qu'on présente un dévoilement qui ne
+couvre pas : présenter un dévoilement inadéquat n'est pas plus proche d'être autorisé que de n'en
+présenter aucun, et deux refus distincts auraient laissé croire le contraire à qui lit le journal.
+
+### Quatrième faux positif de l'idiome de scan de source
+
+Le balayage du workspace **se trouvait lui-même** : son aiguille, `"impl Disclosed for"`, est une
+chaîne de son propre code. Resserré à un `impl` en **début de ligne** — la chaîne qui sert
+d'aiguille est toujours indentée dans une expression. Resserré, pas relâché, comme les trois autres.
+
+### Un mutant équivalent converti plutôt que toléré
+
+`reason: motive.reason` → `reason: Reason::UnresolvedObjection` ne faisait rougir aucun test. C'est
+un mutant **équivalent aujourd'hui**, et démontrablement : `Reason::ALL` a un barreau, `Motive` n'a
+qu'un producteur, ce producteur pose ce barreau.
+
+Le laisser ainsi aurait été exact et imprudent. Le jour où un second motif arrive — et le test de
+décompte force alors un second producteur —, la constante en dur étiquetterait son fait avec le
+motif du premier : un journal qui dit qu'on a dévoilé pour une raison quand c'en était une autre, et
+l'erreur ne se verrait nulle part.
+
+Un test interdit donc à `granting` de **nommer** un barreau : il doit lire celui du motif qu'on lui
+passe. « Équivalent aujourd'hui » devient « ne peut pas régresser demain ». C'est le troisième
+mutant équivalent de la session, et le premier qu'il valait la peine de convertir plutôt que
+d'expliquer.
+
+### Une prose de `W26.b` corrigée en passant
+
+L'en-tête de `memory::readers` disait « ce qu'un pair obtient aujourd'hui : rien ». C'était vrai en
+livrant `W26.b` et faux en livrant celui-ci. Réécrit : un pair lit par un dévoilement, et `W26.c` a
+**conditionné** le refus plutôt que corrigé.
+
+Onze mutants posés, zéro survivant, plus le mutant de contrôle.
+
+### Ce qui suit
+
+`W26.d` — l'aveuglement du reviewer, et le second verdict qui paie le dévoilement. Dernier du bloc,
+« parce qu'il modifie une garde existante et que le rouge doit être vu sur une garde qui marchait ».

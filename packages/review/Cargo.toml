@@ -15,3 +15,9 @@ locus-domain = { path = "../domain" }
 locus-lep = { path = "../lep" }
 locus-memory = { path = "../memory" }
 locus-protocol = { path = "../protocol" }
+
+[dev-dependencies]
+# `W26.c` : les tests construisent une `Trace`, dont la déclaration prend un `ProducedBy`. C'est une
+# dépendance de **test** seulement — `packages/review` n'a pas à connaître les artefacts pour porter
+# un dévoilement, et l'y faire entrer en dépendance ordinaire élargirait sa surface sans raison.
+locus-artifacts = { path = "../artifacts" }

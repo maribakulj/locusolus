@@ -36,22 +36,52 @@
 //! dont les instants viennent de la montre de celui qui écrit n'est pas rejouable, et l'invariant 1
 //! exclut du domaine le choix d'une horloge.
 //!
-//! # Ce qu'un pair obtient aujourd'hui, et pourquoi ce n'est pas un moignon
+//! # Ce qu'un pair obtient, et par quoi
 //!
-//! Rien. Un pair lit **seulement** par un dévoilement valide (ADR 0027 décision 3), et l'énumération
-//! des motifs de dévoilement **commence vide** — chaque motif arrive avec le mécanisme qui le
-//! déclenche, et `W26.c` livre le premier. Aucun dévoilement n'existe donc, et
-//! [`Refusal::NeedsDisclosure`] est la réponse **exacte** à l'état présent du système, pas un
-//! `todo!()` déguisé.
+//! Un pair lit **seulement** par un dévoilement valide (ADR 0027 décision 3). C'est ce que
+//! [`Disclosed`] demande, et [`read`] ne consulte rien d'autre : ni liste, ni rôle, ni habilitation.
 //!
-//! La différence se voit à ceci : quand `W26.c` livrera `Disclosure`, ce refus ne sera pas
-//! *corrigé*, il sera *conditionné*. Rien ici n'annonce un effet qui n'a pas lieu.
+//! Le refus est le **même** — [`Refusal::NeedsDisclosure`] — qu'on ne présente aucun dévoilement ou
+//! qu'on en présente un qui ne couvre pas cette trace, ce lecteur ou cette heure. Ce n'est pas une
+//! économie de variantes : présenter un dévoilement qui ne couvre pas n'est pas plus proche d'être
+//! autorisé que de n'en présenter aucun, et deux refus distincts auraient laissé croire le contraire
+//! à qui lit le journal.
+//!
+//! `W26.b` a livré ce chemin fermé — aucun dévoilement n'existait, l'énumération des motifs
+//! commençant vide —, et `W26.c` l'a **conditionné** plutôt que corrigé.
 
 use locus_domain::ContentHash;
 use locus_protocol::Timestamp;
 
 use crate::genre::Genre;
 use crate::reasoning::Trace;
+
+/// Ce qu'un pair doit présenter — **un port**, pas un type de dévoilement.
+///
+/// # Pourquoi ce crate ne connaît pas les motifs
+///
+/// Un dévoilement porte un motif, une portée, une échéance et un journal (ADR 0027 décision 3). Le
+/// **motif** est une affaire de revue : le premier est l'objection non résolue après un nombre borné
+/// de tours de contestation, et ce qui compte ces tours vit dans `packages/review`, qui dépend déjà
+/// de ce crate. Faire connaître les motifs à la mémoire inverserait la dépendance.
+///
+/// Ce crate n'a donc pas à savoir **pourquoi** un dévoilement existe. Il a à savoir s'il couvre
+/// **cette trace-ci, pour ce lecteur-ci, à cet instant-ci** — les trois questions dont dépend la
+/// lecture, et rien de plus.
+///
+/// # La faiblesse d'un port, dite plutôt que cachée
+///
+/// N'importe quel crate peut implémenter ce trait et rendre `true`. Aucune signature ne l'empêche,
+/// et prétendre le contraire serait faux. Ce qui le tient est une garde : un test parcourt les
+/// sources du workspace et exige qu'il y ait **exactement un** implémenteur. « Personne d'autre ne
+/// l'implémente » devient alors une propriété vérifiée, au lieu d'une habitude.
+pub trait Disclosed {
+    /// Ce dévoilement couvre-t-il cette trace, pour ce lecteur, à cet instant ?
+    ///
+    /// Les trois ensemble : un dévoilement qui couvrirait la trace mais pas le lecteur, ou le
+    /// lecteur mais plus à cette heure, ne couvre rien.
+    fn covers(&self, artifact_id: &str, reader: &str, at: Timestamp) -> bool;
+}
 
 /// Qui lit — les trois classes de l'ADR 0027 décision 2, **et pas une quatrième**.
 ///
@@ -188,6 +218,14 @@ pub enum Reading {
     Own(Granted),
     /// L'institution lit, et la lecture est un fait.
     Institutional(Granted, InstitutionalRead),
+    /// Un pair lit, **parce qu'un dévoilement le couvre**.
+    ///
+    /// Pas de fait ici, et ce n'est pas un oubli : le dévoilement lui-même est déjà journalisé à sa
+    /// construction (ADR 0027 décision 3 point 4). Journaliser une seconde fois à chaque lecture
+    /// qu'il autorise donnerait deux comptes du même événement, et la question « lequel est le
+    /// bon ? » n'aurait pas de réponse — c'est l'argument de `messaging.rs` sur l'identité d'un
+    /// message.
+    Disclosed(Granted),
     /// Refusé, avec le motif.
     Refused(Refusal),
 }
@@ -201,7 +239,7 @@ impl Reading {
     pub const fn fact(&self) -> Option<&InstitutionalRead> {
         match self {
             Self::Institutional(_, fact) => Some(fact),
-            Self::Own(_) | Self::Refused(_) => None,
+            Self::Own(_) | Self::Disclosed(_) | Self::Refused(_) => None,
         }
     }
 }
@@ -218,7 +256,12 @@ impl Reading {
 ///
 /// `at` est l'instant du fait, **fourni** : voir l'en-tête du module.
 #[must_use]
-pub fn read(reader: &Reader, trace: &Trace, at: Timestamp) -> Reading {
+pub fn read(
+    reader: &Reader,
+    trace: &Trace,
+    at: Timestamp,
+    disclosure: Option<&dyn Disclosed>,
+) -> Reading {
     let manifest = trace.manifest();
     let granted = Granted {
         artifact_id: manifest.artifact_id().to_owned(),
@@ -242,8 +285,13 @@ pub fn read(reader: &Reader, trace: &Trace, at: Timestamp) -> Reading {
             };
             Reading::Institutional(granted, fact)
         }
-        Reader::Peer { agent_id } => Reading::Refused(Refusal::NeedsDisclosure {
-            asked_by: agent_id.clone(),
-        }),
+        Reader::Peer { agent_id } => match disclosure {
+            Some(shown) if shown.covers(&granted.artifact_id, agent_id, at) => {
+                Reading::Disclosed(granted)
+            }
+            Some(_) | None => Reading::Refused(Refusal::NeedsDisclosure {
+                asked_by: agent_id.clone(),
+            }),
+        },
     }
 }
