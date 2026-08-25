@@ -382,6 +382,27 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
+      # `W5.ab` : ce que la campagne a déposé **sort du job**, pour que le broker du job `e2e` le
+      # lise. C'est la moitié qui manquait — `W5.z` livrait la lecture, `W5.aa` le dépôt, et rien ne
+      # les joignait.
+      #
+      # Ce qui l'empêchait était nommé dans le commentaire de `W5.aa` : le consommateur vit sur un
+      # autre runner, et rien n'établissait que deux runners rendent la même empreinte d'hôte.
+      # `W5.x` l'a mesuré — ils rendent la même, caractère pour caractère. Le convoyeur est donc
+      # justifié par une lecture, pas par une supposition.
+      #
+      # `if: always()` : l'épreuve XFS juste au-dessus est tolérée, et son échec ne doit pas
+      # emporter un dépôt que les seize sondes ont produit. `if-no-files-found` reste à son défaut —
+      # une campagne qui n'a rien conclu ne dépose rien, et l'avertissement est le bon niveau : ce
+      # n'est pas une faute de ce job, et le job `e2e` le constatera sous son nom.
+      - name: L'attestation, pour le job e2e
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: attestations
+          path: attestations.json
+          retention-days: 1
+
   # ------------------------------------------------------------------------------------------
   # Le harnais de bout en bout — `W12.f`, ADR 0033.
   # ------------------------------------------------------------------------------------------
@@ -398,6 +419,13 @@ jobs:
     name: e2e
     runs-on: ubuntu-latest
     timeout-minutes: 20
+
+    # `W5.ab` : le job attend `sandbox` pour en descendre l'attestation, et `if: always()` fait qu'il
+    # ne **hérite** jamais de sa couleur. La distinction est celle de l'ADR 0033 décision 3 : ce qui
+    # est refusé est un verdict qui rougit pour une raison étrangère, pas une sérialisation. Un
+    # `sandbox` rouge retarde donc `e2e` de quelques minutes ; il ne le saute pas et ne le teinte pas.
+    needs: sandbox
+    if: always()
 
     steps:
       - uses: actions/checkout@v4
@@ -479,9 +507,45 @@ jobs:
       # Le harnais **échoue bruyamment** si l'un des trois processus ne démarre pas, et rend sa
       # sortie. Pas de `continue-on-error` : c'est la règle du dépôt, et `W20.i` a montré ce qu'elle
       # coûte quand on l'oublie.
+      # `W5.ab` : l'attestation que le job `sandbox` a déposée. Son absence n'est **pas** une faute
+      # de ce job — une campagne qui n'a rien conclu ne dépose rien — donc le téléchargement est
+      # toléré. Ce qui n'est pas toléré est de la **taire** : le pas suivant nomme lequel des deux
+      # états tient, et le harnais compare son constat à cette déclaration.
+      - name: L'attestation du job sandbox
+        id: attestation
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: attestations
+          path: .attestations
+
+      # Deux états, nommés plutôt que devinés. La variable de lecture n'est posée que si le fichier
+      # existe : la poser sur un fichier absent ferait **refuser le démarrage** de `locus-execd` —
+      # « un fichier nommé et illisible » — et le job e2e rougirait pour une raison qui est dans un
+      # autre job. Ce que ce pas exporte est donc la déclaration, que `chain.chain.ts` confronte.
+      - name: Ce que ce tour a d'attestations
+        id: attendu
+        run: |
+          fichier="${{ github.workspace }}/.attestations/attestations.json"
+          if [ -f "$fichier" ]; then
+            echo "posee=1" >> "$GITHUB_OUTPUT"
+            echo "chemin=$fichier" >> "$GITHUB_OUTPUT"
+            echo "attestation du job sandbox : $(wc -c < "$fichier") octets" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "posee=0" >> "$GITHUB_OUTPUT"
+            echo "chemin=" >> "$GITHUB_OUTPUT"
+            echo "aucune attestation descendue du job sandbox — ce tour n'exerce pas le convoyeur" \
+              >> "$GITHUB_STEP_SUMMARY"
+          fi
+
       - name: La chaîne monte, se voit et s'arrête
         env:
           LOCUS_E2E_WORKER: ${{ github.workspace }}/.worker
+          # `W5.ab` : là où `locus-execd` lit, et la déclaration que le harnais confronte. Vide quand
+          # rien n'a été descendu — `attestation::load` ne lit alors aucun fichier, ce qui est
+          # exactement l'état d'avant ce convoyeur.
+          LOCUS_EXECD_ATTESTATIONS: ${{ steps.attendu.outputs.chemin }}
+          LOCUS_E2E_ATTESTATIONS: ${{ steps.attendu.outputs.posee }}
         run: |
           # `tee` et `PIPESTATUS`, comme le job `sandbox` : le pas doit rougir sur l'échec du test,
           # et non sur celui de `tee`. Un tube sans cette précaution lit un refus bruyant « exit 0 ».

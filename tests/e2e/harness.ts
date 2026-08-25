@@ -251,6 +251,95 @@ export function empreinte(annonce: string): string {
 }
 
 /**
+ * La variable par laquelle une campagne dépose, et par laquelle `locus-execd` relit — `W5.ab`.
+ *
+ * Deux variables distinctes côté produit (`W5.aa` : une campagne ne doit pas écraser le fichier
+ * qu'un daemon est en train de lire). Le harnais n'a besoin que de la **lecture** : c'est le job de
+ * CI qui pose le fichier, en le descendant du job `sandbox`.
+ *
+ * Nommée ici pour la même raison que [`WORKER_HOME_ENV`] — un couplage entre deux langages qu'on ne
+ * voit pas est un couplage que personne ne vérifie.
+ */
+export const ATTESTATIONS_ENV = "LOCUS_EXECD_ATTESTATIONS";
+
+/**
+ * La variable par laquelle le workflow dit au harnais **qu'il a posé un fichier** — `W5.ab`.
+ *
+ * # Pourquoi elle existe, plutôt que de lire l'autre
+ *
+ * `LOCUS_EXECD_ATTESTATIONS` non renseignée peut vouloir dire deux choses très différentes : le job
+ * `sandbox` n'a rien déposé ce tour-ci (état extérieur, légitime), ou le câblage a cessé de la
+ * poser (régression, à voir rougir). Les lire l'un pour l'autre est la faute que ce dépôt nomme
+ * partout ; le workflow **déclare** donc ce qu'il a trouvé, et le test compare la déclaration au
+ * constat au lieu de deviner.
+ */
+export const ATTESTATIONS_ATTENDUES_ENV = "LOCUS_E2E_ATTESTATIONS";
+
+/** Ce que `locus-execd` a fait du fichier d'attestations, tel qu'il l'annonce. */
+export type Attestations =
+  /** Aucun fichier nommé : rien ne sera placé au-dessus de `S0`. */
+  | { readonly kind: "aucune" }
+  /** Un fichier lu, et ce qu'il en reste pour **cet** hôte. */
+  | {
+      readonly kind: "lues";
+      readonly honorees: number;
+      readonly etrangeres: number;
+      /** L'empreinte de cet hôte, que l'annonce ne porte **que** si des attestations sont écartées. */
+      readonly hote?: string;
+    };
+
+/** Les trois phrases de `attestation::annonce` et de `main`, transcrites. */
+const AUCUNE = "attestations : aucune";
+const LUES = /^attestations : (\d+) retenue\(s\) pour cet hôte(?:, (\d+) écartée\(s\))?/;
+const HOTE = /dont l'empreinte est « ([^»]+) »/;
+
+/**
+ * Ce que le broker a fait du fichier d'attestations — `W5.ab`.
+ *
+ * # Ce que cette lecture tient
+ *
+ * `W5.z` a livré la lecture des attestations, `W5.aa` leur dépôt, et **aucun assemblage ne joignait
+ * les deux** : le fichier écrit par le job `sandbox` n'était lu par aucun `locus-execd`. La mesure
+ * de `W5.x` a levé ce qui l'empêchait — les deux runners rendent la même empreinte, caractère pour
+ * caractère —, et le convoyeur devient donc justifié plutôt que supposé.
+ *
+ * La garde est ici : le broker **dit toujours** ce qu'il a fait du fichier, qu'il en ait eu un ou
+ * non. Un silence n'est pas « aucune attestation » — c'est un binaire qui a cessé de rendre compte,
+ * et le lire comme un `S0` nominal ferait chercher une campagne pendant que le câblage est mort.
+ *
+ * @throws {HarnessFailure} quand aucune des deux phrases n'apparaît.
+ */
+export function attestations(annonce: string): Attestations {
+  const lignes = annonce.split("\n").map((brute) => brute.trim());
+
+  if (lignes.some((ligne) => ligne.startsWith(AUCUNE))) {
+    return { kind: "aucune" };
+  }
+
+  for (const ligne of lignes) {
+    const lu = LUES.exec(ligne);
+    if (lu === null) {
+      continue;
+    }
+    const hote = HOTE.exec(ligne)?.[1];
+    return {
+      kind: "lues",
+      honorees: Number(lu[1]),
+      etrangeres: Number(lu[2] ?? 0),
+      ...(hote === undefined ? {} : { hote }),
+    };
+  }
+
+  throw new HarnessFailure(
+    "attestations",
+    "`locus-execd` n'a rien dit du fichier d'attestations. Ni « aucune », ni un compte : un " +
+      "silence n'est pas un `S0` nominal, c'est un binaire qui a cessé de rendre compte, et le " +
+      "lire comme l'autre ferait chercher une campagne pendant que le câblage est mort",
+    annonce,
+  );
+}
+
+/**
  * Le dépôt worker, ou une panne qui nomme la variable.
  *
  * Rendre `null` aurait laissé l'appelant décider de se sauter, et c'est précisément la décision que

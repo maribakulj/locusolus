@@ -14433,3 +14433,71 @@ même empreinte, et une attestation peut voyager d'un job à l'autre. La questio
 `W5.z` — trois items de conjecture — est close par une lecture. Ce qu'elle débloque : le convoyeur
 d'artefact entre les deux jobs, que `W5.x` refusait de construire avant de savoir, est désormais
 justifié par une mesure. C'est l'item suivant.
+
+---
+
+## 2026-08-25 — W5.ab — Le dépôt et la lecture d'attestations ne s'étaient jamais rencontrés
+
+**Le constat.** `W5.z` a livré la **lecture** des attestations par `locus-execd`, `W5.aa` leur
+**dépôt** par la campagne de self-tests, et aucun assemblage ne les joignait : le fichier écrit par
+le job `sandbox` n'était lu par aucun `locus-execd` de CI. Deux moitiés correctes séparément, sans
+rien pour les faire se rencontrer — la cinquième occurrence de cette forme dans la session.
+
+**Ce qui l'empêchait était nommé**, dans le commentaire de `W5.aa` : le consommateur vit dans un
+autre job, donc sur un autre runner, et rien n'établissait que deux runners rendent la même
+empreinte d'hôte. `W5.x` a produit la mesure, et le tour suivant l'a rendue :
+
+```text
+cgroup_v2=available controllers=cpu,cpuset,io,memory,pids userns=available seccomp=available disk_quota=undetermined
+```
+
+… identique, **caractère pour caractère**, à ce que le job `sandbox` dépose. Le convoyeur est donc
+justifié par une lecture au lieu d'être supposé. C'est exactement l'ordre que `W5.x` avait posé en
+refusant de le construire : mesurer d'abord, assembler ensuite si la mesure le justifie.
+
+**Ce qui est livré.**
+
+- Le job `sandbox` publie `attestations.json` en artefact, `if: always()` — l'épreuve XFS tolérée
+  juste au-dessus ne doit pas emporter un dépôt que les seize sondes ont produit.
+- Le job `e2e` le descend, `needs: sandbox` avec `if: always()` : il **attend** `sandbox` sans
+  jamais **hériter** de sa couleur. L'ADR 0033 décision 3 refuse un verdict qui rougit pour une
+  raison étrangère ; il ne refuse pas une sérialisation, et la distinction porte tout ce câblage.
+- Un pas nomme lequel des deux états tient — fichier descendu, ou pas — et l'exporte. La variable de
+  lecture n'est posée **que** si le fichier existe : la poser sur un fichier absent ferait refuser
+  le démarrage de `locus-execd` (« un fichier nommé et illisible »), et le job rougirait pour une
+  raison qui est dans un autre job.
+
+**Ce que le harnais exige.**
+
+1. **Le broker dit toujours ce qu'il a fait du fichier.** Un silence est une panne, jamais un `S0`
+   nominal : le lire comme l'autre enverrait chercher une campagne pendant que le câblage est mort.
+2. **Le constat correspond à la déclaration du workflow.** « Le job `sandbox` n'a rien déposé ce
+   tour-ci » est un état extérieur légitime ; « le câblage a cessé de poser la variable » est une
+   régression. Les lire l'un pour l'autre est la faute que ce dépôt nomme partout, et c'est pourquoi
+   le workflow déclare au lieu de laisser deviner.
+3. **Une attestation écartée fait rougir**, avec un message qui sépare les deux causes : ou le
+   chemin d'enregistrement s'est cassé — notre défaut, et c'est ce qu'on veut voir rougir —, ou le
+   parc a cessé d'être homogène, et c'est la nouvelle sur laquelle repose tout le dessin de `W5.z`.
+   Les deux méritent d'être apprises bruyamment ; les taire rendrait vert un convoyeur qui ne
+   convoie plus rien.
+
+**L'assertion porte sur la forme de l'empreinte, jamais sur ses valeurs** — et ce choix a été
+confirmé en passant : ce conteneur de développement rend `cgroup_v2=unavailable controllers=`, là où
+les deux runners rendent cinq contrôleurs. Un test qui aurait exigé les valeurs serait rouge ici
+sans que rien ne soit cassé.
+
+**Vérifié contre la chaîne réelle, pas raisonné.** Les quatre branches ont été exercées en montant
+les trois processus, avec des fichiers d'attestations fabriqués pour chaque cas :
+
+| ce qui est posé                     | ce que le broker en dit            | verdict                            |
+| ----------------------------------- | ---------------------------------- | ---------------------------------- |
+| rien                                | `{"kind":"aucune"}`                | vert                               |
+| une attestation de **cet** hôte     | `{"honorees":1,"etrangeres":0}`    | vert                               |
+| une attestation d'un **autre** hôte | `{"honorees":0,"etrangeres":1}`    | **rouge**, message des deux causes |
+| déclaré posé, rien lu               | le broker n'annonce aucune lecture | **rouge**                          |
+
+C'est la vérification qui manquait aux items précédents de cette série : `W5.z`, `W5.aa` et `W5.w`
+ont tous été livrés en éprouvant la **fonction**, jamais l'assemblage. Les deux branches rouges
+ci-dessus n'existent que parce que la chaîne a été montée quatre fois.
+
+**Vérifié aussi.** `npm run check` → vert ; 246 tests ; 8 sous-tests dans la chaîne réelle.
