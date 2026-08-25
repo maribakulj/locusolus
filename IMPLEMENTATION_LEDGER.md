@@ -14806,3 +14806,68 @@ le lot déclare. C'est `W20.ac`.
 l'avait passé dans un tube vers `grep`, le code de sortie était devenu celui de `grep`, et un
 `cargo fmt` rouge s'était lu « vert ». 247 tests TypeScript, 16 tests de transaction, 5 tests
 unitaires de `locusd`.
+
+---
+
+## 2026-08-25 — W23.a — `AgentStateStore` : le port, et l'implémentation de référence en mémoire
+
+**Ce qui manquait était exactement ce que l'ADR annonçait.** `packages/coordination/src/agent.rs`
+portait déjà `AgentInstance` sous son nom, avec `Id<Agent>` pour identité, les six `InstanceState`
+de §7.1, `provision`, `moved_to` et ses transitions refusées. Il manquait le **port de persistance
+d'état d'instance** et le **protocole de reconstruction**, et rien d'autre — ADR 0026 décision 2 le
+disait mot pour mot, et c'était vrai.
+
+**La clause qui compte se tenait déjà, et il fallait ne pas la casser.** « Aucun objet d'agent ne
+traverse une frontière de processus, tenu par l'absence de type sérialisable portant un
+comportement. » `packages/coordination` ne dépend de `serde` sous **aucune** forme — vérifié dans
+son `Cargo.toml`, pas supposé. Il n'y existe donc aucun type sérialisable, donc a fortiori aucun qui
+porte un comportement.
+
+L'implémentation naturelle aurait été de dériver `Serialize` sur un enregistrement et d'en finir.
+Elle aurait introduit `serde` dans le crate, et la garantie serait passée de « inexprimable » à «
+personne ne l'a fait ». Ce qui traverse est donc une **canonicalisation écrite à la main** — ce que
+§7.7 demande de toute façon d'un condensat : « les hashes portent sur une canonicalisation stable ».
+Dériver aurait en prime fait dépendre le condensat de l'ordre des champs que le dérivé se trouve
+produire, c'est-à-dire d'un détail que personne ne relit et que `W5.v` a déjà payé une fois sur
+l'empreinte d'hôte.
+
+**Le test de cette clause lit le `Cargo.toml`, pas les sources.** Chercher `#[derive(Serialize)]`
+laisserait passer une implémentation manuelle, et surtout la propriété voulue n'est pas « personne
+n'a encore dérivé » mais « personne ne **peut** dériver ». Le message d'échec dit où aller si le
+besoin devient réel : amender l'ADR, pas le test.
+
+**Reconstruire n'est pas une transition.** `from_state` ne passe pas par `moved_to`, et les deux
+raisons sont indépendantes : la machine de §7.1 refuse de quitter un état terminal, donc une
+instance `Completed` ne serait pas reconstructible ; et une reconstruction est la **même** instance
+qu'on relit, pas une instance qu'on fait avancer — les journaliser comme des transitions ferait
+compter à `W21.j` des durées de vie qui n'ont pas eu lieu.
+
+Il reste **vérifiant** pour autant : ce que `provision` refuse n'entre pas par la lecture. Un
+support rend n'importe quoi — un fichier édité à la main, une version antérieure du format — et la
+garde est la seule chose entre lui et le domaine.
+
+**`Expectation` n'a pas de variante « peu importe ».** `Absent` ou `At(n)`, comme `Expected` du
+journal, et pour la même faute évitée : deux exécutions concurrentes de la même instance, dont la
+seconde écrase l'état de la première sans que rien ne le dise. Les combinaisons fausses sont testées
+**séparément**, y compris `At(n)` sur une instance absente — qui ne se déduit pas de son symétrique
+: un support qui la traiterait comme une première écriture ferait apparaître une instance que
+personne n'a provisionnée.
+
+**Sept mutants posés, zéro survivant**, dont un a démoli une première rédaction : retirer la garde
+de version nulle ne faisait rougir **aucun** test. La forme canonique se relit parfaitement — `0`
+est un entier valide — et la propriété ne s'observe qu'**au moment de reposer** l'instance. Le test
+qui la tient sépare donc les deux moments, ce qu'une assertion sur `decode` seul n'aurait jamais
+fait.
+
+**Une erreur de ma part, dans un test.** La première rédaction de « une absence ne se confond pas
+avec une valeur vide » fabriquait la forme fautive par un `replace` sur la chaîne entière — qui a
+remplacé le premier `-` rencontré, celui de `program_id`, et le test a échoué en parlant du mauvais
+champ. Une chirurgie de chaîne sur une forme canonique doit viser un **champ**, par sa position, pas
+un motif.
+
+**Aucun backend externe n'est choisi**, et l'ADR dit pourquoi : le seul système vérifié persiste un
+répertoire par agent, ce qui tient à 10 000 et charge lourdement la couche de métadonnées du système
+de fichiers à 100 000. Figer ce choix ici le figerait sur une mesure qui n'a pas été faite dans ce
+dépôt.
+
+**Vérifié.** `npm run check` → vert, code de sortie lu séparément. 14 tests sur `state.rs`.
