@@ -301,8 +301,23 @@ fn deposer(conclusion: &Standing) {
     };
 
     let facts = HostFacts::read_host();
-    let worker =
-        env::var("LOCUS_EXECD_ATTESTATION_WORKER").unwrap_or_else(|_| "canterel-local".to_owned());
+    // `W5.ac` : **aucun défaut**. Il y en avait un — `"canterel-local"` —, et le premier convoyeur
+    // réel a montré ce qu'il produisait : une attestation retenue pour cet hôte et adressée à un
+    // worker qui n'existe pas, donc introuvable par le réclamant. « 1 retenue, 0 écartée » se lisait
+    // « le convoyeur fonctionne » pendant que sa cargaison n'était destinée à personne.
+    //
+    // Un nom absent refuse donc de déposer, comme `EMIT_ENV` absente : nommer le worker est un acte.
+    let Some(worker) = env::var(locus_execd::attestation::EMIT_WORKER_ENV)
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+    else {
+        println!(
+            "campagne : rien à déposer — {} ne nomme aucun worker, et une attestation sans \
+             destinataire est retenue par l'hôte sans qu'aucun réclamant ne la trouve",
+            locus_execd::attestation::EMIT_WORKER_ENV
+        );
+        return;
+    };
     // Une campagne qui n'a rien prouvé ne dépose rien — et le dit, plutôt que d'écrire un fichier
     // vide qu'un exploitant lirait comme « pas de campagne ».
     let Some(record) = locus_execd::attestation::record(&worker, conclusion, &facts, maintenant())

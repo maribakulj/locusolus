@@ -397,6 +397,30 @@ pub fn annonce(recorded: &RecordedProven) -> String {
 /// distinguer « ce que j'ai posé » de « ce que la dernière campagne a produit ».
 pub const EMIT_ENV: &str = "LOCUS_EXECD_ATTESTATION_OUT";
 
+/// La variable qui dit **pour quel worker** une campagne atteste — `W5.ac`.
+///
+/// # Pourquoi elle n'a pas de défaut
+///
+/// Elle en avait un, `"canterel-local"`, écrit dans la campagne et lu par personne. [`RecordedProven`]
+/// indexe par worker, donc une attestation déposée sous ce nom est **adressée à un worker qui
+/// n'existe pas** : elle se relit, elle est retenue pour cet hôte, et aucun réclamant ne la trouve
+/// jamais. Le premier convoyeur réel — `W5.ab`, d'un job de CI à l'autre — a rapporté « 1 retenue,
+/// 0 écartée », ce qui se lit « le convoyeur fonctionne » alors que sa cargaison n'était destinée à
+/// personne.
+///
+/// C'est la forme que ce dépôt refuse partout : un **défaut qui fabrique une identité**. Un nom
+/// absent est donc un refus de déposer, exactement comme [`EMIT_ENV`] absente — « une campagne
+/// lancée à la main ne dépose pas un fichier que `locus-execd` croira ». Nommer le worker devient
+/// un acte, qui se voit dans un diff.
+///
+/// # Ce que ça ne règle pas, et qui est une décision
+///
+/// Une campagne s'exécute sur un **hôte** ; l'identité d'un worker naît à son **enrôlement**, plus
+/// tard, parfois sur un autre tour. Qu'une attestation d'hôte doive être indexée par worker est une
+/// question d'architecture — la lier à l'empreinte d'hôte plutôt qu'au worker en serait une réponse
+/// —, et elle n'est pas tranchée ici : elle est écrite dans la roadmap sous `W5.ac`.
+pub const EMIT_WORKER_ENV: &str = "LOCUS_EXECD_ATTESTATION_WORKER";
+
 /// Ce qu'une campagne a conclu, sous la forme qui se conserve — ou `None`.
 ///
 /// # `NotTrusted` ne s'enregistre pas
