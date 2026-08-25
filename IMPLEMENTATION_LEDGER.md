@@ -16397,23 +16397,60 @@ service serait le défaut `canterel-local` sous un autre nom.
 
 ### `attend:R7`, et pourquoi pas `attend:R2`
 
-Le marqueur d'origine écrit pour cette correction était `attend:R2`. **`R2` existe déjà et est
-marqué `fait`** — c'est l'attribution de crédit, sans rapport. Le blocage aurait donc été _satisfait
-à la seconde où il était écrit_ : un blocage qui s'auto-périme est exactement le défaut que `W0.16`
-a corrigé, dans l'autre sens.
+Le marqueur d'abord écrit pour cette correction était `attend:R2`. **`R2` existe déjà et est marqué
+`fait`** — c'est l'attribution de crédit, sans rapport. Le blocage aurait donc été _satisfait à la
+seconde où il était écrit_ : un blocage qui s'auto-périme est exactement le défaut que `W0.16` a
+corrigé, dans l'autre sens. Trouvé en vérifiant le registre plutôt qu'en supposant le numéro libre.
 
-Trouvé en vérifiant le registre plutôt qu'en supposant le numéro libre — le même geste qui manquait
-à la phrase sur `bwrap`, appliqué cette fois.
+`R7` a donc été ouvert pour porter l'arbitrage — puis **retiré le jour même**, voir ci-dessous.
 
-`R7` est donc ouvert : **ce que « une campagne » veut dire pour un mécanisme sans cycle de vie.**
-Son test de sortie demande un ADR qui tranche _laquelle_ des deux issues, qui dise sonde par sonde
-ce qu'on cesse de mesurer, et qui reprenne la question que l'ADR 0035 avait laissée ouverte — si
-`podman-rootless` et `bubblewrap` restent incomparables.
+## 2026-08-25 — R7 — Retiré le jour même : l'arbitrage qu'il posait n'existe pas
 
-`W5.af` porte maintenant `attend:R7`, qui se vérifie et se périme. `check:roadmap` place `R7` sur sa
-frontière, aux côtés de `W12.d`.
+**Fichiers** : `docs/10_V1_ROADMAP.md` — `R7` clos par son démenti, `W5.af` rendu non bloqué.
+
+### La seconde erreur, et c'est la même que la première
+
+`W0.23` corrigeait un blocage faux — « pas d'hôte `bwrap` » — et en écrivait un autre : la campagne
+exigerait une sandbox **durable dans laquelle on rentre**, donc `bubblewrap` demanderait de trancher
+entre « une sandbox par sonde » et un troisième mécanisme.
+
+**La première branche était déjà la réalité.** `run_suite` appelle `run_alone` pour chaque sonde —
+`create`, `start`, éprouver, `teardown` —, et c'est `W5.r` qui l'a posé, précisément pour rendre la
+contamination inexprimable.
+
+L'analyse avait été écrite en lisant le **titre** de `W5.r` dans la roadmap — « une sonde par
+sandbox, la contamination inexprimable » — et en le contredisant, sans ouvrir `selftest.rs`. Deux
+fautes du même genre en une heure : affirmer sans mesurer, puis raisonner sur un titre au lieu du
+code. La seconde est plus embarrassante, parce qu'elle s'est produite **pendant** la correction de
+la première, et que la ligne qu'elle contredisait était à trois mots de la réponse.
+
+### Ce qui reste vrai, et ce qui tombe
+
+Reste vrai, et mesuré : `bwrap` s'installe et isole réellement ici, y compris **sans privilège** ;
+il ne garde rien après sortie ; il n'offre ni `exec`, ni `enter`, ni `attach`.
+
+Tombe : que cela constitue un blocage. La campagne n'exec pas seize fois dans une sandbox vivante —
+elle en ouvre une par sonde. Un mécanisme qui n'en garde aucune convient à cette forme-là ; il n'y a
+pas d'arbitrage, il y a un backend à écrire.
+
+### Ce que `W5.af` demande vraiment
+
+Un `BubblewrapBackend` derrière `RuntimePort`, où `create` et `start` sont de la comptabilité et où
+la sonde est la commande que `bwrap` enveloppe. Deux points sont à trancher **dans** l'item, et sont
+nommés dans sa ligne pour qu'ils ne se découvrent pas en chemin :
+
+- ce que `persist_after_teardown` mesure quand le démontage **est** la sortie du processus ;
+- ce que `attestation()` rapporte pour un mécanisme sans conteneur à réinspecter.
+
+Ce sont des questions d'implémentation, pas des décisions de rôle.
+
+### Pourquoi `R7` est clos plutôt que supprimé
+
+Un item retiré en silence ne dit plus qu'une session a posé une fausse question. Le registre garde
+donc les deux mouvements — l'ouverture et le démenti —, comme `W0.23` garde la phrase sur `bwrap`
+qu'il corrige.
 
 ### Ce qui reste
 
-`W12.d` et `R7`. Le premier attend la chaîne complète ; le second est un arbitrage, et c'est le
-genre de chose qui se décide plutôt qu'il ne se code.
+`W5.af` et `W12.d`, tous deux sur la frontière et aucun bloqué par autre chose que le travail qu'ils
+demandent.
