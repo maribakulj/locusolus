@@ -12,9 +12,11 @@
 
 use locus_execd::announced::{NothingProven, Proven};
 use locus_execd::attestation::{
-    Attestation, RECORD_ENV, RecordedProven, annonce, fingerprint, load,
+    Attestation, EMIT_ENV, RECORD_ENV, RecordedProven, annonce, emit, fingerprint, load, record,
 };
 use locus_execd::linux::HostFacts;
+use locus_execution::SandboxLevel;
+use locus_execution::selftest::Standing;
 
 /// Les faits de l'hôte qui fait tourner ces tests.
 ///
@@ -231,4 +233,73 @@ fn l_annonce_compte_les_deux() {
         "{}",
         annonce(&propre)
     );
+}
+
+// ---------------------------------------------------------------------------------------------
+// 5. Ce qu'une campagne dépose — `W5.u`.
+// ---------------------------------------------------------------------------------------------
+
+/// **Une campagne qui tient dépose une attestation liée à cet hôte.**
+///
+/// Et le tour complet se referme : ce qui est déposé se relit, et se relit **honoré**. Deux tests
+/// séparés vérifieraient chacun leur moitié sans jamais dire que les deux se répondent — or c'est la
+/// seule chose qui compte pour un fichier qu'un daemon va croire.
+#[test]
+fn ce_qu_une_campagne_depose_se_relit_et_est_honore() {
+    let facts = faits();
+    let depose = record(
+        "canterel-01",
+        &Standing::Trusted {
+            level: SandboxLevel::S2,
+        },
+        &facts,
+        1_700_000_000_000,
+    )
+    .expect("une campagne qui tient a quelque chose à déposer");
+
+    let contenu = emit(&[depose], "/attestations.json").expect("le dépôt se sérialise");
+    let recorded = RecordedProven::read(&contenu, "/attestations.json", &facts)
+        .expect("ce qui a été déposé se relit");
+
+    assert_eq!(recorded.honoured("canterel-01").len(), 1);
+    assert_eq!(
+        recorded.standing("canterel-01"),
+        vec![Standing::Trusted {
+            level: SandboxLevel::S2
+        }],
+        "le niveau déposé est celui qui ressort"
+    );
+}
+
+/// **Une campagne qui ne tient pas ne dépose rien.**
+///
+/// `proven_level` ignore un `NotTrusted` : l'écrire ne changerait aucun placement et laisserait
+/// croire qu'il le pourrait. L'absence d'enregistrement dit déjà « rien n'est prouvé », ce qui est
+/// exactement ce qu'une campagne en échec établit.
+#[test]
+fn une_campagne_qui_ne_tient_pas_ne_depose_rien() {
+    let facts = faits();
+
+    assert!(
+        record(
+            "canterel-01",
+            &Standing::NotTrusted {
+                level: SandboxLevel::S2,
+                blocking: Vec::new(),
+            },
+            &facts,
+            1_700_000_000_000,
+        )
+        .is_none()
+    );
+}
+
+/// **Les deux variables ne se confondent pas.**
+///
+/// L'une dit où `locus-execd` **lit**, l'autre où une campagne **écrit**. Les confondre ferait
+/// qu'une campagne écrase le fichier qu'un daemon est en train de lire, et qu'un exploitant ne
+/// puisse plus distinguer « ce que j'ai posé » de « ce que la dernière campagne a produit ».
+#[test]
+fn lire_et_deposer_ne_partagent_pas_leur_variable() {
+    assert_ne!(RECORD_ENV, EMIT_ENV);
 }

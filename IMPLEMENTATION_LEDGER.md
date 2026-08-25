@@ -14069,3 +14069,61 @@ l'item suivant, et il est petit : la campagne rend déjà un `Standing`.
 **Prochain item.** Écrire les attestations depuis la campagne de CI, puis reprendre `W12.d`. Reste
 aussi en attente : l'ADR 0033 décide que `canterel` est cloné à une révision **épinglée** dans le
 job e2e, et le workflow n'a aucun `ref:`.
+
+---
+
+## 2026-08-25 — W5.u — La campagne dépose ce qu'elle a conclu
+
+**Pourquoi c'était la suite immédiate de `W5.t`.** Celui-ci a livré la **lecture** des attestations.
+Sans écriture, elle n'avait rien à lire — et un lecteur qu'aucun producteur n'alimente est
+exactement ce que l'ADR 0022 décision 0 refuse de compter comme une capacité. Les deux moitiés font
+une capacité ; l'une seule n'en fait pas.
+
+**C'est le test qui dépose.** La campagne **est** ce test : c'est lui qui monte une sandbox réelle
+et lit ce qu'elle laisse passer. Un binaire séparé qui la relancerait dupliquerait le harnais, et
+deux copies divergent. Ce qui reste hors du test est la **forme** du fichier, éprouvée dans
+`attestation.rs` ; le test ne connaît que le **moment** — après que les seize ont tenu, jamais
+avant.
+
+Et c'est le second test qui dépose, pas le premier : celui du quota attend un hôte capable de borner
+un espace et n'a jamais conclu ailleurs, tandis que le second tourne à chaque passage de CI.
+
+**Le tour est refermé par un seul test.** Ce qui est déposé se relit, **et se relit honoré**. Deux
+tests séparés auraient vérifié chacun leur moitié sans jamais dire qu'elles se répondent — or c'est
+la seule chose qui compte pour un fichier qu'un daemon va croire.
+
+**Ce qui ne se collapse pas.**
+
+- Une campagne qui ne tient pas ne dépose **rien**. `proven_level` ignore un `NotTrusted`, donc
+  l'écrire ne changerait aucun placement et laisserait croire qu'il le pourrait. Ce n'est pas une
+  perte : ce qu'une campagne en échec a trouvé est dans son rapport, que la CI publie, et un fichier
+  d'attestations n'est pas un journal de campagne.
+- Sans la variable, rien n'est écrit. Une campagne lancée à la main sur la machine de quelqu'un ne
+  doit pas déposer une attestation qu'il n'a pas demandée — c'est un fichier que `locus-execd`
+  **croira**.
+- Un dépôt demandé et impossible **échoue bruyamment**. Une campagne qui croit avoir déposé et n'a
+  rien écrit fait chercher un hôte non attesté pendant que le fichier n'existe pas.
+- Lire et déposer ne partagent pas leur variable. Les confondre ferait qu'une campagne écrase le
+  fichier qu'un daemon est en train de lire, et qu'un exploitant ne puisse plus distinguer « ce que
+  j'ai posé » de « ce que la dernière campagne a produit ».
+
+**Une supposition écrite plutôt que tue.** L'empreinte porte sur l'hôte de `locus-execd` ; `Proven`
+est indexé par **worker**. Les deux ne coïncident que si le worker s'exécute là où `locus-execd`
+tourne — vrai du profil `personal-local`, et de tout déploiement où la sandbox est celle que ce
+daemon pilote. J'ai d'abord cru que le keying par worker était une erreur de `W5.t` à corriger ;
+`announced.rs` dit le contraire en toutes lettres — « ce que le worker a **prouvé** vient du port
+`Proven`, que la campagne de self-tests remplit ». Vérifié avant de « corriger », et il n'y avait
+rien à corriger.
+
+**Ce qui reste.** Le fichier n'est pas encore **lu** en CI. Le consommateur vivrait dans un autre
+job, donc sur un autre runner, et **rien n'établit que deux runners rendent la même empreinte**. Le
+produire d'abord — et le publier au résumé de job — est ce qui permettra de le vérifier plutôt que
+de le supposer. C'est la leçon de cette nuit appliquée d'avance : la conjecture que j'aurais écrite
+ici aurait eu une chance sur deux d'être fausse, comme celle sur le mode réseau.
+
+**Vérifié.** `npm run check` → vert ; 12 tests ; mutation sur `locus-execd` — **3 mutants posés, 0
+survivant, 0 motif absent**.
+
+**Prochain item.** Lire le résumé du prochain job `sandbox` : s'il publie une attestation, comparer
+son empreinte à celle qu'un autre runner produit. Reste en attente : l'ADR 0033 décide que
+`canterel` est cloné à une révision **épinglée** dans le job e2e, et le workflow n'a aucun `ref:`.

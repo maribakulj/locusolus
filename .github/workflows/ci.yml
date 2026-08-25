@@ -332,6 +332,16 @@ jobs:
       # `apps/locus-execd/tests/podman.rs` — elle ne demande aucun runtime, donc elle rougit sur
       # toutes les machines, y compris celles qui n'ont pas de Podman.
       - name: Les seize sondes contre un conteneur réel
+        env:
+          # `W5.u` : la campagne dépose ce qu'elle a conclu. C'est **ce** pas qui tourne à chaque
+          # passage, donc c'est lui qui produit le fichier ; celui du quota attend un hôte capable
+          # de borner un espace et n'a jamais conclu ailleurs.
+          #
+          # Le fichier n'est pas encore **lu** par un `locus-execd` de CI : le pas qui le
+          # consommerait vit dans un autre job, donc sur un autre runner, et rien n'établit pour
+          # l'instant que deux runners rendent la même empreinte d'hôte. Le produire d'abord est ce
+          # qui permettra de le vérifier plutôt que de le supposer.
+          LOCUS_EXECD_ATTESTATION_OUT: ${{ github.workspace }}/attestations.json
         run: |
           # `--test-threads=1` n'est pas une précaution de confort. Les tests construisent chacun
           # leur `PodmanBackend`, dont le compteur de noms repart à zéro : lancés en parallèle dans
@@ -362,7 +372,11 @@ jobs:
             echo '```'
             cat sondes.txt 2>/dev/null || echo "le test n'a rien produit"
             echo '```'
-            echo "## L'épreuve du quota disque, qui attend un hôte XFS"
+            echo "## Ce que la campagne a déposé"
+          echo '```'
+          cat attestations.json 2>/dev/null || echo "aucune attestation déposée"
+          echo '```'
+          echo "## L'épreuve du quota disque, qui attend un hôte XFS"
             echo '```'
             cat quota.txt 2>/dev/null || echo "le test n'a rien produit"
             echo '```'
