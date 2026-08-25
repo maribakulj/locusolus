@@ -15064,3 +15064,74 @@ est plus court qu'il ne l'a jamais été : `nominal` compterait zéro sur un jou
 la population, et zéro est la valeur qu'un compteur vide rend quand il fonctionne. C'est la règle 3
 du rythme de session, transposée du sondage de CI au domaine : **un compteur qui n'a rien lu ne vaut
 pas zéro**.
+
+---
+
+## 2026-08-25 — W20.ae — Les transitions de cycle de vie d'instance atteignent le journal
+
+**Ce que cet item répare.** L'ADR 0026 écrivait que « `coordination::lifecycle` journalise les
+transitions ». `W0.20` a montré que c'était faux ; celui-ci le rend vrai. Le module était une
+machine à états de domaine correcte et éprouvée **dont les décisions ne sortaient jamais** : quatre
+commandes, cinq refus, des `Outcome` chiffrés, et aucun événement.
+
+Le namespace `agent` figurait dans `EVENT_NAMESPACES` de §10.3 depuis `W1`, entre `task` et `team`,
+et **personne ne l'écrivait**. C'est ce que l'énumération faite en livrant `W20.ad` avait trouvé, et
+c'est ce qui bloquait vraiment `W23.b` : `nominal` compterait des identités que le journal ne
+connaît pas, et zéro est la valeur qu'un compteur vide rend quand il fonctionne.
+
+**Le verbe est dérivé, pas transcrit.** `agent.spawned`, `agent.suspended`, `agent.drained`,
+`agent.killed` : chacun est `Command::slug()` suivi de `ed`, calculé. Un `match` rendant quatre
+littéraux aurait été le second vocabulaire que `CLAUDE.md` interdit — et c'est le premier endroit où
+ma propre rédaction a dérapé.
+
+Le test censé l'empêcher comparait d'abord `event_type_of(command)` à `format!("agent.{}ed", slug)`.
+C'est une **tautologie** : elle restitue l'implémentation au lieu de la contraindre, et le `match`
+l'aurait passée sans broncher puisque les deux formes sont extensionnellement égales sur les quatre
+commandes d'aujourd'hui. La propriété voulue n'est pas « les valeurs sont bonnes » mais « personne
+ne **peut** en écrire une cinquième à côté du domaine », et celle-là ne s'observe pas à l'exécution.
+Ce qui la remplace lit la **source** et refuse les quatre littéraux entre guillemets — le même
+arbitrage que `W23.a`, dont le test lit `Cargo.toml` plutôt que de chercher un `derive`. Un mutant
+posant la table de littéraux le confirme : la seconde rédaction le tue, la première ne l'aurait pas
+vu.
+
+**Le fait nomme la commande appliquée, pas l'état atteint.** `agent.drained` dit « un drain a été
+appliqué », ce qui est vrai des deux issues de `drain`. Le nommer d'après l'état aurait forcé un
+choix entre deux mensonges : un drain sur un nœud occupé ne termine rien — `Outcome::Draining`
+laisse l'état inchangé, et le dire _est_ le résultat —, donc `agent.completed` aurait menti une fois
+sur deux, et deux types d'événement pour une commande auraient fait dépendre le vocabulaire du
+journal de la charge d'un nœud. L'issue voyage donc dans la charge, sous son nom, avec son compte :
+`remaining` pour un drain en cours, `abandoned` pour un `kill` **même nul**, parce que c'est ce qui
+sépare un arrêt propre d'un arrêt coûteux. L'état résultant est relu de `Lifecycle::command` et
+jamais recalculé — le recalculer ici, fût-ce en trois lignes, ferait la seconde machine à états que
+le module de domaine dit ne pas être.
+
+**Deux mutants ont démoli la première rédaction des tests, et les deux sont instructifs.**
+
+- Renommer `agent_id` en `agent` survivait. La lecture faisait
+  `payload["agent_id"].as_str() .unwrap_or_default()` : un champ absent rendait `""`, l'ensemble
+  comptait **une identité vide**, et l'assertion « une seule identité » passait. C'est la règle 3 du
+  rythme de session — « un compteur qui n'a rien lu ne vaut pas zéro » — commise dans le test d'un
+  item dont c'est justement le sujet. La lecture refuse désormais bruyamment un champ absent.
+- Faire écrire toutes les instances dans un stream unique survivait aussi. Le test ne pilotait qu'un
+  nœud et lisait son stream par `stream_of_instance`, la fonction que le producteur emploie lui-même
+  : producteur et lecteur se trompaient de concert, donc rien ne pouvait les départager. C'est la
+  forme générale d'un test qui interroge son sujet par le sujet. Avec **deux** identités, la
+  propriété redevient observable.
+
+Huit mutants posés au total, zéro survivant.
+
+**Ce que ça débloque, vérifié plutôt que raisonné.** `W23.b` et `W23.c` passent tous deux à faire,
+et la roadmap les fait apparaître sur sa frontière — ce qui est le constat d'un outil, pas une
+phrase. Pour `W23.b` : `nominal` compte les identités qu'`agent.spawned` fonde, un stream par
+instance et donc sans jointure ; `active` est l'état du dernier fait `agent.*` de chaque stream, et
+un test le relit exactement ainsi ; `generating` joint `task.assigned` de `W20.ad` au cycle de bail
+de `W20.k`. Pour `W23.c` : la clause 1 lit quatre verbes qui existent, et la clause 3 a enfin des
+namespaces à comparer.
+
+**Ce que cette séquence de quatre items aura appris.** Il a fallu trois passes pour nommer le
+blocage de `W23.b` — motif vague dans l'ADR, puis un déblocage visant le cycle de bail qui nomme un
+worker, puis la jointure livrée qui n'en débloquait qu'un tiers — et la formulation qui a fini par
+tenir est la plus courte de toutes : **le fait existait, son producteur manquait.** Deux fois de
+suite, à deux endroits différents, dans un dépôt où chaque moitié était correcte et testée
+séparément. C'est exactement ce qui rend cette forme invisible, et c'est pourquoi elle a maintenant
+un nom.

@@ -55,6 +55,7 @@ pub mod http;
 pub mod identities;
 pub mod journal;
 pub mod lep;
+pub mod lifecycle;
 pub mod messaging;
 pub mod mission;
 pub mod observations;
@@ -79,6 +80,7 @@ pub use lep::{
     MemoryQueue, MemoryRegistry, MissionQueue, Offer, Queued, Rendered, Report, WorkerRegistry,
     expiration, stream_of_task,
 };
+pub use lifecycle::{Apply, event_type_of, stream_of_instance};
 pub use messaging::{MessageContext, Send};
 pub use offload::{Budget, MAX_BLOCKING, Offload, Offloaded, Permit};
 pub use organisation::{

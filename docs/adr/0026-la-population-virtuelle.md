@@ -161,6 +161,18 @@ la phrase fausse portait sur ce qui était déjà là, pas sur ce qui restait à
 pourquoi elle a survécu : une affirmation inexacte sur l'**acquis** ne fait rougir aucun test, et
 personne n'a de raison mécanique d'y revenir — sauf l'item d'après, qui s'appuie dessus.
 
+**Réparé le même jour (`W20.ae`).** La phrase n'est plus seulement barrée, elle est devenue vraie :
+`apps/locusd/src/lifecycle.rs` écrit `agent.spawned`, `agent.suspended`, `agent.drained` et
+`agent.killed`, un stream par instance, l'issue et son compte dans la charge, l'état relu du domaine
+et jamais recalculé. Le namespace `agent` figurait dans `EVENT_NAMESPACES` de §10.3 depuis `W1`,
+entre `task` et `team`, et personne ne l'écrivait.
+
+Ce qui achève de lever `W23.b` : `nominal` compte les identités qu'un `agent.spawned` fonde, `active`
+est l'état du dernier fait de chaque stream, et `generating` joint `task.assigned` (`W20.ad`) au cycle
+de bail (`W20.k`). Il aura fallu trois passes pour nommer ce blocage — motif vague, puis déblocage
+visant le bail, puis la jointure seule — et la formulation qui a tenu est la plus courte : **le fait
+existait, son producteur manquait**, deux fois de suite et à deux endroits différents.
+
 **Le port, pas le backend.** `AgentStateStore` est un trait avec une implémentation de référence en
 mémoire, exactement comme `packages/event-store` l'a fait. L'audit donne la raison de ne pas figer un
 backend : le seul système vérifié persiste un répertoire par agent, ce qui tient à 10 000 et charge
