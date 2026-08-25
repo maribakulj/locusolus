@@ -16229,3 +16229,118 @@ Sept mutants posés, zéro survivant, plus le mutant de contrôle.
 `W4.i` — le credential de pair sur le lien du broker. `W5.af` et `W12.d` attendent un hôte que cette
 machine n'a pas (`bwrap`, et la chaîne complète). Le mineur `lep/1.1` a maintenant ses quatre
 tranches.
+
+## 2026-08-25 — W4.i — La créance de pair sur le lien du broker
+
+**Fichiers** : `packages/broker/src/peer.rs` (neuf), `packages/broker/tests/peer.rs` (neuf, 9
+tests), `packages/broker/src/{unix.rs,lib.rs}`, `packages/broker/Cargo.toml`, `dependencies.json`,
+`docs/adr/0028-le-lien-vers-le-broker.md` (décision 2 amendée).
+
+### Les deux prémisses ont été mesurées avant d'être crues
+
+L'item repose sur deux affirmations, et la journée en a assez coûté pour qu'aucune ne passe sans
+mesure :
+
+- **`peer_cred` est-elle encore instable ?** Compilée sur `rustc 1.94.1` : oui, `E0658`, issue
+  rust-lang#42839. La prémisse tient.
+- **Cet hôte sait-il fournir un second uid ?** `useradd` et `groupadd` répondent, `setpriv` et
+  `runuser` existent. La clause 1 est donc réellement exerçable ici, et pas seulement racontée.
+
+### L'ADR disait faux, et le code avait raison depuis `W4.h`
+
+L'ADR 0028 décision 2 annonçait la créance « derrière `UnixStream::peer_cred` de la bibliothèque
+standard » et concluait : « les deux sont gratuites ; il n'y a aucune raison de n'en prendre qu'une.
+» Les deux moitiés étaient fausses.
+
+`packages/broker/src/unix.rs` consignait la correction **depuis `W4.h`**, en détail. L'ADR, lui, ne
+l'avait jamais dite. C'est la même famille de défauts que la journée entière a rencontrée — une
+prose qui affirme ce que le code ne tient pas —, et elle reste un défaut quand c'est le **code** qui
+a raison : un lecteur qui ouvre l'ADR y trouve une décision fausse, et rien ne l'envoie lire le
+module.
+
+La décision est donc amendée, en gardant la rédaction d'origine citée pour qu'on voie ce qui est
+tombé. Un test lit l'ADR et refuse le retour de la phrase.
+
+### La politique nomme un uid, elle ne dit pas « le mien »
+
+C'est tout l'écart avec ce que `W4.h` aurait livré, et il est dans le type : `Same` n'existe pas.
+`PeerPolicy::only(uid)` nomme l'uid attendu — celui de `locusd`, qui n'est pas celui du broker dans
+le déploiement visé.
+
+Elle décide sur l'**uid** seul. Décider sur le gid rendrait les deux ensembles à nouveau identiques,
+puisque c'est exactement ce que `0660` tient déjà — et l'item existe pour que la seconde barrière
+sépare autre chose que la première.
+
+| Barrière                            | Qui passe                                     |
+| ----------------------------------- | --------------------------------------------- |
+| permissions `0660` + groupe partagé | le propriétaire, **et tout membre du groupe** |
+| la politique de créance             | **un** uid, nommé                             |
+
+En `0600` l'écart entre ces deux lignes est vide. C'est mesuré par un test, pas affirmé.
+
+### Trois issues, et la troisième n'est pas un refus
+
+Admis, refusé, **illisible**. Ne pas avoir pu lire la créance et l'avoir lue et refusée envoient
+chercher des choses opposées — une socket dans un état inattendu contre une usurpation —, et les
+deux motifs diffèrent mot pour mot.
+
+Ce que l'illisible ne fait **pas** : accorder. Sur un lien qui commande la création de conteneurs,
+une créance illisible n'est pas un laissez-passer. « Pas vérifié n'est jamais réussi », et son
+symétrique compte autant : pas vérifié n'est pas non plus un échec attribuable à l'appelant.
+
+### Le mode et la politique entrent ensemble — après une première rédaction qui promettait
+
+Première version : `listen_shared(path, policy)` prenait la politique et l'**ignorait**
+(`let _ = policy;`), le couplage n'étant que documentaire. C'est une signature qui annonce un effet
+qui n'a pas lieu — la définition d'une promesse au sens de `CLAUDE.md`, écrite sans y penser.
+
+Corrigé : `listen_shared` rend un `SharedListener` qui **retient** la politique, et dont la seule
+façon de répondre la consulte. Il n'y a pas d'accesseur rendant le `UnixListener` nu : un appelant
+qui pourrait dissocier le mode large de la barrière qui le compense est le seul scénario où cet item
+rendrait le dépôt moins sûr qu'avant.
+
+### Le mutant qui a montré que retenir n'est pas appliquer
+
+`serve_once` appelant `answer` au lieu d'`answer_checked` — donc l'écoute partagée perdant sa
+politique — **ne faisait rougir aucun test**. Le seul appelant exercé était l'uid **admis**, pour
+qui les deux chemins rendent la même chose.
+
+C'était le trou exact que `SharedListener` venait de fermer côté type : la politique ne pouvait plus
+se perdre en route, et rien ne vérifiait qu'elle servait. Retenir et appliquer sont deux actes, et
+seul le second se voit sur un appelant **refusé** — le test ajouté en exerce un.
+
+### L'ordre de la vérification est une garantie
+
+La créance est lue **avant** la requête. Un appelant que la politique écarte n'atteint donc jamais
+le code qui crée des conteneurs, et le répondeur n'a aucune décision d'identité à prendre. Deux
+tests le tiennent en vérifiant que le répondeur **n'est pas appelé**.
+
+Le refus se dit sur le fil et ne coupe pas : ADR 0028 décision 4, « injoignable » et « refusé »
+envoient chercher à des endroits opposés. Un test connecte à une socket morte puis à une socket qui
+refuse, et montre que les deux ne se ressemblent pas.
+
+### La dépendance, mesurée et étroite
+
+`rustix` en portée `packages/broker` — **3 paquets** mesurés arbre complet (`rustix`, `bitflags`,
+`linux-raw-sys`) en `default-features = false` avec `net` et `std` seuls, et **aucun `libc`** : le
+dos `linux_raw` parle au noyau par syscalls directs, ce qui évite un lien C dans le processus
+privilégié.
+
+Les concurrents ont été mesurés, pas supposés : `nix` en coûte 5, `uds` en coûte 2. `uds` est le
+**moins cher** et n'est pas retenu — spécialisé et peu maintenu, là où rustix est l'abstraction que
+l'écosystème vérifie tous les jours. Deux paquets d'écart ne valent pas cette différence-là ici.
+
+`socket_peercred` est sûre : `unsafe_code = "forbid"` tient sans exception.
+
+### La clause 1 échoue plutôt que de passer quand l'hôte ne peut rien montrer
+
+Le test qui exerce l'écart cherche un second uid — `LOCUS_W4I_PEER_UID`, sinon `/etc/passwd` — et
+**panique en le disant** s'il n'en trouve pas. Une clause qu'on saute en silence n'est pas une
+clause tenue, et un test vert qui n'a rien exercé est pire qu'un test absent.
+
+Neuf mutants posés, zéro survivant, plus le mutant de contrôle.
+
+### Ce qui reste
+
+`W5.af` et `W12.d` attendent un hôte que cette machine n'a pas — `bwrap`, et la chaîne complète. Ce
+sont les deux derniers de la frontière, et leur blocage est nommé, pas subi.

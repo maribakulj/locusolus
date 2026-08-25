@@ -43,13 +43,18 @@
 //! autre machine que `locusd`.
 
 pub mod frame;
+pub mod peer;
 pub mod port;
 pub mod protocol;
 #[cfg(unix)]
 pub mod unix;
 
 pub use frame::{FrameError, MAX_LINE, read_frame, write_frame};
+#[cfg(unix)]
+pub use peer::{Admission, PeerIdentity, PeerPolicy, admit};
 pub use port::{BrokerError, BrokerPort, Loopback, Placement, as_placement};
 pub use protocol::{Ask, Missing, PROTOCOL, Request, Response, Shortfall, Verdict};
-#[cfg(unix)]
-pub use unix::{DIRECTORY_MODE, ListenError, SOCKET_MODE, UnixSocketBroker, answer, listen};
+pub use unix::{
+    DIRECTORY_MODE, ListenError, SHARED_DIRECTORY_MODE, SHARED_SOCKET_MODE, SOCKET_MODE,
+    SharedListener, UnixSocketBroker, answer, answer_checked, listen, listen_shared,
+};
