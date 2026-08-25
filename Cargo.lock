@@ -639,6 +639,7 @@ dependencies = [
 name = "locus-memory"
 version = "0.0.0"
 dependencies = [
+ "locus-artifacts",
  "locus-domain",
  "locus-protocol",
 ]
