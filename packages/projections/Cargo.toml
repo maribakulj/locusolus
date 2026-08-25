@@ -11,6 +11,11 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+# W23.b : la projection de population lit `InstanceState` et son `is_terminal` plutôt que de
+# retranscrire la liste des états terminaux de §7.1. Une seconde copie de cette table divergerait au
+# premier état ajouté, et rien ne dirait laquelle est juste. La règle 6 de `boundaries.json` vise
+# `packages/graph` ↔ `packages/coordination` ; un troisième crate qui lit l'un n'y contrevient pas.
+locus-coordination = { path = "../coordination" }
 locus-domain = { path = "../domain" }
 # W20.u : la projection du graphe épistémique range ses inférences dans
 # `locus_graph::Graph`, dont l'absence de `flatten` **est** la garantie de §7.6.
