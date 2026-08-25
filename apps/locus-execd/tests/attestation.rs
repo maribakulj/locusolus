@@ -224,6 +224,14 @@ fn l_annonce_compte_les_deux() {
     assert!(phrase.contains('1'), "{phrase}");
     assert!(phrase.contains("écartée"), "{phrase}");
 
+    // `W5.w` : et elle porte **l'empreinte de cet hôte**. Dire à un exploitant que son
+    // enregistrement parle d'une autre machine sans lui dire laquelle est celle-ci nomme le
+    // problème et cache le remède ; avec elle, la correction est un copier-coller.
+    assert!(
+        phrase.contains(&empreinte),
+        "l'empreinte de cet hôte manque au refus : {phrase}"
+    );
+
     // Et sans écartée, la phrase ne parle pas d'un écart qui n'a pas eu lieu.
     let seules = [attestation("canterel-01", "S2", &empreinte)];
     let propre = RecordedProven::read(&json(&seules), "/attestations.json", &facts)
@@ -233,6 +241,26 @@ fn l_annonce_compte_les_deux() {
         "{}",
         annonce(&propre)
     );
+    // Ni de l'empreinte : ce serait du bruit sur le cas nominal, et une ligne que personne ne lit
+    // plus ne dit rien à personne le jour où elle compte.
+    assert!(
+        !annonce(&propre).contains(&empreinte),
+        "le cas nominal n'a pas besoin de l'empreinte : {}",
+        annonce(&propre)
+    );
+}
+
+/// **L'empreinte que le registre expose est celle de l'hôte qu'on lui a donné.**
+///
+/// Un accesseur qui rendrait autre chose — une constante, l'empreinte d'un enregistrement — ferait
+/// donner à l'exploitant une valeur qui ne correspond à rien, et sa correction serait écartée à son
+/// tour. Le pendant du test précédent, au grain du registre.
+#[test]
+fn le_registre_expose_l_empreinte_de_son_hote() {
+    let facts = faits();
+    let recorded = RecordedProven::read("[]", "/attestations.json", &facts).expect("vide se lit");
+
+    assert_eq!(recorded.host(), fingerprint(&facts));
 }
 
 // ---------------------------------------------------------------------------------------------

@@ -14241,3 +14241,50 @@ deux fois —, ce qui rend la question intéressante et pas encore tranchée : l
 dans un autre job, et le worker de la chaîne e2e sonde son propre hôte, qui n'a peut-être pas de
 backend de conteneur. Deux points de mesure ne sont pas une règle, et c'est le genre de conjecture
 qui s'est révélée fausse deux fois cette nuit.
+
+---
+
+## 2026-08-25 — W5.w — Un refus d'attestation nommait le problème et cachait le remède
+
+**Le constat.** `W5.t` compte les attestations écartées, `W5.u` les dépose, `W5.v` a rendu
+l'empreinte stable — et aucun des trois ne disait **quelle est l'empreinte de cet hôte**. Un
+exploitant lisait donc :
+
+```text
+attestations : 0 retenue(s) pour cet hôte, 3 écartée(s) — elles parlent d'un hôte différent de
+celui-ci
+```
+
+… sans jamais apprendre lequel est celui-ci. Un refus qui **nomme le problème et cache le remède**,
+c'est-à-dire la même asymétrie que `W20.aa` a retirée du `204` quelques heures plus tôt : le système
+savait la chose utile et ne la disait pas.
+
+**Où l'empreinte apparaît, et où elle n'apparaît pas.**
+
+- Dans l'annonce, **quand des attestations sont écartées** — c'est le moment où elle sert, et la
+  correction devient un copier-coller.
+- **Pas** sur le cas nominal. Ce serait du bruit, et une ligne que personne ne lit plus ne dit rien
+  à personne le jour où elle compte.
+- Au démarrage, imprimée à part par `main`, pour qui prépare un fichier **avant** d'en avoir un — à
+  celui-là, l'annonce ne peut rien dire, puisqu'elle suppose un fichier lu.
+
+Les trois cas sont distincts et le test tient les deux premiers par leur **présence et leur
+absence** : un rendu qui porterait l'empreinte partout passerait la moitié des assertions.
+
+**L'accesseur rend l'empreinte de l'hôte du registre**, non une constante ni celle d'un
+enregistrement. Un mutant qui rend `"empreinte-inconnue"` est tué : sans cela, la valeur donnée à
+l'exploitant ne correspondrait à rien, et sa correction serait écartée à son tour.
+
+**Aucun secret.** Ce sont les capacités du noyau, celles-là mêmes que `evidence()` imprime déjà en
+clair juste au-dessus.
+
+**Vérifié.** `npm run check` → vert ; 17 tests ; mutation sur `locus-execd` — **3 mutants posés, 0
+survivant, 0 motif absent**.
+
+**Ce que ça rend mesurable.** Le job e2e démarre un `locus-execd` par le harnais : son empreinte
+apparaîtra désormais dans le log de ce job. Comparée à celle que le job `sandbox` dépose, elle
+répondra en **une exécution** à la question laissée ouverte par `W5.u` — deux runners rendent-ils la
+même empreinte —, au lieu de la laisser à la conjecture. C'était l'intention de l'item autant que le
+diagnostic : produire la mesure plutôt que la supposer.
+
+**Prochain item.** Lire les deux empreintes dans la prochaine CI et trancher.
