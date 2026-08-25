@@ -14127,3 +14127,64 @@ survivant, 0 motif absent**.
 **Prochain item.** Lire le résumé du prochain job `sandbox` : s'il publie une attestation, comparer
 son empreinte à celle qu'un autre runner produit. Reste en attente : l'ADR 0033 décide que
 `canterel` est cloné à une révision **épinglée** dans le job e2e, et le workflow n'a aucun `ref:`.
+
+---
+
+## 2026-08-25 — W5.v — L'empreinte d'hôte portait de la prose, et le premier dépôt réel l'a démentie
+
+**L'outil a démenti son auteur, une heure après.** `W5.t` calculait l'empreinte par
+`format!("{facts:?}")` et son commentaire la disait « grossière et exacte ». `W5.u` a fait déposer
+un fichier en CI, et voici ce qu'il contenait :
+
+```text
+"host": "HostFacts { cgroup_v2: Available, controllers: {\"cpu\", \"cpuset\", \"io\", \"memory\",
+  \"pids\"}, unprivileged_userns: Available, seccomp: Available, disk_quota: Undetermined { reason:
+  \"aucune racine de stockage n'a été déclarée : on ne sait pas quel système de fichiers portera la
+  couche inscriptible\" } }"
+```
+
+Une **phrase** dans l'identité d'un hôte. Grossière, oui ; exacte, non — exacte sur _ce qui a été
+lu_, pas sur _l'hôte_. La reformuler — une virgule, une clarification, le genre de chose qu'on fait
+sans y penser — invaliderait silencieusement **toutes** les attestations déposées, sur toutes les
+machines, sans qu'aucun hôte ait changé. Le refus dirait `level_not_attested`, qui envoie relancer
+une campagne au lieu de relire un diff.
+
+**Ce qui la remplace.** Seuls les faits qui **décident** : la variante de chaque `Support`, et
+l'ensemble des contrôleurs. Les trois verdicts restent distincts — `Undetermined` n'est ni
+`Available` ni `Unavailable`, règle de `W5.h` — et c'est leur **motif** qui n'a rien à faire là. Il
+reste dans le rapport de campagne, où on le lit.
+
+**Le coût est assumé et écrit.** Une liste énumérée à la main se périme au premier champ ajouté à
+`HostFacts` : le champ neuf ne changerait pas l'empreinte, et une attestation survivrait à un hôte
+devenu différent. Mais un champ oublié **affaiblit** l'empreinte, tandis qu'une prose incluse la
+**casse** à la première reformulation — le premier se répare quand on le remarque, la seconde
+invalide un parc entier sans prévenir. Un test épingle la liste, pour que l'oubli se voie à l'ajout.
+
+### La passe de mutation a démoli mes tests, et c'est la partie qui compte
+
+Trois mutants **survivants** au premier essai : vider les contrôleurs, faire lire `seccomp` à la
+place de `disk_quota`, fondre `Undetermined` dans `Available`.
+
+Mes assertions portaient sur la **forme** — les clés sont présentes, la prose est absente — et non
+sur la **contribution**. C'est exactement le défaut que ce dépôt nomme partout ailleurs, « comparé
+champ pour champ, pas par présence », et je venais de l'écrire dans mes propres tests en me
+félicitant de la conception.
+
+Ce qui les remplace fait varier **un fait à la fois**, en pilotant le vrai prober par un noyau de
+fixture, et exige que l'empreinte change. Écrire cette fixture a demandé de lire ce que le prober
+lit réellement — `/proc/self/cgroup` désigne le répertoire dont il lit le `cgroup.controllers`, pas
+la racine — et une première version rendait « illisible » sur un hôte censé être complet : le test
+aurait alors parlé d'autre chose que de ce qu'il croyait.
+
+**Et une assertion était fausse, pas le code.** J'opposais `ext4` à un `xfs` nu en attendant deux
+empreintes différentes. Un XFS monté sans `prjquota` est un hôte où `--storage-opt size=` échouera
+quand même, et `probe.rs` le range en `Unavailable` comme `ext4` : même verdict, donc même
+empreinte, et c'est **juste** — pour ce que la campagne a éprouvé, ces deux hôtes sont
+interchangeables.
+
+**Vérifié.** `npm run check` → vert ; 16 tests ; les trois mutants qui survivaient sont **tués**.
+
+**Prochain item.** Le fichier n'est toujours pas lu en CI — le consommateur vivrait dans un autre
+job, sur un autre runner, et l'empreinte étant désormais stable, la comparer devient une question
+qui a un sens. Reste aussi : l'ADR 0033 décide que `canterel` est cloné à une révision **épinglée**
+dans le job e2e, et le workflow n'a aucun `ref:`.
