@@ -65,6 +65,15 @@ L'ordre retenu est donc plus fin que celui de l'audit :
   complète, et elle ne se teste pas sur des fixtures seules.
 - ~~**`W23.c`** attend des instances qui s'exécutent.~~ **Amendé le 2026-08-24, en marquant
   `W2.21`.** Voir ci-dessous.
+
+  **Rebloqué le 2026-08-25 (`W0.20`), et cette fois sur une dépendance technique nommée.**
+  L'amendement du 2026-08-24 avait raison sur le motif — « aucun appelant ne l'utilise encore » n'en
+  est pas un — et n'avait pas relu le test de sortie qu'il citait pour se justifier. Deux de ses
+  trois clauses ne sont pas satisfaisables telles qu'écrites : le verbe `remplacer` de la clause 1
+  n'habite pas `coordination::lifecycle` mais `crate::version`, sous le nom `REPLACE_NODE`, et
+  l'en-tête du module le dit lui-même ; la clause 3 demande de comparer les **namespaces émis**, et
+  le module n'en émet aucun. `W23.c` attend donc `W20.ae` — un producteur, pas un appelant, et la
+  distinction est exactement celle que cette décision fait vivre.
 - **`W24` et `W25` ne sont pas bloqués du tout.** L'audit les plaçait après `W20.h` sans nommer de
   dépendance ; ce sont du domaine pur et des tests d'absence, exerçables aujourd'hui.
 
@@ -127,9 +136,30 @@ identifiants —, jamais des objets d'agent, et rien de tel ne traverse la front
 **Et ce dépôt en a davantage que les deux tiers.** `packages/coordination/src/agent.rs` porte déjà
 `AgentInstance` **sous son nom**, avec `Id<Agent>` pour identité, les six `InstanceState` de §7.1,
 `provision`, `moved_to` et ses transitions refusées ; `Task` porte `assigned_agent_id` ;
-`coordination::lifecycle` journalise les transitions ; `W21.j` mesure déjà la durée de vie d'une
-instance à partir d'elles. Ce qui manque est le **port de persistance d'état d'instance** et le
+~~`coordination::lifecycle` journalise les transitions ; `W21.j` mesure déjà la durée de vie d'une
+instance à partir d'elles.~~ Ce qui manque est le **port de persistance d'état d'instance** et le
 protocole de reconstruction — et rien d'autre.
+
+**Corrigé le 2026-08-25 (`W0.20`).** La phrase barrée ci-dessus est **fausse**, et elle l'était à
+l'écriture. Vérifiée trois fois plutôt qu'une :
+
+- `coordination::lifecycle` **n'émet aucun événement**. Il rend un `Outcome` — `Spawned`,
+  `Suspended`, `Draining { remaining }`, `Killed { abandoned }` — et rien de plus.
+- **Aucun crate hors `packages/coordination` ne l'importe** : ni `locusd`, ni `packages/projections`.
+  Ses seuls consommateurs sont `messaging.rs` et `transfer.rs`, dans le même crate.
+- `W21.j`, cité ici comme lecteur, reçoit ses instants **en données** — il ne lit aucune transition,
+  et ne saurait pas où en lire.
+
+Le module est donc une machine à états de domaine, correcte et éprouvée, **dont les décisions ne
+sortent jamais**. C'est la même forme que le paragraphe précédent décrit pour `task.assigned` : le
+fait existe dans le domaine, son **producteur** manque. Le producteur est `W20.ae`, et il débloque
+`W23.c` — dont la clause 3 demandait de comparer des namespaces émis par un module qui n'émet rien.
+
+Ce que la correction change pour la décision elle-même : rien. « Ce qui manque est le port de
+persistance et rien d'autre » restait vrai **pour `W23.a`**, qui est ce que cette décision ordonnance ;
+la phrase fausse portait sur ce qui était déjà là, pas sur ce qui restait à faire. C'est précisément
+pourquoi elle a survécu : une affirmation inexacte sur l'**acquis** ne fait rougir aucun test, et
+personne n'a de raison mécanique d'y revenir — sauf l'item d'après, qui s'appuie dessus.
 
 **Le port, pas le backend.** `AgentStateStore` est un trait avec une implémentation de référence en
 mémoire, exactement comme `packages/event-store` l'a fait. L'audit donne la raison de ne pas figer un
