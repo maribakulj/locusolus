@@ -42,6 +42,16 @@ fn main() -> ExitCode {
 
     let readiness = Readiness::assess(&facts);
     println!("locus-execd : {readiness}");
+    // `W5.w` : l'empreinte de cet hôte, imprimée **avant** toute question d'attestation. Qui prépare
+    // un fichier n'en a pas encore, donc `annonce` ne peut pas la lui dire — et sans elle il
+    // écrirait un enregistrement que ce daemon écartera sans qu'il sache pourquoi.
+    //
+    // Aucun secret : ce sont les capacités lues du noyau, celles-là mêmes que `evidence()` vient
+    // d'imprimer en clair juste au-dessus.
+    println!(
+        "  empreinte de cet hôte : {}",
+        locus_execd::attestation::fingerprint(&facts)
+    );
 
     let Some(path) = listen_path(std::env::args().skip(1)) else {
         return if readiness.is_provable() {

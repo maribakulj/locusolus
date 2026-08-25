@@ -265,6 +265,17 @@ impl RecordedProven {
             .unwrap_or_default()
     }
 
+    /// L'empreinte de l'hôte courant, telle que ce registre l'a calculée.
+    ///
+    /// Lecture, et elle sert un cas précis : un exploitant dont les attestations sont **écartées**
+    /// doit pouvoir savoir ce qu'il aurait fallu écrire. Sans elle, on lui dit que son
+    /// enregistrement parle d'un autre hôte sans jamais lui dire lequel est celui-ci — un refus qui
+    /// nomme le problème et cache le remède.
+    #[must_use]
+    pub fn host(&self) -> &str {
+        &self.host
+    }
+
     /// Combien d'attestations cet hôte retient, tous workers confondus.
     #[must_use]
     pub fn total_honoured(&self) -> usize {
@@ -353,6 +364,18 @@ pub fn load(
 /// Le compte des attestations honorées **et** celui des écartées. Taire les secondes ferait lire
 /// « 0 attestation » à un exploitant dont le fichier en contient trois, écrites sur une autre
 /// machine — et il chercherait un fichier vide au lieu d'un hôte qui a changé.
+///
+/// # L'empreinte n'apparaît que là où elle sert — `W5.w`
+///
+/// Quand des attestations sont écartées, la phrase porte **l'empreinte de cet hôte**. Sans elle, on
+/// dit à l'exploitant que son enregistrement parle d'une autre machine sans jamais lui dire laquelle
+/// est celle-ci : un refus qui nomme le problème et cache le remède. Avec elle, la correction est
+/// un copier-coller.
+///
+/// Quand rien n'est écarté, elle **n'apparaît pas**. Ce serait du bruit sur le cas nominal, et une
+/// ligne de démarrage que personne ne lit plus ne dit rien à personne le jour où elle compte.
+/// L'empreinte reste alors disponible : `main` l'imprime à part, pour qui prépare un fichier avant
+/// d'en avoir un.
 #[must_use]
 pub fn annonce(recorded: &RecordedProven) -> String {
     let honorees = recorded.total_honoured();
@@ -362,7 +385,8 @@ pub fn annonce(recorded: &RecordedProven) -> String {
     }
     format!(
         "attestations : {honorees} retenue(s) pour cet hôte, {etrangeres} écartée(s) — \
-         elles parlent d'un hôte différent de celui-ci"
+         elles parlent d'un hôte différent de celui-ci, dont l'empreinte est « {} »",
+        recorded.host()
     )
 }
 
