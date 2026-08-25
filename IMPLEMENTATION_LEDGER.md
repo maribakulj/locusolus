@@ -14924,3 +14924,73 @@ attend.
 
 **Ce que je n'ai pas fait.** Construire les trois compteurs. Ils sont bien spécifiés, l'invariant
 est clair, et rien n'aurait rougi — c'est précisément pourquoi il ne fallait pas.
+
+---
+
+## 2026-08-25 — W0.20 — Le bloc W23 décrivait une couche dont aucune fondation n'était posée
+
+**Ce que c'est.** La suite immédiate de `W0.19`, et le même geste poussé jusqu'au bout du bloc. Cet
+item-là avait trouvé **une** affirmation fausse en tentant **un** item ; la question qui restait est
+celle qu'on ne se pose jamais après une correction ponctuelle — _les voisines disent-elles vrai ?_
+
+Non. Trois affirmations, toutes fausses, toutes vérifiables en lisant le code qu'elles décrivent.
+
+| Affirmation                                                               | Où                  | Verdict                                                                  |
+| ------------------------------------------------------------------------- | ------------------- | ------------------------------------------------------------------------ |
+| `W23.b` est débloqué par le cycle de bail de `W20.k`                      | roadmap `W23.b`     | **faux** — un bail nomme un worker, pas une instance (`W0.19`)           |
+| « réveiller, suspendre, drainer, **remplacer** se lisent de `lifecycle` » | roadmap `W23.c` §1  | **faux** — `Command::ALL` = `Spawn, Suspend, Drain, Kill`                |
+| « une décision locale ne produit aucun événement de portefeuille »        | roadmap `W23.c` §3  | **incodable** — `lifecycle` n'émet **aucun** événement                   |
+| « `coordination::lifecycle` journalise les transitions »                  | ADR 0026 décision 2 | **faux** — le module rend un `Outcome`, personne hors crate ne l'importe |
+
+**Comment chacune a été vérifiée.** Pas par relecture — par lecture du code.
+
+- `lifecycle::Command::ALL` porte quatre verbes, et `Replace` n'en est pas. L'en-tête du module dit
+  lui-même pourquoi : « `replace`, `split`, `merge`, `connect`, `disconnect` **sont déjà**
+  `REPLACE_NODE`, `SPLIT_NODE`, `MERGE_NODES`, `ADD_EDGE` et `REMOVE_EDGE` de `crate::version` […]
+  le scheduler les **compose**, il ne les redéfinit pas ». L'intention de la clause est juste — ne
+  rien redéfinir — et elle donne à l'un des quatre verbes un domicile qu'il n'a pas.
+- `lifecycle` ne construit aucun événement : il rend `Spawned`, `Suspended`,
+  `Draining { remaining }`, `Killed { abandoned }`. Une recherche d'import du module hors de
+  `packages/coordination` ne rend **rien** — ni `locusd`, ni `projections` ; ses deux consommateurs
+  sont `messaging.rs` et `transfer.rs`, dans le même crate. Et `W21.j`, que l'ADR cite comme lecteur
+  des transitions, reçoit ses instants **en données**.
+
+**Le motif commun, et c'est lui qui vaut le détour.** Les deux items du bloc attendent la même
+chose, et ce n'est ni une abstraction ni un appelant : c'est un **producteur**. Le domaine porte
+déjà les décisions — `Assignment` avec son triplet `{agent_id, worker_id, at}`, `lifecycle::Command`
+avec ses quatre verbes et ses `Outcome` chiffrés — et **rien ne les écrit au journal**. Rien en aval
+ne peut donc les lire, quelle que soit la qualité de ce qu'on écrirait en aval.
+
+C'est la même forme que `NoIdentities`, `NoAdministrators`, `NothingProven` et le convoyeur
+d'attestations, transposée d'un cran : là, c'était un **port dont l'implémentation par défaut
+refusait** ; ici, c'est un **domaine dont les décisions ne sortent pas**. La ressemblance n'est pas
+cosmétique — dans les deux cas, chaque moitié est correcte et testée séparément, et c'est exactement
+ce qui rend le trou invisible. Un test de `lifecycle` passe. Un test de la projection passe.
+Personne n'écrit le test qui les met bout à bout, parce qu'il n'y a pas de fichier où il irait.
+
+**Pourquoi ces phrases-là ont survécu si longtemps.** Elles portent sur l'**acquis**, pas sur le
+reste à faire. « `coordination::lifecycle` journalise les transitions » est une prémisse : elle sert
+à justifier que la décision 2 se limite au port de persistance. Une prémisse fausse ne fait rougir
+aucun test — elle ne devient coûteuse qu'au moment où l'item suivant s'appuie dessus, et à ce
+moment-là on code contre elle plutôt que de la vérifier. `W0.16` avait armé un garde contre les
+**marqueurs** périmés ; il n'y en a aucun contre les **prémisses** fausses, et je n'en propose pas :
+je ne sais pas ce qu'il vérifierait.
+
+**Ce qui est livré.**
+
+- `W23.c` retourne **bloqué**, `attend:W20.ae`, avec ses deux clauses fausses corrigées — chaque
+  verbe rendu à son domicile réel, et la clause 3 rattachée à un namespace qui existera.
+- `W20.ae` est écrit : les transitions de cycle de vie atteignent le journal, sous les noms de
+  `Command::slug()` et non sous des noms parallèles, avec les comptes de `Draining` et `Killed` dans
+  le fait — sans quoi un exploitant ne distinguerait pas un arrêt propre d'un arrêt coûteux, ce que
+  le type prend déjà soin de séparer.
+- L'ADR 0026 est amendé **deux fois** : la décision 2 est corrigée de sa phrase fausse, avec les
+  trois vérifications ; la décision 0 reprend `W23.c`, débloqué à tort le 2026-08-24 et rebloqué ici
+  sur une dépendance technique **nommée**, ce qui est la seule sorte de blocage que l'ADR 0022
+  décision 0 admette.
+
+**Ce que je n'ai pas fait, et pourquoi.** Ni l'ordonnanceur d'instances, ni les trois compteurs. Les
+deux se seraient écrits sans que rien ne rougisse, sur des fondations que trois phrases affirmaient
+posées. C'est le même « précisément pourquoi il ne fallait pas » que `W0.19`, et le rencontrer deux
+fois de suite est l'argument le plus fort de la session pour la règle qui l'a produit : ce n'est pas
+la roadmap qui dit ce qui est acquis, c'est le code.
