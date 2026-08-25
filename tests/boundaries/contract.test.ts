@@ -25,10 +25,19 @@ const frontiers = await claudeMdFrontiers();
 
 test("le contrat porte les frontières de CLAUDE.md, dans l'ordre", () => {
   const numbered = [...frontiers.keys()];
+  // **Dérivé, et non écrit en dur.** La rédaction d'origine comparait à `[1, 2, 3, 4, 5, 6, 7]`,
+  // donc chaque frontière ajoutée demandait d'éditer ce test — et un test qu'on édite pour le faire
+  // passer est un test qu'on finit par éditer sans regarder. Ce qui suit dit la même chose sans
+  // liste magique : la numérotation part de 1 et ne saute rien.
+  //
+  // Le décompte n'est pas perdu pour autant : l'assertion suivante exige que `boundaries.json`
+  // couvre **exactement** ces numéros, donc une frontière retirée d'un seul des deux fichiers
+  // rougit toujours.
+  assert.ok(numbered.length > 0, "CLAUDE.md porte au moins une frontière numérotée");
   assert.deepEqual(
     numbered,
-    [1, 2, 3, 4, 5, 6, 7],
-    "la liste de CLAUDE.md est numérotée sans trou",
+    numbered.map((_, index) => index + 1),
+    "la liste de CLAUDE.md est numérotée sans trou, à partir de 1",
   );
   const carried = contract.rules.map((rule) => rule.claudeMd);
   assert.deepEqual([...new Set(carried)], numbered, "chaque frontière a au moins une règle");

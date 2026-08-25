@@ -24,6 +24,7 @@
 pub mod acceptance;
 pub mod admission;
 pub mod bounded;
+pub mod fabric;
 pub mod fast;
 pub mod observation;
 pub mod reasoner;
@@ -33,6 +34,7 @@ pub mod spawn;
 pub use acceptance::{CancellationRate, Ratio};
 pub use admission::{Admission, AdmissionError, Extension, admit};
 pub use bounded::{Autonomy, Ceiling, Denial, Operator, OperatorError, RiskClass, autonomously};
+pub use fabric::{Acceleration, Fabric, Plan, Request, plan};
 pub use fast::{Adaptation, Adjustment, Fast, FastError};
 pub use observation::{Observation, ObservationError, ObservationKind, Sensor, observe_all};
 pub use reasoner::{ProposedClaim, Provenance, ReasonerError, Reasoners, Verdict};

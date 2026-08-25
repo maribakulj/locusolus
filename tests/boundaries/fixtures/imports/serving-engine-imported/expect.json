@@ -1,0 +1,4 @@
+{
+  "title": "un module importe un client de moteur de service",
+  "violations": [{ "rule": "no-serving-engine-dependency", "where": "apps/web/src/infer.ts" }]
+}
