@@ -65,6 +65,10 @@ fn draft(rng: &mut Rng, stream_id: &str, verb: &str, at: i64) -> Draft {
         },
         occurred_at: Timestamp::from_millis(at),
         causation_id: rng.id::<Command>(),
+        // `W20.j` : **jamais** renseignée ici. La clé d'idempotence est l'affaire de la
+        // transaction, qui l'appose à l'écriture — un producteur qui la choisirait ferait
+        // dépendre l'idempotence du client de ce que chaque handler se trouve écrire.
+        idempotency_key: None,
         correlation_id: None,
         trace_id: None,
         payload: serde_json::json!({ "verb": verb }),

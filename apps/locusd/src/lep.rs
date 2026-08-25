@@ -1027,6 +1027,10 @@ fn fact(
         },
         occurred_at: context.occurred_at,
         causation_id: *command.command_id(),
+        // `W20.j` : **jamais** renseignée ici. La clé d'idempotence est l'affaire de la
+        // transaction, qui l'appose à l'écriture — un producteur qui la choisirait ferait
+        // dépendre l'idempotence du client de ce que chaque handler se trouve écrire.
+        idempotency_key: None,
         correlation_id: command.correlation_id().copied(),
         trace_id: None,
         payload,

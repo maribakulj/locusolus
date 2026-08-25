@@ -14740,3 +14740,69 @@ décision et pas du travail.
 **La moitié livrée est celle qui ne demandait aucun arbitrage**, et elle vaut seule : un
 enregistrement dit désormais ce qu'il atteste, et un fichier qui ne le dit pas est refusé bruyamment
 au lieu d'être cru.
+
+---
+
+## 2026-08-25 — W20.j — L'idempotence du client devient un fait du journal
+
+**La garantie était fausse au moment exact où elle sert.** Le registre des clés de §22.5 vivait dans
+`Transaction`, en mémoire vive. Un redémarrage l'oubliait — et un redémarrage est précisément ce qui
+coupe les connexions et déclenche les retentes. Au sens de l'ADR 0022 décision 0, c'est une promesse
+: un mécanisme qui annonce un effet qui n'a pas toujours lieu.
+
+**La migration.** L'enveloppe de §10.1 gagne `idempotency_key: Option<String>` ; la portée était
+déjà là — `workspace_id` et `actor.principal_id` sont exactement ce qu'`IdempotencyScope` définit.
+Côté PostgreSQL : colonne **nullable**, `alter table … add column if not exists` idempotent à côté
+du `create table if not exists` qui ne l'aurait pas ajoutée à une table existante, et la relecture
+prend l'index **en fin** de liste. Insérer la colonne au milieu aurait décalé tous les index
+suivants, et un décalage d'index se lit comme une donnée corrompue plutôt que comme une erreur de
+requête.
+
+**La clé est apposée par la transaction, et jamais par un producteur.** Dix sites construisent un
+`Draft` ; tous laissent `None`, avec la raison écrite à côté — un handler qui choisirait la clé
+ferait dépendre l'idempotence du client de ce que chaque décideur se trouve écrire.
+
+Et elle est apposée sur **chaque** événement de l'écriture, pas sur le premier seul : la
+reconstruction lit le flux événement par événement, sans savoir lesquels formaient une écriture.
+
+**Le registre se reconstruit dans les deux constructeurs.** `new` et `bounded`. N'en câbler qu'un
+serait le défaut qu'on trouve trois mois plus tard — deux constructeurs dont un seul tient la
+garantie, et le second est celui que le binaire emploie quand un exploitant borne les écritures.
+
+**Une passe de mutants a démoli la première rédaction des tests.** Deux survivants sur six :
+
+- `unwrap_or("")` sur une clé absente — parce qu'une clé vide est **inatteignable** par `submit`,
+  `CommandEnvelope::mutating` la refusant. Le mutant rangeait tous les événements d'avant la
+  migration sous une même entrée `("", portée)` ; rien ne l'aurait lu, et c'est exactement ce qui le
+  rendait invisible — jusqu'au jour où une clé vide devient licite.
+- `min` au lieu de `max` sur le rang — parce que toutes les commandes des tests n'écrivaient
+  qu'**un** événement, et pour un seul, `max` et `min` sont le même.
+
+Les deux sont désormais tenus là où ils s'observent : un décideur qui écrit deux événements en une
+écriture pour le rang, et des tests unitaires sur `Ledger::rebuild` pour l'absence. Le second cas
+mérite d'être noté : la propriété n'était **pas** observable par le chemin public, et l'y avoir
+cherchée aurait produit un test qui passe pour la mauvaise raison.
+
+Le rang n'est pas un détail : ce que la transaction a rendu au client est le rang du stream
+**après** l'écriture entière. Retenir le premier lui rendrait, à la retente, un rang antérieur à
+celui qu'il avait reçu ; il le passerait en `expected_revision` et son écriture suivante serait
+refusée pour conflit, sur un journal parfaitement sain.
+
+**Six mutants posés, zéro survivant** au second tour.
+
+**Ce qui reste ouvert, et que l'ADR n'avait pas vu.** ADR 0029 décision 4 dit « il ne manque que
+**la** clé choisie par le client », au singulier. C'est exact pour `submit` et silencieusement
+incomplet pour `Batch::Atomic` : un lot atomique est **une** écriture, faite avec l'enveloppe de la
+première commande, donc le journal ne porte que sa clé et la reconstruction ne restaure qu'elle.
+
+Rien ne régresse — le registre en mémoire retient toujours les `n`, et `submit_batch` n'a aucun
+appelant de production —, mais la garantie durable d'un lot atomique est celle de sa première
+commande. Les formes possibles s'excluent, et c'est pourquoi c'est une décision et non du travail :
+porter les `n` clés contredit « un seul champ facultatif » ; n'accepter qu'un lot à clé unique
+change la sémantique de §22.5 ; écrire un événement par commande retire l'atomicité, qui est ce que
+le lot déclare. C'est `W20.ac`.
+
+**Vérifié.** `npm run check` → vert, **exit code lu séparément** cette fois : le tour précédent
+l'avait passé dans un tube vers `grep`, le code de sortie était devenu celui de `grep`, et un
+`cargo fmt` rouge s'était lu « vert ». 247 tests TypeScript, 16 tests de transaction, 5 tests
+unitaires de `locusd`.

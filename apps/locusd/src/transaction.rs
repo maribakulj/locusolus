@@ -59,10 +59,21 @@ pub struct Transaction<S> {
 
 impl<S: EventStore> Transaction<S> {
     /// Une transaction sur ce journal, qu'elle prend et ne rend plus.
+    ///
+    /// # Le registre d'idempotence se **reconstruit** ici — `W20.j`
+    ///
+    /// `Ledger::default()` était un registre vide, et il l'était **à chaque démarrage**. Or un
+    /// redémarrage est précisément ce qui coupe les connexions et déclenche les retentes : la
+    /// garantie de §22.5 était donc fausse au moment exact où elle sert.
+    ///
+    /// La reconstruction lit le flux global, comme les quatre projections de §9.5, et pour la même
+    /// raison — l'invariant 2 fait du journal la vérité institutionnelle, et un registre qui vivrait
+    /// ailleurs en serait un second stockage durable, ce que l'ADR 0019 a déjà refusé.
     pub fn new(store: S) -> Self {
+        let ledger = Ledger::rebuild(store.feed(0).iter().map(|entry| &entry.event));
         Self {
             store,
-            ledger: std::sync::Mutex::new(Ledger::default()),
+            ledger: std::sync::Mutex::new(ledger),
             locks: StreamLocks::new(),
         }
     }
@@ -73,9 +84,13 @@ impl<S: EventStore> Transaction<S> {
     /// profil de déploiement peut la fixer, et un test peut l'exercer sans fabriquer mille
     /// écritures concurrentes.
     pub fn bounded(store: S, limit: usize) -> Self {
+        // La reconstruction est **ici aussi**, et l'oublier serait le genre de défaut que ce dépôt
+        // trouve trois mois plus tard : deux constructeurs dont un seul tient la garantie, et le
+        // second est celui que le binaire emploie quand un exploitant borne les écritures.
+        let ledger = Ledger::rebuild(store.feed(0).iter().map(|entry| &entry.event));
         Self {
             store,
-            ledger: std::sync::Mutex::new(Ledger::default()),
+            ledger: std::sync::Mutex::new(ledger),
             locks: StreamLocks::with_limit(limit),
         }
     }
@@ -195,6 +210,16 @@ impl<S: EventStore> Transaction<S> {
         }
     }
 
+    /// Rendre le journal, et abandonner tout ce qui vivait en mémoire — `W20.j`.
+    ///
+    /// Ce que fait un redémarrage, exactement : le journal survit, la mémoire vive non. Le type
+    /// existe pour qu'un test puisse jouer ce moment sans mentir dessus — reconstruire une
+    /// transaction sur un journal neuf ne prouverait rien, et partager le journal entre deux
+    /// transactions vivantes prouverait autre chose.
+    pub fn into_store(self) -> S {
+        self.store
+    }
+
     /// Le journal, en lecture seule.
     ///
     /// Il n'existe pas d'accesseur mutable, et c'est tout l'objet du type : une projection ou un
@@ -270,6 +295,22 @@ impl<S: EventStore> Transaction<S> {
         let Some(stream_id) = events.first().map(|event| event.stream_id.clone()) else {
             return Err(no_events());
         };
+
+        // `W20.j` : la clé du client est **apposée ici**, et nulle part ailleurs. Aucun producteur ne
+        // la choisit — un handler qui la renseignerait ferait dépendre l'idempotence du client de ce
+        // que chaque décideur se trouve écrire, et la portée serait alors invérifiable.
+        //
+        // Elle est apposée sur **chaque** événement du lot, et non sur le premier seul : la
+        // reconstruction lit le journal événement par événement, sans savoir lesquels formaient une
+        // écriture. Ne marquer que le premier ferait dépendre le registre reconstruit de l'ordre de
+        // lecture.
+        let events = events
+            .into_iter()
+            .map(|mut event| {
+                event.idempotency_key = Some(command.idempotency_key().to_owned());
+                event
+            })
+            .collect();
 
         let append = Append {
             stream_id: stream_id.clone(),

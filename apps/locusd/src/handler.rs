@@ -25,7 +25,7 @@
 use std::collections::BTreeMap;
 use std::fmt;
 
-use locus_event_store::{Draft as EventDraft, Expected};
+use locus_event_store::{Draft as EventDraft, Envelope, Expected};
 use locus_protocol::Id;
 use locus_protocol::id::{Agent, Workspace};
 
@@ -154,6 +154,51 @@ pub(crate) struct Ledger {
 }
 
 impl Ledger {
+    /// Reconstruire le registre depuis le journal — `W20.j`, ADR 0029 décision 4.
+    ///
+    /// # Ce que cette fonction répare
+    ///
+    /// Le registre vivait en mémoire vive, et un redémarrage l'oubliait — or un redémarrage est
+    /// précisément ce qui coupe les connexions et déclenche les retentes. La garantie de §22.5 était
+    /// donc fausse **au moment exact où elle sert**. C'est une promesse au sens de l'ADR 0022
+    /// décision 0 : un mécanisme qui annonce un effet qui n'a pas toujours lieu.
+    ///
+    /// # Le rang retenu est le **plus grand**, et ce n'est pas un détail
+    ///
+    /// Une commande peut écrire plusieurs événements en une fois, et ce que la transaction a rendu
+    /// au client est le rang du stream **après** l'écriture entière — donc celui du dernier
+    /// événement. Retenir le premier rendrait au client, à la retente, un rang antérieur à ce qu'il
+    /// avait reçu ; il le passerait en `expected_revision` et son écriture suivante serait refusée
+    /// pour conflit, sur un journal parfaitement sain.
+    ///
+    /// # Un événement sans clé n'entre pas
+    ///
+    /// Ceux d'avant la migration n'en portent pas, et `None` n'est pas `""` : une commande dont la
+    /// clé est inconnue n'est pas une commande dont la clé est vide. Les ranger sous une clé vide
+    /// les ferait tous se confondre, et la première retente d'un client recevrait le rang d'une
+    /// commande étrangère.
+    pub(crate) fn rebuild<'a>(events: impl IntoIterator<Item = &'a Envelope>) -> Self {
+        let mut ledger = Self::default();
+        for event in events {
+            let Some(key) = event.idempotency_key.as_deref() else {
+                continue;
+            };
+            let submission = Submission {
+                scope: IdempotencyScope {
+                    workspace: event.workspace_id,
+                    principal: event.actor.principal_id,
+                },
+                key: key.to_owned(),
+            };
+            let revision = Revision::new(event.stream_revision);
+            let retenu = ledger
+                .recall(&submission)
+                .map_or(revision, |connu| connu.max(revision));
+            ledger.remember(submission, retenu);
+        }
+        ledger
+    }
+
     pub(crate) fn recall(&self, submission: &Submission) -> Option<Revision> {
         self.seen.get(submission).copied()
     }
@@ -209,5 +254,147 @@ pub(crate) const fn expected_from(revision: Revision) -> Expected {
         Expected::NoStream
     } else {
         Expected::Exact(revision.get())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use locus_event_store::{ActorKind, EventType};
+    use locus_protocol::Timestamp;
+    use locus_protocol::id::{Command, Event, Project};
+
+    use super::{Envelope, IdempotencyScope, Ledger, Submission};
+    use crate::error::Revision;
+    use locus_event_store::Actor;
+    use locus_protocol::id::{Agent, Workspace};
+    use locus_protocol::{Id, IdKind};
+
+    fn id<K: IdKind>(seed: u8) -> Id<K> {
+        let mut entropy = [0_u8; 10];
+        entropy[9] = seed;
+        Id::from_parts(Timestamp::from_millis(1_700_000_000_000), entropy)
+            .expect("l'instant de fixture tient sur 48 bits")
+    }
+
+    /// Un événement au journal, avec ou sans clé d'idempotence.
+    fn evenement(revision: u64, principal: u8, key: Option<&str>) -> Envelope {
+        Envelope {
+            event_id: id::<Event>(u8::try_from(revision).unwrap_or(u8::MAX)),
+            event_type: EventType::parse("branch.forked").expect("type valide"),
+            schema_version: 1,
+            stream_id: "br_1".to_owned(),
+            stream_revision: revision,
+            workspace_id: id::<Workspace>(2),
+            project_id: id::<Project>(4),
+            program_id: None,
+            branch_id: None,
+            actor: Actor {
+                principal_id: id::<Agent>(principal),
+                kind: ActorKind::Agent,
+                delegation_id: None,
+            },
+            occurred_at: Timestamp::from_millis(1_700_000_000_000),
+            recorded_at: Timestamp::from_millis(1_700_000_000_000),
+            causation_id: id::<Command>(1),
+            idempotency_key: key.map(str::to_owned),
+            correlation_id: None,
+            trace_id: None,
+            payload: serde_json::json!({}),
+            payload_hash: format!("sha256:{}", "ab".repeat(32)),
+        }
+    }
+
+    fn soumission(principal: u8, key: &str) -> Submission {
+        Submission {
+            scope: IdempotencyScope {
+                workspace: id::<Workspace>(2),
+                principal: id::<Agent>(principal),
+            },
+            key: key.to_owned(),
+        }
+    }
+
+    /// **Un événement sans clé n'entre pas au registre, et surtout pas sous une clé vide.**
+    ///
+    /// C'est la règle d'ADR 0029 décision 4 — « une absence n'est pas une valeur » — et elle ne
+    /// s'observe qu'ici : `CommandEnvelope::mutating` refuse une clé vide, donc aucune soumission ne
+    /// peut venir la réclamer, et une passe de mutants l'a montré en laissant survivre
+    /// `unwrap_or("")`.
+    ///
+    /// Ce que le mutant produisait : **tous** les événements d'avant la migration rangés sous la
+    /// même entrée `("", portée)`, à se recouvrir les uns les autres. Rien ne l'aurait lu, et c'est
+    /// précisément ce qui le rendait invisible — jusqu'au jour où une clé vide devient licite.
+    #[test]
+    fn un_evenement_sans_cle_n_entre_pas_au_registre() {
+        let journal = [
+            evenement(1, 3, None),
+            evenement(2, 3, None),
+            evenement(3, 3, Some("apres-migration")),
+        ];
+
+        let ledger = Ledger::rebuild(journal.iter());
+
+        assert_eq!(
+            ledger.recall(&soumission(3, "")),
+            None,
+            "les événements sans clé se sont rangés sous une clé vide"
+        );
+        assert_eq!(
+            ledger.recall(&soumission(3, "apres-migration")),
+            Some(Revision::new(3))
+        );
+    }
+
+    /// **Le rang retenu est le plus grand des événements d'une même clé.**
+    ///
+    /// Une commande écrit parfois plusieurs événements, et ce que la transaction a rendu au client
+    /// est le rang du stream **après** l'écriture entière.
+    #[test]
+    fn le_rang_retenu_est_celui_du_dernier_evenement() {
+        let journal = [
+            evenement(7, 3, Some("une-ecriture")),
+            evenement(8, 3, Some("une-ecriture")),
+        ];
+
+        assert_eq!(
+            Ledger::rebuild(journal.iter()).recall(&soumission(3, "une-ecriture")),
+            Some(Revision::new(8))
+        );
+    }
+
+    /// **L'ordre de lecture ne change pas le rang retenu.**
+    ///
+    /// `max` est commutatif, et c'est ce qui rend la reconstruction indépendante de l'ordre dans
+    /// lequel le flux rend les événements. Le vérifier coûte trois lignes et retire une supposition.
+    #[test]
+    fn l_ordre_de_lecture_ne_change_pas_le_rang() {
+        let journal = [
+            evenement(8, 3, Some("une-ecriture")),
+            evenement(7, 3, Some("une-ecriture")),
+        ];
+
+        assert_eq!(
+            Ledger::rebuild(journal.iter()).recall(&soumission(3, "une-ecriture")),
+            Some(Revision::new(8))
+        );
+    }
+
+    /// **Deux principaux ne se confondent pas, même sous la même clé.**
+    #[test]
+    fn la_portee_separe_deux_principaux() {
+        let journal = [
+            evenement(1, 3, Some("cle-partagee")),
+            evenement(2, 99, Some("cle-partagee")),
+        ];
+        let ledger = Ledger::rebuild(journal.iter());
+
+        assert_eq!(
+            ledger.recall(&soumission(3, "cle-partagee")),
+            Some(Revision::new(1))
+        );
+        assert_eq!(
+            ledger.recall(&soumission(99, "cle-partagee")),
+            Some(Revision::new(2))
+        );
     }
 }

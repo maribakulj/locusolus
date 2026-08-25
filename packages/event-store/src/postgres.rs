@@ -69,11 +69,18 @@ create table if not exists event (
     causation_id        text         not null,
     correlation_id      text,
     trace_id            text,
+    -- `W20.j`, ADR 0029 décision 4 : la clé d'idempotence du client (§22.5). **Nullable**, et c'est
+    -- le point de la migration : un événement écrit avant elle n'en porte pas, et se relit `None`
+    -- plutôt qu'avec une chaîne vide. `create table if not exists` ne l'ajoute pas à une table
+    -- existante — l'`alter table` juste en dessous s'en charge, et il est idempotent.
+    idempotency_key     text,
     payload             jsonb        not null,
     payload_hash        text         not null,
     constraint event_position_unique unique (position),
     constraint event_stream_revision_unique unique (stream_id, stream_revision)
 );
+
+alter table event add column if not exists idempotency_key text;
 
 create table if not exists command_applied (
     command_id     text   primary key,
@@ -313,7 +320,7 @@ impl EventStore for PostgresEventStore {
                 "select position, stream_id, stream_revision, event_id, event_type, schema_version, \
                  workspace_id, project_id, program_id, branch_id, actor_principal_id, actor_kind, \
                  actor_delegation_id, occurred_at, recorded_at, causation_id, correlation_id, \
-                 trace_id, payload, payload_hash from event where position > $1 order by position",
+                 trace_id, payload, payload_hash, idempotency_key from event where position > $1 order by position",
                 &[&i64::try_from(from).unwrap_or(i64::MAX)],
             )
             .unwrap_or_else(|error| fatal("lecture du flux", &error));
@@ -412,8 +419,8 @@ fn insert(transaction: &mut Transaction<'_>, position: u64, event: &Envelope) {
             "insert into event (position, stream_id, stream_revision, event_id, event_type, \
              schema_version, workspace_id, project_id, program_id, branch_id, actor_principal_id, \
              actor_kind, actor_delegation_id, occurred_at, recorded_at, causation_id, \
-             correlation_id, trace_id, payload, payload_hash) values \
-             ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)",
+             correlation_id, trace_id, payload, payload_hash, idempotency_key) values \
+             ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)",
             &[
                 &i64::try_from(position).unwrap_or(i64::MAX),
                 &event.stream_id,
@@ -435,6 +442,7 @@ fn insert(transaction: &mut Transaction<'_>, position: u64, event: &Envelope) {
                 &event.trace_id,
                 &event.payload,
                 &event.payload_hash,
+                &event.idempotency_key,
             ],
         )
         .unwrap_or_else(|error| fatal("insertion d'événement", &error));
@@ -446,7 +454,7 @@ fn stream_events(transaction: &mut Transaction<'_>, stream_id: &str, from: u64) 
             "select position, stream_id, stream_revision, event_id, event_type, schema_version, \
              workspace_id, project_id, program_id, branch_id, actor_principal_id, actor_kind, \
              actor_delegation_id, occurred_at, recorded_at, causation_id, correlation_id, \
-             trace_id, payload, payload_hash from event where stream_id = $1 and stream_revision > $2 \
+             trace_id, payload, payload_hash, idempotency_key from event where stream_id = $1 and stream_revision > $2 \
              order by stream_revision",
             &[&stream_id, &i64::try_from(from).unwrap_or(i64::MAX)],
         )
@@ -512,5 +520,9 @@ fn envelope_of(row: &postgres::Row) -> Envelope {
         trace_id: row.get::<_, Option<String>>(17),
         payload: row.get::<_, serde_json::Value>(18),
         payload_hash: row.get::<_, String>(19),
+        // Index 20, ajouté **en fin** de liste : insérer la colonne au milieu aurait décalé tous les
+        // index suivants, et un décalage d'index se lit comme une donnée corrompue plutôt que comme
+        // une erreur de requête.
+        idempotency_key: row.get::<_, Option<String>>(20),
     }
 }

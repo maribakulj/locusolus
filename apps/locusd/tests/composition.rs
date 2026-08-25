@@ -52,6 +52,7 @@ fn evenement(stream: &str) -> EventDraft {
         },
         occurred_at: NOW,
         causation_id: id::<Command>(1),
+        idempotency_key: None,
         correlation_id: None,
         trace_id: None,
         payload: serde_json::json!({ "attempt_id": "att_01", "worker_id": "wrk_01" }),

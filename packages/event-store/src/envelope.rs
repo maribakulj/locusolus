@@ -90,6 +90,35 @@ pub struct Envelope {
     pub recorded_at: Timestamp,
     /// La commande qui a causé cet événement. C'est elle qui porte l'idempotence (§10.2).
     pub causation_id: Id<Command>,
+    /// La clé d'idempotence **choisie par le client** — §22.5, `W20.j`, ADR 0029 décision 4.
+    ///
+    /// # Elle n'est pas `causation_id`, et les deux sont nécessaires
+    ///
+    /// `causation_id` porte l'idempotence du **journal** (§10.2) : deux `append` sous le même
+    /// identifiant de commande rendent le premier résultat. Celle-ci porte l'idempotence du
+    /// **client** (§22.5) : un client qui retente après une coupure réémet sa clé, et rien ne
+    /// l'oblige à réémettre le même `command_id`, qu'il n'a peut-être jamais vu. L'une protège
+    /// l'écriture, l'autre protège le client.
+    ///
+    /// # Pourquoi elle est **ici** et non dans une mémoire de processus
+    ///
+    /// Le registre vivait en mémoire vive, et un redémarrage l'oubliait — or un redémarrage est
+    /// précisément ce qui coupe les connexions et déclenche les retentes. La garantie était donc
+    /// fausse **au moment exact où elle sert**. L'invariant 2 donne la forme de la réparation : le
+    /// journal est la vérité institutionnelle, et un registre qui vivrait ailleurs en serait un
+    /// second stockage durable.
+    ///
+    /// La portée, elle, était déjà là : `workspace_id` et `actor.principal_id` sont exactement ce
+    /// qu'`IdempotencyScope` définit. Un seul champ manquait.
+    ///
+    /// # Facultative, et le mot est chargé
+    ///
+    /// Un événement écrit **avant** cette migration n'en porte pas, et se relit `None` plutôt
+    /// qu'avec une clé vide. Une commande dont la clé est inconnue n'est pas une commande dont la
+    /// clé est `""` — c'est la règle que `W21.m` a posée pour la classification de dépense et
+    /// `W22.e` pour les sondes d'hôte : une absence n'est pas une valeur.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub idempotency_key: Option<String>,
     /// Le workflow qui corrèle plusieurs événements.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub correlation_id: Option<Id<Workflow>>,
@@ -132,6 +161,9 @@ pub struct Draft {
     pub occurred_at: Timestamp,
     /// La commande causale.
     pub causation_id: Id<Command>,
+    /// La clé d'idempotence choisie par le client — voir [`Envelope::idempotency_key`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub idempotency_key: Option<String>,
     /// Le workflow corrélant.
     pub correlation_id: Option<Id<Workflow>>,
     /// La trace d'observabilité.
@@ -163,6 +195,7 @@ impl Draft {
             occurred_at: self.occurred_at,
             recorded_at,
             causation_id: self.causation_id,
+            idempotency_key: self.idempotency_key,
             correlation_id: self.correlation_id,
             trace_id: self.trace_id,
             payload: self.payload,
