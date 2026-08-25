@@ -35,6 +35,17 @@
 //! L'alternative aurait été une date de péremption. Elle se règle au jugé et ne dit rien : un hôte
 //! peut se dégrader en une minute et rester identique un an.
 //!
+//! # Ce que l'empreinte suppose, et qui n'est vrai que du profil local
+//!
+//! Elle porte sur l'hôte de **`locus-execd`**, et [`Proven`] est indexé par **worker**. Les deux ne
+//! coïncident que si le worker s'exécute là où `locus-execd` tourne — ce qui est le cas du profil
+//! `personal-local` de §27.1, et de tout déploiement où la sandbox est celle que ce daemon pilote.
+//!
+//! C'est une supposition, et elle est écrite ici plutôt que tue. Le jour où un `locus-execd`
+//! placerait sur des hôtes qu'il ne pilote pas, l'empreinte parlerait de la mauvaise machine — et
+//! ce qu'il faudrait alors n'est pas un correctif de ce module mais une campagne par hôte, avec son
+//! identité propre. La supposition tient tant que le broker et la sandbox sont sur la même machine.
+//!
 //! # Ce que le module ne fait pas
 //!
 //! Il ne **produit** pas la campagne — `packages/execution` la mène et rend un
@@ -297,4 +308,53 @@ pub fn annonce(recorded: &RecordedProven) -> String {
         "attestations : {honorees} retenue(s) pour cet hôte, {etrangeres} écartée(s) — \
          elles parlent d'un hôte différent de celui-ci"
     )
+}
+
+/// La variable qui dit où une campagne dépose ce qu'elle a conclu.
+///
+/// Distincte de [`RECORD_ENV`], qui dit où `locus-execd` **lit**. Les confondre ferait qu'une
+/// campagne écrase le fichier qu'un daemon est en train de lire, et qu'un exploitant ne puisse plus
+/// distinguer « ce que j'ai posé » de « ce que la dernière campagne a produit ».
+pub const EMIT_ENV: &str = "LOCUS_EXECD_ATTESTATION_OUT";
+
+/// Ce qu'une campagne a conclu, sous la forme qui se conserve — ou `None`.
+///
+/// # `NotTrusted` ne s'enregistre pas
+///
+/// La règle est celle du module : `proven_level` ignore un `NotTrusted`, donc l'écrire ne
+/// changerait aucun placement — et laisserait croire qu'il le pourrait. L'absence d'enregistrement
+/// dit déjà « rien n'est prouvé », ce qui est exactement ce qu'une campagne en échec établit.
+///
+/// Ce n'est pas une perte d'information : ce qu'une campagne en échec a trouvé est dans son rapport,
+/// que la CI publie, et un fichier d'attestations n'est pas un journal de campagne.
+#[must_use]
+pub fn record(
+    worker_id: &str,
+    standing: &Standing,
+    facts: &HostFacts,
+    concluded_at: i64,
+) -> Option<Attestation> {
+    match standing {
+        Standing::NotTrusted { .. } => None,
+        Standing::Trusted { level } => Some(Attestation {
+            worker_id: worker_id.to_owned(),
+            level: level.code().to_owned(),
+            host: fingerprint(facts),
+            concluded_at,
+        }),
+    }
+}
+
+/// Le fichier qu'une campagne dépose, à partir de ce qu'elle a conclu.
+///
+/// # Errors
+///
+/// [`RecordRefusal`] quand la sérialisation échoue — ce qui ne devrait pas arriver sur des champs
+/// de chaînes et d'entiers, et qui est rendu plutôt que masqué par un `unwrap` au motif que ça
+/// n'arrive pas.
+pub fn emit(records: &[Attestation], path: &str) -> Result<String, RecordRefusal> {
+    serde_json::to_string_pretty(records).map_err(|erreur| RecordRefusal {
+        path: path.to_owned(),
+        reason: format!("ne se sérialise pas : {erreur}"),
+    })
 }

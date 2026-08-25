@@ -61,7 +61,7 @@ use std::path::PathBuf;
 use std::process;
 
 use locus_execd::linux::{
-    MUST_DENY, PodmanBackend, ProbeContext, RestrictedProfile, Runner, SANDBOX_REFUSED,
+    HostFacts, MUST_DENY, PodmanBackend, ProbeContext, RestrictedProfile, Runner, SANDBOX_REFUSED,
     SeccompProfiles, SystemRunner, Trial, Workload, exec_arguments, host_boot_id, run_suite,
     verdicts,
 };
@@ -205,12 +205,14 @@ fn cet_hote_tient_il_s2_sous_une_mission_qui_reserve_du_disque() {
         LEVEL.code(),
         failures.join("\n"),
     );
+    let conclusion = locus_execution::standing(LEVEL, spec.resources(), &verdicts(&results));
     assert_eq!(
-        locus_execution::standing(LEVEL, spec.resources(), &verdicts(&results)),
+        conclusion,
         Standing::Trusted { level: LEVEL },
         "les seize tiennent une à une : le `Standing` doit le dire aussi, sans quoi c'est \
          l'agrégation qui est fausse et non les sondes"
     );
+    deposer(&conclusion);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -266,6 +268,66 @@ fn les_seize_sondes_sous_une_mission_sans_quota_disque() {
         LEVEL.code(),
         failures.join("\n"),
     );
+
+    // `W5.u` : c'est **ce** test qui tourne en CI, donc c'est lui qui dépose. Le premier attend un
+    // hôte capable de borner un espace, et n'a jamais conclu ailleurs.
+    deposer(&locus_execution::standing(
+        LEVEL,
+        spec.resources(),
+        &verdicts(&results),
+    ));
+}
+
+/// Déposer ce que la campagne a conclu, si l'environnement dit où — `W5.u`.
+///
+/// # Pourquoi c'est le test qui écrit
+///
+/// La campagne **est** ce test : c'est lui qui monte une sandbox réelle et lit ce qu'elle laisse
+/// passer. Un binaire séparé qui la relancerait dupliquerait le harnais, et deux copies divergent.
+///
+/// Ce qui n'est pas ici : la **forme** du fichier, qui vit dans `attestation.rs` et y est éprouvée.
+/// Ce test ne connaît que le moment — après que les seize ont tenu, et jamais avant.
+///
+/// # Sans la variable, il n'écrit rien
+///
+/// Une campagne lancée à la main sur la machine de quelqu'un ne doit pas déposer d'attestation qu'il
+/// n'a pas demandée : c'est un fichier que `locus-execd` **croira**.
+fn deposer(conclusion: &Standing) {
+    let Some(path) = env::var(locus_execd::attestation::EMIT_ENV)
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+    else {
+        return;
+    };
+
+    let facts = HostFacts::read_host();
+    let worker =
+        env::var("LOCUS_EXECD_ATTESTATION_WORKER").unwrap_or_else(|_| "canterel-local".to_owned());
+    // Une campagne qui n'a rien prouvé ne dépose rien — et le dit, plutôt que d'écrire un fichier
+    // vide qu'un exploitant lirait comme « pas de campagne ».
+    let Some(record) = locus_execd::attestation::record(&worker, conclusion, &facts, maintenant())
+    else {
+        println!("campagne : rien à déposer — le niveau n'est pas tenu");
+        return;
+    };
+
+    let contenu = locus_execd::attestation::emit(&[record], &path).expect("le dépôt se sérialise");
+    fs::write(&path, &contenu).unwrap_or_else(|erreur| {
+        panic!(
+            "le dépôt d'attestation a été demandé par {} et n'a pas pu être écrit dans « {path} » \
+             : {erreur}. Échouer ici plutôt que se taire : une campagne qui croit avoir déposé et \
+             n'a rien écrit fait chercher un hôte non attesté pendant que le fichier n'existe pas",
+            locus_execd::attestation::EMIT_ENV
+        )
+    });
+    println!("campagne : attestation déposée dans {path}\n{contenu}");
+}
+
+/// L'instant du dépôt, en millisecondes.
+fn maintenant() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |depuis| i64::try_from(depuis.as_millis()).unwrap_or(0))
 }
 
 // ---------------------------------------------------------------------------------------------
