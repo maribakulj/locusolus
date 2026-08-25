@@ -328,8 +328,7 @@ fn deposer(conclusion: &Standing) {
         // driver plutôt que de le réécrire — deux littéraux auraient divergé.
         locus_execd::linux::BACKEND,
         maintenant(),
-    )
-    else {
+    ) else {
         println!("campagne : rien à déposer — le niveau n'est pas tenu");
         return;
     };
