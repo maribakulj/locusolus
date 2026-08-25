@@ -15829,3 +15829,115 @@ stockage n'a pas à connaître les concepts qui l'utilisent. Aucun cycle — `ar
 `W26.b` — les trois classes de lecteurs, et la lecture institutionnelle qui produit un fait. C'est
 l'ordre que le bloc pose lui-même : « on ne règle pas la lecture de ce qui n'est pas écrit ». Ce
 lecteur est aussi celui qui débloque `W16.d`.
+
+## 2026-08-25 — W26.b — Les trois classes de lecteurs, et la lecture institutionnelle journalisée
+
+**Fichiers** : `packages/memory/src/readers.rs` (neuf), `packages/memory/tests/readers.rs` (neuf, 13
+tests), `packages/memory/src/lib.rs`, `docs/10_V1_ROADMAP.md` (`W16.d` rouvert).
+
+### Le fait n'est pas à côté du contenu, il est dedans
+
+`Reading::Institutional` porte le grant **et** le fait dans la même variante. L'appelant ne peut pas
+déstructurer la lecture sans que le fait lui tombe dans la main.
+
+Un `Option<InstitutionalRead>` rendu séparément se laisserait ignorer d'un `?`. C'est exactement
+l'argument que `messaging.rs` a écrit pour `Reception` — « un fait que l'appelant doit traiter, là
+où un `Option` l'aurait laissé l'ignorer d'un `?` » — et il vaut ici mot pour mot, parce que l'ADR
+dit ce qu'un accès non journalisé devient : « le chemin par lequel un contexte non autorisé remonte
+».
+
+**Ce que ce module ne prétend pas.** Rien n'empêche un appelant de lier le fait à `_`, et aucun type
+de valeur pure ne le pourrait. Ce qui est tenu est qu'il faut le faire **exprès**, et c'est écrit
+dans l'en-tête plutôt que passé sous silence.
+
+### Le décompte est sur les deux polarités
+
+Trois lectures institutionnelles produisent trois faits ; trois lectures par le générateur n'en
+produisent aucun.
+
+Ne compter que la première aurait été content d'une implémentation qui journalise **tout** — et
+journaliser la lecture qu'un agent fait de sa propre trace n'est pas ce que la décision 2 demande.
+Un test qui ne vérifie qu'une borne accepte l'implémentation qui déborde de l'autre côté.
+
+### L'absence de joker est ce qui donne son sens à l'énumération close
+
+Le compilateur se plaint d'un `match` incomplet ; il ne se plaint **jamais** d'un `match` trop
+tolérant. Un `_ =>` dans `read` absorberait en silence une quatrième classe le jour où quelqu'un
+l'ajouterait, et l'énumération close ne garantirait plus rien.
+
+C'est donc un test de source qui refuse le joker, comme `W23.c` le tient déjà pour les départs
+d'ordonnancement. Le scan d'absence refuse en outre le **vocabulaire** d'une quatrième — `System`,
+`Tool`, `Service`, `Analytics`, `Admin`, `Other`, `Any`, `Internal` — et les chemins qui
+contourneraient les trois : `read_as`, `read_unchecked`, `grant`, `bypass`.
+
+### Trois refus, et pas un booléen
+
+Trace d'un autre, générateur non enregistré, pair sans dévoilement. Les trois se réparent
+différemment : demander la bonne trace, enregistrer le générateur à la déclaration, obtenir un
+dévoilement. Un `false` unique ferait chercher un dévoilement à qui s'est trompé de trace.
+
+**Le deuxième est le moins évident et c'est le plus utile.** `ProducedBy::agent_id` est
+**facultatif** dans le schéma d'artefact — vérifié en lisant le type, pas supposé —, donc une trace
+peut arriver sans générateur nommé. L'accorder à qui l'affirme ferait de l'affirmation la preuve.
+C'est « non vérifié n'est jamais réussi » appliqué à une identité, et `UnknownGenerator` n'est pas
+un `NotYourTrace` atténué : les deux ignorances sont distinctes, comme `unrecorded` et `unchecked`
+le sont dans xiiif.
+
+### Ce qu'un pair obtient aujourd'hui — rien — n'est pas un moignon
+
+L'énumération des motifs de dévoilement **commence vide** (ADR 0027 décision 3) : chaque motif
+arrive avec le mécanisme qui le déclenche, et `W26.c` livre le premier. Aucun dévoilement n'existe
+donc, et `NeedsDisclosure` est la réponse **exacte** à l'état présent du système.
+
+La différence avec un `todo!()` se voit à ceci : quand `W26.c` livrera `Disclosure`, ce refus ne
+sera pas _corrigé_, il sera _conditionné_. Rien ici n'annonce un effet qui n'a pas lieu, ce que la
+règle de `CLAUDE.md` sur les promesses interdit.
+
+### Un grant rend une référence, jamais des octets
+
+L'identifiant et le condensat — la désignation de §9.1. `W26.a` tient par l'absence que ce crate ne
+stocke aucun contenu de trace ; un grant qui rendrait des octets serait le même second stockage par
+l'autre bout, et un test d'absence refuse `bytes`, `content:`, `body`, `payload`.
+
+Le genre est une **constante** sur le grant, pas un champ. Première rédaction : les deux à la fois —
+un champ `genre` posé à `MetaMemory` et un accesseur qui rendait la constante en ignorant le champ.
+Le champ était mort et faisait une seconde source pour ce que `W26.a` pose déjà ; il est parti.
+
+### Le module ne lit pas l'heure
+
+L'instant du fait est **fourni**, comme `domain::Envelope` le fait pour une révision. Un journal
+dont les instants viennent de la montre de celui qui écrit n'est pas rejouable, et l'invariant 1
+exclut du domaine le choix d'une horloge. Tenu par l'absence — `SystemTime`, `now()` — et par
+l'égalité : deux instants fournis différents produisent deux faits différents.
+
+### Les gardes de source sont épinglées contre la lecture vide
+
+Trois tests extraient un corps de la source par bornes textuelles. Une extraction qui rendrait une
+chaîne vide ferait **passer** un test d'absence sans rien lire.
+
+C'est la règle 3 du rythme de session — « un compteur qui n'a rien lu ne vaut pas zéro » — retournée
+contre l'outillage de test lui-même. Les trois extractions vérifient donc ce qu'elles ont lu avant
+de conclure : une longueur minimale pour deux, et la présence des deux bras attendus pour le
+`match`.
+
+Le harnais de mutation porte la même précaution : un mutant de **contrôle qui doit survivre**, sans
+quoi un harnais dont les mutants ne compileraient plus rendrait « tout tué ».
+
+### `W16.d` est rouvert, et c'est la garde qui l'a dit
+
+`W16.d` attendait `attend:W26.b`. `W26.b` étant livré, le blocage s'est périmé — ce pour quoi il
+avait été réécrit, `attend:externe` ne se périmant jamais. `check:roadmap` le porte maintenant sur
+sa frontière, aux côtés de `W4.i`, `W5.af`, `W12.d`, `W26.c` et `W26.d` : un verdict d'outil, pas
+une affirmation de cette entrée.
+
+Sa ligne porte désormais un test de sortie, qui n'existait pas tant que l'item était bloqué : la
+visibilité est **facultative** — un harnais qui ne la demande pas n'émet rien ; ce qui est rendu
+porte l'existence, la classe de cognition, le coût et le résultat, et **rien du contexte** ; la
+lecture du raisonnement passe par `memory::read` sous les trois classes, jamais par un chemin propre
+au harnais.
+
+### Ce qui suit
+
+`W26.c` — `Disclosure` : motif, portée, échéance, journal. C'est l'ordre du bloc, « `W26.c` après
+`W26.b`, dont il borne une des trois classes », et c'est lui qui conditionnera le refus opposé
+aujourd'hui aux pairs.
