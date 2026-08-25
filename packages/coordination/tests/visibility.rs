@@ -86,6 +86,7 @@ fn item(seed: u8, producer: Id<Agent>) -> (ContextItem, u64) {
             cites: Vec::new(),
             is_external_source: true,
             produced_by: Some(producer),
+            disclosed: None,
         },
         1,
     )
@@ -108,6 +109,7 @@ fn view_under(version: &Version, candidates: &[(ContextItem, u64)]) -> ContextVi
         10,
         Fnv.digest("vue"),
         &Seen(Visibility::of(version)),
+        Timestamp::from_millis(1_700_000_000_000),
     )
     .expect("les éléments sont en deçà du watermark")
 }

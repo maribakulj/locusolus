@@ -54,9 +54,16 @@ fn pair(seed: u8) -> Peer {
         cites: Vec::new(),
         is_external_source: true,
         produced_by: Some(id::<Agent>(1)),
+        disclosed: None,
     };
-    let vue = ContextView::build(&[(item, 1)], &destinataire(seed), 10, hash("ab"))
-        .expect("la fixture est cohérente");
+    let vue = ContextView::build(
+        &[(item, 1)],
+        &destinataire(seed),
+        10,
+        hash("ab"),
+        Timestamp::from_millis(1_700_000_000_000),
+    )
+    .expect("la fixture est cohérente");
     Peer::authorised(destinataire(seed), Subscription::derived_from(&vue))
 }
 

@@ -38,6 +38,7 @@ fn item(seed: u8, classification: Confidentiality) -> ContextItem {
         cites: Vec::new(),
         is_external_source: false,
         produced_by: None,
+        disclosed: None,
     }
 }
 
@@ -94,8 +95,15 @@ fn un_chemin_mene_du_retrieval_a_la_vue_de_contexte() {
         Confidentiality::Internal,
     );
 
-    let (vue, recu) = view_from_retrieval(&plan, &resultats, &corpus(), &destinataire(), 100)
-        .expect("la jonction tient");
+    let (vue, recu) = view_from_retrieval(
+        &plan,
+        &resultats,
+        &corpus(),
+        &destinataire(),
+        100,
+        Timestamp::from_millis(1_700_000_000_000),
+    )
+    .expect("la jonction tient");
 
     // Deux retenus, le restreint écarté par l'habilitation — et l'exclusion est **motivée**.
     assert_eq!(vue.included().len(), 2);
@@ -125,10 +133,23 @@ fn le_recu_se_rejoue_et_rend_la_meme_vue() {
         ],
         Confidentiality::Internal,
     );
-    let (vue, recu) = view_from_retrieval(&plan, &resultats, &corpus(), &destinataire(), 100)
-        .expect("la jonction tient");
+    let (vue, recu) = view_from_retrieval(
+        &plan,
+        &resultats,
+        &corpus(),
+        &destinataire(),
+        100,
+        Timestamp::from_millis(1_700_000_000_000),
+    )
+    .expect("la jonction tient");
 
-    let rejouee = replay_receipt(&recu, &corpus(), &destinataire()).expect("le reçu se rejoue");
+    let rejouee = replay_receipt(
+        &recu,
+        &corpus(),
+        &destinataire(),
+        Timestamp::from_millis(1_700_000_000_000),
+    )
+    .expect("le reçu se rejoue");
 
     assert_eq!(rejouee.content_hash(), vue.content_hash());
     assert_eq!(rejouee.included(), vue.included());
@@ -155,13 +176,26 @@ fn un_rejeu_sur_un_corpus_ampute_refuse() {
         ],
         Confidentiality::Internal,
     );
-    let (_, recu) = view_from_retrieval(&plan, &resultats, &corpus(), &destinataire(), 100)
-        .expect("la jonction tient");
+    let (_, recu) = view_from_retrieval(
+        &plan,
+        &resultats,
+        &corpus(),
+        &destinataire(),
+        100,
+        Timestamp::from_millis(1_700_000_000_000),
+    )
+    .expect("la jonction tient");
 
     let mut ampute = corpus();
     ampute.remove("k2");
 
-    let refus = replay_receipt(&recu, &ampute, &destinataire()).expect_err("k2 a disparu");
+    let refus = replay_receipt(
+        &recu,
+        &ampute,
+        &destinataire(),
+        Timestamp::from_millis(1_700_000_000_000),
+    )
+    .expect_err("k2 a disparu");
     assert!(
         matches!(refus, JunctionError::Unresolvable { .. }),
         "{refus}"
@@ -348,8 +382,20 @@ fn le_condensat_d_une_vue_porte_l_ordre_des_inclusions() {
     )
     .expect("reçu");
 
-    let une = replay_receipt(&dans_l_ordre, &corpus(), &destinataire()).expect("rejeu");
-    let autre = replay_receipt(&a_l_envers, &corpus(), &destinataire()).expect("rejeu");
+    let une = replay_receipt(
+        &dans_l_ordre,
+        &corpus(),
+        &destinataire(),
+        Timestamp::from_millis(1_700_000_000_000),
+    )
+    .expect("rejeu");
+    let autre = replay_receipt(
+        &a_l_envers,
+        &corpus(),
+        &destinataire(),
+        Timestamp::from_millis(1_700_000_000_000),
+    )
+    .expect("rejeu");
 
     assert_ne!(
         une.content_hash(),

@@ -52,6 +52,7 @@ use locus_memory::Disclosed;
 use locus_protocol::{Id, Timestamp, id::Agent};
 
 use crate::rebuttal::Rebuttal;
+use crate::review::Review;
 
 /// Les motifs de dévoilement — **l'énumération close**, un seul barreau aujourd'hui.
 ///
@@ -254,6 +255,45 @@ impl DisclosureGranted {
     }
 }
 
+/// L'état de revue du lecteur visé — `W26.d`, ADR 0027 décision 5.
+///
+/// # Ce que l'énumération ne porte pas, et c'est là qu'est la garantie
+///
+/// **Il n'y a pas de variante « revue ouverte ».** Ce n'est pas un oubli : une revue ouverte est
+/// exactement l'**absence** d'une [`Review`] rendue, et `Standing::recorded` en exige une. Qui n'a
+/// pas le verdict n'a pas la valeur, donc n'a pas de `Standing`, donc n'obtient pas de dévoilement.
+///
+/// L'invariant 11 est ainsi une borne sur le **mécanisme**, et non un défaut qu'un motif
+/// surclasserait : il n'existe aucune signature qui prenne une revue ouverte et rende un
+/// dévoilement, et un test le tient par l'absence.
+///
+/// # Ce que `OutsideReview` est, dit franchement
+///
+/// Une **affirmation de l'appelant**, pas une preuve : ce crate ne tient pas le registre de qui
+/// relit quoi, et prétendre le vérifier ici serait faux. Ce qui la rend supportable est que la
+/// garde de contamination ne s'y fie pas — `contamination::inspect` reteste l'aveuglement de son
+/// côté et **retombe sur la fuite** en l'absence d'un dévoilement valide attaché. Les deux
+/// mécanismes ne se font pas confiance l'un l'autre, et c'est le seul agencement qui tienne.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Standing {
+    /// Le lecteur ne relit pas le dossier en cause.
+    OutsideReview,
+    /// Son verdict est **enregistré**, et la revue rendue en est la preuve.
+    Recorded(Id<Agent>),
+}
+
+impl Standing {
+    /// Constater qu'un verdict est enregistré.
+    ///
+    /// Posséder une [`Review`] **est** la preuve : elle ne se rend qu'une fois, et une revue en
+    /// cours n'a pas d'existence sous cette forme. Une fois le verdict rendu, la revue est un fait
+    /// figé que rien ne peut contaminer rétroactivement — c'est la phrase exacte de l'ADR.
+    #[must_use]
+    pub const fn recorded(review: &Review) -> Self {
+        Self::Recorded(review.reviewer())
+    }
+}
+
 /// Un dévoilement : motif, portée, échéance — et le fait qu'il écrit.
 ///
 /// # Les quatre à la fois, ou rien
@@ -280,11 +320,20 @@ impl Disclosure {
     pub fn granting(
         motive: Motive,
         scope: Scope,
+        standing: &Standing,
         granted_at: Timestamp,
         until: Timestamp,
     ) -> Result<(Self, DisclosureGranted), DisclosureError> {
         if until <= granted_at {
             return Err(DisclosureError::DeadlineNotAfterGrant { granted_at, until });
+        }
+        if let Standing::Recorded(reviewer) = standing
+            && *reviewer != scope.reader
+        {
+            return Err(DisclosureError::SettledSomeoneElse {
+                settled: *reviewer,
+                reader: scope.reader,
+            });
         }
         let fact = DisclosureGranted {
             artifact_id: scope.artifact_id.clone(),
@@ -345,6 +394,16 @@ pub enum DisclosureError {
         /// L'échéance demandée.
         until: Timestamp,
     },
+    /// Le verdict présenté est celui d'un **autre** relecteur que le lecteur visé.
+    ///
+    /// Sans ce refus, la revue close de l'un blanchirait la revue ouverte de l'autre : il aurait
+    /// suffi de présenter n'importe quel verdict enregistré pour dévoiler vers n'importe qui.
+    SettledSomeoneElse {
+        /// Le relecteur dont le verdict est enregistré.
+        settled: Id<Agent>,
+        /// Le lecteur que la portée vise.
+        reader: Id<Agent>,
+    },
 }
 
 impl fmt::Display for DisclosureError {
@@ -354,8 +413,85 @@ impl fmt::Display for DisclosureError {
                 formatter,
                 "échéance « {until} » au plus tard que l'octroi « {granted_at} » : le dévoilement n'aurait jamais rien autorisé"
             ),
+            Self::SettledSomeoneElse { settled, reader } => write!(
+                formatter,
+                "le verdict enregistré est celui de « {settled} », et la portée vise « {reader} » : la revue close de l'un ne referme pas celle de l'autre"
+            ),
         }
     }
 }
 
 impl std::error::Error for DisclosureError {}
+
+/// Les deux verdicts d'un dévoilement — `W26.d`, ADR 0027 décision 5.
+///
+/// # Pourquoi deux, et pourquoi le premier reste
+///
+/// Dévoiler pendant la revue casse l'invariant 11 ; ne jamais dévoiler laisse le conflit sans autre
+/// issue que l'autorité. Séparer les deux verdicts fait payer le dévoilement en **traçabilité**
+/// plutôt qu'en crédibilité.
+///
+/// Le premier reste **lisible** : l'invariant 12 interdit de faire disparaître un résultat gênant, et
+/// un verdict rendu aveugle puis révisé après lecture du raisonnement adverse en est exactement un.
+/// **L'écart entre les deux est l'information que le conflit prolongé cherchait** — l'effacer
+/// reviendrait à jeter la réponse.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Reconsidered {
+    blind: Review,
+    informed: Review,
+    disclosure: Disclosure,
+}
+
+impl Reconsidered {
+    /// Rendre un second verdict, après un dévoilement.
+    ///
+    /// # Errors
+    ///
+    /// [`DisclosureError::SettledSomeoneElse`] quand le dévoilement ne vise pas le relecteur du
+    /// premier verdict : un second verdict ne se rend qu'au nom de qui a rendu le premier, sans quoi
+    /// ce serait une revue de plus et non une reconsidération.
+    pub fn after(
+        blind: Review,
+        informed: Review,
+        disclosure: Disclosure,
+    ) -> Result<Self, DisclosureError> {
+        if blind.reviewer() != *disclosure.scope().reader() {
+            return Err(DisclosureError::SettledSomeoneElse {
+                settled: blind.reviewer(),
+                reader: *disclosure.scope().reader(),
+            });
+        }
+        if informed.reviewer() != blind.reviewer() {
+            return Err(DisclosureError::SettledSomeoneElse {
+                settled: blind.reviewer(),
+                reader: informed.reviewer(),
+            });
+        }
+        Ok(Self {
+            blind,
+            informed,
+            disclosure,
+        })
+    }
+
+    /// Le **premier** verdict, rendu aveugle. Il ne disparaît pas.
+    #[must_use]
+    pub const fn blind(&self) -> &Review {
+        &self.blind
+    }
+
+    /// Le **second**, rendu après lecture.
+    #[must_use]
+    pub const fn informed(&self) -> &Review {
+        &self.informed
+    }
+
+    /// Le dévoilement que le second verdict porte dans sa provenance.
+    ///
+    /// C'est ce qui distingue une reconsidération d'un changement d'avis : un lecteur du dossier
+    /// peut nommer **ce qui** a été montré, et à quel titre.
+    #[must_use]
+    pub const fn disclosure(&self) -> &Disclosure {
+        &self.disclosure
+    }
+}

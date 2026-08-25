@@ -45,6 +45,7 @@ fn clean(seed: u8) -> ContextItem {
         cites: Vec::new(),
         is_external_source: true,
         produced_by: Some(id::<Agent>(1)),
+        disclosed: None,
     }
 }
 
@@ -67,7 +68,11 @@ fn kinds(findings: &[Finding]) -> Vec<Contamination> {
 
 #[test]
 fn un_contexte_sain_ne_produit_aucun_constat() {
-    let findings = inspect(&[clean(1), clean(2)], &blind_reviewer());
+    let findings = inspect(
+        &[clean(1), clean(2)],
+        &blind_reviewer(),
+        Timestamp::from_millis(1_700_000_000_000),
+    );
     assert!(findings.is_empty(), "{findings:#?}");
 }
 
@@ -83,7 +88,11 @@ fn adverse_le_transcript_du_generateur_glisse_dans_le_contexte_du_relecteur() {
     let mut leak = clean(1);
     leak.is_generator_reasoning = true;
 
-    let findings = inspect(&[leak, clean(2)], &blind_reviewer());
+    let findings = inspect(
+        &[leak, clean(2)],
+        &blind_reviewer(),
+        Timestamp::from_millis(1_700_000_000_000),
+    );
     assert_eq!(
         kinds(&findings),
         vec![Contamination::GeneratorReasoningLeaked]
@@ -102,7 +111,14 @@ fn le_meme_transcript_n_est_pas_une_fuite_pour_un_relecteur_non_aveugle() {
     let mut informed = blind_reviewer();
     informed.blind_to_generator = false;
 
-    assert!(inspect(&[reasoning], &informed).is_empty());
+    assert!(
+        inspect(
+            &[reasoning],
+            &informed,
+            Timestamp::from_millis(1_700_000_000_000)
+        )
+        .is_empty()
+    );
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -117,7 +133,11 @@ fn adverse_un_claim_refute_reste_dans_le_contexte_par_defaut() {
     let mut refuted = clean(1);
     refuted.is_refuted = true;
 
-    let findings = inspect(&[refuted, clean(2)], &blind_reviewer());
+    let findings = inspect(
+        &[refuted, clean(2)],
+        &blind_reviewer(),
+        Timestamp::from_millis(1_700_000_000_000),
+    );
     assert_eq!(
         kinds(&findings),
         vec![Contamination::RefutedClaimPropagated]
@@ -141,7 +161,11 @@ fn adverse_une_donnee_restreinte_atteint_un_worker_habilite_a_moins() {
     let mut secret = clean(1);
     secret.classification = Confidentiality::Restricted;
 
-    let findings = inspect(&[secret], &blind_reviewer());
+    let findings = inspect(
+        &[secret],
+        &blind_reviewer(),
+        Timestamp::from_millis(1_700_000_000_000),
+    );
     assert_eq!(
         kinds(&findings),
         vec![Contamination::ConfidentialDataOnUnauthorisedWorker]
@@ -157,12 +181,23 @@ fn un_plafond_laisse_passer_ce_qui_est_en_dessous() {
     let mut cleared = blind_reviewer();
     cleared.clearance = Confidentiality::Confidential;
 
-    assert!(inspect(&[public], &cleared).is_empty());
+    assert!(
+        inspect(
+            &[public],
+            &cleared,
+            Timestamp::from_millis(1_700_000_000_000)
+        )
+        .is_empty()
+    );
 
     let mut secret = clean(2);
     secret.classification = Confidentiality::Restricted;
     assert_eq!(
-        kinds(&inspect(&[secret], &cleared)),
+        kinds(&inspect(
+            &[secret],
+            &cleared,
+            Timestamp::from_millis(1_700_000_000_000)
+        )),
         vec![Contamination::ConfidentialDataOnUnauthorisedWorker],
         "et il refuse ce qui est au-dessus"
     );
@@ -184,7 +219,11 @@ fn adverse_deux_agents_se_citent_mutuellement_sans_source_externe() {
     second.is_external_source = false;
     second.cites = vec![revision(1)];
 
-    let findings = inspect(&[first, second], &blind_reviewer());
+    let findings = inspect(
+        &[first, second],
+        &blind_reviewer(),
+        Timestamp::from_millis(1_700_000_000_000),
+    );
     assert_eq!(
         kinds(&findings),
         vec![
@@ -207,7 +246,14 @@ fn un_cycle_qui_cite_une_source_externe_n_est_pas_circulaire() {
     second.is_external_source = true; // celui-ci cite le monde extérieur
     second.cites = vec![revision(1)];
 
-    assert!(inspect(&[first, second], &blind_reviewer()).is_empty());
+    assert!(
+        inspect(
+            &[first, second],
+            &blind_reviewer(),
+            Timestamp::from_millis(1_700_000_000_000)
+        )
+        .is_empty()
+    );
 }
 
 /// Un cycle plus long, pour que la détection ne soit pas « A cite B qui cite A » en dur.
@@ -223,7 +269,11 @@ fn adverse_un_cycle_a_trois_est_aussi_circulaire() {
     third.is_external_source = false;
     third.cites = vec![revision(1)];
 
-    let findings = inspect(&[first, second, third], &blind_reviewer());
+    let findings = inspect(
+        &[first, second, third],
+        &blind_reviewer(),
+        Timestamp::from_millis(1_700_000_000_000),
+    );
     assert_eq!(findings.len(), 3);
     assert!(
         findings
@@ -287,7 +337,11 @@ fn un_contexte_contamine_de_trois_facons_produit_trois_constats() {
     wrong.is_refuted = true;
     wrong.classification = Confidentiality::Restricted;
 
-    let findings = inspect(&[wrong], &blind_reviewer());
+    let findings = inspect(
+        &[wrong],
+        &blind_reviewer(),
+        Timestamp::from_millis(1_700_000_000_000),
+    );
     assert_eq!(findings.len(), 3);
     assert_eq!(
         kinds(&findings),

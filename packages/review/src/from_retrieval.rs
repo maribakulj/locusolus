@@ -31,6 +31,7 @@ use std::fmt::Write as _;
 
 use locus_domain::ContentHash;
 use locus_memory::{Excluded, Exclusion, Plan, ReceiptError, Results, RetrievalReceipt};
+use locus_protocol::Timestamp;
 
 use crate::contamination::{ContextItem, Recipient};
 use crate::context_view::{ContextView, ContextViewError};
@@ -55,6 +56,7 @@ pub fn view_from_retrieval(
     corpus: &BTreeMap<String, (ContextItem, u64)>,
     recipient: &Recipient,
     watermark: u64,
+    at: Timestamp,
 ) -> Result<(ContextView, RetrievalReceipt), JunctionError> {
     let mut elements = Vec::new();
     let mut retenues = Vec::new();
@@ -79,7 +81,7 @@ pub fn view_from_retrieval(
     }
 
     let digest = digest_of(&retenues);
-    let vue = ContextView::build(&elements, recipient, watermark, digest)?;
+    let vue = ContextView::build(&elements, recipient, watermark, digest, at)?;
 
     let recu = RetrievalReceipt::write(
         plan,
@@ -110,6 +112,7 @@ pub fn replay_receipt(
     receipt: &RetrievalReceipt,
     corpus: &BTreeMap<String, (ContextItem, u64)>,
     recipient: &Recipient,
+    at: Timestamp,
 ) -> Result<ContextView, JunctionError> {
     let par_revision: BTreeMap<String, &(ContextItem, u64)> = corpus
         .values()
@@ -132,6 +135,7 @@ pub fn replay_receipt(
         recipient,
         receipt.watermark(),
         digest,
+        at,
     )?)
 }
 

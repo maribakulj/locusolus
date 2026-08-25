@@ -20,7 +20,7 @@
 use std::fmt;
 
 use locus_domain::{Confidentiality, ContentHash, RevisionId};
-use locus_protocol::{Id, id::Agent};
+use locus_protocol::{Id, Timestamp, id::Agent};
 
 use crate::contamination::{ContextItem, Recipient, inspect};
 
@@ -107,6 +107,7 @@ impl ContextView {
         recipient: &Recipient,
         source_event_watermark: u64,
         content_hash: ContentHash,
+        at: Timestamp,
     ) -> Result<Self, ContextViewError> {
         Self::build_under(
             candidates,
@@ -114,6 +115,7 @@ impl ContextView {
             source_event_watermark,
             content_hash,
             &Unrestricted,
+            at,
         )
     }
 
@@ -139,6 +141,7 @@ impl ContextView {
         source_event_watermark: u64,
         content_hash: ContentHash,
         visible: &impl Visible,
+        at: Timestamp,
     ) -> Result<Self, ContextViewError> {
         let mut included = Vec::new();
         let mut redactions = Vec::new();
@@ -151,7 +154,7 @@ impl ContextView {
                     watermark: source_event_watermark,
                 });
             }
-            let mut reasons: Vec<String> = inspect(std::slice::from_ref(item), recipient)
+            let mut reasons: Vec<String> = inspect(std::slice::from_ref(item), recipient, at)
                 .iter()
                 .map(|finding| finding.kind.slug().to_owned())
                 .collect();

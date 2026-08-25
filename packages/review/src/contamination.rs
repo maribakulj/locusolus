@@ -22,7 +22,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
 use locus_domain::{Confidentiality, RevisionId};
-use locus_protocol::{Id, id::Agent};
+use locus_protocol::{Id, Timestamp, id::Agent};
+
+use crate::disclosure::Disclosure;
 
 /// Les cinq formes de contamination que §16.6 nomme.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -87,6 +89,14 @@ pub struct ContextItem {
     pub is_external_source: bool,
     /// L'agent qui l'a produit.
     pub produced_by: Option<Id<Agent>>,
+    /// Le dévoilement qui accompagne cet élément, s'il en porte un — `W26.d`, ADR 0027 décision 6.
+    ///
+    /// **Il voyage avec l'élément**, et ce n'est pas une commodité. La garde doit distinguer un
+    /// dévoilement d'une fuite sans aller le chercher ailleurs : un dévoilement qu'il faudrait
+    /// retrouver dans un registre serait introuvable exactement le jour où il compte, et la garde
+    /// crierait alors sur ce qui est juste — la leçon de `W22.d`, qui dit qu'une garde qui crie sur
+    /// du juste se fait désactiver.
+    pub disclosed: Option<Disclosure>,
 }
 
 /// Ce que le destinataire du contexte est autorisé à voir.
@@ -139,16 +149,41 @@ pub(crate) const fn rank(classification: Confidentiality) -> u8 {
     }
 }
 
+/// Ce dévoilement-ci couvre-t-il ce destinataire-ci, à cet instant-ci ?
+///
+/// # Le défaut est la fuite, et c'est décidé ici
+///
+/// Pas de dévoilement attaché : pas de couverture. « Présumer régulier ce qui n'est pas prouvé
+/// irrégulier ferait de l'oubli d'attacher le dévoilement un silence » — ADR 0027 décision 6.
+///
+/// # Ce qui n'est **pas** vérifié ici, et où ça l'est
+///
+/// La moitié « quelle trace » de la portée ne l'est pas : un [`ContextItem`] désigne une
+/// **révision**, pas un artefact, et comparer les deux serait comparer deux choses qui ne sont pas
+/// du même genre. Cette moitié est tenue là où l'artefact est nommé — `memory::read`, qui confronte
+/// les trois questions ensemble avant de rendre quoi que ce soit d'une trace.
+///
+/// Les deux gardes se partagent donc le travail sans se recouvrir, et le dire ici évite qu'on lise
+/// cette fonction comme vérifiant la portée entière.
+fn disclosed_to(item: &ContextItem, recipient: &Recipient, at: Timestamp) -> bool {
+    item.disclosed.as_ref().is_some_and(|disclosure| {
+        *disclosure.scope().reader() == recipient.agent_id && at <= disclosure.until()
+    })
+}
+
 /// Inspecter un contexte destiné à un relecteur.
 ///
 /// Rend **tous** les constats, pas le premier : une contamination trouvée n'exclut pas les autres,
 /// et s'arrêter au premier ferait réparer une fuite en laissant les quatre autres.
 #[must_use]
-pub fn inspect(items: &[ContextItem], recipient: &Recipient) -> Vec<Finding> {
+pub fn inspect(items: &[ContextItem], recipient: &Recipient, at: Timestamp) -> Vec<Finding> {
     let mut findings = Vec::new();
 
     for item in items {
-        if item.is_generator_reasoning && recipient.blind_to_generator {
+        if item.is_generator_reasoning
+            && recipient.blind_to_generator
+            && !disclosed_to(item, recipient, at)
+        {
             findings.push(Finding {
                 kind: Contamination::GeneratorReasoningLeaked,
                 revision: item.revision,

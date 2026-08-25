@@ -44,6 +44,7 @@ fn item(seed: u8, classification: Confidentiality) -> ContextItem {
         cites: Vec::new(),
         is_external_source: true,
         produced_by: Some(id::<Agent>(1)),
+        disclosed: None,
     }
 }
 
@@ -62,7 +63,14 @@ fn vue(seeds: &[u8]) -> ContextView {
         .iter()
         .map(|seed| (item(*seed, Confidentiality::Internal), 1))
         .collect();
-    ContextView::build(&candidates, &reviewer(), 10, hash("ab")).expect("la fixture est cohérente")
+    ContextView::build(
+        &candidates,
+        &reviewer(),
+        10,
+        hash("ab"),
+        Timestamp::from_millis(1_700_000_000_000),
+    )
+    .expect("la fixture est cohérente")
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -127,6 +135,7 @@ fn deux_vues_donnent_des_souscriptions_distinguables() {
         &reviewer(),
         10,
         hash("ab"),
+        Timestamp::from_millis(1_700_000_000_000),
     )
     .expect("cohérente");
     let autre = ContextView::build(
@@ -134,6 +143,7 @@ fn deux_vues_donnent_des_souscriptions_distinguables() {
         &reviewer(),
         10,
         hash("cd"),
+        Timestamp::from_millis(1_700_000_000_000),
     )
     .expect("cohérente");
 
