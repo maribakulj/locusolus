@@ -26,7 +26,14 @@ import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 import { after, describe, it } from "node:test";
 
-import { ADMINISTRATION, empreinte, startChain, type Chain } from "./harness.ts";
+import {
+  ADMINISTRATION,
+  ATTESTATIONS_ATTENDUES_ENV,
+  attestations,
+  empreinte,
+  startChain,
+  type Chain,
+} from "./harness.ts";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
@@ -145,6 +152,73 @@ describe("la chaîne monte, se voit et s'arrête — W12.f", () => {
     // tampon que le harnais ne rend que sur un échec — et la question de `W5.aa` resterait ouverte
     // sur un tour vert, ce qui est précisément la façon dont elle a survécu à trois items.
     t.diagnostic(`empreinte d'hôte du runner e2e : ${vue}`);
+  });
+
+  /**
+   * **Ce que le broker fait du fichier d'attestations du job `sandbox`** — `W5.ab`.
+   *
+   * # Les deux moitiés qui ne se rencontraient pas
+   *
+   * `W5.z` a livré la **lecture** des attestations, `W5.aa` leur **dépôt**, et aucun assemblage ne
+   * joignait les deux : le fichier écrit par le job `sandbox` n'était lu par aucun `locus-execd`. Le
+   * workflow le disait lui-même — le consommateur vit dans un autre job, donc sur un autre runner, et
+   * rien n'établissait que deux runners rendent la même empreinte.
+   *
+   * `W5.x` l'a mesuré : ils rendent la **même**, caractère pour caractère. Le convoyeur devient donc
+   * justifié par une lecture au lieu d'être supposé, et ce test est ce qui l'exerce.
+   *
+   * # Ce qui est exigé, et ce qui est seulement rapporté
+   *
+   * Le broker **dit toujours** ce qu'il a fait du fichier — un silence est une panne, jamais un `S0`
+   * nominal. Le workflow déclare par ailleurs s'il a **posé** un fichier, et le constat doit lui
+   * correspondre : c'est la seule façon de distinguer « le job `sandbox` n'a rien déposé ce tour-ci »,
+   * qui est un état extérieur légitime, de « le câblage a cessé de poser la variable », qui est une
+   * régression. Les lire l'un pour l'autre est la faute que ce dépôt nomme partout.
+   *
+   * # Pourquoi une attestation écartée **échoue**
+   *
+   * Sur un parc dont on a mesuré l'homogénéité, un enregistrement écarté veut dire l'une de deux
+   * choses, et le message les sépare : ou bien le chemin d'enregistrement s'est cassé — c'est notre
+   * défaut, et c'est exactement ce qu'on veut voir rougir —, ou bien le parc a cessé d'être homogène,
+   * ce qui est une nouvelle sur laquelle repose tout le dessin de `W5.z`. Les deux méritent d'être
+   * apprises bruyamment ; les taire rendrait vert un convoyeur qui ne convoie plus rien.
+   */
+  it("le broker dit ce qu'il a fait du fichier d'attestations — W5.ab", (t) => {
+    assert.ok(chain, "la chaîne est montée par le test précédent");
+
+    const annonce = chain.annonce("locus-execd");
+    const lues = attestations(annonce);
+    const pose = process.env[ATTESTATIONS_ATTENDUES_ENV] === "1";
+
+    t.diagnostic(
+      `attestations : ${JSON.stringify(lues)} (le workflow en a ${pose ? "posé" : "posé aucune"})`,
+    );
+
+    if (!pose) {
+      // Aucun fichier posé — hors CI, ou un job `sandbox` qui n'a rien déposé ce tour-ci. Le broker
+      // doit le dire, et ne rien placer au-dessus de `S0`. C'est le cas nominal d'une machine de
+      // développeur, et il reste une affirmation entière : un broker qui compterait des attestations
+      // sans fichier posé serait tout aussi faux qu'un broker muet.
+      assert.equal(lues.kind, "aucune", `aucun fichier posé, et pourtant : ${annonce}`);
+      return;
+    }
+
+    assert.equal(lues.kind, "lues", `le workflow a posé un fichier, et le broker dit : ${annonce}`);
+    assert.ok(lues.kind === "lues");
+
+    assert.equal(
+      lues.etrangeres,
+      0,
+      "des attestations sont écartées alors que `W5.x` a mesuré les deux runners identiques. " +
+        `Le broker dit que cet hôte est « ${lues.hote ?? "—"} » ; si c'est bien celui du job ` +
+        "`sandbox`, le chemin d'enregistrement est cassé ; sinon le parc a cessé d'être homogène, " +
+        "et c'est l'hypothèse sur laquelle repose tout le dessin de `W5.z`",
+    );
+    assert.ok(
+      lues.honorees > 0,
+      "un fichier posé et zéro attestation retenue : la campagne du job `sandbox` a déposé un " +
+        "fichier que ce broker lit sans rien y trouver",
+    );
   });
 
   it("`locusd` sert ses projections, et aucune n'est en quarantaine", async () => {

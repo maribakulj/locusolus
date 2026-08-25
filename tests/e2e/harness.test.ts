@@ -23,11 +23,14 @@ import { join } from "node:path";
 import { describe, it } from "node:test";
 
 import {
+  ATTESTATIONS_ATTENDUES_ENV,
+  ATTESTATIONS_ENV,
   EMPREINTE_PREFIXE,
   HarnessFailure,
   WORKER_HOME_ENV,
   WORKER_REPO_ENV,
   annonceDe,
+  attestations,
   builtBinary,
   empreinte,
   workerRepo,
@@ -254,5 +257,79 @@ describe("l'empreinte d'hôte se lit de l'annonce du broker — W5.x", () => {
         return true;
       },
     );
+  });
+});
+
+/**
+ * Ce que le broker dit du fichier d'attestations — `W5.ab`.
+ *
+ * `W5.z` a livré la lecture des attestations, `W5.aa` leur dépôt, et **aucun assemblage ne joignait
+ * les deux** : le fichier écrit par le job `sandbox` n'était lu par aucun `locus-execd` de CI. La
+ * mesure de `W5.x` a levé ce qui l'empêchait — les deux runners rendent la même empreinte,
+ * caractère pour caractère.
+ */
+describe("ce que le broker dit du fichier d'attestations — W5.ab", () => {
+  /** L'en-tête que `main` imprime avant toute question d'attestation. */
+  const DEBUT = ["locus-execd : driver podman", "locus-execd : cet hôte peut prouver S2"].join(
+    "\n",
+  );
+
+  it("aucun fichier nommé se lit comme tel", () => {
+    const lu = attestations(
+      `${DEBUT}\n  attestations : aucune — rien ne sera placé au-dessus de S0`,
+    );
+
+    assert.deepEqual(lu, { kind: "aucune" });
+  });
+
+  /**
+   * **Le cas nominal ne porte pas d'empreinte, et c'est voulu.**
+   *
+   * `W5.w` l'a décidé : l'empreinte n'apparaît que là où elle sert, c'est-à-dire quand des
+   * attestations sont écartées. La lecture doit donc accepter son absence sans la fabriquer.
+   */
+  it("des attestations honorées se comptent, sans empreinte", () => {
+    const lu = attestations(`${DEBUT}\n  attestations : 3 retenue(s) pour cet hôte`);
+
+    assert.deepEqual(lu, { kind: "lues", honorees: 3, etrangeres: 0 });
+  });
+
+  it("des attestations écartées se comptent, avec l'empreinte de cet hôte", () => {
+    const lu = attestations(
+      `${DEBUT}\n  attestations : 0 retenue(s) pour cet hôte, 3 écartée(s) — elles parlent ` +
+        "d'un hôte différent de celui-ci, dont l'empreinte est « cgroup_v2=available seccomp=x »",
+    );
+
+    assert.deepEqual(lu, {
+      kind: "lues",
+      honorees: 0,
+      etrangeres: 3,
+      hote: "cgroup_v2=available seccomp=x",
+    });
+  });
+
+  /**
+   * **Un silence n'est pas « aucune attestation ».**
+   *
+   * C'est la garde qui compte, et c'est la même règle qu'`annonceDe` plus haut : le lire comme un
+   * `S0` nominal enverrait chercher une campagne pendant que le câblage est mort. Les deux états
+   * se ressemblent dans un log et ne se réparent pas du tout au même endroit.
+   */
+  it("un broker muet sur les attestations refuse, il ne vaut pas « aucune »", () => {
+    assert.throws(
+      () => attestations(DEBUT),
+      (erreur: unknown) => {
+        assert.ok(erreur instanceof HarnessFailure);
+        assert.match(erreur.message, /cessé de rendre compte/);
+        return true;
+      },
+    );
+  });
+
+  /** Les deux variables sont celles du produit, pas des paraphrases. */
+  it("les variables lues sont celles que locus-execd et le workflow posent", () => {
+    assert.equal(ATTESTATIONS_ENV, "LOCUS_EXECD_ATTESTATIONS");
+    assert.notEqual(ATTESTATIONS_ENV, "LOCUS_EXECD_ATTESTATION_OUT");
+    assert.equal(ATTESTATIONS_ATTENDUES_ENV, "LOCUS_E2E_ATTESTATIONS");
   });
 });
