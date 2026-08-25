@@ -127,7 +127,10 @@ impl fmt::Display for Finding {
 /// §16.2 parle de **plafond** de confidentialité : la comparaison suppose donc un ordre, et
 /// `Confidentiality` est documenté comme « croissant en sensibilité ». Le rendre explicite ici
 /// évite qu'un `match` recopié ailleurs finisse par en changer l'ordre sans qu'on s'en aperçoive.
-const fn rank(classification: Confidentiality) -> u8 {
+///
+/// `pub(crate)` depuis `W24.a` : la souscription compare le même plafond, et la seule façon de tenir
+/// la phrase ci-dessus est de lui donner **cette** fonction plutôt qu'une copie.
+pub(crate) const fn rank(classification: Confidentiality) -> u8 {
     match classification {
         Confidentiality::Public => 0,
         Confidentiality::Internal => 1,
