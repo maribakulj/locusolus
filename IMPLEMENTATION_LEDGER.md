@@ -15493,3 +15493,59 @@ tout seul n'existe pas ici, et je ne prétends pas le contraire.
 
 **Ce que je n'ai pas fait.** Aucun seuil n'est écrit : `admits` en **prend** un. Le choisir serait
 une valeur de politique, et §13 n'en a pas encore — même abstention que `W23.b` pour ses compteurs.
+
+---
+
+## 2026-08-25 — W25.a — La classe de cognition dans la mission
+
+**Le levier n'est pas le modèle, c'est l'affectation.** L'ADR 0026 décision 6 appelle cette mesure
+la plus actionnable du dossier et la seule industrielle : à qualité identique vérifiée par test
+caché, un facteur 7,9 sur le coût total et 22 sur la flotte de workers seule. « Frontière pour
+planifier, bon marché pour exécuter. »
+
+Une mission déclare donc une **classe** — `CognitionClass` dans `packages/domain` — et l'affectation
+classe → modèle est une valeur de politique versionnée, `Assignment` dans `packages/policy`.
+
+**La décision de conception est le typage qu'on n'a pas fait.** `Assignment` indexe par **slug**,
+pas par `CognitionClass`. `packages/policy` ne dépendait d'aucun crate du dépôt, et cet item ne l'a
+pas changé.
+
+Prendre le type aurait été plus « typé » — et aurait **cassé la clause qui porte l'item**. La
+politique aurait eu une opinion sur l'énumération du domaine, donc ajouter un barreau serait devenu
+un changement de type traversant, et « changer l'affectation ne change aucun type » aurait cessé
+d'être vrai le jour où on en aurait eu besoin. Un test le montre par l'autre bout : une affectation
+peut nommer une classe que le domaine **ne connaît pas encore**, et un autre lit les tables de
+dépendances du manifeste pour tenir l'absence.
+
+**Deux valeurs, et pas trois.** L'ADR nomme deux pôles. Une classe intermédiaire s'écrirait sans que
+rien ne rougisse, et ce serait la promesse que l'ADR 0022 décision 0 refuse : un type qui annonce
+une distinction dont personne ne se sert.
+
+**Les noms disent le coût, pas l'usage.** `Frontier` et `Economy` nomment le haut et le bas de la
+gamme. `Planning` et `Execution` auraient figé dans le type l'emploi que l'ADR en donne aujourd'hui,
+et une mission d'exécution ayant besoin de la frontière aurait dû demander une classe qui dit le
+contraire de ce qu'elle fait.
+
+**La charge journalisée porte la classe, jamais le modèle.** Un journal relu dans six mois ne doit
+pas porter une affectation qui aura changé entre-temps : il dirait alors ce qu'on croyait, pas ce
+qu'on avait décidé. Et `serde(rename_all)` et `slug()` sont deux sources pour un même nom de wire —
+un test les confronte valeur par valeur, parce que deux sources de vérité pour un nom se découvrent
+au moment où un journal ne se reconnaît plus.
+
+**Pas de modèle par défaut.** Une classe non affectée rend `None`. Un défaut ferait tourner une
+mission sur un modèle que personne n'a choisi, et le silence serait lu comme une décision —
+`Outcome::NoRule` fait déjà cette distinction pour les règles.
+
+**Troisième faux positif de la journée pour l'idiome de scan de source.** Le manifeste de `policy`
+contient `name = "locus-policy"`, donc chercher « locus- » partout rougissait sur le crate lui-même.
+Après `Default` qui contient « fault » et `->` qui contient « > », la règle se dégage assez
+nettement pour être écrite : **une recherche par sous-chaîne se restreint à ce qu'elle doit lire,
+elle ne se relâche pas.** Ici, aux tables de dépendances. Les trois fois, la tentation était
+d'assouplir l'assertion ; les trois fois, c'était la lecture qu'il fallait resserrer.
+
+Six mutants posés, zéro survivant.
+
+**Ce que je n'ai pas fait.** `W25.b`, le plafond de cognition dans `packages/budget`. Il aura sa
+propre décision à prendre — budget ne dépend que de `locus-protocol`, donc soit il gagne une
+dépendance vers le domaine, soit il indexe par slug comme la politique le fait ici. La seconde est
+probablement la bonne, mais c'est l'item qui doit la justifier, pas celui-ci qui doit la pré-empter.

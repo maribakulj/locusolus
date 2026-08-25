@@ -25,6 +25,7 @@
 //! choisit **aucun** hôte, et un test d'absence le vérifie sur le source — la même forme que la
 //! règle 4 de `boundaries.json` pour les sockets de runtime.
 
+use locus_domain::CognitionClass;
 use locus_domain::task::TaskState;
 use locus_event_store::{Actor, ActorKind, Draft as EventDraft, EventStore, EventType};
 use locus_lep::{
@@ -151,6 +152,12 @@ pub fn claimable(state: TaskState) -> bool {
 /// que personne n'a bornée — l'invariant 6 pris à l'envers.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Proposal {
+    /// La **classe de cognition** que la mission déclare — `W25.a`, ADR 0026 décision 6.
+    ///
+    /// Une classe, **jamais un modèle** : quel modèle la sert est une valeur de politique
+    /// versionnée, `locus_policy::Assignment`, et le domaine n'a aucun moyen de l'apprendre. C'est
+    /// ce qui rend le changement d'affectation gratuit — il ne traverse aucun type.
+    pub cognition: CognitionClass,
     /// La question, en clair — l'`objective.statement` de §15.4.
     pub statement: String,
     /// À quoi on reconnaîtra qu'elle est traitée.
@@ -275,6 +282,9 @@ impl Decide for Propose {
                 "state": TaskState::Proposed.to_string(),
                 "statement": self.proposal.statement,
                 "branch_id": self.proposal.branch_id,
+                // `W25.a` : la **classe**, sous son slug. Jamais le modèle — le journal ne doit pas
+                // porter une affectation qui aura changé quand on le relira.
+                "cognition": self.proposal.cognition.to_string(),
                 // La proposition **entière** — `W20.s`. Sans elle, la mise en file devrait faire
                 // renvoyer la proposition par son appelant, et rien n'empêcherait de proposer une
                 // question et d'en mettre une autre en file sous le même identifiant de tâche : le
