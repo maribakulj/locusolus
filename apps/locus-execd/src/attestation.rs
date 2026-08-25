@@ -85,6 +85,29 @@ pub struct Attestation {
     pub worker_id: String,
     /// Le niveau qu'elle a tenu, sous le code de §21.6 — `"S2"`.
     pub level: String,
+    /// **Par quoi** le confinement a été obtenu — ADR 0035 décision 1, `W5.ae`.
+    ///
+    /// # Le protocole l'exigeait déjà, et ce type l'avait perdu
+    ///
+    /// `SandboxAttestation` de `lep/1.0` porte `backend`, **obligatoire** — §21.6 le range parmi les
+    /// sept champs requis. Le type inventé par `W5.z` pour la forme sur disque ne l'a pas repris, et
+    /// personne ne l'a remarqué tant qu'une seule campagne existait.
+    ///
+    /// Le mot est celui de `lep/1.0`, pas un synonyme : `CLAUDE.md` interdit un vocabulaire
+    /// parallèle, et « mécanisme » à côté de `backend` en serait un.
+    ///
+    /// # Pourquoi il est obligatoire
+    ///
+    /// `podman-rootless` et `bubblewrap` ne sont pas deux façons d'écrire la même garantie : ils
+    /// échouent différemment, et le tour de CI qui a motivé l'ADR les a vus **présents
+    /// indépendamment** sur la même machine — le runner prouve `S2` au broker sous podman et
+    /// n'annonce que `S1` au worker, faute de `bwrap`.
+    ///
+    /// Un enregistrement sans `backend` n'est donc pas un enregistrement dégradé : c'est un
+    /// enregistrement dont on ne sait pas ce qu'il affirme. Il est refusé, comme un code de niveau
+    /// inconnu l'est déjà, et pour la même raison — une ignorance ne se range pas du bon côté.
+    #[serde(default)]
+    pub backend: String,
     /// L'empreinte des capacités contre lesquelles elle a conclu.
     ///
     /// Sans elle, l'enregistrement serait rejouable sur n'importe quelle machine. Voir le
@@ -231,6 +254,21 @@ impl RecordedProven {
             // ferait démarrer un daemon qui honore trois attestations sur quatre sans le dire, et
             // l'exploitant lirait `level_not_attested` sur la quatrième sans savoir qu'elle a été
             // jetée à la lecture.
+            // Un `backend` absent refuse le fichier entier, exactement comme un niveau inconnu, et
+            // pour la même raison — ADR 0035 décision 1. `lep/1.0` range `backend` parmi les champs
+            // **requis** de `SandboxAttestation` ; un enregistrement qui l'omet ne dit pas ce qu'il
+            // atteste, et le ranger dans un mécanisme voisin serait la faute que ce module refuse
+            // partout.
+            if record.backend.trim().is_empty() {
+                return Err(RecordRefusal {
+                    path: path.to_owned(),
+                    reason: format!(
+                        "l'enregistrement du worker « {} » ne nomme aucun `backend` : on ne sait \
+                         pas par quoi le confinement a été obtenu, et §21.6 l'exige",
+                        record.worker_id
+                    ),
+                });
+            }
             if SandboxLevel::parse(&record.level).is_none() {
                 return Err(RecordRefusal {
                     path: path.to_owned(),
@@ -436,6 +474,7 @@ pub fn record(
     worker_id: &str,
     standing: &Standing,
     facts: &HostFacts,
+    backend: &str,
     concluded_at: i64,
 ) -> Option<Attestation> {
     match standing {
@@ -443,6 +482,7 @@ pub fn record(
         Standing::Trusted { level } => Some(Attestation {
             worker_id: worker_id.to_owned(),
             level: level.code().to_owned(),
+            backend: backend.to_owned(),
             host: fingerprint(facts),
             concluded_at,
         }),

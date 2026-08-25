@@ -31,7 +31,7 @@ pub mod seccomp;
 pub mod selftest;
 
 pub use driver::{
-    CALL_BUDGET, Execution, FIRST_LAUNCH_PAUSE, PodmanBackend, RUNNING_TEMPLATE, Runner,
+    BACKEND, CALL_BUDGET, Execution, FIRST_LAUNCH_PAUSE, PodmanBackend, RUNNING_TEMPLATE, Runner,
     SystemRunner, boot_id_from, host_boot_id,
 };
 pub use invocation::{
