@@ -26,7 +26,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 import { after, describe, it } from "node:test";
 
-import { ADMINISTRATION, startChain, type Chain } from "./harness.ts";
+import { ADMINISTRATION, empreinte, startChain, type Chain } from "./harness.ts";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
@@ -97,6 +97,54 @@ describe("la chaîne monte, se voit et s'arrête — W12.f", () => {
     chain = await startChain({ root: ROOT, port: 8789 });
 
     assert.deepEqual(chain.processes, ["locus-execd", "locusd", "canterel worker"]);
+  });
+
+  /**
+   * **Le broker nomme son hôte, et ce nom sort d'ici** — `W5.x`.
+   *
+   * # Ce que ce test tient
+   *
+   * `W5.w` a fait imprimer l'empreinte d'hôte au démarrage de `locus-execd`, pour que qui prépare
+   * un fichier d'attestations sache à quel hôte le lier — un refus qui nomme le problème et cache
+   * le remède était le défaut qu'il retirait. Rien ne vérifiait qu'un binaire **réel** produise
+   * cette ligne : `attestation.rs` exerce la fonction, jamais le démarrage. Ce test est cette garde.
+   *
+   * # Et ce qu'il mesure, en passant
+   *
+   * La roadmap de `W5.u` laisse une question ouverte, écrite dans le workflow : le fichier déposé
+   * par le job `sandbox` n'est lu par aucun `locus-execd` de CI, parce que le consommateur vivrait
+   * dans un autre job — donc sur un autre runner — et que **rien n'établit que deux runners rendent
+   * la même empreinte**. Le job `e2e` démarre le seul `locus-execd` de toute la CI qui monte par le
+   * harnais ; son empreinte, sortie ici, se compare à celle que `sandbox` publie. Une exécution
+   * répond, là où la conjecture durait depuis trois items.
+   *
+   * # Pourquoi l'assertion ne porte pas sur les *valeurs*
+   *
+   * Exiger `cgroup_v2=available` ferait de ce test une affirmation sur les runners GitHub, qui
+   * rougirait sur la machine d'un contributeur sans que rien ne soit cassé. Ce qui est exigé est la
+   * **forme** : les cinq faits que `fingerprint` compose, chacun sous son nom. Un fait qui
+   * disparaîtrait affaiblirait l'empreinte sans que personne ne le voie.
+   */
+  it("le broker annonce l'empreinte de son hôte — W5.x", (t) => {
+    assert.ok(chain, "la chaîne est montée par le test précédent");
+
+    // `annonce` lève sur un nom inconnu plutôt que de rendre `""` : affirmer sur un silence qu'on a
+    // fabriqué soi-même est exactement ce que ce test existe pour empêcher.
+    const vue = empreinte(chain.annonce("locus-execd"));
+
+    // Les cinq faits, chacun sous son nom et dans l'ordre où `fingerprint` les compose.
+    // `controllers` accepte le vide — un hôte sans contrôleur cgroup est un hôte pauvre, pas une
+    // empreinte cassée —, les quatre autres non : un verdict est toujours l'un des trois mots.
+    assert.match(
+      vue,
+      /^cgroup_v2=\S+ controllers=\S* userns=\S+ seccomp=\S+ disk_quota=\S+$/,
+      `l'empreinte annoncée ne porte pas les cinq faits : « ${vue} »`,
+    );
+
+    // La mesure, dans le log du job. Sans cette ligne, l'empreinte de ce runner reste dans un
+    // tampon que le harnais ne rend que sur un échec — et la question de `W5.u` resterait ouverte
+    // sur un tour vert, ce qui est précisément la façon dont elle a survécu à trois items.
+    t.diagnostic(`empreinte d'hôte du runner e2e : ${vue}`);
   });
 
   it("`locusd` sert ses projections, et aucune n'est en quarantaine", async () => {

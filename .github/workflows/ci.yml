@@ -482,4 +482,26 @@ jobs:
       - name: La chaîne monte, se voit et s'arrête
         env:
           LOCUS_E2E_WORKER: ${{ github.workspace }}/.worker
-        run: npm run e2e
+        run: |
+          # `tee` et `PIPESTATUS`, comme le job `sandbox` : le pas doit rougir sur l'échec du test,
+          # et non sur celui de `tee`. Un tube sans cette précaution lit un refus bruyant « exit 0 ».
+          npm run e2e 2>&1 | tee chaine.txt
+          exit "${PIPESTATUS[0]}"
+
+      # `W5.x` : l'empreinte d'hôte de **ce** runner, à côté de celle que `sandbox` publie dans le
+      # même résumé. La roadmap de `W5.u` laissait la question ouverte — le fichier d'attestations
+      # déposé là-bas n'est lu par aucun `locus-execd` de CI parce que le consommateur vivrait sur
+      # un autre runner, et rien n'établissait que deux runners rendent la même empreinte. Les deux
+      # valeurs côte à côte y répondent par une lecture.
+      #
+      # Le repli n'a pas de chemin vert : `chain.chain.ts` **échoue** quand le broker n'annonce pas
+      # son empreinte. Ce pas ne fait que rendre lisible ce que le test a déjà exigé.
+      - name: L'empreinte d'hôte de ce runner, dans le résumé
+        if: always()
+        run: |
+          {
+            echo "## L'empreinte d'hôte du runner e2e"
+            echo '```'
+            grep "empreinte d'hôte du runner e2e" chaine.txt || echo "aucune empreinte annoncée"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

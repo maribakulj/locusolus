@@ -23,10 +23,13 @@ import { join } from "node:path";
 import { describe, it } from "node:test";
 
 import {
+  EMPREINTE_PREFIXE,
   HarnessFailure,
   WORKER_HOME_ENV,
   WORKER_REPO_ENV,
+  annonceDe,
   builtBinary,
+  empreinte,
   workerRepo,
 } from "./harness.ts";
 
@@ -143,5 +146,113 @@ describe("le harnais e2e refuse plutôt que de se sauter — W12.f", () => {
     const erreur = new HarnessFailure("locusd", "binaire absent", "   ");
 
     assert.doesNotMatch(erreur.message, /--- sortie ---/);
+  });
+});
+
+/**
+ * L'empreinte d'hôte, lue de ce que le broker annonce — `W5.x`.
+ *
+ * Testée ici, sans processus, pour la même raison que le reste de ce fichier : la lecture est une
+ * propriété entière et exerçable seule. Ce qu'elle ne peut pas tenir seule — qu'un `locus-execd`
+ * réel produise bien cette ligne — est l'affaire du job `e2e`, et `chain.chain.ts` l'affirme là-bas.
+ */
+describe("l'empreinte d'hôte se lit de l'annonce du broker — W5.x", () => {
+  /** Ce que `locus-execd` écrit vraiment au démarrage, transcrit de `main.rs`. */
+  const ANNONCE = [
+    "locus-execd : driver podman",
+    "  cgroup v2 : disponible",
+    "locus-execd : cet hôte peut prouver S2",
+    "  empreinte de cet hôte : cgroup_v2=available controllers=cpu,memory userns=available " +
+      "seccomp=available disk_quota=undetermined",
+    "locus-execd : à l'écoute sur /tmp/x/broker.sock",
+  ].join("\n");
+
+  it("l'empreinte se lit, et rien de ce qui l'entoure n'y entre", () => {
+    assert.equal(
+      empreinte(ANNONCE),
+      "cgroup_v2=available controllers=cpu,memory userns=available seccomp=available " +
+        "disk_quota=undetermined",
+    );
+  });
+
+  /**
+   * **Une ligne absente est une panne, pas une empreinte vide.**
+   *
+   * C'est la garde qui compte. `W5.w` a fait imprimer cette ligne pour que l'exploitant qui prépare
+   * un fichier d'attestations sache à quel hôte le lier ; si un remaniement la retire, personne ne
+   * le remarque — le refus continue de dire « elles parlent d'un hôte différent » sans jamais dire
+   * lequel est celui-ci. Rendre `""` ici ferait exactement disparaître ce constat.
+   */
+  it("une annonce sans empreinte refuse", () => {
+    assert.throws(
+      () => empreinte("locus-execd : driver podman\nlocus-execd : à l'écoute sur /tmp/x.sock"),
+      (erreur: unknown) => {
+        assert.ok(erreur instanceof HarnessFailure);
+        assert.match(erreur.message, /cache le remède/);
+        return true;
+      },
+    );
+  });
+
+  /**
+   * **Une empreinte vide refuse aussi, et pour une autre raison.**
+   *
+   * Les deux absences ne se réparent pas au même endroit : une ligne manquante est un binaire qui
+   * ne dit plus rien, une valeur vide est une empreinte qui ne décide plus de rien — et celle-là
+   * serait honorée par n'importe quel hôte, ce qui est pire que de manquer.
+   */
+  it("une empreinte vide refuse, et ne se confond pas avec une empreinte absente", () => {
+    assert.throws(
+      () => empreinte("locus-execd : driver podman\n  empreinte de cet hôte :   "),
+      (erreur: unknown) => {
+        assert.ok(erreur instanceof HarnessFailure);
+        assert.match(erreur.message, /honorée partout/);
+        return true;
+      },
+    );
+  });
+
+  /**
+   * **Le préfixe est celui du binaire, pas une paraphrase.**
+   *
+   * Un test de constante, comme celui de `WORKER_HOME_ENV` plus haut et pour la même raison : c'est
+   * un couplage entre deux langages. Reformuler le `println!` de `main.rs` sans toucher à celle-ci
+   * rendrait la lecture muette, et le job `e2e` dirait « empreinte absente » là où elle est écrite
+   * juste à côté.
+   */
+  it("le préfixe lu est celui que main.rs imprime", () => {
+    assert.equal(EMPREINTE_PREFIXE, "empreinte de cet hôte :");
+  });
+
+  /** Deux processus qui ont parlé, sans en démarrer aucun. */
+  const chaine = [
+    { name: "locus-execd", output: () => "  empreinte de cet hôte : cgroup_v2=available" },
+    { name: "locusd", output: () => "locusd : à l'écoute" },
+  ];
+
+  it("l'annonce d'un processus de la chaîne se lit", () => {
+    assert.match(annonceDe(chaine, "locus-execd"), /empreinte de cet hôte/);
+    assert.equal(annonceDe(chaine, "locusd"), "locusd : à l'écoute");
+  });
+
+  /**
+   * **Un nom inconnu est une panne, jamais une sortie vide.**
+   *
+   * C'est la règle « un compteur qui n'a rien lu ne vaut pas zéro », appliquée à une lecture de
+   * tampon. Rendre `""` ferait lire `locusexecd` — la faute de frappe la plus banale ici — comme
+   * « ce processus n'a rien dit », et l'appelant affirmerait ensuite sur un silence qu'il a
+   * fabriqué lui-même. Le message nomme donc les processus qui existent, pour que la faute se
+   * corrige sans relire le harnais.
+   */
+  it("un processus qui n'est pas de la chaîne refuse, et le message nomme ceux qui le sont", () => {
+    assert.throws(
+      () => annonceDe(chaine, "locusexecd"),
+      (erreur: unknown) => {
+        assert.ok(erreur instanceof HarnessFailure);
+        assert.equal(erreur.subject, "locusexecd");
+        assert.match(erreur.message, /locus-execd, locusd/);
+        return true;
+      },
+    );
   });
 });

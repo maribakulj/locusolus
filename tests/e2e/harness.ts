@@ -148,9 +148,107 @@ export type Chain = {
   readonly workerStateDir: string;
   /** Les trois processus, dans l'ordre de démarrage. */
   readonly processes: readonly string[];
+  /**
+   * Ce qu'un processus de la chaîne a écrit jusqu'ici — `W5.x`.
+   *
+   * # Pourquoi ça sort du harnais
+   *
+   * Jusque-là, tout ce que les trois processus annonçaient n'existait que dans
+   * [`HarnessFailure`] : gardé pour le rapport d'échec, **jeté sur un tour vert**. Le job `e2e`
+   * démarre pourtant le seul `locus-execd` de toute la CI qui monte par le harnais, et son log ne
+   * portait rien de ce que ce broker dit de son hôte — pas même l'empreinte que `W5.w` a fait
+   * imprimer exprès pour qu'un exploitant puisse la lire.
+   *
+   * Un démarrage qui ne se voit que lorsqu'il rate est un démarrage qu'on ne mesure jamais.
+   *
+   * @throws {HarnessFailure} sur un nom qui n'est pas celui d'un processus de cette chaîne. Rendre
+   * `""` ferait lire une faute de frappe comme « ce processus n'a rien dit », et un appelant
+   * affirmerait alors sur un silence qu'il a fabriqué lui-même.
+   */
+  annonce(processus: string): string;
   /** Tout arrêter. Idempotent. */
   stop(): Promise<void>;
 };
+
+/**
+ * Ce qu'un processus nommé a écrit, ou une panne qui nomme ceux qui existent — `W5.x`.
+ *
+ * Une fonction de module plutôt qu'une fermeture dans `startChain` : son refus est la moitié qui
+ * compte, et une fermeture ne s'exerce qu'en montant les trois processus. `npm test` la tient donc
+ * seule, comme il tient déjà les refus de [`workerRepo`] et de [`builtBinary`].
+ *
+ * @throws {HarnessFailure} sur un nom qui n'est pas celui d'un processus de la chaîne.
+ */
+export function annonceDe(
+  demarres: readonly { readonly name: string; output(): string }[],
+  processus: string,
+): string {
+  const started = demarres.find((candidat) => candidat.name === processus);
+  if (started === undefined) {
+    throw new HarnessFailure(
+      processus,
+      "n'est pas un processus de cette chaîne, qui en porte " +
+        `${demarres.length} : ${demarres.map((candidat) => candidat.name).join(", ")}. ` +
+        "Rendre une sortie vide ferait lire cette faute de frappe comme « ce processus n'a rien " +
+        "dit », et l'appelant affirmerait sur un silence qu'il a fabriqué lui-même",
+    );
+  }
+  return started.output();
+}
+
+/**
+ * Le préfixe sous lequel `locus-execd` imprime l'empreinte de son hôte au démarrage.
+ *
+ * Transcrit de `apps/locus-execd/src/main.rs`, et **exporté** pour la même raison que
+ * [`WORKER_HOME_ENV`] : c'est un couplage entre deux langages, et un couplage qu'on ne voit pas est
+ * un couplage que personne ne vérifie.
+ */
+export const EMPREINTE_PREFIXE = "empreinte de cet hôte :";
+
+/**
+ * L'empreinte d'hôte que `locus-execd` a annoncée — `W5.x`.
+ *
+ * # Ce que cette lecture tient
+ *
+ * `W5.t` a livré la lecture des attestations, `W5.u` leur dépôt, `W5.w` l'empreinte imprimée au
+ * démarrage pour que l'exploitant qui prépare un fichier sache à quel hôte le lier. Les trois
+ * reposent sur la **même** phrase, et rien ne vérifiait qu'un binaire réel la produise : les tests
+ * de `attestation.rs` exercent la fonction, pas le démarrage.
+ *
+ * Refuser ici quand elle manque est donc la garde qui manquait : le jour où ce `println!` disparaît
+ * dans un remaniement, le job `e2e` rougit au lieu de laisser le remède de `W5.w` devenir muet.
+ *
+ * @throws {HarnessFailure} quand la ligne est absente, ou présente et vide. Les deux sont
+ * distingués : une ligne absente est un binaire qui ne dit plus rien, une ligne vide est une
+ * empreinte qui ne décide plus de rien — et elles ne se réparent pas au même endroit.
+ */
+export function empreinte(annonce: string): string {
+  const ligne = annonce
+    .split("\n")
+    .map((brute) => brute.trim())
+    .find((brute) => brute.startsWith(EMPREINTE_PREFIXE));
+
+  if (ligne === undefined) {
+    throw new HarnessFailure(
+      EMPREINTE_PREFIXE,
+      "absente de ce que `locus-execd` a écrit au démarrage. `W5.w` l'imprime pour que qui " +
+        "prépare un fichier d'attestations sache à quel hôte le lier ; sans elle, un refus " +
+        "d'attestation nomme le problème et cache le remède",
+      annonce,
+    );
+  }
+
+  const valeur = ligne.slice(EMPREINTE_PREFIXE.length).trim();
+  if (valeur === "") {
+    throw new HarnessFailure(
+      EMPREINTE_PREFIXE,
+      "annoncée vide. Une empreinte qui ne porte aucun fait ne distingue plus deux hôtes, et " +
+        "toute attestation la vérifiant serait honorée partout",
+      annonce,
+    );
+  }
+  return valeur;
+}
 
 /**
  * Le dépôt worker, ou une panne qui nomme la variable.
@@ -418,6 +516,7 @@ export async function startChain(options: {
       controlPlane,
       workerStateDir,
       processes: demarres.map((started) => started.name),
+      annonce: (processus: string) => annonceDe(demarres, processus),
       stop,
     };
   } catch (erreur) {
