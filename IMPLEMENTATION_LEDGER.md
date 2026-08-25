@@ -14188,3 +14188,56 @@ interchangeables.
 job, sur un autre runner, et l'empreinte étant désormais stable, la comparer devient une question
 qui a un sens. Reste aussi : l'ADR 0033 décide que `canterel` est cloné à une révision **épinglée**
 dans le job e2e, et le workflow n'a aucun `ref:`.
+
+---
+
+## 2026-08-25 — W12.g — L'ADR décidait une révision épinglée ; le workflow n'avait aucun `ref:`
+
+**Le constat, vérifié au fichier.** L'ADR 0033 dit deux fois que `canterel` est cloné dans le job
+e2e « à une **révision épinglée** » — dans le titre de sa décision 1, et dans ses conséquences, où
+il précise « **comme le SDK** ». L'étape « Le dépôt worker » de `ci.yml` n'avait pas de `ref:`.
+
+Et le commentaire placé **juste au-dessus** de cette étape affirmait « le worker réel, à une
+révision épinglée ». Une décision écrite, non appliquée, sous une phrase qui disait le contraire de
+ce que le YAML faisait — la même forme que la tolérance de `W5.s`, dont le motif avait survécu à sa
+cause, et que le `locus.identity` de `canterel`, dont la garde avait survécu à ce qu'elle gardait.
+
+**La conséquence n'était pas cosmétique.** Le verdict e2e de `locusolus` dépendait silencieusement
+de ce que `canterel/main` se trouvait être : un merge là-bas pouvait rendre cette CI rouge **sans
+aucun changement ici**. C'est exactement le « verdict qui peut rougir pour une raison étrangère
+cesse d'être lu » que la décision 3 du même ADR appelle décisive, appliqué dans l'autre sens.
+
+**L'objection est traitée plutôt que tue.** Épingler fait cesser d'exercer le worker **courant** —
+et c'est son exécution qui a trouvé cinq défauts en une seule session : un `locus.identity` périmé,
+un `lepCall` muet, un `project_id` exigé à tort, une administration non câblée, une entropie
+absente. Un pin qui ne bougerait jamais rendrait la chaîne décorative.
+
+La réponse est dans le mot que l'ADR emploie : **comme le SDK**. `canterel` épingle le SDK par
+commit dans `PINNED.json` et le **bumpe délibérément**. Un pin n'est pas « ne jamais mettre à jour »
+: c'est « mettre à jour est un acte qui se voit dans un diff ». Les deux propriétés tiennent alors
+ensemble — le verdict ne bouge pas sous les pieds, et le bump ré-exerce le worker courant sous
+revue.
+
+**Ce qui empêche le pin de redevenir une affirmation.**
+
+- Un pin **absent refuse**, il ne retombe pas sur `main`. Même règle que `workerRepo` applique déjà
+  à `LOCUS_E2E_WORKER` : un repli silencieux rendrait vert un dossier monté contre une révision que
+  personne n'a choisie.
+- Une **branche** ou un **tag** sont refusés — ils se déplacent, ce que l'épinglage existe pour
+  empêcher. Accepter `main` rendrait le fichier décoratif : il aurait l'air d'épingler sans le
+  faire, ce qui est pire que son absence.
+- Un **SHA court** est refusé séparément, et pour une autre raison : il peut devenir ambigu, et git
+  résoudrait alors autre chose que ce qui avait été choisi.
+- Le workflow **vérifie après coup** que la révision montée est celle du pin. Sans ce pas, un `ref:`
+  vide — une sortie d'étape non produite — ferait silencieusement reprendre `main`, et l'épinglage
+  redeviendrait ce qu'il était : un commentaire.
+
+**Vérifié.** `npm run check` → vert ; 6 tests.
+
+**Prochain item.** Le fichier d'attestations n'est toujours pas lu en CI. Deux runners ont rendu la
+même empreinte —
+`cgroup_v2=available controllers=cpu,cpuset,io,memory,pids userns=available seccomp=available disk_quota=undetermined`,
+deux fois —, ce qui rend la question intéressante et pas encore tranchée : le consommateur vivrait
+dans un autre job, et le worker de la chaîne e2e sonde son propre hôte, qui n'a peut-être pas de
+backend de conteneur. Deux points de mesure ne sont pas une règle, et c'est le genre de conjecture
+qui s'est révélée fausse deux fois cette nuit.

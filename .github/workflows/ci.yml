@@ -402,6 +402,28 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # `W12.g` : la révision, lue du fichier qui la porte. Cette étape n'avait **aucun `ref:`**
+      # jusque-là, et le commentaire au-dessus disait pourtant « à une révision épinglée » — comme
+      # l'ADR 0033, deux fois. Le verdict e2e dépendait donc de ce que `canterel/main` se trouvait
+      # être, et un merge là-bas pouvait rendre cette CI rouge sans aucun changement ici.
+      #
+      # Le bump se fait en éditant `tests/e2e/WORKER-PINNED.json` : c'est un acte qui se voit dans
+      # un diff, comme le `PINNED.json` du SDK côté worker. Épingler n'est pas cesser d'exercer le
+      # worker courant — c'est faire du choix de révision une décision plutôt qu'un effet de bord.
+      - name: La révision du worker
+        id: pin
+        run: |
+          commit=$(node -e '
+            const { readFileSync } = require("node:fs");
+            const pin = JSON.parse(readFileSync("tests/e2e/WORKER-PINNED.json", "utf8"));
+            if (!/^[0-9a-f]{40}$/.test(pin.commit ?? "")) {
+              throw new Error(`WORKER-PINNED.json ne porte pas de SHA complet : ${pin.commit}`);
+            }
+            process.stdout.write(pin.commit);
+          ')
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
+          echo "worker épinglé à $commit" >> "$GITHUB_STEP_SUMMARY"
+
       # Le worker réel, à une révision épinglée. `continue-on-error` serait la tentation ici — les
       # deux dépôts sont privés et le jeton peut manquer. Elle est refusée : un checkout raté qui
       # laisse le job continuer produirait un `LOCUS_E2E_WORKER` pointant sur un répertoire vide, et
@@ -411,8 +433,23 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: maribakulj/canterel
+          ref: ${{ steps.pin.outputs.commit }}
           path: .worker
           token: ${{ secrets.CANTEREL_TOKEN || github.token }}
+
+      # La révision montée **est** celle du fichier. Sans ce pas, un `ref:` vide — une sortie d'étape
+      # qui n'aurait pas été produite, par exemple — ferait silencieusement reprendre `main`, et
+      # l'épinglage redeviendrait une affirmation.
+      - name: La révision montée est celle qui est épinglée
+        working-directory: .worker
+        run: |
+          monte=$(git rev-parse HEAD)
+          attendu="${{ steps.pin.outputs.commit }}"
+          if [ "$monte" != "$attendu" ]; then
+            echo "le worker monté est $monte, le pin dit $attendu" >&2
+            exit 1
+          fi
+          echo "worker monté à $monte"
 
       - uses: actions/setup-node@v4
         with:
