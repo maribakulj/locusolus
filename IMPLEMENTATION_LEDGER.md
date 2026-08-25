@@ -14871,3 +14871,56 @@ de fichiers à 100 000. Figer ce choix ici le figerait sur une mesure qui n'a pa
 dépôt.
 
 **Vérifié.** `npm run check` → vert, code de sortie lu séparément. 14 tests sur `state.rs`.
+
+---
+
+## 2026-08-25 — W0.19 — Un déblocage avait visé à côté, et la ligne portait les deux affirmations
+
+**Le constat.** En prenant `W23.b`, sa case de tableau annonçait « **débloqué par `W20.k`** …
+`task.leased` l'ouvre, `run.completed` le referme, les deux écrits par un command handler
+transactionnel » — et conservait, trois phrases plus loin, la phrase inverse de l'ADR 0026 : «
+`generating` compte donc un fait qu'aucun journal n'écrit ».
+
+Une seule case portait sa thèse et son antithèse. La seconde était un reste de l'état antérieur que
+le déblocage n'avait pas retiré.
+
+**C'est `W0.16` par l'autre bout.** Cet item-là avait rendu les **blocages** périssables — « un
+blocage qui nomme ce qu'il attend se périme tout seul ». Le symétrique n'existait pas : un
+**déblocage** laisse son motif derrière lui, et rien ne le relit.
+
+**Vérifié au code, pas au texte.**
+
+| Affirmation                                            | Verdict                                                          |
+| ------------------------------------------------------ | ---------------------------------------------------------------- |
+| `task.leased` et `run.completed` atteignent le journal | **vrai** — `apps/locusd/src/lep.rs`, et des tests les lisent     |
+| donc `generating` est calculable                       | **faux** — un bail nomme un `worker_id`, pas une `AgentInstance` |
+| la jointure existe ailleurs                            | `task.assigned`, lu par la projection de `W13.g`                 |
+| un handler l'écrit                                     | **non** — recherche dans `apps/locusd/src` : aucune occurrence   |
+
+`nominal` et `active` comptent des **identités** (§7.1) ; compter `generating` sur des baux
+compterait des **machines**. C'est exactement l'une des quatre confusions que l'ADR 0026 existe pour
+interdire — « identités stockées, objets en mémoire, agents simulés, acteurs concurremment actifs »
+— et la construire aurait donné trois compteurs dont un ne parle pas de la même population que les
+deux autres, ce qu'aucun test d'invariant n'aurait montré : `generating ≤ active ≤ nominal` peut
+très bien tenir entre deux populations différentes.
+
+**Ce que la tentative a trouvé en plus.** La projection de `W13.g`, marquée **fait**, lit des
+événements `task.assigned` qu'**aucun producteur n'émet** — et ses tests fabriquent eux-mêmes ceux
+qu'elle lira. C'est la cinquième occurrence de cette forme dans la session, après `NoIdentities`,
+`NoAdministrators`, `NothingProven` et le convoyeur d'attestations ; la première où c'est une
+**projection** qui attend. C'est `W20.ad`, et il débloque `W23.b`.
+
+Journaliser cette assignation n'est **pas** « inventer un fait pour avoir quoi compter » :
+`Task::assigned` et `Assignment` existent dans `packages/coordination` depuis `W13.d`, avec
+`assigned_agent_id` et `assigned_worker_id`. Le fait existe ; c'est son producteur qui manque. La
+distinction est celle que `W21.g` a posée, et elle tombe du bon côté.
+
+**Ce qui est livré.** `W23.b` retourne **bloqué**, avec un motif qui nomme le fait manquant plutôt
+qu'une absence générale — un blocage précis se périme quand le fait arrive, un blocage vague ne se
+périme jamais. L'ADR 0026 est amendé du même constat, sous la décision qu'il précise. Et `W20.ad`
+est écrit, avec son test de sortie : la projection de `W13.g` doit lire l'événement **sans être
+modifiée**, ce qui est la façon de vérifier qu'un producteur parle bien la forme que son lecteur
+attend.
+
+**Ce que je n'ai pas fait.** Construire les trois compteurs. Ils sont bien spécifiés, l'invariant
+est clair, et rien n'aurait rougi — c'est précisément pourquoi il ne fallait pas.
