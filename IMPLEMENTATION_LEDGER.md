@@ -14629,3 +14629,59 @@ l'autre, et sa lecture par un broker réel. **Ce qui ne l'est pas** : le placeme
 l'arbitrage ci-dessus.
 
 **Vérifié.** `npm run check` → vert.
+
+---
+
+## 2026-08-25 — W5.ad — ADR 0035 : ce qu'une campagne atteste, et la réponse de `W5.ac` retirée
+
+**Ce que cet item corrige d'abord, c'est le précédent.** `W5.ac` a trouvé un vrai défaut — la
+campagne déposait sous un identifiant de worker par défaut — et a laissé l'arbitrage ouvert en
+**suggérant une réponse** : indexer une attestation d'hôte par empreinte d'hôte plutôt que par
+worker, puisque `W5.x` avait mesuré l'empreinte stable d'un runner à l'autre.
+
+Cette réponse est fausse. La mesure qui la réfute vient du **même tour de CI** que celle qui
+semblait la soutenir : sur le runner, l'hôte prouve `S2` au broker — seize sondes vertes sous podman
+rootless — et n'annonce que `S1` au worker, parce que `bwrap` n'y est pas installé. Indexer par hôte
+ferait donc hériter à `canterel` une preuve portant sur un mécanisme qu'il n'emploie pas ; `locusd`
+le placerait sur une mission qu'il ne saurait pas confiner, et l'invariant 5 — « sandbox réelle avec
+limites et attestation » — aurait une attestation sans sandbox réelle. Une preuve qui autorise un
+confinement que personne n'appliquera est **pire** qu'une absence de preuve.
+
+Je l'avais écrite comme une piste plausible dans le ledger de `W5.ac` ; l'écrire comme une décision
+aurait coûté une régression de sécurité. C'est l'argument pour la règle du dépôt qui veut qu'un
+arbitrage s'écrive au lieu de se prendre en passant.
+
+**Quatre faits établis en lisant le code, pas des commentaires.**
+
+| Fait                                                                                  | Où                                           |
+| ------------------------------------------------------------------------------------- | -------------------------------------------- |
+| `Ask` a deux variantes — `Readiness`, `Place`. Le broker n'exécute rien.              | `packages/broker/src/protocol.rs`            |
+| Le placement juge le manifeste **annoncé** plus ce qui est **attesté pour ce worker** | `Candidate::shortfall`                       |
+| Les faits d'hôte du broker n'entrent pas dans la décision par candidat                | `serve(…, facts, proven, …)`                 |
+| Le `S2` de `canterel` dépend de `bubblewrap`, celui du broker de podman               | `capability-manifest.ts` / `host_sandbox.rs` |
+
+**Les quatre décisions.** Une attestation **nomme son mécanisme**, obligatoirement — les deux
+mécanismes échouent différemment et sont présents indépendamment sur une même machine, donc un
+enregistrement sans mécanisme n'est pas dégradé, il est ininterprétable. `Proven` **reste indexé par
+worker** : la question du placement porte sur un worker, et changer la clé remplacerait une question
+juste par une question voisine au seul motif qu'elle est plus facile à alimenter. **Un worker ne
+tire d'une attestation que si le mécanisme est un des siens** — même hôte, même worker, mécanisme
+employé, les trois ensemble. Et **ce que la campagne du job `sandbox` atteste est le chemin du
+broker**, qui n'exécute rien : les seize sondes mesurent avec exactitude un chemin que rien
+n'emprunte encore.
+
+**Conséquence assumée, immédiate.** Aucun worker `canterel` ne peut aujourd'hui tirer de cette
+campagne. Ce n'est pas un manque : c'est le constat exact, rendu enfin lisible. Ce qui manquait
+n'était pas une attestation, c'était une campagne qui exerce le mécanisme du worker.
+
+**Ce que l'ADR ne décide pas**, et c'est écrit dedans : comment une campagne apprend l'identité du
+worker — la décision 3 rend la question moins pressante, une campagne du mécanisme du worker
+tournant là où le worker est, mais ne la fait pas disparaître ; et si `podman-rootless` et
+`bubblewrap` sont comparables, ce qui demanderait de mesurer les deux contre les seize sondes.
+
+**Deux items nommés en sortent** : `W5.ae`, l'enregistrement qui porte son mécanisme et le placement
+qui le vérifie ; `W5.af`, la campagne qui exerce le mécanisme du worker. Et `W12.d` gagne la raison
+exacte pour laquelle sa clause de placement ne peut pas encore aboutir sur un runner de CI.
+
+**Vérifié.** `npm run check` → vert. Aucun code changé : cet item est une décision, et son coût est
+d'avoir lu les deux côtés du placement avant de l'écrire.
