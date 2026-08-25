@@ -270,6 +270,29 @@ fn daemon_brokere(
     (runtime, broker)
 }
 
+/// Le même, avec un puits de diagnostic qu'on peut relire — `W20.aa`.
+fn daemon_observe(
+    missions: Vec<Queued>,
+    broker: Arc<BrokerDeTest>,
+) -> (
+    Runtime<locus_event_store::MemoryEventStore>,
+    Arc<locusd::observations::MemoryObservations>,
+) {
+    let file = Arc::new(MemoryQueue::new());
+    for mission in missions {
+        file.push(mission);
+    }
+    let registre = Arc::new(MemoryRegistry::new());
+    registre.admit(CREANCE, identite());
+    let puits = Arc::new(locusd::observations::MemoryObservations::new());
+    let runtime = Runtime::in_memory().with_lep(
+        Desk::new(file, registre, Arc::new(IdentitesDeTest::default()))
+            .placing(broker as Arc<dyn BrokerPort + Send + Sync>)
+            .observing(Arc::clone(&puits) as Arc<dyn locusd::observations::Observations>),
+    );
+    (runtime, puits)
+}
+
 async fn servir(runtime: Runtime<locus_event_store::MemoryEventStore>) -> String {
     let listener = TcpListener::bind("127.0.0.1:0")
         .await
@@ -1622,5 +1645,64 @@ fn une_echeance_qui_deborde_est_refusee() {
         ordinaire.millis(),
         1_700_000_000_000 + LEASE_TTL_SECONDS * 1_000,
         "l'échéance est l'instant plus le TTL, en millisecondes"
+    );
+}
+
+// ---------------------------------------------------------------------------------------------
+// `W20.aa` — le `204` cesse d'être ambigu.
+// ---------------------------------------------------------------------------------------------
+
+/// **Un placement refusé le dit, en nommant la tâche et ce qui manquait.**
+///
+/// Le `204` reste vide — ADR 0028 décision 4, et le détail des manques d'un hôte n'est rien qu'une
+/// créance de worker donne le droit de connaître. Ce qui change est qu'un **exploitant** peut
+/// désormais savoir pourquoi sa chaîne ne place rien : `Runtime::placed` jetait les `shortfalls`,
+/// et une sonde de session s'est arrêtée là, faute de pouvoir distinguer ce refus d'une file vide.
+#[tokio::test]
+async fn un_placement_refuse_dit_ce_qui_manquait() {
+    let (runtime, puits) = daemon_observe(vec![en_file()], Arc::new(BrokerDeTest::refusant()));
+    let adresse = servir(runtime).await;
+
+    let reponse = poster(&adresse, CLAIM_PATH, Some(CREANCE), &corps_minimal("")).await;
+
+    assert!(
+        reponse.starts_with("HTTP/1.1 204"),
+        "« rien pour toi » reste un 204 :\n{reponse}"
+    );
+    let notes = puits.notes();
+    assert_eq!(notes.len(), 1, "une note, et une seule : {notes:?}");
+    // La tâche est celle de la fixture, lue d'elle plutôt que recopiée : une constante écrite à la
+    // main ici passerait encore si la fixture changeait de tâche.
+    assert!(
+        notes[0].contains(&en_file().mission.task_id),
+        "{}",
+        notes[0]
+    );
+    assert!(notes[0].contains("changer de machine"), "{}", notes[0]);
+    // Le corps du 204 ne porte rien : la note est pour l'exploitant, pas pour le worker.
+    assert!(
+        !reponse.contains("changer de machine"),
+        "le détail des manques ne part pas vers le worker :\n{reponse}"
+    );
+}
+
+/// **Une file vide ne dit rien — et ce silence est le renseignement.**
+///
+/// L'asymétrie est la propriété entière. Un worker sonde en boucle ; écrire une ligne par sondage
+/// remplirait n'importe quel journal et rendrait les vraies notes illisibles. Comme seul le refus
+/// parle, l'**absence** de note veut dire « la file n'avait rien » — ce qui lève l'ambiguïté du
+/// `204` sans coûter une ligne par tour.
+#[tokio::test]
+async fn une_file_vide_ne_dit_rien() {
+    let (runtime, puits) = daemon_observe(Vec::new(), Arc::new(BrokerDeTest::placant()));
+    let adresse = servir(runtime).await;
+
+    let reponse = poster(&adresse, CLAIM_PATH, Some(CREANCE), &corps_minimal("")).await;
+
+    assert!(reponse.starts_with("HTTP/1.1 204"), "{reponse}");
+    assert_eq!(
+        puits.notes(),
+        Vec::<String>::new(),
+        "un sondage sur file vide n'écrit rien"
     );
 }

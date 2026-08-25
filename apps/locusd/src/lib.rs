@@ -56,6 +56,7 @@ pub mod journal;
 pub mod lep;
 pub mod messaging;
 pub mod mission;
+pub mod observations;
 pub mod offload;
 pub mod organisation;
 pub mod outcome;
