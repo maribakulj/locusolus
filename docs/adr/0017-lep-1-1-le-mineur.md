@@ -225,10 +225,10 @@ Un numéro, quatre tranches, chacune avec son lecteur :
 
 | Tranche | Ajout | Lecteur | État du lecteur |
 | --- | --- | --- | --- |
-| 1 | `role` (§5.1) | `selectOverlay` dans `canterel` | **existe et est testé** |
-| 2 | codes de refus (§5.2) | `apps/locus-execd/src/admission.rs` | **existent, des deux côtés** |
-| 3 | permission hors ligne (§5.3) | à écrire | à écrire dans son sprint |
-| 4 | visibilité des sous-agents (§5.4) | à écrire, et à border sur l'invariant 11 | à écrire dans son sprint |
+| 1 | `role` (ADR 0017 §5.1) | `selectOverlay` dans `canterel` | **existe et est testé** |
+| 2 | codes de refus (ADR 0017 §5.2) | `apps/locus-execd/src/admission.rs` | **existent, des deux côtés** |
+| 3 | permission hors ligne (ADR 0017 §5.3) | à écrire | à écrire dans son sprint |
+| 4 | visibilité des sous-agents (ADR 0017 §5.4) | à écrire, et à border sur l'invariant 11 | à écrire dans son sprint |
 
 **Tranche 1 d'abord**, parce que son lecteur est le seul qui existe déjà en entier et que `W15.f` est
 bloqué depuis le plus longtemps. Les deux tests de la décision 6 s'écrivent avec elle : ils ont besoin

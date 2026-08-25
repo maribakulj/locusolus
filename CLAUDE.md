@@ -50,6 +50,26 @@ frontières inter-repos.
   un module, qui n'affirme rien tant qu'on ne l'appelle pas, et c'est cette généralisation-là que
   l'ADR 0022 corrige.
 
+## Citer une section
+
+`§N.M` **nu** désigne toujours `docs/SPEC_V1.md`, celui de ce dépôt, et `check:citations` refuse un
+numéro qui n'y existe pas.
+
+Cette convention a un coût qu'il faut connaître : `canterel/docs/locus/SPEC_V1.md` porte le **même
+nom de fichier** et numérote lui aussi depuis 1, et ce ne sont pas deux copies — sur 147 numéros de
+section communs, **cinq** portent le même titre. Ce sont deux spécifications différentes, l'une du
+plan de contrôle, l'autre du worker. Une citation nue vers l'autre dépôt y désigne donc autre chose
+**sans erreur visible** : `§12.4` est la backpressure ici et l'isolation informationnelle là-bas, et
+la roadmap comme l'ADR 0026 s'y sont trompées jusqu'au 2026-08-25 (`W0.21`).
+
+Une citation vers un autre document **le nomme**, et c'est ce qui la dispense de la garde. Deux formes
+sont en usage : `` `repos/canterel/SPEC_V1.md` §12.4 `` pour un renvoi inter-dépôts, et `ADR 0017 §5.1`
+pour un ADR qui cite ses propres sections. Le nom doit rester **sur la même ligne** que le `§` — la
+garde lit ligne à ligne, et elle a attrapé cette page-ci quand le formatage a séparé les deux.
+
+Ce que la garde ne sait pas voir : un numéro qui existe ici et qui visait ailleurs. Elle n'aurait pas
+attrapé le défaut qui l'a motivée ; celui-là s'est trouvé en lisant, et rien ne remplace ça.
+
 ## Frontières vérifiées par la CI
 
 1. `packages/domain` n'importe aucun package d'infrastructure.
