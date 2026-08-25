@@ -15327,3 +15327,58 @@ relecture n'aurait produite : le nom doit rester sur la même ligne que le `§`.
 clause 3 est **vraie** — la demande d'extension existe, côté worker, et c'est bien le chemin par
 lequel un agent demande un élargissement. L'item est donc prêt, et il commence par une clause de
 moins à vérifier.
+
+---
+
+## 2026-08-25 — W24.a — La souscription dérivée de la `ContextView`
+
+**La borne que la source omet.** Un mécanisme de publication-souscription sémantique peut _choisir_
+un destinataire dans un ensemble autorisé ; il ne détermine **jamais** l'autorisation. Chez la
+source dont l'ADR 0026 tire ce mécanisme, la souscription s'aligne sur le prompt système que l'agent
+apporte en rejoignant le réseau — c'est-à-dire que l'agent déclare ce qu'il veut recevoir. Transposé
+ici, cela ferait négocier aux agents leur propre accès à l'information.
+
+**La clause 3 a été vérifiée avant d'être codée, et la vérification a coûté un item.** Elle parle
+d'une « demande d'extension **existante** », et trois clauses fausses avaient déjà été trouvées dans
+la journée. Elle existe — `context.extension_requested`, dans `canterel` — mais sa citation « §12.4
+» désigne le spec du **worker**, dont le §12.4 est l'isolation informationnelle, là où le §12.4 de
+ce dépôt est la backpressure. C'est `W0.21`. Sans lui, cet item aurait commencé par déclarer fausse
+une citation parfaitement exacte.
+
+**Clause 2, tenue à deux niveaux, et aucun des deux ne suffit seul.**
+
+- Le module n'a qu'une porte d'entrée : `derived_from(&ContextView)`. Le test la **compte dans la
+  source** plutôt que d'essayer d'appeler un constructeur absent — un tel test ne compilerait pas,
+  donc ne dirait rien à qui ajouterait le constructeur plus tard, puisqu'il compilerait alors.
+- `packages/review` ne dépend de `serde` sous aucune forme : aucune souscription ne peut arriver du
+  fil. Le test lit le manifeste, pas les sources : chercher un `derive` laisserait passer une
+  implémentation manuelle, et la propriété n'est pas « personne n'a dérivé » mais « personne ne
+  **peut** ». Troisième fois que cet arbitrage sert aujourd'hui, après `W23.a` et `W20.ae`.
+
+**Clause 3 : le test n'exhibe pas une fonction qui refuse, il exhibe qu'il n'y a rien à appeler.**
+Élargir demande de reconstruire la `ContextView`, qui exige les candidats et le destinataire — deux
+choses qu'un agent ne fournit pas. Une seconde vérification refuse `grant`, `extend`, `insert`,
+`allow`, et jusqu'à `&mut self`, dans le module. C'est la moitié Rust de ce que le worker tient déjà
+de son côté : « il n'existe volontairement aucune fonction qui l'accorde ».
+
+La demande **n'est pas dupliquée ici**. `CLAUDE.md` refuse la duplication cross-repo des contrats,
+et un jumeau Rust de `context.extension_requested` serait exactement ça : ce qui traverse est un
+événement, pas un type partagé.
+
+**Deux détails qui ne sont pas des détails.**
+
+- Le condensat de la vue voyage dans la souscription. Sans lui, deux vues incluant les mêmes
+  révisions donneraient des souscriptions indiscernables, et une autorisation survivrait à la vue
+  qui la fondait. Un test le tient en construisant deux vues de même contenu et de condensats
+  différents.
+- L'ordre de confidentialité n'est **pas** recopié. `contamination::rank` passe `pub(crate)`, parce
+  que sa propre docstring annonçait le défaut : « le rendre explicite ici évite qu'un `match`
+  recopié ailleurs finisse par en changer l'ordre sans qu'on s'en aperçoive ». Écrire la seconde
+  copie aurait été faire exactement ce que la phrase prédit, dans le fichier qui la contient.
+
+Six mutants posés, zéro survivant.
+
+**Ce que je n'ai pas fait.** `W24.b` — l'appariement sémantique **dans** l'ensemble autorisé. Il est
+prêt : l'ensemble candidat est maintenant calculable, et la clause qui compte demande que
+l'appariement ne puisse pas l'élargir, ce que la signature de `Subscription` rend déjà vrai côté
+lecture. C'est l'item suivant, pas celui-ci.

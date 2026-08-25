@@ -34,6 +34,7 @@ pub mod dossier;
 pub mod human;
 pub mod rebuttal;
 pub mod review;
+pub mod subscription;
 
 pub use contamination::{Contamination, ContextItem, Recipient, contradictions_dropped, inspect};
 pub mod from_retrieval;
@@ -47,3 +48,4 @@ pub use rebuttal::{
 pub use review::{
     Finding, IndependenceAttestation, Party, Review, ReviewError, Severity, Verdict, attest,
 };
+pub use subscription::Subscription;
