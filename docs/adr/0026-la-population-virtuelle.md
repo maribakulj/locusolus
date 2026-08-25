@@ -47,6 +47,20 @@ L'ordre retenu est donc plus fin que celui de l'audit :
   qu'aucun journal n'écrit encore. Les six états de `InstanceState` (§7.1) n'en portent pas
   l'équivalent. **Inventer ce fait pour avoir quoi compter** serait bâtir une fonctionnalité afin de
   justifier une métrique, ce que `W21.g` a déjà refusé sous ce nom.
+
+  **Précisé le 2026-08-25 (`W0.19`), après un déblocage qui avait visé à côté.** Le motif ci-dessus
+  était juste et trop vague, et son imprécision a coûté un faux déblocage : la ligne de `W23.b` a
+  annoncé « débloqué par `W20.k` », au motif que `task.leased` ouvre et `run.completed` referme, et
+  que les deux sont désormais écrits par un command handler transactionnel. **C'est exact, et ça ne
+  débloque rien** : un bail nomme un **worker**, pas une `AgentInstance`. Compter `generating` sur des
+  baux compterait des **machines** là où `nominal` et `active` comptent des **identités** — l'une des
+  quatre confusions que cette décision existe pour interdire.
+
+  Le fait qui manque est donc nommable : `task.assigned`, dont le champ `agent_id` est la seule source
+  d'un lien instance × tâche. La projection de `W13.g` le lit déjà ; **aucun handler ne l'écrit**
+  (`W20.ad`). Et le journaliser n'est pas « inventer un fait » : `Task::assigned` et `Assignment`
+  existent dans `packages/coordination` depuis `W13.d`. Ce qui manque n'est pas le fait, c'est son
+  producteur.
 - **`W23.d`** attend des instances qui s'exécutent : c'est une **campagne**, donc la chaîne
   complète, et elle ne se teste pas sur des fixtures seules.
 - ~~**`W23.c`** attend des instances qui s'exécutent.~~ **Amendé le 2026-08-24, en marquant
