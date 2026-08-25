@@ -86,6 +86,7 @@ fn autorite() -> Authority {
 
 fn proposition() -> Proposal {
     Proposal {
+        cognition: locus_domain::CognitionClass::Economy,
         statement: "Le catalyseur A tient-il au-delà de 300 °C ?".to_owned(),
         success_conditions: vec!["une mesure reproductible à trois essais".to_owned()],
         task_id: TACHE.to_owned(),

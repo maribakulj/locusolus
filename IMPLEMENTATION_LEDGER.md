@@ -15493,3 +15493,179 @@ tout seul n'existe pas ici, et je ne prétends pas le contraire.
 
 **Ce que je n'ai pas fait.** Aucun seuil n'est écrit : `admits` en **prend** un. Le choisir serait
 une valeur de politique, et §13 n'en a pas encore — même abstention que `W23.b` pour ses compteurs.
+
+---
+
+## 2026-08-25 — W25.a — La classe de cognition dans la mission
+
+**Le levier n'est pas le modèle, c'est l'affectation.** L'ADR 0026 décision 6 appelle cette mesure
+la plus actionnable du dossier et la seule industrielle : à qualité identique vérifiée par test
+caché, un facteur 7,9 sur le coût total et 22 sur la flotte de workers seule. « Frontière pour
+planifier, bon marché pour exécuter. »
+
+Une mission déclare donc une **classe** — `CognitionClass` dans `packages/domain` — et l'affectation
+classe → modèle est une valeur de politique versionnée, `Assignment` dans `packages/policy`.
+
+**La décision de conception est le typage qu'on n'a pas fait.** `Assignment` indexe par **slug**,
+pas par `CognitionClass`. `packages/policy` ne dépendait d'aucun crate du dépôt, et cet item ne l'a
+pas changé.
+
+Prendre le type aurait été plus « typé » — et aurait **cassé la clause qui porte l'item**. La
+politique aurait eu une opinion sur l'énumération du domaine, donc ajouter un barreau serait devenu
+un changement de type traversant, et « changer l'affectation ne change aucun type » aurait cessé
+d'être vrai le jour où on en aurait eu besoin. Un test le montre par l'autre bout : une affectation
+peut nommer une classe que le domaine **ne connaît pas encore**, et un autre lit les tables de
+dépendances du manifeste pour tenir l'absence.
+
+**Deux valeurs, et pas trois.** L'ADR nomme deux pôles. Une classe intermédiaire s'écrirait sans que
+rien ne rougisse, et ce serait la promesse que l'ADR 0022 décision 0 refuse : un type qui annonce
+une distinction dont personne ne se sert.
+
+**Les noms disent le coût, pas l'usage.** `Frontier` et `Economy` nomment le haut et le bas de la
+gamme. `Planning` et `Execution` auraient figé dans le type l'emploi que l'ADR en donne aujourd'hui,
+et une mission d'exécution ayant besoin de la frontière aurait dû demander une classe qui dit le
+contraire de ce qu'elle fait.
+
+**La charge journalisée porte la classe, jamais le modèle.** Un journal relu dans six mois ne doit
+pas porter une affectation qui aura changé entre-temps : il dirait alors ce qu'on croyait, pas ce
+qu'on avait décidé. Et `serde(rename_all)` et `slug()` sont deux sources pour un même nom de wire —
+un test les confronte valeur par valeur, parce que deux sources de vérité pour un nom se découvrent
+au moment où un journal ne se reconnaît plus.
+
+**Pas de modèle par défaut.** Une classe non affectée rend `None`. Un défaut ferait tourner une
+mission sur un modèle que personne n'a choisi, et le silence serait lu comme une décision —
+`Outcome::NoRule` fait déjà cette distinction pour les règles.
+
+**Troisième faux positif de la journée pour l'idiome de scan de source.** Le manifeste de `policy`
+contient `name = "locus-policy"`, donc chercher « locus- » partout rougissait sur le crate lui-même.
+Après `Default` qui contient « fault » et `->` qui contient « > », la règle se dégage assez
+nettement pour être écrite : **une recherche par sous-chaîne se restreint à ce qu'elle doit lire,
+elle ne se relâche pas.** Ici, aux tables de dépendances. Les trois fois, la tentation était
+d'assouplir l'assertion ; les trois fois, c'était la lecture qu'il fallait resserrer.
+
+Six mutants posés, zéro survivant.
+
+**Ce que je n'ai pas fait.** `W25.b`, le plafond de cognition dans `packages/budget`. Il aura sa
+propre décision à prendre — budget ne dépend que de `locus-protocol`, donc soit il gagne une
+dépendance vers le domaine, soit il indexe par slug comme la politique le fait ici. La seconde est
+probablement la bonne, mais c'est l'item qui doit la justifier, pas celui-ci qui doit la pré-empter.
+
+---
+
+## 2026-08-25 — W25.b — Le plafond de cognition
+
+**Ce n'est pas une septième dimension, et l'écart avec la lettre de l'ADR se justifie.** L'ADR 0026
+décision 6 écrit qu'« il manque la dimension de cognition et son plafond ». Pris au pied de la
+lettre, cela demanderait une septième valeur à `Dimension` — et il faudrait alors dire en quelle
+**unité** on la compte.
+
+Personne ne sait : la cognition n'a pas d'unité propre. Elle se paie en appels, en jetons et en
+argent, qui sont déjà les dimensions de §7.2. Ce qui manquait n'est pas une unité, c'est une
+**clé**.
+
+Le plafond de cognition est donc un jeu de `Limits` — exprimé dans les dimensions de §7.2, et un
+dépassement nomme la sienne, ce qui est la clause 1 — indexé par le couple `(classe, dépense)`. Le
+levier de l'ADR se pose alors littéralement : borner serré `Frontier`, large `Economy`, sans
+qu'aucune constante de code ne dise lequel des deux est cher.
+
+**La décision que `W25.a` m'avait laissée, et je la tranche autrement que je l'avais devinée.** Le
+ledger de `W25.a` disait : « soit budget gagne une dépendance vers le domaine, soit il indexe par
+slug comme la politique le fait ici. La seconde est probablement la bonne. » C'est la **première**.
+
+La raison n'est apparue qu'en écrivant la clause 2 : la politique et le budget ne font pas la même
+chose d'une clé inconnue.
+
+- La politique **répond**. Une classe qu'elle ne connaît pas rend `None`, l'appelant sait qu'il n'a
+  pas de modèle, et l'espace des clés n'a pas besoin d'être énumérable.
+- Ce crate **borne**. La question « quelles clés sont couvertes ? » doit avoir une réponse complète,
+  et un espace de chaînes ne s'énumère pas.
+
+Un test balaie les quatre couples de `CognitionClass::ALL × Spend::ALL` et vérifie que deux sont
+bornés et deux hors budget. Il n'aurait pas pu s'écrire sur des slugs.
+
+**Quatre verdicts, et aucun booléen.** Non classée, hors budget, dimension non bornée, dépassement.
+Les quatre demandent à un exploitant des gestes différents — classer sa dépense, poser un plafond,
+borner une dimension, relever une borne — et un `bool` les confondrait tous. `Verdict::dimension()`
+rend `None` pour les deux premiers, et c'est exact : dans ces cas la dimension n'a pas été atteinte,
+et prétendre le contraire ferait chercher un plafond de dimension là où il n'y a pas de plafond du
+tout.
+
+**Non bornée n'est pas libre.** `Limits` le posait déjà pour ses dimensions — « une dimension non
+nommée n'est pas _libre_, elle est hors budget » — et le plafond de cognition en hérite plutôt que
+de réinventer la règle. L'inverse ferait d'un oubli de configuration une autorisation de dépenser :
+le silence lu comme un accord, que ce dépôt refuse partout.
+
+**`Spend` gagne `Ord`**, pour exactement la raison que `Dimension` documente déjà : il devient une
+moitié de clé de `BTreeMap`, donc l'ordre de l'énumération devient l'ordre de parcours des plafonds,
+et un ordre instable rendrait deux configurations identiques distinguables.
+
+Six mutants posés, zéro survivant — dont **« non classée devient travail »**, celui que `W21.l`
+existe pour interdire, et **« la classe est ignorée dans la clé »**, qui aurait fait disparaître le
+levier tout en laissant tous les autres tests verts.
+
+**Ce que je n'ai pas fait.** Brancher le plafond sur `BudgetAccount` : réserver et régler restent ce
+que `W21` a livré, et `admits` est une **lecture**. Les câbler demande de décider ce qu'un
+dépassement de cognition fait d'une réservation en cours — l'annuler, la laisser finir, la dégrader
+vers `Economy` — et aucune des trois n'est écrite nulle part. C'est une décision de politique, donc
+`W14`, pas une conséquence de cet item.
+
+---
+
+## 2026-08-25 — W0.22 — « Transcrite » était une convention que rien ne vérifiait
+
+**Trouvé en payant une CI rouge**, la première de la session, et elle était de ma main.
+
+`tests/e2e/chain.chain.ts` porte une fixture dont l'en-tête dit ceci :
+
+> « La proposition, **transcrite** de `apps/locusd/tests/commands.rs` et non réinventée. Les deux
+> tests décrivent la même question, ce qui est le seul moyen de savoir que ce qui échoue ici est le
+> câblage du binaire et non une proposition écrite de travers. Une fixture propre à ce fichier
+> aurait donné un second corps à maintenir, et un `400` sur un champ oublié se serait lu comme un
+> refus du daemon. »
+
+Le raisonnement est juste de bout en bout. Et **rien ne vérifiait la transcription**.
+
+En livrant `W25.a`, le champ `cognition` est entré dans `mission::Proposal` — obligatoire, sur un
+type désérialisé depuis un corps HTTP — et pas dans la fixture e2e. `npm run check` est resté vert,
+parce qu'il ne joue pas l'e2e ; la CI a rendu `missing field cognition`, c'est-à-dire exactement le
+« `400` sur un champ oublié » que le commentaire annonçait.
+
+Un commentaire qui décrit d'avance la façon dont il va tomber, et qui tombe ainsi, est la forme la
+plus nette du défaut que cette session corrige depuis ce matin : une propriété affirmée en prose,
+sans mécanisme derrière.
+
+**Ce qui est livré.** `check:transcriptions` confronte les champs d'une structure Rust nommée aux
+clés d'une fixture nommée, **dans les deux sens** :
+
+- un champ obligatoire du type qui manque à la fixture — ce qui vient d'arriver ;
+- une clé de la fixture que le type ne porte plus — le symétrique, et il est plus discret. `serde`
+  l'ignorerait en silence : le corps partirait, le daemon l'accepterait, et le test e2e continuerait
+  de passer en exerçant autre chose que ce qu'il annonce. Une garde qui ne dirait que le premier
+  sens serait exacte et à moitié utile.
+
+**La garde a été vérifiée contre le défaut réel.** Retirer `cognition` de la fixture la fait rougir
+en nommant le champ. C'est autre chose que la démontrer sur une fixture inventée — celle-ci prouve
+qu'elle marche, celle-là qu'elle marche **sur ce qui est arrivé** —, et les deux sont faits.
+
+**Ce qu'elle ne fait pas, et je ne prétends pas l'inverse.**
+
+- Elle ne compare pas les **valeurs**. Deux fixtures peuvent porter les mêmes clés et décrire des
+  questions différentes ; c'est licite. « Transcrite » promet la même **forme**, pas le même
+  contenu, et vérifier plus demanderait d'exécuter les deux — ce qui est le travail de l'e2e
+  lui-même.
+- Elle ne lit pas le Rust en général. Un analyseur de Rust dans une garde de dépôt serait un second
+  compilateur à maintenir. Elle lit une structure **nommée** dans un fichier **nommé**, et les deux
+  façons d'échouer à la trouver ont leur propre code de constat plutôt que de se fondre dans un
+  compteur à zéro — règle 3 du rythme de session, appliquée à l'outillage.
+- Elle **ne referme pas** l'autre moitié du problème : `npm run check` ne joue toujours pas l'e2e,
+  et un changement de forme de fil passe en local. Ajouter l'e2e au check demanderait le dépôt
+  `canterel` et des binaires en `release` sur toute machine de développement, ce qui est cher pour
+  un cas que cette garde attrape maintenant à froid. Si un autre cas apparaît que la garde ne voit
+  pas, c'est là qu'il faudra reposer la question.
+
+15 champs confrontés, six tests dont les deux violations délibérées et les deux illisibilités.
+
+**Ce que l'incident aura appris sur le reste.** Ce n'est pas le troisième faux positif de scan de
+source de la journée — c'est l'inverse : une garde qui **n'existait pas** là où une phrase disait
+qu'elle existait. Les deux se ressemblent parce que dans les deux cas c'est la prose qu'on croit
+plutôt que le mécanisme, et la journée en aura donné les deux faces.

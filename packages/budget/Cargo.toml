@@ -11,4 +11,10 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+# W25.b : le plafond de cognition est indexé par `CognitionClass`. Le **type** et non son slug, parce
+# que ce crate **borne** là où `packages/policy` **répond** : la question « quelles clés sont
+# couvertes ? » doit avoir une réponse complète, ce qu'un espace de chaînes ne permet pas d'énumérer.
+# Dépendance interne, donc hors de `dependencies.json`. Aucun cycle : `locus-domain` ne dépend que de
+# `locus-protocol`, que ce crate a déjà.
+locus-domain = { path = "../domain" }
 locus-protocol = { path = "../protocol" }

@@ -50,6 +50,14 @@ const TACHE = "task_01HF7YAT000000000000000005";
  */
 function proposition() {
   return {
+    // `W25.a` : une mission **déclare sa classe de cognition**, et le champ est obligatoire — une
+    // mission sans classe n'est pas une mission. C'est `economy`, comme la fixture Rust dont
+    // celle-ci est transcrite.
+    //
+    // La divergence est arrivée : le champ a été ajouté côté Rust et pas ici, et la CI a rendu
+    // exactement le « 400 sur un champ oublié » que l'en-tête ci-dessus annonçait. « Transcrite »
+    // est une convention que **rien ne vérifie**, et les deux fixtures ne se comparent nulle part.
+    cognition: "economy",
     statement: "Le catalyseur A tient-il au-delà de 300 °C ?",
     success_conditions: ["une mesure reproductible à trois essais"],
     task_id: TACHE,

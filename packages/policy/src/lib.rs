@@ -36,6 +36,7 @@
 
 pub mod alignment;
 pub mod category;
+pub mod cognition;
 pub mod delegation;
 pub mod explanation;
 
@@ -43,6 +44,7 @@ pub use alignment::{
     AlignmentError, AlignmentProposal, Alignments, ApprovedAlignment, Equivalence, approve,
 };
 pub use category::{Applied, Category, Coverage, Run, Simulation};
+pub use cognition::{Assignment, AssignmentError, Resolved};
 pub use delegation::{Attribution, Authorisation, Delegation, DelegationError, Refusal, Request};
 pub use explanation::{Explanation, ExplanationError, Facet, Override, Rejected};
 

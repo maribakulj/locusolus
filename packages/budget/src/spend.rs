@@ -45,7 +45,14 @@ use locus_protocol::{Id, id::provisional::Reservation};
 /// Ce qu'une écriture paie.
 ///
 /// Deux valeurs, et pas de troisième pour l'ignorance : voir [`Classification`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+///
+/// # Pourquoi `Ord`
+///
+/// `W25.b` fait de `Spend` une moitié de clé de plafond, donc de clé de `BTreeMap`. L'ordre de
+/// l'énumération devient l'ordre de parcours des plafonds — même raison que [`crate::Dimension`],
+/// dont la documentation le dit déjà : un ordre instable rendrait deux configurations identiques
+/// distinguables.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Spend {
     /// Se mettre d'accord — négocier, transmettre, réviser, arbitrer.
     Coordination,
