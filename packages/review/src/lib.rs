@@ -33,7 +33,9 @@ pub mod context_view;
 pub mod dossier;
 pub mod human;
 pub mod rebuttal;
+pub mod reliability;
 pub mod review;
+pub mod routing;
 pub mod subscription;
 
 pub use contamination::{Contamination, ContextItem, Recipient, contradictions_dropped, inspect};
@@ -45,7 +47,9 @@ pub use human::{HumanReview, HumanReviewError, HumanVerdict};
 pub use rebuttal::{
     MetaReview, Rebuttal, RebuttalError, RecheckPolicy, Recommendation, assign_recheck, meta_review,
 };
+pub use reliability::{Observation, Reliability};
 pub use review::{
     Finding, IndependenceAttestation, Party, Review, ReviewError, Severity, Verdict, attest,
 };
+pub use routing::{Audience, Peer};
 pub use subscription::Subscription;
