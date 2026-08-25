@@ -57,6 +57,7 @@ fn push(
                     },
                     occurred_at: Timestamp::from_millis(1_700_000_000_000),
                     causation_id: id::<Command>(seed),
+                    idempotency_key: None,
                     correlation_id: None,
                     trace_id: None,
                     payload,

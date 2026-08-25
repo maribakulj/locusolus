@@ -44,6 +44,10 @@ fn draft(seed: u8, stream: &str, kind: &str, payload: serde_json::Value) -> Draf
         },
         occurred_at: Timestamp::from_millis(1_700_000_000_000),
         causation_id: id::<Command>(seed),
+        // `W20.j` : **jamais** renseignée ici. La clé d'idempotence est l'affaire de la
+        // transaction, qui l'appose à l'écriture — un producteur qui la choisirait ferait
+        // dépendre l'idempotence du client de ce que chaque handler se trouve écrire.
+        idempotency_key: None,
         correlation_id: None,
         trace_id: None,
         payload,

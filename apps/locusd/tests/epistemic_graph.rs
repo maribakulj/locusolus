@@ -80,6 +80,7 @@ fn fait(seed: u8, stream: &str, event_type: &str, payload: serde_json::Value) ->
         },
         occurred_at: NOW,
         causation_id: id::<Command>(1),
+        idempotency_key: None,
         correlation_id: None,
         trace_id: None,
         payload,

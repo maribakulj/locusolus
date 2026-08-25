@@ -42,6 +42,7 @@ impl Decide for Demarre {
             },
             occurred_at: NOW,
             causation_id: *command.command_id(),
+            idempotency_key: None,
             correlation_id: None,
             trace_id: None,
             payload: serde_json::json!({ "attempt_id": self.0, "worker_id": self.0 }),

@@ -62,6 +62,7 @@ fn draft(rng: &mut Rng, stream: &str, kind: &str, payload: serde_json::Value) ->
         },
         occurred_at: Timestamp::from_millis(1_700_000_000_000),
         causation_id: rng.id::<Command>(),
+        idempotency_key: None,
         correlation_id: None,
         trace_id: None,
         payload,

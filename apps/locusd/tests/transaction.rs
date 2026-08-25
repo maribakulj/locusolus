@@ -7,7 +7,9 @@ use locus_event_store::{
 };
 use locus_protocol::id::{Agent, Command, Event, Project, Workspace};
 use locus_protocol::{Id, IdKind, Timestamp};
-use locusd::{Batch, CommandEnvelope, CommandError, Decide, Family, Revision, Transaction};
+use locusd::{
+    Batch, CommandEnvelope, CommandError, Decide, Family, Outcome, Revision, Transaction,
+};
 
 const NOW: Timestamp = Timestamp::from_millis(1_700_000_000_000);
 
@@ -35,6 +37,7 @@ fn event(stream: &str, seed: u8) -> EventDraft {
         },
         occurred_at: NOW,
         causation_id: id::<Command>(seed),
+        idempotency_key: None,
         correlation_id: None,
         trace_id: None,
         payload: serde_json::json!({ "seed": seed }),
@@ -75,6 +78,9 @@ struct Decideur {
     refuse: Option<CommandError>,
     stream: String,
     appels: RefCell<usize>,
+    /// Combien d'événements une décision produit. Un seul par défaut ; deux servent à observer
+    /// **quel** rang la reconstruction retient — voir `W20.j`.
+    evenements: usize,
 }
 
 impl Decideur {
@@ -83,14 +89,22 @@ impl Decideur {
             refuse: None,
             stream: stream.to_owned(),
             appels: RefCell::new(0),
+            evenements: 1,
+        }
+    }
+
+    /// Un décideur dont chaque décision écrit **deux** événements en une seule écriture.
+    fn prolixe(stream: &str) -> Self {
+        Self {
+            evenements: 2,
+            ..Self::sur(stream)
         }
     }
 
     fn refusant(stream: &str, refus: CommandError) -> Self {
         Self {
             refuse: Some(refus),
-            stream: stream.to_owned(),
-            appels: RefCell::new(0),
+            ..Self::sur(stream)
         }
     }
 
@@ -114,7 +128,15 @@ impl Decide for Decideur {
         // La graine vient du compteur d'appels, et non de la commande : deux clés de même longueur
         // donneraient sinon deux événements de même identifiant dans un stream.
         let graine = u8::try_from(*self.appels.borrow()).unwrap_or(u8::MAX);
-        Ok(vec![event(&self.stream, graine)])
+        Ok((0..self.evenements)
+            .map(|rang| {
+                let decalage = u8::try_from(rang).unwrap_or(u8::MAX);
+                event(
+                    &self.stream,
+                    graine.saturating_mul(16).saturating_add(decalage),
+                )
+            })
+            .collect())
     }
 }
 
@@ -506,4 +528,153 @@ fn une_saturation_est_un_refus_unavailable_qui_nomme_la_borne() {
 
     // Et rien n'a été écrit : le refus arrive **avant** le journal.
     assert_eq!(transaction.store().stream_count(), 0);
+}
+
+// ---------------------------------------------------------------------------------------------
+// L'idempotence du client **survit à un redémarrage** — `W20.j`, ADR 0029 décision 4.
+// ---------------------------------------------------------------------------------------------
+
+/// **La clé du client arrive dans le journal, sur chaque événement de l'écriture.**
+///
+/// C'est ce qui rend la reconstruction possible, et c'est la moitié qu'aucun test ne tenait : le
+/// registre vivait en mémoire vive, donc rien n'avait besoin que la clé soit écrite quelque part.
+///
+/// **Sur chaque** événement et non sur le premier seul : la reconstruction lit le flux global
+/// événement par événement, sans savoir lesquels formaient une écriture. Ne marquer que le premier
+/// ferait dépendre le registre reconstruit de l'ordre de lecture.
+#[test]
+fn la_cle_du_client_est_ecrite_au_journal() {
+    let transaction = Transaction::new(MemoryEventStore::new());
+    let decideur = Decideur::sur("br_1");
+
+    let verdict = transaction.submit(&decideur, &commande(1, "cle-durable", 0), &(), NOW);
+    assert!(matches!(verdict, Outcome::Accepted(_)), "{verdict:?}");
+
+    let ecrits = transaction.store().read_stream("br_1", 0);
+    assert!(!ecrits.is_empty(), "l'écriture a produit des événements");
+    for event in &ecrits {
+        assert_eq!(
+            event.idempotency_key.as_deref(),
+            Some("cle-durable"),
+            "chaque événement de l'écriture porte la clé du client"
+        );
+    }
+}
+
+/// **Une commande retentée après un redémarrage ne s'exécute pas deux fois.**
+///
+/// Le test de sortie de `W20.j`, et il porte sur ce qui manquait : `Transaction::new` construisait
+/// un registre **vide** à chaque démarrage, or un redémarrage est précisément ce qui coupe les
+/// connexions et déclenche les retentes. La garantie de §22.5 était fausse au moment exact où elle
+/// sert.
+///
+/// Le redémarrage est joué en reconstruisant une transaction **sur le même journal**. C'est ce qu'un
+/// processus qui redémarre trouve : la mémoire vive a disparu, le journal est intact.
+#[test]
+fn une_commande_retentee_apres_un_redemarrage_ne_s_execute_pas_deux_fois() {
+    let store = MemoryEventStore::new();
+    let avant = Transaction::new(store);
+    let premier = Decideur::sur("br_1");
+
+    let Outcome::Accepted(accepte) = avant.submit(&premier, &commande(1, "meme-cle", 0), &(), NOW)
+    else {
+        panic!("la première soumission est acceptée");
+    };
+    assert_eq!(premier.appels(), 1);
+
+    // Le redémarrage : le journal survit, la mémoire vive non. `into_store` rend le journal que la
+    // transaction tenait, et la suivante le reprend — exactement ce qu'un processus neuf trouve.
+    let apres = Transaction::new(avant.into_store());
+    let second = Decideur::sur("br_1");
+
+    let verdict = apres.submit(&second, &commande(1, "meme-cle", 0), &(), NOW);
+
+    // Le décideur du **nouveau** processus n'a pas été appelé : la commande n'a pas été rejouée.
+    assert_eq!(
+        second.appels(),
+        0,
+        "la retente a traversé le décideur — l'idempotence n'a pas survécu au redémarrage"
+    );
+    match verdict {
+        Outcome::Accepted(rendu) => assert_eq!(
+            rendu.revision, accepte.revision,
+            "la retente rend le rang d'origine, celui que le client avait déjà reçu"
+        ),
+        Outcome::Refused(refus) => panic!("la retente est acceptée, pas refusée : {refus:?}"),
+    }
+}
+
+/// **Deux portées ne se confondent pas après un redémarrage non plus.**
+///
+/// La propriété que `W20.b` tenait en mémoire vive doit tenir de la même façon quand le registre
+/// vient du journal — sans quoi le succès d'un client répondrait à un autre, ce qui est la faute la
+/// plus coûteuse que ce registre puisse commettre.
+#[test]
+fn la_portee_separe_encore_apres_un_redemarrage() {
+    let avant = Transaction::new(MemoryEventStore::new());
+    let premier = Decideur::sur("br_1");
+    assert!(matches!(
+        avant.submit(&premier, &commande(1, "cle-partagee", 0), &(), NOW),
+        Outcome::Accepted(_)
+    ));
+
+    let apres = Transaction::new(avant.into_store());
+    let second = Decideur::sur("br_1");
+
+    // Même clé, autre principal — donc autre portée, donc une commande à part entière.
+    let verdict = apres.submit(
+        &second,
+        &commande_autre_principal(2, "cle-partagee", 1),
+        &(),
+        NOW,
+    );
+
+    assert_eq!(
+        second.appels(),
+        1,
+        "une autre portée s'exécute : le registre reconstruit ne confond pas deux clients"
+    );
+    assert!(matches!(verdict, Outcome::Accepted(_)), "{verdict:?}");
+}
+
+/// **Le rang rendu à la retente est celui du **dernier** événement de l'écriture.**
+///
+/// Trouvé par une passe de mutants : remplacer `max` par `min` dans la reconstruction ne faisait
+/// rougir aucun test, parce que toutes les commandes des tests n'écrivaient qu'un événement — et
+/// pour un seul événement, `max` et `min` sont le même.
+///
+/// La propriété n'est pas cosmétique. Ce que la transaction a rendu au client est le rang du stream
+/// **après** l'écriture entière. Retenir le premier lui rendrait, à la retente, un rang antérieur à
+/// celui qu'il avait reçu ; il le passerait en `expected_revision` et son écriture suivante serait
+/// refusée pour conflit, sur un journal parfaitement sain.
+#[test]
+fn la_retente_rend_le_rang_de_la_fin_de_l_ecriture() {
+    let avant = Transaction::new(MemoryEventStore::new());
+    let premier = Decideur::prolixe("br_1");
+
+    let Outcome::Accepted(accepte) =
+        avant.submit(&premier, &commande(1, "deux-faits", 0), &(), NOW)
+    else {
+        panic!("la première soumission est acceptée");
+    };
+    // Deux événements en une écriture : c'est ce qui rend `max` et `min` distinguables.
+    assert_eq!(avant.store().read_stream("br_1", 0).len(), 2);
+
+    let apres = Transaction::new(avant.into_store());
+    let second = Decideur::prolixe("br_1");
+
+    let verdict = apres.submit(&second, &commande(1, "deux-faits", 0), &(), NOW);
+
+    assert_eq!(
+        second.appels(),
+        0,
+        "la retente n'a pas traversé le décideur"
+    );
+    match verdict {
+        Outcome::Accepted(rendu) => assert_eq!(
+            rendu.revision, accepte.revision,
+            "la retente rend le rang de la fin de l'écriture, pas celui de son premier événement"
+        ),
+        Outcome::Refused(refus) => panic!("la retente est acceptée, pas refusée : {refus:?}"),
+    }
 }
