@@ -564,6 +564,35 @@ jobs:
     needs: sandbox
     if: always()
 
+    # `W12.d.5` : la cinquième clause tue `locusd` et le relance sur le **même** journal. Sous le
+    # défaut `personal-local`, le journal est en mémoire et il n'y aurait rien à retrouver — la
+    # clause monte donc un `single-node-vm`, un profil qui **promet** la durabilité et que
+    # `Choice::decide` refuse de démarrer sans base. Ce service est ce qui la lui donne.
+    #
+    # Le job `rust` a déjà exactement ce service, sous la même variable : `LOCUS_TEST_POSTGRES`, et
+    # pas une seconde. Deux variables pour une base donneraient deux endroits à tenir d'accord.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: locus
+          POSTGRES_PASSWORD: locus
+          POSTGRES_DB: locus_e2e
+        ports:
+          - 5432:5432
+        # `-U locus -d locus_e2e` et non `pg_isready` nu — la leçon est celle du job `rust`, où la
+        # première rédaction omettait les deux : `pg_isready` prend alors l'utilisateur du système,
+        # donc `root`, qui n'existe pas dans cette image, et le contrôle ne passe **jamais** au vert.
+        # Il n'ordonnance alors rien, tout en donnant l'air de le faire.
+        options: >-
+          --health-cmd "pg_isready -U locus -d locus_e2e"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      LOCUS_TEST_POSTGRES: "host=localhost port=5432 user=locus password=locus dbname=locus_e2e"
+
     steps:
       - uses: actions/checkout@v4
 

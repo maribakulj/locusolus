@@ -31,6 +31,9 @@ import {
   ATTESTATIONS_ATTENDUES_ENV,
   attestations,
   empreinte,
+  finDe,
+  journalDurable,
+  POSTGRES_ENV,
   startChain,
   type Chain,
 } from "./harness.ts";
@@ -709,3 +712,159 @@ function propositionTaillee(manifeste: CapabilityManifest) {
     output_contract: "un rapport et ses mesures",
   };
 }
+
+/**
+ * **Le daemon redémarre, et ce qu'il avait écrit est toujours là** — `W12.d`, cinquième clause.
+ *
+ * # Pourquoi celle-ci est atteignable alors que les autres ne le sont pas
+ *
+ * Ce qui reste de `W12.d` après la quatrième clause — la session tourne, les événements repartent,
+ * les artefacts sont hashés — passe toute par une **session ouverte**, donc par un worker qui
+ * annonce un modèle. Le redémarrage, lui, ne demande rien au worker : il demande au plan de contrôle
+ * de tenir ce que son profil promet.
+ *
+ * # `single-node-vm`, et pas un `personal-local` branché sur PostgreSQL
+ *
+ * Les quatre premières clauses montent le défaut, `personal-local`, dont le journal est **en
+ * mémoire** — exact, annoncé au démarrage, et rien n'y survit. Cette clause monte un profil qui
+ * **promet** la durabilité, ce qui a une conséquence que le montage volatile n'a pas :
+ * `Choice::decide` refuse de démarrer un `single-node-vm` sans journal durable. La promesse est donc
+ * dans le démarrage lui-même, et c'est elle que le redémarrage vérifie.
+ *
+ * # Ce que la clause exige, et dans quel ordre
+ *
+ * Écrire un fait, tuer `locusd`, le relancer sur le **même** journal, et retrouver le fait. L'ordre
+ * n'est pas indifférent : lire avant d'écrire ne prouverait rien, et relancer avant que l'ancien ait
+ * rendu la socket produirait un « address already in use » dont le message parlerait du port là où
+ * la cause est un ordre. Le harnais attend la sortie.
+ *
+ * Seul `locusd` redémarre — le broker et le worker n'ont rien à voir avec la durabilité du journal.
+ */
+describe("le daemon redémarre et retrouve ses faits — W12.d, cinquième clause", () => {
+  let chain: Chain | undefined;
+  /** Ce que le journal portait **avant** le redémarrage. Comparé, jamais supposé. */
+  let avant: readonly string[] = [];
+  const journal = journalDurable();
+
+  after(async () => {
+    await chain?.stop();
+  });
+
+  it("la chaîne monte sur un journal durable, et un fait y est écrit", async (t) => {
+    if (journal === undefined) {
+      // Dit, jamais tu. `journalDurable` **lève** sous `CI` : arriver ici veut donc dire une machine
+      // de développeur sans PostgreSQL, ce qui est ordinaire — et le dire est ce qui empêche de lire
+      // « douze verts » comme « le redémarrage a été exercé ».
+      t.diagnostic(
+        `${POSTGRES_ENV} absente : le redémarrage durable n'est pas exercé sur cette machine`,
+      );
+      t.skip("aucun journal durable sur cette machine");
+      return;
+    }
+
+    chain = await startChain({ root: ROOT, port: 8792, worker: "à la demande", journal });
+
+    // Le profil est **lu de ce que le daemon annonce**, pas supposé de ce qu'on lui a passé : un
+    // `LOCUSD_JOURNAL` ignoré ferait monter un daemon volatile, et la clause suivante rougirait en
+    // accusant la durabilité là où le câblage aurait lâché.
+    const annonce = chain.annonce("locusd");
+    t.diagnostic(`profil annoncé : ${annonce.split("\n")[0] ?? "(rien)"}`);
+    assert.match(
+      annonce,
+      /journal : durable \(PostgreSQL\)/,
+      `la chaîne devait monter un journal durable, et le daemon annonce : ${finDe(annonce, 3)}`,
+    );
+
+    for (const [route, corps] of [
+      [
+        "/commands/task/propose",
+        {
+          idempotency_key: "e2e-durable-propose",
+          project_id: ADMINISTRATION.projectId,
+          proposal: { ...proposition(), task_id: TACHE_DURABLE },
+        },
+      ],
+      [
+        "/commands/task/queue",
+        {
+          idempotency_key: "e2e-durable-queue",
+          project_id: ADMINISTRATION.projectId,
+          task_id: TACHE_DURABLE,
+        },
+      ],
+    ] as const) {
+      const reponse = await fetch(`${chain.controlPlane}${route}`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${ADMINISTRATION.credential}`,
+        },
+        body: JSON.stringify(corps),
+      });
+      assert.equal(reponse.status, 202, `${route} — ${await reponse.text()}`);
+    }
+
+    const ecrits = await attendre(chain.controlPlane, "task.queued");
+    assert.ok(
+      ecrits.includes("task.queued"),
+      "le fait n'est pas au journal avant le redémarrage : il n'y a rien à retrouver",
+    );
+    avant = ecrits;
+    t.diagnostic(`au journal avant redémarrage : ${[...new Set(avant)].join(", ")}`);
+  });
+
+  it("après le redémarrage, le fait est toujours au journal", async (t) => {
+    if (journal === undefined || chain === undefined) {
+      t.skip("aucun journal durable sur cette machine");
+      return;
+    }
+
+    const annonce = await chain.redemarrerLocusd();
+    t.diagnostic(`au redémarrage : ${annonce.split("\n")[0] ?? "(rien)"}`);
+
+    // Le **nouveau** processus, et non l'ancien : `redemarrerLocusd` remplace l'entrée dans la
+    // chaîne, sans quoi cette lecture porterait sur le mort.
+    assert.match(
+      annonce,
+      /journal : durable \(PostgreSQL\)/,
+      `le daemon relancé dit : ${finDe(annonce, 3)}`,
+    );
+
+    const reponse = await fetch(`${chain.controlPlane}/timeline?limit=100`);
+    // **Le corps se lit une fois.** La première rédaction passait `await reponse.text()` en message
+    // d'assertion — évalué avant l'assertion, donc toujours — et le `json()` suivant levait
+    // « Body has already been read ». Le test échouait alors sur sa propre lecture, en accusant le
+    // redémarrage : exactement la confusion que les autres clauses de ce fichier existent à retirer.
+    const brut = await reponse.text();
+    assert.equal(reponse.status, 200, brut);
+    const corps = JSON.parse(brut) as {
+      readonly items: readonly { readonly event_type: string }[];
+    };
+    const types = corps.items.map((item) => item.event_type);
+    t.diagnostic(`au journal après redémarrage : ${[...new Set(types)].join(", ") || "(rien)"}`);
+
+    // **La clause : le journal est le même, pas seulement non vide.**
+    //
+    // La première rédaction exigeait seulement que `task.queued` y soit. C'était un faux vert en
+    // attente : une base réutilisée d'une exécution à l'autre — ce qui est le cas sur une machine de
+    // développeur, la CI montant un conteneur neuf — porte déjà le fait, et l'assertion aurait passé
+    // même si le redémarrage avait tout perdu. Comparer **avant** et **après** ne dépend pas de ce
+    // que la base contenait au départ, et dit exactement ce que « durable » veut dire.
+    assert.deepEqual(
+      types,
+      avant,
+      "le daemon a redémarré sous un profil qui promet la durabilité, et son journal a changé. " +
+        `Avant : ${[...new Set(avant)].join(", ") || "(rien)"}. Après : ` +
+        `${[...new Set(types)].join(", ") || "(rien)"}`,
+    );
+    // Et non vide, sans quoi deux journaux vides se compareraient égaux — la clause serait alors
+    // tenue par un daemon qui n'a jamais rien écrit.
+    assert.ok(
+      types.includes("task.queued"),
+      `le journal ne porte pas le fait attendu : ${types.join(", ")}`,
+    );
+  });
+});
+
+/** La tâche de la cinquième clause. Distincte des quatre autres, pour la même raison. */
+const TACHE_DURABLE = "task_01HF7YAT000000000000000007";

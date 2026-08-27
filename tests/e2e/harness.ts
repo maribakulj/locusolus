@@ -104,6 +104,54 @@ export const ADMINISTRATION_ENV = {
   principal: "LOCUSD_ADMIN_PRINCIPAL",
 } as const;
 
+/**
+ * Le profil sous lequel le harnais monte un daemon **durable** — `W12.d.5`.
+ *
+ * `single-node-vm` et non `personal-local` : le premier promet la durabilité à ses clients, donc
+ * `Choice::decide` **refuse** de le démarrer sans journal durable. Monter un profil volatile avec un
+ * journal PostgreSQL marcherait aussi et ne prouverait pas la même chose — la clause veut un daemon
+ * qui *promet* de survivre, parce que c'est cette promesse-là qu'un redémarrage vérifie.
+ */
+const DURABLE_PROFILE = "single-node-vm";
+
+/**
+ * La variable par laquelle la CI passe une base au harnais — `W12.d.5`.
+ *
+ * La **même** que celle du job `rust`, et pas une seconde : deux variables pour une base donneraient
+ * deux endroits à tenir d'accord, et celle-ci porte déjà exactement ce qu'il faut.
+ */
+export const POSTGRES_ENV = "LOCUS_TEST_POSTGRES";
+
+/**
+ * L'adresse du journal durable, ou `undefined` — et **jamais** `undefined` en CI.
+ *
+ * # Pourquoi la règle diffère selon l'endroit
+ *
+ * C'est celle que `W20.i` a posée pour la suite de contract tests du journal : « un saut silencieux
+ * rendrait vert un dépôt où le driver n'a jamais tourné ». En CI, le service est déclaré dans le
+ * workflow ; son absence est donc une panne de câblage, pas une machine ordinaire. Sur une machine
+ * de développeur sans PostgreSQL, c'est l'inverse.
+ *
+ * La clause qui l'appelle **dit** laquelle des deux vaut, plutôt que de se sauter en silence.
+ *
+ * @throws {HarnessFailure} sous `CI` sans la variable.
+ */
+export function journalDurable(
+  env: Record<string, string | undefined> = process.env,
+): string | undefined {
+  const adresse = env[POSTGRES_ENV]?.trim();
+  if (adresse !== undefined && adresse !== "") return adresse;
+  if ((env["CI"] ?? "") !== "") {
+    throw new HarnessFailure(
+      POSTGRES_ENV,
+      "absente alors que `CI` est défini. Le service PostgreSQL est déclaré dans le workflow : son " +
+        "absence ici est une panne de câblage, et se sauter rendrait vert un redémarrage que " +
+        "personne n'a exercé",
+    );
+  }
+  return undefined;
+}
+
 /** Combien de temps un processus a pour devenir joignable avant qu'on le déclare mort. */
 const BOOT_TIMEOUT_MS = 30_000;
 
@@ -217,6 +265,24 @@ export type Chain = {
    * mission au lieu de la lecture.
    */
   manifesteDuWorker(): Promise<CapabilityManifest>;
+  /**
+   * Arrêter `locusd` et le relancer **sur le même journal** — `W12.d.5`.
+   *
+   * # Ce que le redémarrage vérifie, et ce qu'il ne peut pas vérifier partout
+   *
+   * Un plan de contrôle qui promet la durabilité doit retrouver ses faits. Sous le défaut
+   * `personal-local`, le journal est en mémoire et il n'y a rien à retrouver — c'est exact, annoncé
+   * au démarrage, et ce n'est pas ce que cette méthode existe pour montrer. Elle sert aux chaînes
+   * montées avec un `journal`, où la promesse est réelle.
+   *
+   * Seul `locusd` redémarre. Le broker et le worker n'ont rien à voir avec la durabilité du journal,
+   * et les arrêter aussi ferait passer un redémarrage de chaîne entière pour un redémarrage de
+   * daemon — deux choses, et la seconde est celle que §27.1 promet.
+   *
+   * @returns ce que le **nouveau** processus a annoncé au démarrage.
+   * @throws {HarnessFailure} si l'ancien ne meurt pas, ou si le nouveau ne répond pas.
+   */
+  redemarrerLocusd(): Promise<string>;
   /** Tout arrêter. Idempotent. */
   stop(): Promise<void>;
 };
@@ -646,6 +712,17 @@ export async function startChain(options: {
    * réclamer ».
    */
   readonly worker?: "au démarrage" | "à la demande";
+  /**
+   * L'adresse du journal durable, quand la clause en exige un — `W12.d.5`.
+   *
+   * Absente, `locusd` démarre sous son défaut `personal-local`, dont le journal est **en mémoire** :
+   * c'est ce que montent les quatre premières clauses, et c'est exact pour elles — elles n'affirment
+   * rien qui survive à un redémarrage.
+   *
+   * Présente, elle vient de [`journalDurable`] et jamais d'une constante : une adresse écrite ici
+   * serait celle d'une machine, et le harnais cesserait de tourner ailleurs.
+   */
+  readonly journal?: string;
 }): Promise<Chain> {
   const repo = workerRepo();
   const locusd = builtBinary(options.root, "locusd");
@@ -692,7 +769,10 @@ export async function startChain(options: {
       );
     }
 
-    const daemon = start("locusd", locusd, [], {
+    // L'environnement du daemon, **nommé** plutôt qu'écrit dans l'appel : un redémarrage doit
+    // repartir avec exactement le même, et deux littéraux à tenir d'accord divergeraient au premier
+    // amorçage ajouté. C'est ce que `W12.d.5` exige — le daemon redémarre **sur le même journal**.
+    const environnementDuDaemon = {
       ...process.env,
       LOCUSD_BIND: `127.0.0.1:${port}`,
       LOCUSD_BROKER_SOCKET: brokerSocket,
@@ -706,12 +786,28 @@ export async function startChain(options: {
       [ENROLLMENT.env.workspace]: ADMINISTRATION.workspaceId,
       [ENROLLMENT.env.principal]: ADMINISTRATION.principalId,
       [ENROLLMENT.env.project]: ADMINISTRATION.projectId,
-    });
+      // Le journal — `W12.d.5`. Absent, le défaut de `locusd` reste `personal-local`, volatile, et
+      // c'est ce que les quatre premières clauses montent. Présent, le profil qui **promet** la
+      // durabilité est déclaré avec lui : un `single-node-vm` sans journal durable est refusé au
+      // démarrage, et c'est voulu — un profil qui promet et repart vide mentirait à tout ce qui s'y
+      // adresse.
+      ...(options.journal === undefined
+        ? {}
+        : { LOCUSD_PROFILE: DURABLE_PROFILE, LOCUSD_JOURNAL: options.journal }),
+    };
+
+    /** Démarrer un `locusd` sur cet environnement, et attendre qu'il réponde. */
+    const demarrerLocusd = async (): Promise<Started> => {
+      const demarre = start("locusd", locusd, [], environnementDuDaemon);
+      // `/projections/status` plutôt qu'un `/health` : il n'y en a pas, et en inventer un pour le
+      // harnais ajouterait au produit une route dont seul le test aurait besoin. Celle-ci répond
+      // toujours et dit quelque chose de vrai sur l'état du daemon.
+      await waitReachable(demarre, `${controlPlane}/projections/status`);
+      return demarre;
+    };
+
+    const daemon = await demarrerLocusd();
     demarres.push(daemon);
-    // `/projections/status` plutôt qu'un `/health` : il n'y en a pas, et en inventer un pour le
-    // harnais ajouterait au produit une route dont seul le test aurait besoin. Celle-ci répond
-    // toujours et dit quelque chose de vrai sur l'état du daemon.
-    await waitReachable(daemon, `${controlPlane}/projections/status`);
 
     // `W20.z` : le worker s'enrôle **avant** de boucler, et c'est une commande à part — §7.2 veut
     // que le premier enrôlement soit explicite, et `canterel` le tient par une sous-commande.
@@ -827,6 +923,40 @@ export async function startChain(options: {
       return manifesteDe(commande.output());
     };
 
+    /** Arrêter le `locusd` courant, en relancer un sur le même environnement. */
+    const redemarrerLocusd = async (): Promise<string> => {
+      const rang = demarres.findIndex((candidat) => candidat.name === "locusd");
+      if (rang < 0) {
+        throw new HarnessFailure(
+          "locusd",
+          "n'est pas dans cette chaîne : rien à redémarrer. Rendre la main ici ferait lire le " +
+            "redémarrage comme réussi",
+        );
+      }
+      const ancien = demarres[rang];
+      if (ancien === undefined) {
+        throw new HarnessFailure("locusd", `rang ${rang} vide, ce qui est un défaut du harnais`);
+      }
+      ancien.child.kill("SIGTERM");
+      // **Attendu, jamais supposé.** Le nouveau se lie au **même port** : le lancer avant que
+      // l'ancien ait rendu la socket produirait un « address already in use » intermittent, et le
+      // diagnostic parlerait du port là où la cause est un ordre.
+      if ((await attendreSortie(ancien)) === null) {
+        throw new HarnessFailure(
+          "locusd",
+          `n'a pas rendu la main en ${BOOT_TIMEOUT_MS} ms après SIGTERM`,
+          ancien.output(),
+        );
+      }
+
+      const neuf = await demarrerLocusd();
+      // **Remplacé, jamais ajouté.** `annonceDe` trouve par nom et rendrait le **premier** : deux
+      // entrées « locusd » feraient lire l'annonce du processus mort comme celle du vivant, ce qui
+      // est exactement le genre de silence que ce harnais existe pour retirer.
+      demarres[rang] = neuf;
+      return neuf.output();
+    };
+
     return {
       controlPlane,
       workerStateDir,
@@ -834,6 +964,7 @@ export async function startChain(options: {
       annonce: (processus: string) => annonceDe(demarres, processus),
       tourDeWorker,
       manifesteDuWorker,
+      redemarrerLocusd,
       stop,
     };
   } catch (erreur) {
