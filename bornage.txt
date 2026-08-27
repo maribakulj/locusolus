@@ -1,0 +1,9 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.09s
+     Running tests/bubblewrap_driver.rs (target/debug/deps/bubblewrap_driver-15d80eca0739f009)
+
+running 1 test
+bornage impossible sur cet hôte : aucun cgroup n'est délégué à ce processus : sys/fs/cgroup/cgroup.controllers est absent : pas de hiérarchie unifiée. Les bornes de ressources ne peuvent donc pas être posées autour de la sandbox, et le niveau qui les promet ne sera pas attesté
+test ce_que_cet_hote_permet_du_bornage ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 20 filtered out; finished in 0.00s
+
