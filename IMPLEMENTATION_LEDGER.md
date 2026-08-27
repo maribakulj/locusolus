@@ -16562,6 +16562,47 @@ job installe donc `bubblewrap` — le paquet de la distribution, parce que ce qu
 être ce qu'un hôte ordinaire porte. Aucune variable d'environnement, aucun `#[ignore]`, aucun saut :
 les deux tests tournent à chaque passage ou le job est rouge.
 
+### Installer ne suffisait pas : le second rouge disait autre chose
+
+Le passage suivant est resté rouge, sur les deux mêmes tests, **mais plus pour la même raison**. «
+NON MESURÉ : bwrap est introuvable » avait disparu ; à sa place,
+`bwrap: setting up uid map: Permission denied`. Le programme était installé et l'hôte lui refusait
+le namespace utilisateur non privilégié dont il a besoin — c'est la restriction AppArmor d'Ubuntu
+24.04, `kernel.apparmor_restrict_unprivileged_userns`, que l'image de runner porte.
+
+Le conteneur de développement ne la porte pas : la clé y est **absente**, pas nulle, et le
+reproducteur minimal `bwrap --unshare-user --unshare-pid --ro-bind / / -- /bin/true` y sort `0`,
+sous `root` comme sous un uid non privilégié. D'où deux tests verts ici et rouges là-bas, et d'où le
+fait qu'aucune exécution locale n'aurait pu l'annoncer. C'est mesuré des deux côtés avant d'être
+écrit.
+
+Trois issues étaient ouvertes, et l'une est tombée à la mesure :
+
+- **déplacer les deux tests vivants vers le job `sandbox`** — inutile : ce job tourne sur la même
+  image `ubuntu-latest`, donc la restriction y est identique. Une relocalisation qui ne change pas
+  d'hôte ne change rien ;
+- **sonder et rapporter**, comme `W5.f` — c'est affaiblir l'assertion en constat, exactement le «
+  saut silencieux » que le job refuse par ailleurs ;
+- **donner la capacité** — celle-ci ne touche à rien de ce qui est affirmé. Les deux tests gardent
+  leurs assertions mot pour mot ; c'est l'hôte de CI qu'on rend capable, pas le test qu'on rend
+  indulgent. C'est la réponse déjà donnée à PostgreSQL, puis à `bubblewrap` lui-même.
+
+Le pas **mesure d'abord, ne lève qu'ensuite, et prouve après**. Sonder avant de lever coûte une
+ligne et vaut ce qu'elle coûte : le jour où l'image de runner change, le journal dira « rien à lever
+» au lieu d'abaisser en silence une garde devenue inutile. Et si la levée ne suffit pas, l'échec
+tombe **dans ce pas-là**, en nommant la capacité manquante, plutôt qu'au milieu d'une table de tests
+où il se lirait « le confinement est faux ».
+
+Le pas affiche `n/a` et non `0` quand une clé sysctl n'existe pas. C'est la règle 3 du rythme de
+session appliquée à un fichier de `/proc` : une valeur absente et une valeur nulle ne se réparent
+pas pareil.
+
+Les trois branches du pas ont été **exercées** avant d'être poussées, avec un faux `bwrap` et un
+faux `sudo` sur le `PATH` : hôte capable → `0` sans rien lever ; hôte récalcitrant que la levée
+répare → `0` en le disant ; hôte que la levée ne répare pas → `1`, avec ce que le programme en dit.
+Une garde qu'on n'a pas vue échouer n'est pas une garde vérifiée, et celle-ci existe précisément
+pour le cas où l'hypothèse AppArmor serait fausse.
+
 ### Ce qui reste de `W5.af`
 
 Le backend derrière `RuntimePort` — `create` et `start` en comptabilité, `attestation` — et la
