@@ -16603,6 +16603,30 @@ répare → `0` en le disant ; hôte que la levée ne répare pas → `1`, avec 
 Une garde qu'on n'a pas vue échouer n'est pas une garde vérifiée, et celle-ci existe précisément
 pour le cas où l'hypothèse AppArmor serait fausse.
 
+**Le passage suivant a répondu, et c'est la branche du milieu qui a servi.** Ce que le runner a
+écrit, dans l'ordre :
+
+```
+bubblewrap 0.9.0
+apparmor_restrict_unprivileged_userns : 1
+unprivileged_userns_clone             : 1
+max_user_namespaces                   : 63838
+bwrap: setting up uid map: Permission denied
+l'hôte refuse — levée de la restriction AppArmor, la seule cause connue ici
+kernel.apparmor_restrict_unprivileged_userns = 0
+apparmor_restrict_unprivileged_userns : 0
+levée : l'hôte crée maintenant un namespace utilisateur non privilégié
+```
+
+puis `la_racine_en_lecture_seule_refuse_une_ecriture ... ok` et
+`les_arguments_produits_confinent_reellement ... ok`. Le job `rust` est vert.
+
+Le diagnostic était donc juste, et **la sonde le prouve plutôt que de le supposer** : `1` avant, `0`
+après, et le refus exact entre les deux. Elle a aussi écarté l'autre cause candidate sans qu'on ait
+à le plaider — `unprivileged_userns_clone` valait déjà `1` : ce n'était pas lui. C'est le bénéfice
+qu'on achète en sondant avant de lever plutôt qu'en levant à l'aveugle, et il s'est payé au premier
+passage.
+
 ### Ce qui reste de `W5.af`
 
 Le backend derrière `RuntimePort` — `create` et `start` en comptabilité, `attestation` — et la
