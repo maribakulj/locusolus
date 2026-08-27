@@ -17077,3 +17077,72 @@ dit pourquoi il ne l'affirme pas.
 Brancher la pose sur `BubblewrapBackend`, nommer le composé, et faire passer les trois sondes de
 quota de `NotRun` à un verdict. Ce dernier point **est** le test de sortie, et il ne peut se
 constater que là où un cgroup est délégué — c'est-à-dire en CI.
+
+## 2026-08-27 — W5.ai.3 — Le bornage branché, et le mécanisme composé porte son nom
+
+Troisième tranche de `W5.ai`. Elle branche ce que les deux précédentes ont construit, et elle donne
+au composé le nom que l'ADR 0036 lui réservait.
+
+### Le demi-état est rendu inexprimable
+
+Une délégation, un parent, un lanceur d'enveloppe : les trois tiennent dans un seul `Option`. Une
+délégation sans lanceur saurait poser le cgroup sans pouvoir y entrer ; un lanceur sans délégation
+n'aurait rien où entrer. Les tenir séparément aurait demandé une garde ; les tenir ensemble rend
+l'état intermédiaire impossible à écrire.
+
+Le lanceur est **du même type** que celui de la sandbox. Généraliser le port `Runner` pour qu'il
+prenne un programme par appel aurait été plus élégant en principe et aurait touché **dix**
+implémentations dans les tests, pour un besoin qu'un paramètre couvre. Mesuré avant de choisir.
+
+### Le nom du composé, et ce qui a été vérifié avant de le poser
+
+`bubblewrap+cgroup`. Il entre **maintenant** et pas plus tôt : l'ADR 0036 décision 2 le réservait à
+son implémentation, faute de quoi il aurait annoncé un effet qui n'avait pas lieu.
+
+Vérifié avant de l'écrire : `backend` est une chaîne libre — `{"type": "string", "minLength": 1}` —
+dans les **deux** schémas de `lep/1.0` qui le portent, et non une énumération. Le second nom ne
+touche donc pas au protocole gelé. C'était la seule chose qui aurait pu faire de cette tranche un
+arbitrage plutôt que du travail, et une lecture a suffi à l'écarter.
+
+### Le témoignage dit _qui_ tient la borne
+
+`enforced_by_broker_cgroup:memory.max` plutôt que `unenforced:memory.max`. Les deux formulations
+plus simples étaient fausses : écrire que la borne est tenue laisserait croire que le mécanisme
+nommé la porte — ce que l'ADR 0036 refuse — et l'omettre laisserait croire qu'elle ne l'est pas.
+
+### Deux ordres qui ne sont pas indifférents
+
+Le cgroup se pose **avant** que l'identifiant soit rendu. Un appelant qui recevrait un identifiant
+utilisable alors que la borne a échoué lancerait sa sandbox **sans borne**, ce qui est l'un des deux
+modes d'échec silencieux de l'ADR 0036.
+
+Il se retire **avant** l'oubli de l'identifiant. L'inverse rendrait la sandbox inconnue du mécanisme
+alors que son cgroup existe encore sur l'hôte, et plus personne n'aurait de quoi le retirer — c'est
+la leçon que `remove` porte déjà côté podman.
+
+### Un défaut de fixture, et la troisième leçon du même genre
+
+`avec_cgroup_la_sonde_entre_dans_le_cgroup_avant_de_se_lancer` a échoué sur
+`créer le cgroup … a échoué — File exists`.
+
+La cause : deux tests partageaient un répertoire parent nommé par PID. Les tests d'un même binaire
+tournent **en parallèle dans le même processus**, donc le PID ne les distingue pas, et le compteur
+de chaque backend repartant à un, tous deux allouaient `locus-bw-0001`.
+
+Le refus de nom déjà pris posé par `W5.ai.2` s'est donc déclenché — correctement — **entre mes
+propres tests**. La garde a fait son travail ; c'est la fixture qui était fautive.
+
+C'est la troisième fois de la journée qu'un chemin « propre au processus » se révèle insuffisant,
+après le témoin de fuite de `W5.af.1` et la source de montage. La règle qui s'en dégage : un chemin
+de test se nomme par **ce qui le distingue vraiment** — ici l'épreuve —, pas par ce qui est commode
+à obtenir.
+
+### Ce que la sonde vivante mesure, et ce qu'elle ne suppose pas
+
+`ce_que_cet_hote_permet_du_bornage` n'exige ni pose ni refus : la délégation appartient à l'hôte.
+Elle exige que l'issue soit **conclusive** et l'imprime. C'est le motif de `W5.f` — mesurer d'abord,
+resserrer ensuite.
+
+Ici elle rend le refus, faute de délégation. Sur le runner, elle dira si un `subtree_control`
+accepte d'être écrit par le processus qui s'y trouve — ce que **rien n'établit encore**, et qu'il
+aurait été facile de supposer parce que la délégation, elle, est lisible.
