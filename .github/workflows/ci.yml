@@ -301,6 +301,21 @@ jobs:
       # Ce que l'hôte annonce, avant toute tentative. Un job qui échoue plus loin doit pouvoir se
       # relire ici : « pas de podman » et « podman mais pas de cgroups v2 » ne se réparent pas
       # pareil, et la table des sondes ne les distingue pas.
+      #
+      # `cgroup.controllers`, et non `cgroup.controls` — ce dernier n'existe pas. La faute était une
+      # lettre, et elle a fait dire **le contraire du vrai** à ce pas pendant toute sa vie : il
+      # annonçait « cgroup v2 : absent » sur un runner où l'attestation déposée par **le même job**
+      # enregistrait `cgroup_v2=available controllers=cpu,cpuset,io,memory,pids`. Le fichier absent
+      # tombait dans la branche de repli, et le repli disait « absent » là où il fallait lire « je
+      # n'ai pas su regarder ».
+      #
+      # Ce pas existe pour qu'un job qui échoue plus loin puisse se relire. Une annonce qui contredit
+      # la mesure du même tour est pire que pas d'annonce : elle envoie réparer une hiérarchie de
+      # cgroups qui n'a jamais manqué. C'est la règle 3 du rythme de session — « un compteur qui n'a
+      # rien lu ne vaut pas zéro » — appliquée à un chemin de fichier.
+      #
+      # Les deux cas sont donc distingués, et la sonde de `probe.rs` reste la source qui compte : ce
+      # pas annonce, il ne conclut pas.
       - name: Ce que l'hôte annonce
         run: |
           echo "## Ce que l'hôte annonce" >> "$GITHUB_STEP_SUMMARY"
@@ -309,9 +324,11 @@ jobs:
             echo "noyau        : $(uname -r)"
             echo "podman       : $(podman --version 2>&1 || echo absent)"
             echo "cgroup fstype: $(stat -fc %T /sys/fs/cgroup)"
-            echo "cgroup v2    : $([ -f /sys/fs/cgroup/cgroup.controls ] && cat /sys/fs/cgroup/cgroup.controls || echo 'absent')"
+            echo "cgroup v2    : $(cat /sys/fs/cgroup/cgroup.controllers 2>/dev/null || echo 'pas de hiérarchie unifiée à cet emplacement')"
+            echo "cgroup2 monté: $(awk '$3 == "cgroup2" { print $2 }' /proc/mounts | tr '\n' ' ' | sed 's/ $//' || true)"
             echo "subuid       : $(grep "^$(id -un):" /etc/subuid 2>/dev/null || echo 'aucune plage')"
             echo "unprivileged_userns_clone: $(cat /proc/sys/kernel/unprivileged_userns_clone 2>/dev/null || echo 'n/a')"
+            echo "apparmor_restrict_unprivileged_userns: $(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2>/dev/null || echo 'n/a')"
             echo '```'
           } | tee -a "$GITHUB_STEP_SUMMARY"
 

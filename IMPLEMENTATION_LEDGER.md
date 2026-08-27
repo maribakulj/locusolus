@@ -16808,3 +16808,61 @@ deux côtés l'affirment — celui qui l'a révélé comme celui qui l'a longtem
 C'est la famille de défaut que cette session a rencontrée le plus souvent : une phrase qui affirme
 une propriété que le code ne tient pas. Elle ne se trouve pas en relisant la phrase, mais en donnant
 au code un second cas.
+
+## 2026-08-27 — W5.aj — L'annonce d'hôte disait le contraire du vrai, et une lettre suffisait
+
+Trouvé en lisant le journal du job `sandbox` pour préparer `W5.ai`, c'est-à-dire en cherchant tout
+autre chose.
+
+Le pas « Ce que l'hôte annonce » testait `[ -f /sys/fs/cgroup/cgroup.controls ]`. Le fichier
+s'appelle `cgroup.controllers`. Le test échouait donc **toujours**, la branche de repli s'exécutait
+**toujours**, et elle imprimait « absent ».
+
+Sur le même tour, l'attestation déposée par **le même job** enregistrait :
+
+```
+cgroup_v2=available controllers=cpu,cpuset,io,memory,pids userns=available seccomp=available
+```
+
+Deux phrases contradictoires dans un seul journal. La fausse était celle qu'on lit en premier quand
+quelque chose ne va pas, puisque ce pas existe précisément pour qu'un job qui échoue plus loin se
+relise — son commentaire le dit : « pas de podman » et « podman mais pas de cgroups v2 » ne se
+réparent pas pareil.
+
+Une annonce qui contredit la mesure du même tour est **pire que pas d'annonce** : elle envoie
+réparer une hiérarchie de cgroups qui n'a jamais manqué. C'est la règle 3 du rythme de session — «
+un compteur qui n'a rien lu ne vaut pas zéro » — appliquée à un chemin de fichier, et c'est la
+troisième fois de la journée que cette forme se présente.
+
+### Ce que la correction ajoute, et pourquoi la mesure l'a exigé
+
+Le repli **nomme son ignorance** : « pas de hiérarchie unifiée à cet emplacement », pas « absent ».
+Les deux ne se réparent pas pareil, ce qui est exactement l'argument du commentaire d'origine.
+
+Deux lignes s'ajoutent parce qu'en mesurant sur cet hôte-ci elles se sont révélées nécessaires :
+
+- **le point de montage `cgroup2` réel**, lu dans `/proc/mounts`. Le conteneur de développement est
+  un cas que l'ancienne ligne ne pouvait pas décrire : `/sys/fs/cgroup` y est un `tmpfs` avec des
+  hiérarchies v1, **et** un `cgroup2` est monté à `/sys/fs/cgroup/unified` — ne portant que
+  `hugetlb`, donc aucun des trois contrôleurs qui comptent. « Pas de cgroup2 » et « cgroup2 monté
+  ailleurs, sans les contrôleurs utiles » sont deux hôtes différents ;
+- **`apparmor_restrict_unprivileged_userns`**, dont `W5.af.1` a mesuré qu'il décide si `bwrap` peut
+  seulement démarrer. Le job `rust` l'imprime déjà ; le job `sandbox` annonce l'hôte et ne le disait
+  pas.
+
+### La garde qui aurait attrapé ça n'existe pas
+
+Rien ne vérifie qu'un `[ -f ]` dans un workflow vise un fichier réel, et rien ne peut le faire en
+général — le chemin n'existe que sur le runner. Ce qui a fini par le révéler est la
+**confrontation** de deux sorties du même job, l'une annoncée et l'autre attestée. C'est la même
+méthode que `W5.af.3`, où la campagne et `unenforced` ont dû dire la même chose : une propriété se
+tient quand deux choses écrites séparément la répètent, pas quand une seule l'affirme.
+
+### Ce que cela apprend pour `W5.ai`
+
+Le runner porte `cgroup_v2=available` avec `cpu`, `memory` et `pids` — les trois contrôleurs que
+`bubblewrap` n'écrit pas et sur lesquels la campagne de `W5.af.3` bloque. La capacité existe donc là
+où la campagne tourne ; ce qui manque n'est pas l'hôte, c'est que personne ne pose le cgroup autour
+de `bwrap`. Le conteneur de développement, lui, ne peut pas l'éprouver : ses trois contrôleurs sont
+en v1 et son unifiée ne porte que `hugetlb`. Cette asymétrie est un fait à écrire dans `W5.ai`
+plutôt qu'à découvrir en chemin.
