@@ -195,6 +195,24 @@ jobs:
       - name: Clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
 
+      # `W5.af.1` : deux tests donnent les arguments produits au **vrai** `bwrap`, parce qu'une
+      # traduction juste sur le papier et fausse à l'exécution est ce qu'un test pur ne peut pas
+      # voir. Ils **échouent** quand le programme manque, au lieu de se sauter en silence — et le
+      # premier passage de CI l'a montré en rouge, exactement comme annoncé.
+      #
+      # La réponse est celle que ce job donne déjà à PostgreSQL, quelques lignes plus haut : quand
+      # un test refuse de se sauter, on lui **donne la capacité**, on n'affaiblit pas l'assertion.
+      # « Un saut silencieux rendrait vert un dépôt où le driver n'a jamais tourné » vaut mot pour
+      # mot ici, en remplaçant le driver par le mécanisme que le worker emploie.
+      #
+      # Le paquet est celui de la distribution, et non un binaire tiré d'ailleurs : ce qui est
+      # éprouvé doit être ce qu'un hôte ordinaire porte.
+      - name: bubblewrap
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends bubblewrap
+          bwrap --version
+
       - name: Tests
         run: cargo test --all-features
 

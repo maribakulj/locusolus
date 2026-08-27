@@ -16546,6 +16546,22 @@ reproduisent à l'identique. Les clones voisins étaient également en retard, c
 `check:roadmap` sur `W2.24` : une garde qui lit quatre dépôts dit faux quand l'un d'eux est périmé,
 et c'est une propriété de l'environnement, pas du plan.
 
+### La CI a été rouge, et la réparation était déjà écrite dans le job
+
+Premier passage : le job `rust` **rouge**, sur les deux tests vivants — « NON MESURÉ : bwrap est
+introuvable sur cet hôte ». Les tests ont fait exactement ce qu'ils annoncent, et le runner n'a pas
+`bubblewrap`.
+
+Deux réparations possibles, et le job en avait déjà tranché une équivalente. Quelques lignes plus
+haut, un service PostgreSQL existe parce qu'un test **échoue** quand `LOCUS_TEST_POSTGRES` manque :
+« un saut silencieux rendrait _vert_ un dépôt où le driver n'a jamais tourné ». La phrase vaut mot
+pour mot ici, en remplaçant le driver par le mécanisme que le worker emploie.
+
+Quand un test refuse de se sauter, on lui **donne la capacité** ; on n'affaiblit pas l'assertion. Le
+job installe donc `bubblewrap` — le paquet de la distribution, parce que ce qui est éprouvé doit
+être ce qu'un hôte ordinaire porte. Aucune variable d'environnement, aucun `#[ignore]`, aucun saut :
+les deux tests tournent à chaque passage ou le job est rouge.
+
 ### Ce qui reste de `W5.af`
 
 Le backend derrière `RuntimePort` — `create` et `start` en comptabilité, `attestation` — et la
