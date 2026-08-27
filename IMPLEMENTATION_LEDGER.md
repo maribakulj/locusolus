@@ -16635,3 +16635,82 @@ seront **dans** le backend : ce que `persist_after_teardown` mesure quand le dé
 du processus, et ce qu'`attestation()` rapporte pour un mécanisme sans conteneur à réinspecter.
 
 Onze mutants posés, zéro survivant, deux contrôles.
+
+## 2026-08-27 — W5.af.2 — La racine se bâtit, elle ne s'emprunte pas
+
+Quatre défauts de `W5.af.1`, trouvés en préparant la tranche suivante, et **tous mesurés avant
+d'être écrits**. Aucun n'était visible dans les arguments produits : ils se lisaient tous « racine
+en lecture seule, namespaces retirés ». C'est la limite exacte d'un test qui compare des chaînes.
+
+### Ce que `--ro-bind / /` laissait passer
+
+1. **Le home de l'utilisateur était monté.** `CLAUDE.md` l'interdit en toutes lettres — « ne monte
+   jamais le home utilisateur … dans une sandbox par défaut ». Et sous racine **inscriptible**,
+   c'est-à-dire à `S0` et `S1`, ce n'était pas seulement une lecture : un `echo` depuis la sandbox
+   vers `/home/<user>/…` **atteignait le fichier sur l'hôte**, vérifié en le relisant hors de toute
+   sandbox. La sonde `write_host_home` est contenue à partir de `S1` ; elle ne l'était pas.
+2. **Tout le système de fichiers de l'hôte était lisible**, `/etc/shadow` compris.
+   `read_host_filesystem` et `read_host_secret_files` sont contenues à partir de `S2` ; elles ne
+   l'étaient pas.
+3. **`--unshare-pid` était cosmétique.** Sans remontage de `/proc`, la sandbox lisait la table des
+   processus de l'hôte — cent quarante entrées relevées, contre cinq une fois `/proc` remonté. Le
+   namespace était bien créé ; c'est la vue qui restait celle du dehors.
+4. **`/dev/null` n'était pas inscriptible**, la racine entière étant en lecture seule. Une commande
+   aussi banale que `… 2>/dev/null` échouait alors pour une raison étrangère au confinement.
+
+Le quatrième a une conséquence qu'il faut nommer, parce qu'elle touchait un test de ce dépôt.
+`la_racine_en_lecture_seule_refuse_une_ecriture` lançait
+`echo essai > $t 2>/dev/null && echo ECRIT || echo REFUSE`. Un shell traite les redirections **de
+gauche à droite** : `> $t` d'abord, puis `2>/dev/null` — qui échouait. La commande rendait donc
+`REFUSE` **sans que la racine en lecture seule y soit pour rien**, et l'assertion explicite du test
+(« la racine annoncée en lecture seule a accepté une écriture ») ne distinguait pas les deux causes.
+Ce qui tuait réellement le mutant était la **seconde** assertion, « et rien n'a fui vers l'hôte ».
+Le test mesurait juste ; il ne mesurait pas ce que son message annonçait. Avec `--dev`, il le
+mesure.
+
+### Comment les quatre ont été trouvés
+
+En lisant les seize sondes de `SUITE` pour préparer le backend, et en se demandant ce que chacune
+rendrait contre un vrai `bwrap`. Trois se sont annoncées non contenues à un niveau où elles doivent
+l'être. Les trois ont été **vérifiées à la main** avant d'être crues — la campagne les aurait
+trouvées aussi, plus tard et plus cher.
+
+### La racine composée
+
+`--tmpfs /` neuf, `/usr` **seul** emprunté en lecture seule, les liens d'un `/usr` fusionné, un
+`/proc` et un `/dev` à elle. `/etc` n'y est pas, `/home` non plus. Ce qu'une mission veut de plus
+passe par ses **montages**, où cela se voit et s'atteste.
+
+`--remount-ro /` scelle la racine quand le plan le demande, et il est posé **après** les montages.
+Mesuré : il scelle le tmpfs et laisse inscriptible un `--bind` posé avant lui, donc l'espace de
+travail écrit toujours et son écriture atteint bien l'hôte. Posé avant, il ne scellerait rien de ce
+que les montages ajoutent.
+
+Les liens sont posés **sans condition**. Les rendre conditionnels demanderait de lire l'hôte, ce que
+ce module ne fait pas ; un lien pendant est inoffensif, une lecture d'hôte rendrait la traduction
+dépendante d'une machine — ce que ce dépôt refuse partout.
+
+### Une garde retirée, et pourquoi ce n'est pas une régression
+
+`uncreatable_targets` signalait qu'une cible de montage absente de l'hôte ferait échouer le
+lancement, parce que sous `--ro-bind / /` `bwrap` ne peut pas créer le répertoire. Sur une racine
+`tmpfs`, **il le crée** — mesuré des deux côtés, `Can't mkdir: Read-only file system` d'un côté et
+le montage réussi de l'autre. La garde n'a plus rien à signaler, et une garde qui crie sur ce qui
+est juste se fait désactiver : c'est la leçon de `W22.d`, appliquée à une garde que cette session
+avait elle-même écrite deux heures plus tôt.
+
+### Ce qui rend ces tests des tests
+
+Les quatre neufs ont été passés contre **l'ancienne racine**, remise pour la mesure : les quatre
+échouent, et les treize autres restent verts. Un test neuf qui passerait aussi contre le code
+d'avant ne mesurerait pas ce qu'il annonce.
+
+### Trois réapprovisionnements, et la règle qu'ils imposent
+
+Le conteneur de session a été réapprovisionné **trois fois** pendant cette journée, la dernière au
+milieu de cette tranche : dépôt local revenu à un commit ancien, travail non commité perdu,
+sauvegardes du bloc-notes perdues avec. Rien de poussé n'a jamais été perdu. La règle qui en sort
+est mécanique et remplace une intention : **commiter et pousser dès qu'un fichier est écrit**, avant
+la boucle de vérification et non après. Refaire une tranche coûte peu quand les mesures sont
+consignées — celles-ci l'étaient, et se sont reproduites à l'identique. Ce qui coûte est de les
+redécouvrir.

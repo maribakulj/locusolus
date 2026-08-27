@@ -20,7 +20,7 @@
 //! disant** plutôt que de passer.
 
 use locus_execd::linux::bubblewrap::{
-    BACKEND, PROGRAM, obtained_namespaces, uncreatable_targets, unenforced, wrap_arguments,
+    BACKEND, PROGRAM, SYSTEM_LINKS, SYSTEM_TREE, obtained_namespaces, unenforced, wrap_arguments,
 };
 use locus_execd::linux::plan::{Namespace, NetworkPosture, SeccompPosture, plan};
 use locus_execution::{
@@ -31,12 +31,12 @@ use locus_execution::{
 // Fixtures
 // ---------------------------------------------------------------------------------------------
 
-/// Une cible de montage qui **existe déjà sur l'hôte**.
+/// La cible de montage de l'espace de travail.
 ///
-/// Sous `--ro-bind / /`, `bubblewrap` ne peut pas créer un point de montage — mesuré, et `--dir`
-/// échoue pareil. Une fixture qui viserait `/travail` échouerait donc au lancement, pour une raison
-/// étrangère à ce qu'on éprouve. `uncreatable_targets` existe précisément pour que ce cas se dise au
-/// lieu de se découvrir dans un message de `bwrap`.
+/// Elle n'a plus besoin d'exister sur l'hôte : la racine étant un `tmpfs` neuf, `bubblewrap` y crée
+/// le point de montage — mesuré. Ce n'était pas vrai de la première rédaction, qui montait la racine
+/// de l'hôte : `Can't mkdir: Read-only file system`, et `--dir` échouait pareil. Le nom reste celui
+/// d'alors ; ce qu'il désigne est maintenant vrai pour une autre raison.
 const CIBLE_EXISTANTE: &str = "/mnt";
 
 /// La source du montage, **qui existe réellement**.
@@ -146,23 +146,90 @@ fn la_sandbox_meurt_avec_qui_l_a_demandee() {
     }
 }
 
-/// La racine suit ce que le plan dit, et pas l'inverse.
+/// La racine est **bâtie**, et le sceau suit ce que le plan dit.
 ///
 /// Le test lit le plan plutôt que de coder le niveau en dur, sans quoi il vérifierait sa propre
 /// hypothèse au lieu de la traduction.
+///
+/// Ce qu'il tient en plus de l'ancienne rédaction : que la racine de l'hôte **ne soit pas montée**.
+/// Un `--ro-bind / /` passait l'ancien test — il montait bien « la racine » — tout en exposant le
+/// home de l'utilisateur et `/etc/shadow`.
 #[test]
-fn la_racine_suit_le_plan() {
+fn la_racine_est_batie_et_scellee_selon_le_plan() {
     for level in [SandboxLevel::S1, SandboxLevel::S2, SandboxLevel::S3] {
         let confinement = plan(&spec(level)).expect("le plan se calcule");
-        let attendu = if confinement.read_only_rootfs() {
-            "--ro-bind"
-        } else {
-            "--bind"
-        };
         let arguments = wrap_arguments(&confinement, &["/bin/true".to_owned()]);
-        let racine = position(&arguments, attendu).expect("la racine est montée");
-        assert_eq!(arguments.get(racine + 1).map(String::as_str), Some("/"));
-        assert_eq!(arguments.get(racine + 2).map(String::as_str), Some("/"));
+
+        let tmpfs = position(&arguments, "--tmpfs").expect("la racine est un tmpfs neuf");
+        assert_eq!(arguments.get(tmpfs + 1).map(String::as_str), Some("/"));
+
+        let systeme = position(&arguments, "--ro-bind").expect("l'arbre système est emprunté");
+        assert_eq!(
+            arguments.get(systeme + 1).map(String::as_str),
+            Some(SYSTEM_TREE)
+        );
+        assert_eq!(
+            arguments.get(systeme + 2).map(String::as_str),
+            Some(SYSTEM_TREE)
+        );
+
+        // **Aucun montage de la racine de l'hôte**, sous quelque mode que ce soit. C'est la clause
+        // qui manquait, et son absence est ce qui a laissé passer les quatre défauts.
+        for (index, argument) in arguments.iter().enumerate() {
+            if argument == "--bind" || argument == "--ro-bind" {
+                assert_ne!(
+                    arguments.get(index + 1).map(String::as_str),
+                    Some("/"),
+                    "la racine de l'hôte n'est jamais montée : {arguments:?}"
+                );
+            }
+        }
+
+        // `/proc` et `/dev` sont à elle, toujours : sans eux `--unshare-pid` est cosmétique et
+        // `2>/dev/null` échoue pour une raison étrangère au confinement.
+        assert!(position(&arguments, "--proc").is_some());
+        assert!(position(&arguments, "--dev").is_some());
+
+        let scelle = position(&arguments, "--remount-ro");
+        assert_eq!(
+            scelle.is_some(),
+            confinement.read_only_rootfs(),
+            "`--remount-ro` n'apparaît qu'à la demande du plan"
+        );
+        if let Some(scelle) = scelle {
+            assert_eq!(arguments.get(scelle + 1).map(String::as_str), Some("/"));
+            let dernier_montage = arguments
+                .iter()
+                .enumerate()
+                .filter(|(_, argument)| *argument == "--bind" || *argument == "--ro-bind")
+                .map(|(index, _)| index)
+                .next_back()
+                .expect("il y a au moins l'arbre système");
+            assert!(
+                scelle > dernier_montage,
+                "le sceau vient après les montages, sinon il ne scelle pas ce qu'ils ajoutent"
+            );
+        }
+    }
+}
+
+/// Les liens d'un `/usr` fusionné sont posés, tous, et sans condition.
+///
+/// Sans eux, `/bin/sh` n'a pas de chemin dans la racine bâtie. Ils sont inconditionnels parce que les
+/// rendre conditionnels demanderait de lire l'hôte, ce que ce module ne fait pas : un lien pendant
+/// est inoffensif, une lecture d'hôte rendrait la traduction dépendante d'une machine.
+#[test]
+fn les_liens_du_usr_fusionne_sont_tous_poses() {
+    let confinement = plan(&spec(SandboxLevel::S2)).expect("le plan se calcule");
+    let arguments = wrap_arguments(&confinement, &["/bin/true".to_owned()]);
+
+    assert!(!SYSTEM_LINKS.is_empty(), "il y a des liens à poser");
+    for (cible, lien) in SYSTEM_LINKS {
+        let pose = arguments
+            .windows(3)
+            .position(|fenetre| fenetre[0] == "--symlink" && fenetre[1] == *cible)
+            .map(|index| arguments[index + 2].as_str());
+        assert_eq!(pose, Some(*lien), "le lien {lien} est posé vers {cible}");
     }
 }
 
@@ -421,43 +488,118 @@ fn le_mecanisme_porte_le_nom_du_protocole() {
 // La différence réelle avec podman
 // ---------------------------------------------------------------------------------------------
 
-/// **Une cible que l'hôte ne porte pas est signalée**, au lieu d'échouer dans un message de `bwrap`.
+/// **La racine bâtie n'expose pas le système de fichiers de l'hôte.** Mesuré dans une vraie sandbox.
 ///
-/// `podman` bâtit une racine neuve depuis une image et y crée n'importe quel point de montage ;
-/// `bubblewrap` compose une **vue de la racine de l'hôte**, et sous `--ro-bind / /` il ne peut rien y
-/// créer — mesuré, `Can't mkdir: Read-only file system`, et `--dir` échoue pareil.
+/// Les quatre clauses correspondent aux quatre défauts de la première rédaction, et chacune échouait
+/// alors. Aucune n'était visible dans les arguments produits : elles se lisaient toutes « racine en
+/// lecture seule, namespaces retirés ». C'est pourquoi ce test lance le programme.
 #[test]
-fn une_cible_absente_de_l_hote_est_signalee() {
-    let confinement = plan(&spec(SandboxLevel::S2)).expect("le plan se calcule");
+fn la_racine_batie_ne_montre_pas_l_hote() {
     assert!(
-        confinement.read_only_rootfs(),
-        "la question ne se pose que sous racine en lecture seule"
+        bwrap_disponible(),
+        "NON MESURÉ : « {PROGRAM} » est introuvable sur cet hôte"
     );
 
-    let manquantes = uncreatable_targets(&confinement, |_| false);
-    assert_eq!(manquantes.len(), 1);
-    assert_eq!(manquantes[0].target, CIBLE_EXISTANTE);
+    let confinement = plan(&spec(SandboxLevel::S2)).expect("le plan se calcule");
+    let arguments = wrap_arguments(
+        &confinement,
+        &[
+            "/bin/sh".to_owned(),
+            "-c".to_owned(),
+            // Quatre constats, un par ligne, dans l'ordre des quatre défauts.
+            "test -e /etc/shadow && echo SECRETS || echo PAS-DE-SECRETS; \
+             test -e /home && echo HOME || echo PAS-DE-HOME; \
+             ls /proc | grep -c '^[0-9]*$'; \
+             { echo x > /dev/null; } 2>/dev/null && echo DEV-OK || echo DEV-CASSE"
+                .to_owned(),
+        ],
+    );
 
-    assert!(uncreatable_targets(&confinement, |_| true).is_empty());
+    let execution = std::process::Command::new(PROGRAM)
+        .args(&arguments)
+        .output()
+        .expect("bwrap se lance");
+    let sortie = String::from_utf8_lossy(&execution.stdout);
+    let lignes: Vec<&str> = sortie.lines().map(str::trim).collect();
+    assert_eq!(
+        lignes.len(),
+        4,
+        "les quatre constats ont été rendus : {sortie:?} / {}",
+        String::from_utf8_lossy(&execution.stderr)
+    );
 
-    // Et avec le vrai système de fichiers, la fixture passe — sinon les deux tests vivants
-    // échoueraient pour cette raison-là plutôt que pour ce qu'ils éprouvent.
+    assert_eq!(
+        lignes[0], "PAS-DE-SECRETS",
+        "`/etc` n'est pas emprunté : `read_host_secret_files` est contenue à partir de S2"
+    );
+    assert_eq!(
+        lignes[1], "PAS-DE-HOME",
+        "le home de l'utilisateur n'est pas monté — CLAUDE.md l'interdit en toutes lettres"
+    );
+
+    let processus: usize = lignes[2].parse().expect("le compte de processus se lit");
     assert!(
-        uncreatable_targets(&confinement, |chemin| std::path::Path::new(chemin).is_dir())
-            .is_empty(),
-        "la fixture vise une cible qui existe"
+        processus > 0,
+        "la sandbox voit au moins ses propres processus : un zéro dirait que le constat n'a rien lu"
+    );
+    assert!(
+        processus < 20,
+        "elle ne voit pas la table de l'hôte — sans `--proc` elle en lisait cent quarante ; \
+         relevé ici : {processus}"
+    );
+
+    assert_eq!(
+        lignes[3], "DEV-OK",
+        "`/dev/null` est inscriptible : sans lui, une commande qui écrit `2>/dev/null` échoue pour \
+         une raison étrangère au confinement, et une campagne lit ce refus comme un verdict"
     );
 }
 
-/// Sous racine **inscriptible**, la question ne se pose pas.
+/// **Sous racine inscriptible aussi**, le home de l'hôte reste hors d'atteinte.
 ///
-/// `bubblewrap` peut alors créer le point de montage, et signaler une cible absente serait crier sur
-/// ce qui est juste — la leçon de `W22.d`.
+/// C'est le défaut le plus grave de la première rédaction, et le seul qui **écrivait** : à `S0` et
+/// `S1` elle montait `--bind / /`, et un `echo` depuis la sandbox atteignait le fichier sur l'hôte.
+/// `write_host_home` est contenue à partir de `S1`.
 #[test]
-fn sous_racine_inscriptible_aucune_cible_n_est_signalee() {
+fn sous_racine_inscriptible_le_home_reste_hors_d_atteinte() {
+    assert!(
+        bwrap_disponible(),
+        "NON MESURÉ : « {PROGRAM} » est introuvable sur cet hôte"
+    );
+
     let confinement = plan(&spec(SandboxLevel::S1)).expect("le plan se calcule");
-    assert!(!confinement.read_only_rootfs());
-    assert!(uncreatable_targets(&confinement, |_| false).is_empty());
+    assert!(
+        !confinement.read_only_rootfs(),
+        "la fixture éprouve bien le cas inscriptible"
+    );
+
+    let temoin = format!("/tmp/essai-home-w5af-{}", std::process::id());
+    let _ = std::fs::remove_file(&temoin);
+
+    let arguments = wrap_arguments(
+        &confinement,
+        &[
+            "/bin/sh".to_owned(),
+            "-c".to_owned(),
+            format!("echo fuite > {temoin} && echo ECRIT || echo REFUSE"),
+        ],
+    );
+    let execution = std::process::Command::new(PROGRAM)
+        .args(&arguments)
+        .output()
+        .expect("bwrap se lance");
+
+    // Le chemin est **hors** de la racine bâtie : `/tmp` n'y est pas monté. Ce qu'on vérifie n'est
+    // donc pas le verdict rendu à l'intérieur — un tmpfs accepterait l'écriture sans qu'elle sorte —
+    // mais l'absence du fichier **sur l'hôte**, la seule des deux affirmations qu'une fuite
+    // contredirait.
+    assert!(
+        !std::path::Path::new(&temoin).exists(),
+        "rien n'a atteint l'hôte : {} / {}",
+        String::from_utf8_lossy(&execution.stdout).trim(),
+        String::from_utf8_lossy(&execution.stderr).trim()
+    );
+    let _ = std::fs::remove_file(&temoin);
 }
 
 // ---------------------------------------------------------------------------------------------
