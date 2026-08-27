@@ -17343,3 +17343,77 @@ comparée** — un `ok` qui ne dit pas contre quoi ne dit rien.
 Conséquence assumée : ce dépôt rougit désormais tant que le pin du worker n'a pas suivi un
 changement du SDK généré. C'est le coût de rendre visible un couplage qui existait déjà et que
 personne ne payait — parce que personne ne le voyait.
+
+## 2026-08-27 — W12.d.4 — Une mission taillée sur le manifeste est réclamée
+
+`tests/e2e/chain.chain.ts` et `tests/e2e/harness.ts`. La quatrième clause de `W12.d`, et la première
+qui voie une mission traverser le placement de bout en bout.
+
+### Ce que la troisième clause n'avait pas pu exiger
+
+La réclamation. La mission du corpus demande `S2` et `deny`, et `locusd` la refusait pour des motifs
+de §10.2 **tous exacts** sur la machine où elle tournait. Exiger la réclamation aurait fait de la
+clause une affirmation sur l'hôte : rouge sur un conteneur pauvre, verte sur un runner capable, sans
+que rien du dépôt n'ait changé.
+
+### Ce qui change, et qui n'est pas une concession
+
+La mission n'est plus écrite en dur : elle est **dérivée de ce que ce worker-ci annonce**, lu de lui
+par `canterel worker status`. Une mission qui demande ce que le worker a dit savoir faire est
+plaçable **partout**, et « un worker est placé sur ce qu'il a prouvé » devient une propriété du
+dépôt au lieu d'une propriété de la machine.
+
+Trois choix, chacun motivé :
+
+- **`S0`** — le seul niveau que `Candidate::shortfall` place sans attestation. Au-dessus, il exige
+  qu'une campagne ait conclu, ce qu'aucun des deux hôtes du chantier ne garantit. Le worker
+  n'annonce jamais `S0` et l'applique quand même, `minimum_level` étant un plancher : c'est cette
+  clause qui a trouvé que le worker le lisait comme une égalité (`W2.25`).
+- **Le mode réseau vient du manifeste**, `deny` de préférence. Les deux moitiés du placement le
+  comparent au même document, donc n'importe quel mode annoncé passe des deux côtés.
+- **Le disque est positif et petit.** `ResourceSpec` interdit zéro — `exclusiveMinimum: 0`,
+  invariant 6, aucune borne n'a de défaut implicite — donc « ne rien réserver » n'est pas
+  exprimable.
+
+### Deux défauts trouvés en deux exécutions, et le second était invisible
+
+`W2.25` d'abord : le worker refusait `S0` parce qu'il testait l'appartenance là où le plan de
+contrôle teste l'ordre.
+
+`W2.26` ensuite, et celui-là n'aurait pu se trouver autrement. Le worker n'envoyait **aucune** clé
+d'idempotence, ce que §15.2 exige de toute enveloppe. `locusd` ne construit sa commande que
+lorsqu'il a quelque chose à écrire, et une réclamation sans mission plaçable répond `204` avant d'en
+arriver là : tant qu'aucune mission n'était plaçable, la réclamation _semblait_ fonctionner. La
+première qui l'a été a rendu `400 : validation — « idempotency_key » : vide`.
+
+C'est ce que `W12.d` est censé produire, et la ligne parente le dit depuis la première tentative :
+la suivante en trouvera d'autres, et c'est le fonctionnement voulu.
+
+### Ce que la clause affirme, et ce qu'elle laisse
+
+La **réclamation**, et pas plus. Ce qui suit dépend de la machine : `runLoop` réclame **puis**
+admet, et un worker sans modèle configuré refuse alors `model_unavailable`. Les deux issues sont
+donc admises, et la clause exige de chacune qu'elle soit **nommée** ; la seule interdite est «
+aucune mission à réclamer », qui dirait que le placement n'a pas eu lieu. Le daemon est vérifié
+aussi : il ne doit pas remettre la tâche en file, sans quoi un worker qui réclamerait autre chose
+satisferait la clause.
+
+Sur ce conteneur, le tour rend `tour : mission refusée à l'admission — model_unavailable`, avec
+`étapes : claim` — la réclamation a bien eu lieu.
+
+### Corrigé en chemin : le harnais jetait la moitié du diagnostic
+
+Un échec de worker ne rendait que ce que le **worker** avait écrit. Or un worker mort sur un refus
+du plan de contrôle écrit exactement ceci : « Unexpected error, check log file at … » suivi du nom
+de l'erreur. La phrase qui explique — « réponse 400 : validation — "idempotency_key" : vide » —
+vivait dans le journal du worker, sur un disque temporaire que `stop()` efface. Il a fallu rejouer
+la chaîne à la main pour la lire.
+
+`locusd` est dans le **même harnais** et il avait répondu à l'instant même. Sa fin de sortie est
+désormais jointe. C'est la faute que `W20.aa` a corrigée côté daemon — avoir la phrase entre les
+mains et la jeter — commise cette fois par le harnais.
+
+`manifesteDe` et `finDe` sont des fonctions de module et non des fermetures, pour la même raison
+qu'`annonceDe` : leurs refus sont la moitié qui compte, et `npm test` les tient sans monter la
+chaîne. Cinq refus distincts, dont celui qui sépare « pas d'identité » de « pas de manifeste » — le
+second dit que l'enrôlement n'a pas pris, et le chercher dans le manifeste ferait perdre un étage.

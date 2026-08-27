@@ -33,6 +33,8 @@ import {
   attestations,
   builtBinary,
   empreinte,
+  finDe,
+  manifesteDe,
   workerRepo,
 } from "./harness.ts";
 
@@ -331,5 +333,68 @@ describe("ce que le broker dit du fichier d'attestations — W5.ab", () => {
     assert.equal(ATTESTATIONS_ENV, "LOCUS_EXECD_ATTESTATIONS");
     assert.notEqual(ATTESTATIONS_ENV, "LOCUS_EXECD_ATTESTATION_OUT");
     assert.equal(ATTESTATIONS_ATTENDUES_ENV, "LOCUS_E2E_ATTESTATIONS");
+  });
+});
+
+describe("le manifeste se lit de ce que le worker imprime — W12.d, quatrième clause", () => {
+  const bon = JSON.stringify({
+    identity: { worker_id: "canterel-01" },
+    manifest: {
+      protocol: "lep/1.0",
+      worker_id: "canterel-01",
+      sandbox: { levels: ["S1", "S2"], network_modes: ["deny", "full"] },
+      resources: { cpu_cores: 4, memory_mb: 16_000, disk_free_mb: 7_000 },
+    },
+  });
+
+  it("rend le manifeste, et lui seul", () => {
+    const manifeste = manifesteDe(`quelque chose avant\n${bon}\n`);
+    assert.deepEqual([...manifeste.sandbox.levels], ["S1", "S2"]);
+    assert.equal(manifeste.resources.cpu_cores, 4);
+  });
+
+  /**
+   * **« Pas d'identité » n'est pas « pas de manifeste ».**
+   *
+   * Les deux n'envoient pas au même endroit : le second dit que l'enrôlement du harnais n'a pas
+   * pris, et le chercher dans le manifeste ferait perdre un étage. C'est la séparation que ce dépôt
+   * applique aux sept motifs de §10.2, ramenée à une commande.
+   */
+  it("une installation non enrôlée a son propre refus", () => {
+    assert.throws(
+      () => manifesteDe("aucune identité : cette installation n'est pas enrôlée\n"),
+      (erreur: unknown) => {
+        assert.ok(erreur instanceof HarnessFailure);
+        assert.match(erreur.message, /enrôl/);
+        return true;
+      },
+    );
+  });
+
+  it("une sortie sans JSON, ou un JSON sans manifeste, refusent tous deux", () => {
+    for (const sortie of [
+      "rien du tout",
+      "{ ceci n'est pas du JSON",
+      JSON.stringify({ identity: { worker_id: "x" } }),
+      // Le cas qui compte : un manifeste **présent** mais amputé des deux champs sur lesquels la
+      // mission se taille. Le laisser passer ferait tailler une mission sur `undefined`, et le refus
+      // de placement qui suivrait nommerait la mission au lieu de la lecture.
+      JSON.stringify({ manifest: { worker_id: "x" } }),
+    ]) {
+      assert.throws(() => manifesteDe(sortie), HarnessFailure, `« ${sortie} » aurait dû refuser`);
+    }
+  });
+});
+
+describe("un échec de worker rend aussi ce que le daemon a dit — W12.d", () => {
+  it("`finDe` garde la fin, qui est ce qui vient d'être dit", () => {
+    const sortie = Array.from({ length: 30 }, (_, rang) => `ligne ${rang}`).join("\n");
+    const fin = finDe(sortie, 3).split("\n");
+    assert.deepEqual(fin, ["ligne 27", "ligne 28", "ligne 29"]);
+  });
+
+  it("une sortie plus courte que la borne est rendue entière, sans bourrage", () => {
+    assert.equal(finDe("une seule ligne", 12), "une seule ligne");
+    assert.equal(finDe("   \n\n  ", 12), "");
   });
 });

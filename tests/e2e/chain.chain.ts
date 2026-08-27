@@ -34,6 +34,7 @@ import {
   startChain,
   type Chain,
 } from "./harness.ts";
+import type { CapabilityManifest } from "@locus/lep";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
@@ -528,3 +529,183 @@ describe("un worker fait son tour sur une mission en file — W12.d, troisième 
     }
   });
 });
+
+/**
+ * Une mission **taillée sur le manifeste** est réclamée — `W12.d`, quatrième clause.
+ *
+ * # Ce que la troisième clause a laissé, et pourquoi elle l'a laissé
+ *
+ * Elle n'a pas pu exiger la réclamation. La mission du corpus demande `S2` et `deny`, et `locusd` la
+ * refusait pour trois motifs de §10.2 **tous exacts** sur la machine où elle tournait. Exiger la
+ * réclamation aurait fait de la clause une affirmation sur l'hôte : rouge sur un conteneur pauvre,
+ * verte sur un runner capable, sans que rien du dépôt n'ait changé.
+ *
+ * # Ce qui change ici, et qui n'est pas une concession
+ *
+ * La mission n'est plus écrite en dur : elle est **taillée sur ce que ce worker-ci annonce**, lu de
+ * lui par `canterel worker status`. Une mission qui demande ce que le worker a dit savoir faire est
+ * plaçable **partout**, et « un worker est placé sur ce qu'il a prouvé » devient une propriété du
+ * dépôt au lieu d'une propriété de la machine.
+ *
+ * Trois choix, et chacun a une raison qui n'est pas la commodité :
+ *
+ * - **`S0`** — le seul niveau que `Candidate::shortfall` place **sans attestation** : au-dessus, il
+ *   exige qu'une campagne ait conclu, ce qu'aucun des deux hôtes du chantier ne garantit. Le worker
+ *   n'annonce jamais `S0` et l'applique quand même : `minimum_level` est un plancher, ce que `W2.25`
+ *   a dû corriger côté worker après l'avoir lu comme une égalité — cette clause est exactement ce
+ *   qui a trouvé ce défaut.
+ * - **Le mode réseau vient du manifeste**, `deny` de préférence : les deux moitiés du placement le
+ *   comparent au même manifeste, donc n'importe quel mode annoncé passe des deux côtés. Préférer
+ *   `deny` parce qu'une mission d'essai n'a rien à faire du réseau.
+ * - **Le disque est positif et petit.** `ResourceSpec` interdit zéro — `exclusiveMinimum: 0`,
+ *   invariant 6 : aucune borne n'a de défaut implicite —, donc « ne rien réserver » n'est pas
+ *   exprimable, et c'est voulu.
+ *
+ * # Ce que la clause affirme, et ce qu'elle laisse à la suivante
+ *
+ * Que la mission est **réclamée** : le placement a abouti de bout en bout, le worker l'a prise. Ce
+ * qui suit la réclamation dépend de ce que la machine a — `runLoop` réclame **puis** admet, et un
+ * worker sans modèle configuré refuse alors `model_unavailable`. Les deux issues sont donc admises,
+ * et la clause exige de chacune qu'elle soit **nommée** ; ce qui est interdit est « aucune mission à
+ * réclamer », qui dirait que le placement n'a pas eu lieu.
+ */
+describe("une mission taillée sur le manifeste est réclamée — W12.d, quatrième clause", () => {
+  let chain: Chain | undefined;
+  let taillee: ReturnType<typeof propositionTaillee> | undefined;
+
+  after(async () => {
+    await chain?.stop();
+  });
+
+  it("le manifeste se lit du worker, et la mission s'y taille", async (t) => {
+    chain = await startChain({ root: ROOT, port: 8791, worker: "à la demande" });
+
+    const manifeste = await chain.manifesteDuWorker();
+    t.diagnostic(
+      `le worker annonce : niveaux ${manifeste.sandbox.levels.join("/")}, ` +
+        `réseau ${manifeste.sandbox.network_modes.join("/")}, ` +
+        `${manifeste.resources.cpu_cores} cœur(s), ${manifeste.resources.memory_mb} Mo, ` +
+        `${manifeste.resources.disk_free_mb} Mo libres`,
+    );
+
+    taillee = propositionTaillee(manifeste);
+    t.diagnostic(
+      `mission taillée : ${taillee.sandbox_level} / ${taillee.network} / ` +
+        `${JSON.stringify(taillee.resources)}`,
+    );
+
+    for (const [route, corps] of [
+      [
+        "/commands/task/propose",
+        {
+          idempotency_key: "e2e-taillee-propose",
+          project_id: ADMINISTRATION.projectId,
+          proposal: taillee,
+        },
+      ],
+      [
+        "/commands/task/queue",
+        {
+          idempotency_key: "e2e-taillee-queue",
+          project_id: ADMINISTRATION.projectId,
+          task_id: TACHE_TAILLEE,
+        },
+      ],
+    ] as const) {
+      const reponse = await fetch(`${chain.controlPlane}${route}`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${ADMINISTRATION.credential}`,
+        },
+        body: JSON.stringify(corps),
+      });
+      assert.equal(reponse.status, 202, `${route} — ${await reponse.text()}`);
+    }
+
+    assert.ok((await attendre(chain.controlPlane, "task.queued")).includes("task.queued"));
+  });
+
+  it("le worker la réclame, et le daemon ne la remet pas en file", async (t) => {
+    assert.ok(chain, "la chaîne est montée par le test précédent");
+    assert.ok(taillee, "la mission est taillée par le test précédent");
+
+    const dit = await chain.tourDeWorker();
+    const tour = dit
+      .split("\n")
+      .map((ligne) => ligne.trim())
+      .filter((ligne) => ligne.startsWith("tour :"));
+    const daemon = chain
+      .annonce("locusd")
+      .split("\n")
+      .map((ligne) => ligne.trim())
+      .filter((ligne) => ligne.includes(TACHE_TAILLEE));
+
+    t.diagnostic(`le worker : ${tour.join(" | ") || "(rien)"}`);
+    t.diagnostic(`le daemon : ${daemon.join(" | ") || "(rien)"}`);
+
+    assert.ok(tour.length > 0, `le worker n'a rien dit de son tour. Ce qu'il a écrit : ${dit}`);
+
+    // **La clause.** Le placement a abouti, donc le worker a pris la mission. Un « aucune mission à
+    // réclamer » ici voudrait dire que la taille n'a pas suffi, et le message donne au lecteur ce
+    // que le daemon a répondu plutôt que de le renvoyer lire un log.
+    assert.ok(
+      !tour.some((ligne) => ligne.includes("aucune mission à réclamer")),
+      "une mission taillée sur le manifeste de ce worker n'a pas été réclamée. Le daemon dit : " +
+        `${daemon.join(" | ") || "(rien)"}`,
+    );
+
+    // Et le daemon ne la remet pas en file : la clause tient des **deux** côtés, sans quoi un
+    // worker qui réclamerait une autre mission la satisferait aussi.
+    assert.ok(
+      !daemon.some((ligne) => ligne.includes("retourne en file")),
+      `le daemon a remis « ${TACHE_TAILLEE} » en file : ${daemon.join(" | ")}`,
+    );
+
+    // Ce qui suit la réclamation dépend de la machine, et les deux issues sont **nommées**. Un
+    // `tour : mission … exécutée` là où un modèle est configuré ; un refus d'admission portant son
+    // code de §10.2 là où il n'y en a pas. Ce que la clause interdit est une troisième forme, muette.
+    const nomme = tour.some(
+      (ligne) => ligne.includes("exécutée") || /refusée à l'admission — \S+/.test(ligne),
+    );
+    assert.ok(nomme, `le tour a réclamé sans dire ce qu'il en a fait : ${tour.join(" | ")}`);
+  });
+});
+
+/** La tâche de la quatrième clause. Distincte : deux clauses qui partagent une file se gênent. */
+const TACHE_TAILLEE = "task_01HF7YAT000000000000000006";
+
+/**
+ * La proposition **dérivée** du manifeste plutôt qu'écrite en dur.
+ *
+ * Chaque grandeur est bornée par ce que le worker annonce, et le disque reste **positif** parce que
+ * `ResourceSpec` interdit zéro. Les valeurs sont petites à dessein : la clause exerce un placement,
+ * pas une charge, et une réservation généreuse échouerait sur un hôte modeste pour une raison qui
+ * n'a rien à voir avec ce qui est affirmé.
+ */
+function propositionTaillee(manifeste: CapabilityManifest) {
+  const modes = manifeste.sandbox.network_modes;
+  return {
+    cognition: "economy",
+    statement: "Le catalyseur A tient-il au-delà de 300 °C ?",
+    success_conditions: ["une mesure reproductible à trois essais"],
+    task_id: TACHE_TAILLEE,
+    attempt_id: "att_1",
+    attempt: 1,
+    branch_id: "br_principal",
+    context_view_id: "ctx_1",
+    context_view_hash: `sha256:${"ab".repeat(32)}`,
+    environment_id: "env_linux",
+    // Le seul niveau plaçable sans attestation — voir l'en-tête du bloc.
+    sandbox_level: "S0",
+    network: modes.includes("deny") ? "deny" : (modes[0] ?? "full"),
+    resources: {
+      cpu: 1,
+      memory_mb: Math.min(512, manifeste.resources.memory_mb),
+      disk_mb: Math.min(16, manifeste.resources.disk_free_mb),
+      wall_time_seconds: 60,
+    },
+    budget: { max_model_calls: 1, max_input_tokens: 1_000, max_output_tokens: 1_000 },
+    output_contract: "un rapport et ses mesures",
+  };
+}
