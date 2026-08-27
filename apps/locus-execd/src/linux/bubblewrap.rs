@@ -344,3 +344,57 @@ pub const INSPECTION: &str = concat!(
     "grep -qv '^Iface' /proc/net/route 2>/dev/null ",
     "&& echo route=present || echo route=absent"
 );
+
+/// L'enveloppeur qui **entre dans le cgroup** avant de lancer la sandbox.
+///
+/// # Pourquoi un shell, et pourquoi celui-ci
+///
+/// Un processus doit s'inscrire dans `cgroup.procs` **entre le fork et l'exec** : avant, ce serait
+/// le broker qu'on déplacerait ; après, la sandbox aurait déjà tourné hors de toute borne. Trois
+/// façons de le faire — `pre_exec` (donc `unsafe`), `clone3` avec `CLONE_INTO_CGROUP` (donc une
+/// dépendance nouvelle, qui demanderait son ADR), ou un enveloppeur qui s'inscrit puis `exec`.
+///
+/// La troisième ne demande ni l'un ni l'autre, et elle est **entièrement vérifiable sans hôte** :
+/// c'est une construction d'arguments, comme tout le reste de ce module.
+///
+/// # Le `exec` n'est pas une élégance
+///
+/// Sans lui, le shell resterait entre le broker et la sandbox : un processus de plus dans le
+/// cgroup, qui compte dans `pids.max`, et un intermédiaire qui recevrait les signaux à la place de
+/// `bwrap`. `exec` le remplace, si bien que le processus inscrit **est** la sandbox.
+///
+/// # Le `&&` non plus
+///
+/// Si l'inscription échoue, la sandbox **ne se lance pas**. Un `;` la lancerait quand même, hors du
+/// cgroup et sans borne — exactement l'un des deux modes d'échec silencieux que l'ADR 0036 nomme.
+#[must_use]
+pub fn joined_invocation(procs: &str, wrapped: &[String]) -> Vec<String> {
+    let commande = std::iter::once(PROGRAM.to_owned())
+        .chain(wrapped.iter().cloned())
+        .map(|part| shell_quoted(&part))
+        .collect::<Vec<_>>()
+        .join(" ");
+    vec![
+        "-c".to_owned(),
+        format!("echo $$ > {} && exec {commande}", shell_quoted(procs)),
+    ]
+}
+
+/// Le programme qui porte [`joined_invocation`].
+pub const JOINING_PROGRAM: &str = "/bin/sh";
+
+/// Un argument rendu inoffensif pour un shell.
+///
+/// # Ce que cette fonction empêche
+///
+/// `CLAUDE.md` est explicite : « aucun `shell-command` construit depuis du contenu distant non
+/// échappé ». Les montages d'une mission viennent de la mission, donc de l'extérieur, et ils
+/// arrivent ici dans une ligne de commande. Un chemin contenant `'; rm -rf / #` serait exécuté.
+///
+/// Les guillemets simples suspendent **tout** pour un shell POSIX — variables, substitutions,
+/// séparateurs. Le seul caractère qu'ils ne peuvent pas contenir est le guillemet simple lui-même ;
+/// on ferme, on en insère un échappé, on rouvre. C'est la forme canonique, et elle n'a pas de cas
+/// particulier à oublier.
+fn shell_quoted(argument: &str) -> String {
+    format!("'{}'", argument.replace('\'', r"'\''"))
+}
