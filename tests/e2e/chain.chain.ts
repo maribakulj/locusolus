@@ -744,13 +744,22 @@ describe("le daemon redémarre et retrouve ses faits — W12.d, cinquième claus
   let chain: Chain | undefined;
   /** Ce que le journal portait **avant** le redémarrage. Comparé, jamais supposé. */
   let avant: readonly string[] = [];
-  const journal = journalDurable();
+  /**
+   * L'adresse du journal, lue **dans le premier test** et non au chargement du fichier.
+   *
+   * `journalDurable` lève sous `CI` sans la variable, et le corps d'un `describe` s'exécute au
+   * chargement : l'appeler ici ferait échouer le **fichier entier**, donc les quatre autres clauses,
+   * pour un câblage qui n'en concerne qu'une. Un échec qui emporte des verdicts sans rapport dit
+   * moins que le même échec resserré sur sa clause.
+   */
+  let journal: string | undefined;
 
   after(async () => {
     await chain?.stop();
   });
 
   it("la chaîne monte sur un journal durable, et un fait y est écrit", async (t) => {
+    journal = journalDurable();
     if (journal === undefined) {
       // Dit, jamais tu. `journalDurable` **lève** sous `CI` : arriver ici veut donc dire une machine
       // de développeur sans PostgreSQL, ce qui est ordinaire — et le dire est ce qui empêche de lire
