@@ -16866,3 +16866,72 @@ où la campagne tourne ; ce qui manque n'est pas l'hôte, c'est que personne ne 
 de `bwrap`. Le conteneur de développement, lui, ne peut pas l'éprouver : ses trois contrôleurs sont
 en v1 et son unifiée ne porte que `hugetlb`. Cette asymétrie est un fait à écrire dans `W5.ai`
 plutôt qu'à découvrir en chemin.
+
+## 2026-08-27 — W5.ak — ADR 0036 : une borne tenue par un tiers n'est pas tenue par le mécanisme attesté
+
+La question n'a pas été posée par une intention : elle est **sortie d'une mesure**. La campagne de
+`W5.af.3` rend `NotTrusted` à `S2` en bloquant sur les trois sondes de quota, et les trois sont
+`NotRun` — elles n'ont rien lu. `bubblewrap` n'écrit aucun cgroup ; poser les bornes **autour** de
+`bwrap` est la seule façon d'y remédier, et c'est cela qui interroge l'ADR 0035.
+
+### La réponse applique un critère existant plutôt que d'en inventer un
+
+L'ADR 0035 décision 1 refuse que `podman-rootless` et `bubblewrap` partagent un nom, et dit pourquoi
+: « ils ne sont pas deux façons d'écrire la même garantie. Ils échouent différemment, ils
+s'installent différemment. »
+
+Le même critère décide ce cas-ci, sans rien y ajouter :
+
+- **ils échouent différemment.** `bubblewrap` dans un cgroup posé par le broker peut échouer d'au
+  moins trois façons que `bubblewrap` seul ne connaît pas — aucun cgroup délégué, contrôleur non
+  activé pour les enfants, processus non déplacé dans le cgroup avant `exec`. **Deux de ces trois
+  sont silencieuses** : la sandbox tourne, simplement sans borne, ce qui est précisément la forme de
+  défaut que ce dépôt traque ;
+- **ils s'installent différemment.** Le second exige une délégation que l'hôte accorde ou non, et
+  les deux cas sont mesurés sur deux machines de ce chantier même.
+
+Ils ne partagent donc pas de nom. Un enregistrement `backend: bubblewrap` attestant un niveau dont
+les bornes sont tenues ailleurs affirmerait de `bubblewrap` une propriété qu'il n'a pas : la faute
+que l'ADR 0035 interdit, dans un costume neuf.
+
+### Ce que l'ADR refuse de décider, et pourquoi ce refus est la décision
+
+Le **nom** du mécanisme composé n'est pas choisi. `CLAUDE.md` et l'ADR 0022 décision 0 disent la
+même chose de deux façons : une valeur d'énumération n'entre que lorsqu'un consommateur exécutable
+et testé existe. Choisir le nom ici livrerait une promesse — un mot qui annonce un effet qui n'a pas
+lieu.
+
+Conséquence assumée et écrite : jusqu'à l'implémentation, un worker sous `bubblewrap` **ne peut
+pas** obtenir de `Proven` à un niveau qui promet des bornes. La campagne le rend déjà lisible plutôt
+que de le taire.
+
+### Une sonde que j'ai failli écrire, et qui existait déjà
+
+Le plan initial était d'ajouter à `HostFacts` un fait « les contrôleurs peuvent-ils être posés sur
+un enfant », sur le modèle de `W5.f`. En ouvrant `probe.rs` pour l'y greffer, la fonction `cgroup`
+porte déjà, mot pour mot, la réponse et sa justification :
+
+> `cgroup.subtree_control` d'un parent décide de ce que ses enfants voient. On lit donc le
+> `cgroup.controllers` de **notre propre** répertoire, qui est la seule liste que nous pourrons
+> effectivement écrire.
+
+Le `controllers=cpu,cpuset,io,memory,pids` que l'attestation de CI enregistre n'est donc pas ce que
+la racine offre : c'est ce qui **nous** est délégué. Le fait dont `W5.ai` a besoin était mesuré et
+publié depuis `W5.g`.
+
+C'est exactement la faute de `W0.23` — « déclaré manquant sans avoir été cherché » — évitée cette
+fois en regardant avant de construire. Le coût de la vérification a été une lecture ; le coût de
+l'omission aurait été une seconde sonde mesurant ce qu'une première mesurait déjà, et deux sources
+pour un même fait finissent toujours par diverger.
+
+### Les deux hôtes, et l'inversion qu'ils imposent
+
+`HostFacts::read_host()` exécuté ici rend
+`cgroup_v2: Unavailable — sys/fs/cgroup/cgroup.controllers est absent : pas de hiérarchie unifiée`,
+contrôleurs `{}`. Les trois contrôleurs qui comptent sont en v1, et l'unifiée montée à
+`/sys/fs/cgroup/unified` ne porte que `hugetlb`.
+
+Le runner de CI, lui, porte les cinq. D'où une répartition inverse de l'habituelle : **la
+vérification vivante de `W5.ai` ne pourra se faire qu'en CI**, tandis que le **chemin de refus** —
+celui qui compte le plus, puisque deux de ses trois modes d'échec sont silencieux — est atteignable
+localement. C'est écrit dans la ligne de l'item plutôt que laissé à découvrir.
