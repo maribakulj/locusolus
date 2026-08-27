@@ -16935,3 +16935,74 @@ Le runner de CI, lui, porte les cinq. D'où une répartition inverse de l'habitu
 vérification vivante de `W5.ai` ne pourra se faire qu'en CI**, tandis que le **chemin de refus** —
 celui qui compte le plus, puisque deux de ses trois modes d'échec sont silencieux — est atteignable
 localement. C'est écrit dans la ligne de l'item plutôt que laissé à découvrir.
+
+## 2026-08-27 — W5.ai.1 — La délégation se lit, et son absence se refuse
+
+Première tranche de `W5.ai`, celle que l'ADR 0036 rend possible et que cet hôte-ci peut réellement
+éprouver.
+
+### Pourquoi commencer par le refus
+
+L'ADR 0036 décision 1 relève que sur les trois façons dont un confinement à cgroup peut échouer,
+**deux sont silencieuses** : aucun contrôleur activé pour les enfants, processus non déplacé dans le
+cgroup avant `exec`. Dans les deux cas la sandbox tourne, simplement sans borne, et **rien ne le
+signale** — ni la table des sondes, ni l'attestation.
+
+Le refus est donc la moitié qui porte la garantie. Un broker qui poserait le cgroup « quand il peut
+» et passerait outre sinon produirait précisément le défaut que tout le reste de ce chantier existe
+pour rendre impossible.
+
+### Deux refus, parce qu'il y a deux causes
+
+`NoUnifiedHierarchy` et `MissingControllers` ne se réparent pas au même endroit : l'une envoie
+monter une hiérarchie unifiée, l'autre envoie **déléguer** des contrôleurs à ce processus-ci. Les
+confondre enverrait la moitié des exploitants chercher la mauvaise chose.
+
+Un test exige que les deux **phrases** diffèrent, et pas seulement les variantes. Une égalité de
+variantes passerait sur deux messages identiques, et c'est le message que lit l'exploitant — pas le
+nom Rust de la variante.
+
+Le second refus nomme les contrôleurs manquants **et** ceux qui sont là. Les seconds ne servent pas
+à décider ; ils servent à montrer que la lecture a eu lieu, ce qui distingue « il n'y en a pas » de
+« je n'ai pas su regarder ».
+
+Un seul contrôleur manquant suffit à refuser. Deux bornes sur trois n'est pas « presque le niveau »
+: c'est une sandbox dont une ressource n'est pas bornée, et le nom du niveau promet les trois.
+
+### Aucune lecture nouvelle
+
+`Delegation::read` prend des [`HostFacts`] plutôt que de lire `/sys` lui-même. `probe.rs` porte déjà
+la lecture qu'il faut, et il porte déjà sa justification :
+
+> `cgroup.subtree_control` d'un parent décide de ce que ses enfants voient. On lit donc le
+> `cgroup.controllers` de **notre propre** répertoire, qui est la seule liste que nous pourrons
+> effectivement écrire.
+
+Refaire cette lecture donnerait deux sources pour un même fait, et deux sources pour un même fait
+finissent toujours par diverger. C'est la raison pour laquelle la sonde envisagée pour cet item a
+été abandonnée en découvrant qu'elle existait — consigné en `W5.ak`.
+
+De même, la phrase du refus **reprend** celle de `Support` sans la réécrire : elle nomme le fichier
+absent, et c'est ce qu'un exploitant ira regarder.
+
+### Les deux branches sont couvertes en tournant aux deux endroits
+
+Le test vivant n'exige ni délégation ni refus — ce que la machine offre lui appartient. Il exige que
+la lecture **conclue**, et il imprime ce qu'elle a conclu. Ici :
+
+```
+cet hôte ne délègue pas : aucun cgroup n'est délégué à ce processus :
+sys/fs/cgroup/cgroup.controllers est absent : pas de hiérarchie unifiée.
+Les bornes de ressources ne peuvent donc pas être posées autour de la sandbox,
+et le niveau qui les promet ne sera pas attesté
+```
+
+Sur le runner, la même ligne rendra la délégation. C'est l'inverse de la répartition habituelle :
+ici c'est le chemin de **refus** qui s'exerce pour de vrai — celui qui compte le plus — et c'est la
+pose du cgroup qui demandera un runner.
+
+### Ce qui reste
+
+Poser le cgroup, y déplacer le processus avant `exec`, nommer le composé, et faire passer les trois
+sondes de quota de `NotRun` à un verdict. Ce passage **est** le test de sortie, l'ADR 0036 décision
+4 le dit : tant que les trois n'ont rien lu, rien n'a été mesuré.

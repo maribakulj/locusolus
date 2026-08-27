@@ -26,6 +26,7 @@
 pub mod bubblewrap;
 pub mod bubblewrap_driver;
 pub mod campaign;
+pub mod cgroup;
 pub mod driver;
 pub mod invocation;
 pub mod plan;
@@ -36,6 +37,7 @@ pub mod selftest;
 
 pub use bubblewrap_driver::{BubblewrapBackend, host_namespaces};
 pub use campaign::ProbeHost;
+pub use cgroup::{Delegation, NotDelegated};
 pub use driver::{
     BACKEND, FIRST_LAUNCH_PAUSE, PodmanBackend, RUNNING_TEMPLATE, boot_id_from, host_boot_id,
 };
