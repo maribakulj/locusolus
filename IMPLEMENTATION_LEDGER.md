@@ -16454,3 +16454,103 @@ qu'il corrige.
 
 `W5.af` et `W12.d`, tous deux sur la frontière et aucun bloqué par autre chose que le travail qu'ils
 demandent.
+
+## 2026-08-25 — W5.af.1 — La traduction d'un plan de confinement en arguments `bubblewrap`
+
+**Fichiers** : `apps/locus-execd/src/linux/bubblewrap.rs` (neuf),
+`apps/locus-execd/tests/bubblewrap.rs` (neuf, 16 tests), `apps/locus-execd/src/linux/mod.rs`.
+
+Première tranche de `W5.af`, l'item que `W0.23` a rendu à sa vraie nature — du travail, et non un
+arbitrage.
+
+### L'architecture s'y prêtait déjà
+
+`plan.rs` rend un `ConfinementPlan` **neutre** — namespaces, limites cgroup, montages, posture de
+réseau — et `invocation.rs` le traduit pour podman. Ce module le traduit pour bubblewrap, et rien
+d'autre : pur, testable sans hôte, il ne lance rien. Aucune généralisation n'a été nécessaire ;
+c'est la séparation posée par `W4.d` qui rend la tranche possible sans toucher au reste.
+
+### Quatre faits mesurés, et chacun a changé le code
+
+**1. `bubblewrap` n'écrit aucun cgroup.** Ni mémoire, ni CPU, ni PID : hors de son objet.
+`unenforced` rend donc les limites du plan qu'une invocation **ne portera pas**, sous leurs noms de
+fichiers de contrôleur — `memory.max`, `cpu.max`, `pids.max` — parce qu'un exploitant qui lit ce
+rapport ira chercher ces fichiers-là, et qu'un synonyme lui ferait chercher autre chose. Le module
+rend le **fait** ; il ne décide pas quoi en conclure.
+
+**2. Il n'existe pas de `--unshare-mount`.** `bubblewrap` crée toujours un namespace de montage. La
+première rédaction donnait `--unshare-pid` à `Namespace::Mount`, avec un commentaire renvoyant à une
+note qui n'existait pas. C'est la faute la plus discrète qu'un traducteur d'options puisse commettre
+: elle confine **plus** que demandé, donc elle ne casse rien visiblement et survit à une relecture.
+
+**3. Sous `--ro-bind / /`, bwrap ne peut pas créer un point de montage.** Mesuré aux trois branches
+: `--dir` échoue, un `--tmpfs` sur un parent existant marche, un bind sur une cible existante
+marche. Différence **réelle** avec podman, qui bâtit une racine neuve depuis une image.
+`uncreatable_targets` la signale avant le lancement, l'existence étant **injectée** pour que le
+module reste pur — même discipline que `PodmanBackend::new`, `const fn` pour que construire un
+backend ne lise rien.
+
+**4. Un rattrapage `--unshare-net` était du code mort.** Le bloc n'agissait que pour une posture
+non-`Host` sans `Namespace::Network`. Balayage de **toutes** les paires (niveau, mode) que `plan`
+accepte : ce cas n'existe pas, la boucle des namespaces émet déjà le drapeau. Un filet de sécurité
+qui ne peut pas se déclencher est pire qu'aucun, parce qu'on lui fait confiance. Il est retiré, et
+l'invariant dont la traduction dépend désormais — posture non-`Host` ⇒ `Namespace::Network` — est
+**épinglé par un test** sur ces mêmes paires : si `plan.rs` cessait de le tenir, c'est là que ça
+rougirait, et non dans une traduction qui laisserait passer un réseau en silence.
+
+### Le harnais de mutation avait un défaut, et il a caché deux vrais trous
+
+`grep -qF` avec un motif **multi-ligne** traite chaque ligne comme une alternative : l'ancre «
+existait » dès que sa première ligne existait. Un mutant dont le remplacement ne s'appliquait pas
+était donc annoncé **SURVIVANT** — un trou de test fantôme.
+
+C'est la troisième forme du « compteur qui n'a rien lu ne vaut pas zéro », et la plus coûteuse :
+elle frappe **l'outil qui sert à mesurer**. Le contrôle existant ne la voyait pas — il détecte «
+tout meurt », pas « ce mutant-ci n'a jamais été posé ».
+
+Réparé : la vérification d'application est faite par python, qui échoue si l'ancre est absente **ou
+si le remplacement ne change rien**, et un **second contrôle** vérifie qu'une ancre inventée rend
+bien « NON APPLIQUÉ ». Un harnais qui ne sait pas dire qu'il n'a rien fait ne mesure rien.
+
+Une fois réparé, il a révélé deux gaps réels que le faux survivant masquait :
+
+- **rien n'exerçait une posture seccomp confinée**, donc la branche n'était jamais atteinte ;
+- **le test réseau n'affirmait qu'une borne haute** — « au plus une fois » —, qu'une absence totale
+  satisfait. Une assertion « au plus » a besoin de son « au moins ».
+
+### Deux tests lancent le vrai `bwrap`
+
+Les quatorze autres sont purs : ils vérifient qu'on écrit ce qu'on croit écrire. Deux prennent la
+sortie et la donnent au programme — une traduction juste sur le papier et fausse à l'exécution est
+ce qu'un test pur ne peut pas voir. L'un vérifie que la commande tourne, l'autre que la racine
+annoncée en lecture seule **refuse une écriture**. Sans `bwrap`, ils échouent en le disant.
+
+Le témoin de fuite est **propre à chaque exécution**. La première rédaction visait `/essai-w5af`, un
+chemin global : un run antérieur l'a laissé sur l'hôte, et le suivant a échoué sur une affirmation
+devenue fausse pour une raison qui ne le concernait pas. Un test qui dépend de l'état laissé par ses
+prédécesseurs ne mesure plus ce qu'il annonce.
+
+### Ce que les fixtures ont appris
+
+Trois refus successifs de `plan`, tous justes, et chacun a corrigé la fixture plutôt que d'être
+contourné : `QuotaWithoutWritableSpace`, `DiskQuotaNotEnforceable` — le quota ne vaut qu'en dessous
+de `S2`, ce que `W5.j` a établi — et `MountsNeedNamespace` à `S0`. Une fixture qui les aurait
+contournés éprouverait un plan que le dépôt ne produit pas.
+
+### Une note sur ce qui a été perdu et refait
+
+Le conteneur de session a été réapprovisionné pendant cette tranche : le dépôt local est revenu à un
+commit ancien et le travail non commité a disparu. Les sept PR mergées de la journée étaient sur
+`origin/main` et n'ont rien perdu ; seule cette tranche a été refaite, mesures comprises — elles se
+reproduisent à l'identique. Les clones voisins étaient également en retard, ce qui faisait crier
+`check:roadmap` sur `W2.24` : une garde qui lit quatre dépôts dit faux quand l'un d'eux est périmé,
+et c'est une propriété de l'environnement, pas du plan.
+
+### Ce qui reste de `W5.af`
+
+Le backend derrière `RuntimePort` — `create` et `start` en comptabilité, `attestation` — et la
+campagne. Les deux questions nommées dans la ligne de l'item sont toujours à trancher, et elles le
+seront **dans** le backend : ce que `persist_after_teardown` mesure quand le démontage est la sortie
+du processus, et ce qu'`attestation()` rapporte pour un mécanisme sans conteneur à réinspecter.
+
+Onze mutants posés, zéro survivant, deux contrôles.
