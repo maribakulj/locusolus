@@ -415,6 +415,34 @@ jobs:
       # La garde qui l'empêche de recommencer ne vit pas ici mais dans
       # `apps/locus-execd/tests/podman.rs` — elle ne demande aucun runtime, donc elle rougit sur
       # toutes les machines, y compris celles qui n'ont pas de Podman.
+      # `W5.ai.1` : **quelle branche la lecture de délégation a prise ici**.
+      #
+      # Le test vivant de `tests/cgroup.rs` n'exige ni délégation ni refus — ce que la machine offre
+      # lui appartient — et il conclut donc correctement des deux côtés. Mais le job `rust` le lance
+      # sans `--nocapture`, si bien que **la branche prise reste invisible** : rien dans le journal ne
+      # distingue « cet hôte délègue » de « cet hôte refuse ».
+      #
+      # C'est exactement la faute que ce dépôt traque, appliquée à une affirmation que j'ai écrite :
+      # « sur le runner, l'autre branche s'exerce » était vrai et **non montré**. Ce pas le montre.
+      # Il ne juge rien — un refus ici serait un fait sur le runner, pas un échec — et c'est pour
+      # cela qu'il ne peut pas rougir.
+      - name: Ce que la lecture de délégation a conclu sur ce runner
+        run: |
+          # Le nom est **complet** : `--exact` sur un préfixe ne filtre aucun test, et la sortie
+          # serait vide sans que rien n'échoue. Écrit d'abord avec un préfixe, et le repli
+          # ci-dessous l'a dit tout de suite — c'est ce qu'il est là pour faire.
+          cargo test -p locus-execd --test cgroup la_lecture_conclut_contre_l_hote_reel \
+            -- --nocapture --exact > delegation.txt 2>&1
+          code=$?
+          {
+            echo "## Ce que la lecture de délégation a conclu"
+            echo '```'
+            grep -E "cet hôte (délègue|ne délègue pas)" delegation.txt \
+              || echo "la lecture n'a rien imprimé — le test a-t-il tourné ?"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$code"
+
       - name: Les seize sondes contre un conteneur réel
         env:
           # `W5.aa` : la campagne dépose ce qu'elle a conclu. C'est **ce** pas qui tourne à chaque
