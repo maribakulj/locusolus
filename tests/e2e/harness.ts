@@ -31,6 +31,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 
+import type { CapabilityManifest } from "@locus/lep";
+
 /** La variable qui dit où le dépôt worker se trouve. */
 export const WORKER_REPO_ENV = "LOCUS_E2E_WORKER";
 
@@ -123,6 +125,17 @@ export class HarnessFailure extends Error {
   }
 }
 
+/**
+ * Les dernières lignes d'une sortie, pour un rapport d'échec qui reste lisible.
+ *
+ * `locusd` annonce ses cinq projections, ses routes et son profil au démarrage : joindre tout cela à
+ * chaque échec de worker noierait la seule ligne qui compte. La fin est ce qu'il a dit **le plus
+ * récemment**, donc au moment où le worker est mort.
+ */
+export function finDe(sortie: string, lignes = 12): string {
+  return sortie.split("\n").slice(-lignes).join("\n").trim();
+}
+
 /** Un processus démarré par le harnais. */
 type Started = {
   readonly name: string;
@@ -177,6 +190,33 @@ export type Chain = {
    * @throws {HarnessFailure} quand le tour sort sur autre chose que `0`, avec ce qu'il a écrit.
    */
   tourDeWorker(): Promise<string>;
+  /**
+   * Ce que ce worker **annonce**, lu de lui et non supposé — `W12.d`, quatrième clause.
+   *
+   * # Pourquoi le harnais a besoin de le lire
+   *
+   * Une mission écrite en dur affirme quelque chose sur l'hôte. La troisième clause l'a appris :
+   * `sandbox_level: "S2"` et `network: "deny"` étaient refusés pour trois motifs de §10.2 tous
+   * exacts sur cette machine, et exiger la réclamation aurait rendu la clause rouge sur un
+   * conteneur de développement et verte sur un runner capable.
+   *
+   * Une mission **taillée sur le manifeste** ne fait aucune affirmation de ce genre : elle demande
+   * ce que ce worker-ci a dit savoir faire, donc elle est plaçable partout. C'est la seule forme
+   * sous laquelle « un worker est placé sur ce qu'il a prouvé » se vérifie sans parler de la
+   * machine.
+   *
+   * # Pourquoi `worker status` et non `/workers`
+   *
+   * La route `/workers` de `locusd` ne rend que des identifiants — c'est une projection, pas un
+   * inventaire. Le manifeste vit du côté du worker, et `canterel worker status` est la commande qui
+   * l'imprime **sans rien contacter**. La lire, c'est lire ce que le worker dira au handshake, et
+   * non ce que le harnais imagine qu'il dira.
+   *
+   * @throws {HarnessFailure} quand la commande échoue ou n'imprime pas de manifeste. Rendre un
+   * manifeste vide ferait tailler une mission sur du néant, et le refus qui suivrait nommerait la
+   * mission au lieu de la lecture.
+   */
+  manifesteDuWorker(): Promise<CapabilityManifest>;
   /** Tout arrêter. Idempotent. */
   stop(): Promise<void>;
 };
@@ -292,6 +332,68 @@ export function empreinte(annonce: string): string {
  * Nommée ici pour la même raison que [`WORKER_HOME_ENV`] — un couplage entre deux langages qu'on ne
  * voit pas est un couplage que personne ne vérifie.
  */
+/**
+ * Le manifeste dans ce que `canterel worker status` a écrit — `W12.d`, quatrième clause.
+ *
+ * Une fonction de module plutôt qu'une fermeture, pour la même raison qu'[`annonceDe`] : ses refus
+ * sont la moitié qui compte, et `npm test` les tient sans monter la chaîne.
+ *
+ * La commande imprime `{"identity": …, "manifest": …}` **et rien d'autre** quand tout va bien, mais
+ * elle peut aussi imprimer « aucune identité : cette installation n'est pas enrôlée » — un cas qui a
+ * son propre message ici, parce que « pas de manifeste » et « pas d'identité » n'envoient pas au même
+ * endroit : le second dit que l'enrôlement du harnais n'a pas pris.
+ *
+ * @throws {HarnessFailure} sur une sortie qui ne porte pas de manifeste lisible.
+ */
+export function manifesteDe(sortie: string): CapabilityManifest {
+  if (sortie.includes("aucune identité")) {
+    throw new HarnessFailure(
+      "canterel worker status",
+      "dit que cette installation n'est pas enrôlée. Ce n'est pas un manifeste manquant : c'est " +
+        "l'enrôlement du harnais qui n'a pas pris, et le chercher dans le manifeste ferait perdre " +
+        "un étage",
+      sortie,
+    );
+  }
+
+  const debut = sortie.indexOf("{");
+  const fin = sortie.lastIndexOf("}");
+  if (debut < 0 || fin <= debut) {
+    throw new HarnessFailure("canterel worker status", "n'a imprimé aucun objet JSON", sortie);
+  }
+
+  const lu: unknown = (() => {
+    try {
+      return JSON.parse(sortie.slice(debut, fin + 1)) as unknown;
+    } catch (erreur) {
+      throw new HarnessFailure(
+        "canterel worker status",
+        `a imprimé quelque chose qui n'est pas du JSON — ${(erreur as Error).message}`,
+        sortie,
+      );
+    }
+  })();
+
+  const manifest = (lu as { manifest?: unknown }).manifest;
+  // Les deux champs sur lesquels la mission se taille. Les exiger ici plutôt que de laisser un
+  // `undefined` filer jusqu'au refus de placement : « aucun des 1 worker(s) soumis ne convient »
+  // enverrait chercher un défaut d'admission là où c'est la lecture du manifeste qui a raté.
+  if (
+    typeof manifest !== "object" ||
+    manifest === null ||
+    typeof (manifest as { sandbox?: unknown }).sandbox !== "object" ||
+    typeof (manifest as { resources?: unknown }).resources !== "object"
+  ) {
+    throw new HarnessFailure(
+      "canterel worker status",
+      "a imprimé un objet sans `manifest.sandbox` et `manifest.resources`, qui sont exactement ce " +
+        "sur quoi la mission se taille",
+      sortie,
+    );
+  }
+  return manifest as CapabilityManifest;
+}
+
 export const ATTESTATIONS_ENV = "LOCUS_EXECD_ATTESTATIONS";
 
 /**
@@ -670,8 +772,25 @@ export async function startChain(options: {
       }
       // `0` : un tour qui n'a rien trouvé sort proprement, et c'est le cas nominal d'une file vide.
       // Tout autre code est une panne, et sa sortie est ce qui la diagnostique.
+      //
+      // **Les deux côtés, et pas seulement le worker.** La première rédaction ne rendait que ce que
+      // le worker avait écrit, et un worker qui meurt sur un refus du plan de contrôle écrit
+      // exactement ceci : « Unexpected error, check log file at … » suivi du nom de l'erreur. La
+      // phrase qui explique — « réponse 400 : validation — "idempotency_key" : vide » — était dans le
+      // journal du worker, sur un disque temporaire que `stop()` efface. Il a fallu rejouer la
+      // chaîne à la main pour la lire.
+      //
+      // `locusd` est **dans le même harnais** et il a répondu à l'instant même. Joindre sa fin de
+      // sortie ne coûte rien et retire un aller-retour ; c'est la même faute que `W20.aa` a corrigée
+      // côté daemon — avoir la phrase entre les mains et la jeter — commise ici par le harnais.
       if (sortie !== 0) {
-        throw new HarnessFailure("canterel worker", `sorti en ${sortie}`, worker.output());
+        throw new HarnessFailure(
+          "canterel worker",
+          `sorti en ${sortie}`,
+          `${worker.output()}\n--- ce que locusd a dit au même moment ---\n${finDe(
+            annonceDe(demarres, "locusd"),
+          )}`,
+        );
       }
       return worker.output();
     };
@@ -689,12 +808,32 @@ export async function startChain(options: {
       }
     }
 
+    /** Ce que `canterel worker status` imprime de ce worker, parsé. */
+    const manifesteDuWorker = async (): Promise<CapabilityManifest> => {
+      const commande = start(
+        "canterel worker status",
+        "bun",
+        ["run", join(repo, "backend", "cli", "src", "index.ts"), "worker", "status"],
+        { ...process.env, [WORKER_HOME_ENV]: workerStateDir },
+      );
+      const sortie = await attendreSortie(commande);
+      if (sortie !== 0) {
+        throw new HarnessFailure(
+          "canterel worker status",
+          sortie === null ? `n'a pas fini en ${BOOT_TIMEOUT_MS} ms` : `sorti en ${sortie}`,
+          commande.output(),
+        );
+      }
+      return manifesteDe(commande.output());
+    };
+
     return {
       controlPlane,
       workerStateDir,
       processes: demarres.map((started) => started.name),
       annonce: (processus: string) => annonceDe(demarres, processus),
       tourDeWorker,
+      manifesteDuWorker,
       stop,
     };
   } catch (erreur) {
