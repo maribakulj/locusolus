@@ -17137,6 +17137,16 @@ après le témoin de fuite de `W5.af.1` et la source de montage. La règle qui s
 de test se nomme par **ce qui le distingue vraiment** — ici l'épreuve —, pas par ce qui est commode
 à obtenir.
 
+### Ce que la sonde vivante mesure, et ce qu'elle ne suppose pas
+
+`ce_que_cet_hote_permet_du_bornage` n'exige ni pose ni refus : la délégation appartient à l'hôte.
+Elle exige que l'issue soit **conclusive** et l'imprime. C'est le motif de `W5.f` — mesurer d'abord,
+resserrer ensuite.
+
+Ici elle rend le refus, faute de délégation. Sur le runner, elle dira si un `subtree_control`
+accepte d'être écrit par le processus qui s'y trouve — ce que **rien n'établit encore**, et qu'il
+aurait été facile de supposer parce que la délégation, elle, est lisible.
+
 ### Ce que le runner a répondu, et pourquoi il fallait le demander
 
 La sonde a tourné, et les deux faits qu'elle sépare se sont révélés **différents** :
@@ -17170,12 +17180,90 @@ témoignage, et le refus quand rien n'est délégué —, et le refus est le che
 de ce chantier empruntent, chacun pour sa raison : ici faute de hiérarchie unifiée, là faute de
 permission.
 
-### Ce que la sonde vivante mesure, et ce qu'elle ne suppose pas
+## 2026-08-27 — W5.af — Une campagne qui exerce le mécanisme du worker : clôture
 
-`ce_que_cet_hote_permet_du_bornage` n'exige ni pose ni refus : la délégation appartient à l'hôte.
-Elle exige que l'issue soit **conclusive** et l'imprime. C'est le motif de `W5.f` — mesurer d'abord,
-resserrer ensuite.
+Entrée de clôture. Les trois tranches sont livrées et consignées séparément — `W5.af.1` la
+traduction d'un plan de confinement en arguments `bwrap`, `W5.af.2` la racine bâtie plutôt
+qu'empruntée, `W5.af.3` le backend derrière `RuntimePort` et la campagne qui l'exerce. Ce qui suit
+n'est pas un résumé : ce sont les deux questions que l'item s'était interdit de découvrir en chemin,
+et ce que la livraison en a fait.
 
-Ici elle rend le refus, faute de délégation. Sur le runner, elle dira si un `subtree_control`
-accepte d'être écrit par le processus qui s'y trouve — ce que **rien n'établit encore**, et qu'il
-aurait été facile de supposer parce que la délégation, elle, est lisible.
+### Les deux questions nommées d'avance, et leurs réponses
+
+`persist_after_teardown` mesure-t-elle encore quelque chose quand le démontage **est** la sortie du
+processus ? Oui, et elle rend `Blocked`. `bwrap` ne garde rien : il n'y a pas de conteneur arrêté à
+réinspecter, donc la sonde ne peut pas répondre, et « je ne peux pas répondre » est précisément ce
+que `Blocked` dit. La réponse qui aurait été fausse est `Passed` — « rien ne persiste » se
+déduirait, et ce serait une déduction, pas une lecture.
+
+Que rapporte `attestation()` pour un mécanisme sans conteneur à réinspecter ? Elle rouvre une
+sandbox avec **les mêmes arguments** et lit de l'intérieur. C'est légitime ici et ne le serait pas
+sous podman : une sandbox `bwrap` est **entièrement déterminée** par sa ligne de commande, alors
+qu'un conteneur a un état que sa création ne détermine pas.
+
+### Deux blocages qui étaient faux, et ce que ça a coûté de les croire
+
+L'item a porté successivement deux motifs de blocage, tous deux écrits de bonne foi et tous deux
+démentis par une mesure de dix minutes. Le premier disait qu'il manquait un hôte `bubblewrap` :
+`bwrap` s'installe sur le runner et isole réellement, y compris sans privilège. Le second, écrit en
+corrigeant le premier, disait que la campagne exigeait une sandbox durable dans laquelle on rentre :
+`run_suite` ouvre **une sandbox par sonde** depuis `W5.r`, ce qui convient exactement à un mécanisme
+qui n'en garde aucune.
+
+La leçon n'est pas « ne pas se tromper ». C'est que **les deux motifs affirmaient une propriété d'un
+hôte ou d'un code sans l'avoir lu**, ce qui est la même faute que celle que `W5.ai` a commise plus
+tard sur le `subtree_control` du runner. Un blocage se mesure avant de s'écrire, au même titre
+qu'une livraison.
+
+### Ce qui reste, et qui n'est pas de cet item
+
+Les cgroups que `bubblewrap` n'écrit pas se posent **autour** de lui — c'est `W5.ai`, et c'est
+livré. Le verdict `Proven` à `S2` attend un hôte qui délègue un cgroup inscriptible — c'est `W5.am`,
+et il attend l'extérieur.
+
+## 2026-08-27 — W5.ai — Les bornes de ressources autour de `bwrap` : clôture
+
+Entrée de clôture. Trois tranches livrées et consignées — `W5.ai.1` la lecture de la délégation et
+son refus, `W5.ai.2` la pose et l'entrée, `W5.ai.3` le branchement et le nom du composé. Ce qui suit
+est ce que la clôture a **changé** dans l'item, et pourquoi.
+
+### Le test de sortie annoncé était une affirmation sur un hôte
+
+L'item annonçait : « faire passer les trois sondes de quota de `NotRun` à un verdict — ce passage
+**est** le test de sortie ». Il ne peut pas l'être. Un test de sortie qui dépend de ce que la
+machine veut bien permettre est rouge sur un conteneur de développement et vert sur un runner
+capable, sans que rien du dépôt n'ait changé entre les deux.
+
+C'est exactement ce que `W5.x` avait refusé d'écrire pour l'empreinte, et ce que `W12.d.3` a dû
+corriger le même jour après qu'une seule exécution l'a démenti. Troisième fois : la règle mérite
+d'être nommée plutôt que redécouverte — **un test de sortie affirme quelque chose sur le dépôt, et
+un fait d'hôte se mesure et se rapporte.** Le passage des trois sondes part donc dans `W5.am`, qui
+déclare `attend:externe` et ne prétend rien d'autre.
+
+### La phrase de l'item qui était fausse, et le pas qui l'a établi
+
+L'item portait, comme fait mesuré : « le runner de CI porte `controllers=cpu,cpuset,io,memory,pids`,
+donc la capacité existe **là où la campagne tourne** ». La lecture était bonne ; le « donc » ne
+l'était pas.
+
+Le pas de CI posé par `W5.ai.3` lit **deux** faits là où un seul semblait suffire, et les deux se
+sont séparés : le runner délègue les cinq contrôleurs **et** refuse `+cpu +memory +pids` dans le
+`cgroup.subtree_control` de `system.slice/hosted-compute-agent.service`. `cgroup.controllers` dit ce
+qui est disponible pour les enfants ; écrire dans `cgroup.subtree_control` demande une permission
+sur **notre propre** cgroup, et un scope de service systemd ne la donne pas au processus qu'il
+héberge.
+
+Ce pas a été écrit parce que la déduction paraissait sûre et que rien ne l'avait vérifiée. C'est le
+seul motif qu'il avait, et il a suffi.
+
+### Ce qui est tenu, et qui ne dépend d'aucun hôte
+
+La pose là où la délégation le permet ; le refus **nommé**, avec deux phrases distinctes pour deux
+causes qui ne se réparent pas au même endroit ; le composé qui porte son nom, `bubblewrap+cgroup`,
+sans toucher au protocole gelé ; le témoignage qui dit _qui_ tient la borne,
+`enforced_by_broker_cgroup:` plutôt qu'un « tenue » qui laisserait croire que le mécanisme nommé la
+porte ; et une issue **conclusive** sur les deux hôtes du chantier, chacun refusant pour sa propre
+raison — faute de hiérarchie unifiée ici, faute de permission là-bas.
+
+C'est une capacité au sens de l'ADR 0022 décision 0 : finie, testée, et qui attend un appelant — pas
+une promesse. Ce qui manque est un hôte, et un hôte n'est pas du code non écrit.
