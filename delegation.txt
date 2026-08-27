@@ -1,9 +1,9 @@
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.10s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.09s
      Running tests/cgroup.rs (target/debug/deps/cgroup-1c8488f71f5709c0)
 
 running 1 test
 cet hôte ne délègue pas : aucun cgroup n'est délégué à ce processus : sys/fs/cgroup/cgroup.controllers est absent : pas de hiérarchie unifiée. Les bornes de ressources ne peuvent donc pas être posées autour de la sandbox, et le niveau qui les promet ne sera pas attesté
 test la_lecture_conclut_contre_l_hote_reel ... ok
 
-test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out; finished in 0.00s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 10 filtered out; finished in 0.00s
 

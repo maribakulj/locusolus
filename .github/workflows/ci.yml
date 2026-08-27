@@ -426,21 +426,34 @@ jobs:
       # « sur le runner, l'autre branche s'exerce » était vrai et **non montré**. Ce pas le montre.
       # Il ne juge rien — un refus ici serait un fait sur le runner, pas un échec — et c'est pour
       # cela qu'il ne peut pas rougir.
-      - name: Ce que la lecture de délégation a conclu sur ce runner
+      - name: Ce que cet hôte permet du cgroup sur ce runner
         run: |
           # Le nom est **complet** : `--exact` sur un préfixe ne filtre aucun test, et la sortie
           # serait vide sans que rien n'échoue. Écrit d'abord avec un préfixe, et le repli
           # ci-dessous l'a dit tout de suite — c'est ce qu'il est là pour faire.
+          # Deux épreuves, deux faits distincts, et le second ne se déduit **pas** du premier :
+          # `cgroup.controllers` dit ce qui est délégué **pour les enfants**, tandis qu'écrire dans
+          # `cgroup.subtree_control` demande une permission sur notre propre cgroup. Un hôte peut
+          # rendre le premier et refuser le second, et rien dans ce dépôt ne l'établissait encore.
           cargo test -p locus-execd --test cgroup la_lecture_conclut_contre_l_hote_reel \
             -- --nocapture --exact > delegation.txt 2>&1
           code=$?
+          cargo test -p locus-execd --test bubblewrap_driver ce_que_cet_hote_permet_du_bornage \
+            -- --nocapture --exact > bornage.txt 2>&1
+          pose=$?
           {
             echo "## Ce que la lecture de délégation a conclu"
             echo '```'
             grep -E "cet hôte (délègue|ne délègue pas)" delegation.txt \
               || echo "la lecture n'a rien imprimé — le test a-t-il tourné ?"
             echo '```'
+            echo "## Ce que cet hôte permet du bornage"
+            echo '```'
+            grep -E "cgroup (posé|non posé)|bornage impossible|et retiré|posé mais non retiré" \
+              bornage.txt || echo "la sonde n'a rien imprimé — le test a-t-il tourné ?"
+            echo '```'
           } | tee -a "$GITHUB_STEP_SUMMARY"
+          [ "$code" -eq 0 ] && exit "$pose"
           exit "$code"
 
       - name: Les seize sondes contre un conteneur réel

@@ -20,8 +20,13 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Mutex;
 use std::time::Duration;
 
-use locus_execd::linux::bubblewrap::{BACKEND, INSPECTED_NAMESPACES, PROGRAM, unenforced};
+use locus_execd::linux::Delegation;
+use locus_execd::linux::bubblewrap::{
+    BACKEND, INSPECTED_NAMESPACES, JOINING_PROGRAM, PROGRAM, unenforced,
+};
+use locus_execd::linux::bubblewrap_driver::BOUNDED_BACKEND;
 use locus_execd::linux::bubblewrap_driver::host_namespaces;
+use locus_execd::linux::probe::HostFacts;
 use locus_execd::linux::{
     BubblewrapBackend, Execution, ProbeHost, Runner, SystemRunner, certify, host_boot_id, plan,
     run_suite,
@@ -657,4 +662,257 @@ fn les_namespaces_de_l_hote_se_lisent_sans_repli() {
             "« {namespace} » a été lu sur cet hôte : {lus:?}"
         );
     }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Le bornage : un second mécanisme, sous un second nom
+// ---------------------------------------------------------------------------------------------
+
+/// Un cgroup parent simulé — un répertoire ordinaire suffit à éprouver ce qui s'y écrit.
+///
+/// **Propre à chaque test**, et pas seulement au processus. Les tests d'un même binaire tournent en
+/// parallèle **dans le même processus** : un chemin par PID est donc partagé, et deux tests y
+/// allouent tous deux `locus-bw-0001` puisque le compteur de chaque backend repart à un. La
+/// première rédaction l'a appris en voyant le refus de nom déjà pris — celui que `W5.ai.2` a posé
+/// exprès — se déclencher entre deux tests plutôt que contre une vraie collision.
+fn parent_cgroup(epreuve: &str) -> std::path::PathBuf {
+    let racine = std::env::temp_dir().join(format!("locus-bwcg-{}-{epreuve}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&racine);
+    std::fs::create_dir_all(&racine).expect("le parent se crée");
+    racine
+}
+
+/// Une délégation qui porte les trois contrôleurs, lue depuis un hôte décrit.
+fn delegation_complete() -> Delegation {
+    struct Hote;
+    impl locus_execd::linux::probe::Reader for Hote {
+        fn read(&self, path: &str) -> Option<String> {
+            match path {
+                "/sys/fs/cgroup/cgroup.controllers"
+                | "/sys/fs/cgroup/locus.slice/cgroup.controllers" => {
+                    Some("cpu memory pids".to_owned())
+                }
+                "/proc/self/cgroup" => Some("0::/locus.slice".to_owned()),
+                _ => None,
+            }
+        }
+    }
+    Delegation::read(&HostFacts::probe(&Hote)).expect("la délégation se lit")
+}
+
+/// **Sans cgroup, le mécanisme porte son nom simple, et le témoignage dit que les bornes manquent.**
+#[test]
+fn sans_cgroup_le_mecanisme_ne_borne_pas_et_le_dit() {
+    let runner = ScriptedRunner::new(vec![ok(&reponse(TOUS, "true", "1", "absent"))]);
+    let mut mecanisme = BubblewrapBackend::new(runner).with_host_namespaces(hote());
+    assert_eq!(mecanisme.attested_backend(), BACKEND);
+    assert!(!mecanisme.bounds_resources());
+
+    let id = mecanisme
+        .create(&spec(SandboxLevel::S2))
+        .expect("le plan se calcule");
+    let temoignage = mecanisme
+        .attestation(&id)
+        .expect("l'attestation se lit")
+        .evidence()
+        .join("\n");
+
+    assert!(
+        temoignage.contains("unenforced:memory.max"),
+        "la borne n'est pas tenue, et le témoignage le dit : {temoignage}"
+    );
+    assert!(
+        !temoignage.contains("enforced_by_broker_cgroup"),
+        "et personne ne prétend la tenir : {temoignage}"
+    );
+}
+
+/// **Avec cgroup, le mécanisme change de nom, et le témoignage dit *qui* tient les bornes.**
+///
+/// Les deux moitiés comptent. Le nom, parce que l'ADR 0036 refuse qu'un enregistrement affirme de
+/// `bubblewrap` une propriété que seul le broker tient. Le témoignage, parce qu'écrire simplement
+/// « tenue » laisserait croire que le mécanisme nommé la porte, et l'omettre laisserait croire
+/// qu'elle n'est pas tenue du tout.
+#[test]
+fn avec_cgroup_le_mecanisme_change_de_nom_et_nomme_qui_borne() {
+    let racine = parent_cgroup("nom-et-temoignage");
+    let runner = ScriptedRunner::new(vec![ok(&reponse(TOUS, "true", "1", "absent"))]);
+    let enveloppe = ScriptedRunner::new(vec![ok(&reponse(TOUS, "true", "1", "absent"))]);
+    let mut mecanisme = BubblewrapBackend::new(runner)
+        .with_host_namespaces(hote())
+        .with_cgroup(delegation_complete(), racine.clone(), enveloppe);
+
+    assert_eq!(mecanisme.attested_backend(), BOUNDED_BACKEND);
+    assert_ne!(BOUNDED_BACKEND, BACKEND, "deux mécanismes, deux noms");
+    assert!(mecanisme.bounds_resources());
+
+    let id = mecanisme
+        .create(&spec(SandboxLevel::S2))
+        .expect("le plan se calcule et le cgroup se pose");
+
+    // Le cgroup a réellement été posé, avec les limites du plan.
+    let confinement = plan(&spec(SandboxLevel::S2)).expect("le plan se calcule");
+    for limite in confinement.cgroup() {
+        let ecrit = std::fs::read_to_string(racine.join(id.as_str()).join(limite.file))
+            .unwrap_or_else(|_| panic!("« {} » a été écrit", limite.file));
+        assert_eq!(ecrit, limite.value);
+    }
+
+    let atteste = mecanisme.attestation(&id).expect("l'attestation se lit");
+    assert_eq!(atteste.attested_by(), BOUNDED_BACKEND);
+    let temoignage = atteste.evidence().join("\n");
+    assert!(
+        temoignage.contains("enforced_by_broker_cgroup:memory.max"),
+        "le témoignage nomme qui tient la borne : {temoignage}"
+    );
+    assert!(
+        !temoignage.contains("unenforced:memory.max"),
+        "et ne dit plus qu'elle manque : {temoignage}"
+    );
+
+    let _ = std::fs::remove_dir_all(&racine);
+}
+
+/// **La sonde passe par l'enveloppeur** quand un cgroup a été posé.
+#[test]
+fn avec_cgroup_la_sonde_entre_dans_le_cgroup_avant_de_se_lancer() {
+    let racine = parent_cgroup("sonde-enveloppee");
+    let enveloppe = ScriptedRunner::new(vec![ok("")]);
+    let mut mecanisme = BubblewrapBackend::new(ScriptedRunner::new(vec![]))
+        .with_host_namespaces(hote())
+        .with_cgroup(delegation_complete(), racine.clone(), enveloppe);
+
+    let id = mecanisme
+        .create(&spec(SandboxLevel::S2))
+        .expect("le cgroup se pose");
+    let contexte = locus_execd::linux::ProbeContext {
+        quota: None,
+        host_boot_id: None,
+    };
+    mecanisme
+        .probe(&id, &["sh", "-c", "true"], &contexte)
+        .expect("la sonde se lance");
+
+    // C'est le lanceur **du bwrap** qui n'a rien reçu : tout est passé par l'enveloppe.
+    assert_eq!(
+        mecanisme.runner().count(),
+        0,
+        "la sandbox n'est plus lancée directement quand un cgroup la borne"
+    );
+
+    let _ = std::fs::remove_dir_all(&racine);
+}
+
+/// **Une pose qui échoue ne rend pas d'identifiant.**
+///
+/// Un appelant qui recevrait un identifiant utilisable alors que la borne a échoué lancerait sa
+/// sandbox **sans borne** — l'un des deux modes d'échec silencieux de l'ADR 0036.
+#[test]
+fn une_pose_qui_echoue_ne_rend_pas_d_identifiant() {
+    let absent = std::env::temp_dir().join(format!("locus-bwcg-absent-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&absent);
+
+    let mut mecanisme = BubblewrapBackend::new(ScriptedRunner::new(vec![]))
+        .with_host_namespaces(hote())
+        .with_cgroup(
+            delegation_complete(),
+            absent,
+            ScriptedRunner::new(vec![ok("")]),
+        );
+
+    let refus = mecanisme
+        .create(&spec(SandboxLevel::S2))
+        .expect_err("le parent n'existe pas : la pose échoue");
+    let dit = refus.to_string();
+    assert!(
+        dit.contains("cgroup"),
+        "le refus nomme ce qui a échoué : {dit}"
+    );
+}
+
+// ---------------------------------------------------------------------------------------------
+// Et contre l'hôte réel : ce que le bornage y donne
+// ---------------------------------------------------------------------------------------------
+
+/// **Ce que cet hôte permet réellement du bornage** — mesuré, pas supposé.
+///
+/// Ce test n'exige pas qu'un cgroup se pose : la délégation appartient à l'hôte. Il exige que
+/// l'issue soit **conclusive** — une pose, ou un refus nommé — et il l'imprime, parce que c'est le
+/// fait dont la suite dépend.
+///
+/// C'est le motif de `W5.f`, « sonder ce que la CI sait faire », appliqué au cgroup : on mesure
+/// d'abord, on resserre ensuite. Ce qu'on ne fait pas, c'est supposer.
+///
+/// Mesuré au moment de l'écrire : le conteneur de développement **ne délègue rien**, donc le refus
+/// est le seul chemin qu'il puisse prendre. Le runner de CI délègue `cpu, cpuset, io, memory,
+/// pids` — reste à savoir s'il permet d'**écrire** dans le `subtree_control` de notre propre
+/// cgroup, ce que seule cette exécution dira.
+#[test]
+fn ce_que_cet_hote_permet_du_bornage() {
+    let facts = HostFacts::read_host();
+    let Ok(delegation) = Delegation::read(&facts) else {
+        let refus = Delegation::read(&facts).expect_err("rien n'est délégué");
+        println!("bornage impossible sur cet hôte : {refus}");
+        assert!(
+            !refus.to_string().is_empty(),
+            "un refus dit pourquoi ; un refus muet ne se répare pas"
+        );
+        return;
+    };
+
+    println!("cet hôte délègue : {:?}", delegation.controllers());
+    let confinement = plan(&spec(SandboxLevel::S2)).expect("le plan se calcule");
+    let sous = std::path::PathBuf::from(own_cgroup_directory());
+    let nom = format!("locus-epreuve-{}", std::process::id());
+
+    match delegation.place(&sous, &nom, &confinement) {
+        Ok(pose) => {
+            println!("cgroup posé : {}", pose.directory().display());
+            assert!(
+                pose.directory().exists(),
+                "une pose rendue a bien créé son répertoire"
+            );
+            match pose.remove() {
+                Ok(()) => println!("et retiré"),
+                Err(erreur) => println!("posé mais non retiré : {erreur}"),
+            }
+        }
+        Err(erreur) => {
+            // Un hôte qui délègue et refuse la pose est un fait sur cet hôte, pas un échec du
+            // module. Ce qui serait un échec, c'est un refus qui ne dise pas lequel des quatre
+            // fichiers a résisté.
+            println!("cgroup non posé, et voici pourquoi : {erreur}");
+            let dit = erreur.to_string();
+            assert!(
+                dit.contains('/'),
+                "le refus nomme le fichier ou le répertoire qui a résisté : {dit}"
+            );
+        }
+    }
+}
+
+/// Le répertoire cgroup de ce processus, ou la racine unifiée à défaut.
+fn own_cgroup_directory() -> String {
+    std::fs::read_to_string("/proc/self/cgroup")
+        .ok()
+        .and_then(|contenu| {
+            contenu
+                .lines()
+                .find_map(|ligne| ligne.strip_prefix("0::"))
+                .map(|relatif| format!("/sys/fs/cgroup/{}", relatif.trim().trim_start_matches('/')))
+        })
+        .unwrap_or_else(|| "/sys/fs/cgroup".to_owned())
+}
+
+/// Le programme d'enveloppe existe sur cet hôte.
+///
+/// Sans lui, un mécanisme borné ne pourrait pas entrer dans son cgroup — et il échouerait au
+/// lancement plutôt qu'à la construction, c'est-à-dire trop tard pour qu'on sache pourquoi.
+#[test]
+fn le_programme_d_enveloppe_existe() {
+    assert!(
+        std::path::Path::new(JOINING_PROGRAM).exists(),
+        "« {JOINING_PROGRAM} » est là : c'est lui qui entre dans le cgroup avant d'exécuter la \
+         sandbox"
+    );
 }

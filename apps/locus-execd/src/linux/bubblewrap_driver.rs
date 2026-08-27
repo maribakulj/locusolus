@@ -39,20 +39,39 @@
 //! qu'une attestation annonce un niveau sans dire ce qui, dans ce niveau, n'est pas tenu.
 
 use std::collections::BTreeMap;
+use std::path::PathBuf;
 use std::time::Duration;
 
 use locus_execution::{SandboxAttestation, SandboxLevel, SandboxSpec};
 
 use super::bubblewrap::{
-    BACKEND, INSPECTED_NAMESPACES, INSPECTION, PROGRAM, unenforced, wrap_arguments_with_env,
+    BACKEND, INSPECTED_NAMESPACES, INSPECTION, PROGRAM, joined_invocation, unenforced,
+    wrap_arguments_with_env,
 };
 use super::campaign::ProbeHost;
+use super::cgroup::{Delegation, Placement};
 use super::plan::{ConfinementPlan, plan};
 use super::process::{Execution, Runner};
 use super::selftest::{
     HOST_BOOT_ID_VARIABLE, ProbeContext, QUOTA_BYTES_VARIABLE, QUOTA_TARGET_VARIABLE,
 };
 use crate::runtime::{RuntimeError, RuntimePort, SandboxId};
+
+/// Le nom du mécanisme **composé** : `bubblewrap` plus une borne posée par le broker.
+///
+/// # Pourquoi un second nom, et pourquoi maintenant
+///
+/// ADR 0036 décision 1 : `bubblewrap` seul et `bubblewrap` dans un cgroup posé par le broker
+/// échouent différemment — trois modes de plus, dont deux **silencieux** — et s'installent
+/// différemment, puisque le second exige une délégation que l'hôte accorde ou non. Le critère de
+/// l'ADR 0035 leur refuse donc un nom commun.
+///
+/// Décision 2 du même ADR : le nom entre **avec** son implémentation. Il entre ici, et pas avant,
+/// parce qu'avant il aurait annoncé un effet qui n'avait pas lieu.
+///
+/// `lep/1.0` range `backend` parmi les chaînes libres — vérifié dans les deux schémas qui le
+/// portent —, donc ce second nom ne touche pas au protocole gelé.
+pub const BOUNDED_BACKEND: &str = "bubblewrap+cgroup";
 
 /// La pause avant la première reprise d'un lancement que le mécanisme n'a pas pu faire.
 ///
@@ -64,10 +83,24 @@ pub const FIRST_LAUNCH_PAUSE: Duration = Duration::from_millis(100);
 pub struct BubblewrapBackend<R: Runner> {
     runner: R,
     created: BTreeMap<SandboxId, ConfinementPlan>,
+    placed: BTreeMap<SandboxId, Placement>,
+    bounding: Option<Bounding<R>>,
     counter: u32,
     launch_pause: Duration,
     host_boot_id: Option<String>,
     host_namespaces: BTreeMap<String, String>,
+}
+
+/// De quoi poser une borne de ressources autour d'une sandbox.
+///
+/// Les deux vont ensemble et n'ont pas de sens séparément : une délégation sans lanceur d'enveloppe
+/// saurait poser le cgroup sans pouvoir y entrer, et un lanceur sans délégation n'aurait rien où
+/// entrer. Les tenir dans un seul `Option` rend le demi-état **inexprimable**, ce qui est la forme
+/// que ce dépôt préfère à une garde.
+struct Bounding<R: Runner> {
+    delegation: Delegation,
+    under: PathBuf,
+    joining: R,
 }
 
 impl<R: Runner> BubblewrapBackend<R> {
@@ -86,10 +119,69 @@ impl<R: Runner> BubblewrapBackend<R> {
         Self {
             runner,
             created: BTreeMap::new(),
+            placed: BTreeMap::new(),
+            bounding: None,
             counter: 0,
             launch_pause: FIRST_LAUNCH_PAUSE,
             host_boot_id: None,
             host_namespaces: BTreeMap::new(),
+        }
+    }
+
+    /// Donner au mécanisme de quoi **borner** les ressources — ADR 0036 décision 3.
+    ///
+    /// # Ce que cela change au mécanisme, et donc à son nom
+    ///
+    /// Sans cela, `bubblewrap` compose des namespaces et des montages, et `unenforced` déclare que
+    /// les bornes de ressources ne sont pas tenues. Avec, elles le sont — mais **par le broker**, et
+    /// l'ADR 0036 décision 1 en tire la conséquence : ce n'est pas le même mécanisme, donc pas le
+    /// même nom. [`BubblewrapBackend::attested_backend`] rend l'un ou l'autre.
+    ///
+    /// Le lanceur d'enveloppe est **du même type** que celui de la sandbox : pour un
+    /// [`super::process::SystemRunner`], c'est le même appel avec un autre programme. Généraliser le
+    /// port pour qu'il prenne un programme par appel aurait touché dix implémentations dans les
+    /// tests, pour un besoin que ce paramètre-ci couvre.
+    #[must_use]
+    pub fn with_cgroup(mut self, delegation: Delegation, under: PathBuf, joining: R) -> Self {
+        self.bounding = Some(Bounding {
+            delegation,
+            under,
+            joining,
+        });
+        self
+    }
+
+    /// Le mécanisme sous lequel une attestation de ce backend doit être enregistrée.
+    ///
+    /// Deux noms, parce qu'il y a deux mécanismes — ADR 0036 décision 1. Ils échouent différemment
+    /// et s'installent différemment ; leur donner un nom commun ferait affirmer de l'un ce que seul
+    /// l'autre tient.
+    #[must_use]
+    pub fn attested_backend(&self) -> &'static str {
+        if self.bounding.is_some() {
+            BOUNDED_BACKEND
+        } else {
+            BACKEND
+        }
+    }
+
+    /// Borne-t-il les ressources ?
+    #[must_use]
+    pub const fn bounds_resources(&self) -> bool {
+        self.bounding.is_some()
+    }
+
+    /// Les arguments qui lancent cette commande, et le programme qui les prend.
+    ///
+    /// Sans cgroup, c'est `bwrap` directement. Avec, c'est l'enveloppeur qui s'inscrit d'abord —
+    /// et le choix se lit ici, en un seul endroit, plutôt qu'à chaque appelant.
+    fn invocation(&self, id: &SandboxId, arguments: Vec<String>) -> (&R, Vec<String>) {
+        match (self.bounding.as_ref(), self.placed.get(id)) {
+            (Some(bounding), Some(placement)) => (
+                &bounding.joining,
+                joined_invocation(&placement.procs().to_string_lossy(), &arguments),
+            ),
+            _ => (&self.runner, arguments),
         }
     }
 
@@ -163,6 +255,21 @@ impl<R: Runner> RuntimePort for BubblewrapBackend<R> {
             capability: error.to_string(),
         })?;
         let id = SandboxId::new(&self.next_name())?;
+
+        // Le cgroup se pose **avant** que l'identifiant soit rendu : un appelant qui recevrait un
+        // identifiant utilisable alors que la borne a échoué lancerait sa sandbox sans borne, ce
+        // qui est l'un des deux modes d'échec silencieux de l'ADR 0036. L'échec est donc rendu,
+        // et rien n'est enregistré.
+        if let Some(bounding) = self.bounding.as_ref() {
+            let placement = bounding
+                .delegation
+                .place(&bounding.under, id.as_str(), &confinement)
+                .map_err(|erreur| RuntimeError::Unsupported {
+                    capability: format!("poser le cgroup de la sandbox : {erreur}"),
+                })?;
+            self.placed.insert(id.clone(), placement);
+        }
+
         self.created.insert(id.clone(), confinement);
         Ok(id)
     }
@@ -194,6 +301,22 @@ impl<R: Runner> RuntimePort for BubblewrapBackend<R> {
     /// qui n'a pas eu lieu.
     fn remove(&mut self, id: &SandboxId) -> Result<(), RuntimeError> {
         self.known(id)?;
+
+        // Le cgroup se retire **avant** l'oubli de l'identifiant : l'inverse rendrait la sandbox
+        // inconnue du mécanisme alors que son cgroup existe encore sur l'hôte, et plus personne
+        // n'aurait de quoi le retirer. C'est la leçon de `remove` côté podman, appliquée ici.
+        //
+        // L'échec est **rendu**, pas ignoré : un cgroup qui refuse de partir dit qu'il reste
+        // quelqu'un dedans, ce qui est un fait sur la sandbox et non du ménage.
+        if let Some(placement) = self.placed.remove(id) {
+            placement.remove().map_err(|erreur| RuntimeError::Refused {
+                backend: self.attested_backend(),
+                verb: "retrait du cgroup".to_owned(),
+                code: 0,
+                detail: erreur.to_string(),
+            })?;
+        }
+
         self.created.remove(id);
         Ok(())
     }
@@ -212,7 +335,8 @@ impl<R: Runner> RuntimePort for BubblewrapBackend<R> {
             &[],
             &["/bin/sh".to_owned(), "-c".to_owned(), INSPECTION.to_owned()],
         );
-        let execution = self.runner.run(&arguments)?;
+        let (runner, arguments) = self.invocation(id, arguments);
+        let execution = runner.run(&arguments)?;
         if execution.code != 0 {
             return Err(RuntimeError::Refused {
                 backend: BACKEND,
@@ -224,10 +348,13 @@ impl<R: Runner> RuntimePort for BubblewrapBackend<R> {
         let observed = observations(&execution.stdout)?;
         let obtained = self.obtained(&observed)?;
         let level = observed_level(&observed, &obtained);
-        SandboxAttestation::new(level, BACKEND, evidence(&observed, confinement)).map_err(|error| {
-            RuntimeError::Unsupported {
-                capability: format!("attestation : {error}"),
-            }
+        SandboxAttestation::new(
+            level,
+            self.attested_backend(),
+            evidence(&observed, confinement, self.bounds_resources()),
+        )
+        .map_err(|error| RuntimeError::Unsupported {
+            capability: format!("attestation : {error}"),
         })
     }
 }
@@ -334,16 +461,27 @@ fn observed_level(
 /// Les deux moitiés voyagent ensemble parce qu'un exploitant qui lit « `S2` sous bubblewrap » doit
 /// pouvoir savoir dans la même phrase que la borne mémoire de sa mission est tenue ailleurs, ou pas
 /// du tout. Séparer les deux ferait de la seconde une note de bas de page que personne n'ouvre.
-fn evidence(observed: &BTreeMap<String, String>, confinement: &ConfinementPlan) -> Vec<String> {
+fn evidence(
+    observed: &BTreeMap<String, String>,
+    confinement: &ConfinementPlan,
+    bounded: bool,
+) -> Vec<String> {
     let mut temoignage: Vec<String> = observed
         .iter()
         .map(|(key, value)| format!("{key}={value}"))
         .collect();
-    temoignage.extend(
-        unenforced(confinement)
-            .into_iter()
-            .map(|manquante| format!("unenforced:{}", manquante.limit)),
-    );
+    for manquante in unenforced(confinement) {
+        // Une borne de cgroup **posée par le broker** est tenue — mais pas par `bubblewrap`, et le
+        // témoignage le dit sous les deux mots. Écrire simplement qu'elle est tenue laisserait
+        // croire que le mécanisme nommé la porte, ce que l'ADR 0036 refuse ; l'omettre laisserait
+        // croire qu'elle n'est pas tenue du tout.
+        let porte_par_le_cgroup = bounded && manquante.limit.contains('.');
+        temoignage.push(if porte_par_le_cgroup {
+            format!("enforced_by_broker_cgroup:{}", manquante.limit)
+        } else {
+            format!("unenforced:{}", manquante.limit)
+        });
+    }
     temoignage
 }
 
@@ -363,7 +501,8 @@ impl<R: Runner> ProbeHost for BubblewrapBackend<R> {
         let confinement = self.known(id)?;
         let commande: Vec<String> = command.iter().map(|part| (*part).to_owned()).collect();
         let arguments = wrap_arguments_with_env(confinement, &Self::declared(context), &commande);
-        self.runner.run(&arguments)
+        let (runner, arguments) = self.invocation(id, arguments);
+        runner.run(&arguments)
     }
 
     /// Y a-t-il encore une sandbox à éprouver ? Ici, la question est celle du **registre**.
