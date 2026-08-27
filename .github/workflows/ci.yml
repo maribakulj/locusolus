@@ -641,6 +641,28 @@ jobs:
       - name: Install
         run: npm ci
 
+      # `W0.24` : la lecture du SDK par le worker est-elle à jour ? La question ne peut se poser
+      # qu'ici — le consommateur ne peut pas savoir qu'une source qu'il n'a pas le droit de lire a
+      # changé, ce dépôt étant privé, et sa propre garde se déclare alors dégradée. Ce pas est le
+      # seul endroit du chantier où les deux fichiers sont sur le même disque.
+      #
+      # Le chemin est **donné**, donc la garde est stricte : le checkout ci-dessus a réussi ou le job
+      # aurait déjà échoué, et un pin illisible est ici une panne, jamais une machine ordinaire.
+      #
+      # Il vient **avant** `npm run e2e` et non après : une chaîne qui monte un worker dont la
+      # lecture du contrat est périmée peut très bien passer — c'est ce qui s'est produit pendant que
+      # `W16.d` dérivait — et l'ordre inverse ferait lire « e2e vert » comme « les deux dépôts sont
+      # d'accord ».
+      - name: La lecture du SDK par le worker est-elle à jour
+        run: |
+          # `PIPESTATUS`, comme partout ici : sans lui le code de sortie serait celui de `tee`, et
+          # un refus bruyant se lirait « exit 0 » — précisément la faute que cette garde existe pour
+          # ne pas commettre. `2>&1` parce que `report` écrit ses constats sur stderr : sans la
+          # redirection, le résumé porterait « ok » et jamais la violation.
+          node tooling/repo/check-worker-pin.ts "${{ github.workspace }}/.worker" 2>&1 \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+          exit "${PIPESTATUS[0]}"
+
       # Le harnais **échoue bruyamment** si l'un des trois processus ne démarre pas, et rend sa
       # sortie. Pas de `continue-on-error` : c'est la règle du dépôt, et `W20.i` a montré ce qu'elle
       # coûte quand on l'oublie.

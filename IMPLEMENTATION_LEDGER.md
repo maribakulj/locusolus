@@ -17267,3 +17267,79 @@ raison — faute de hiérarchie unifiée ici, faute de permission là-bas.
 
 C'est une capacité au sens de l'ADR 0022 décision 0 : finie, testée, et qui attend un appelant — pas
 une promesse. Ce qui manque est un hôte, et un hôte n'est pas du code non écrit.
+
+## 2026-08-27 — W0.24 — La lecture du SDK par le worker se vérifie du côté qui sait qu'il a changé
+
+`tooling/repo/worker-pin.ts`, `check-worker-pin.ts`, `tests/repo/worker-pin.test.ts`, et un pas dans
+le job `e2e`. Né d'une dérive réelle, trouvée en poussant `W2.25` dans `canterel`.
+
+### Le trou, et pourquoi il ne se voyait pas
+
+`canterel` embarque une copie épinglée de `packages/lep/src/generated.ts` et vérifie de son côté
+qu'elle correspond à sa source — `verifyAgainstSource` rejoue la réécriture déclarée dans
+`vendor.ts`. Cette vérification est **exacte et inopérante en CI** : elle ne tourne que là où une
+copie de travail de ce dépôt existe, ce dépôt est privé, et la CI du fork ne peut pas le lire. Elle
+se déclare alors dégradée plutôt que de passer en silence, ce qui est le bon comportement — et qui
+laisse la dérive vivre indéfiniment.
+
+Elle a vécu : `W16.d` a changé le SDK généré ici, rien ne l'a redescendu là-bas, et le worker a
+ignoré `AttemptSubagentsItem`, le champ `subagents` d'un attempt et la feature `subagent-visibility`
+— trois choses que ce plan de contrôle émettait — jusqu'à ce qu'une session travaille les deux
+dépôts au même endroit.
+
+### La garde appartient au producteur
+
+Le consommateur ne peut pas savoir qu'une source qu'il n'a pas le droit de lire a changé. Le
+producteur, lui, le sait toujours : c'est ici que le fichier bouge. Et le job `e2e` monte déjà
+`canterel` à la révision épinglée — la lecture ne coûte donc qu'un chemin.
+
+Ce que la garde ne fait **pas** : comparer le fichier vendu. Les réécritures sont l'affaire de
+`verifyAgainstSource`, qui les connaît ; les redéclarer ici en produirait une seconde version, qui
+divergerait. Elle compare l'empreinte de la **source** enregistrée dans le pin à celle du fichier
+tel qu'il est aujourd'hui.
+
+### Trois motifs, parce qu'ils envoient à trois endroits
+
+`lecture-perimee` envoie re-vendorer puis avancer les deux pins ; `source-absente` envoie corriger
+la table de réécritures, un renommage de ce côté ne se voyant pas de l'autre ; `pin-illisible`
+couvre les six façons de ne rien lire. C'est la règle d'`unplaced_note` appliquée ici : fondre deux
+motifs enverrait la moitié des cas au mauvais endroit.
+
+La sixième façon de ne rien lire est la plus insidieuse et n'a pas été trouvée en écrivant le test
+mais en écrivant le code : une table `files` **vide** est syntaxiquement parfaite, passe toutes les
+comparaisons — zéro fichier, zéro écart — et rendrait `ok` sur un consommateur jamais vérifié. C'est
+« un compteur qui n'a rien lu ne vaut pas zéro » sous une forme que la garde aurait pu se faire à
+elle-même.
+
+### Deux modes, et l'un n'est pas une version affaiblie de l'autre
+
+Chemin **donné** — le job `e2e` : le checkout a réussi ou le job aurait déjà échoué, donc un pin
+absent est une panne et la garde est stricte. Chemin **absent** — une machine de développeur : la
+garde se déclare non exécutée et rend `0`, comme `check:roadmap` le fait déjà pour les registres
+voisins. Un `1` ici rendrait `npm run check` impossible à passer sur une machine qui n'a qu'un des
+quatre dépôts, et la garde serait retirée dans la semaine.
+
+La différence n'est pas la rigueur, c'est **ce qui est su** : là où le checkout est garanti, son
+absence est une panne ; là où il ne l'est pas, c'est une machine ordinaire. Et le mode dégradé le
+**dit**, au lieu de laisser « ok » se lire « tout est vérifié ».
+
+### L'ordre du pas de CI n'est pas indifférent
+
+Il vient **avant** `npm run e2e`. Une chaîne qui monte un worker dont la lecture du contrat est
+périmée peut très bien passer — c'est exactement ce qui s'est produit pendant que `W16.d` dérivait —
+et l'ordre inverse ferait lire « e2e vert » comme « les deux dépôts sont d'accord ».
+
+`PIPESTATUS` et `2>&1`, comme partout ici : sans le premier, le code de sortie serait celui de `tee`
+et un refus bruyant se lirait « exit 0 » ; sans le second, `report` écrivant ses constats sur
+stderr, le résumé porterait « ok » et jamais la violation. J'ai écrit le tube sans `PIPESTATUS` en
+premier jet, dans le pas même dont l'objet est de ne pas laisser une garde mentir.
+
+### Rouge avant d'être vert, sur le défaut réel
+
+Pointée sur le pin d'avant le re-vendoring, la garde nomme `packages/lep/src/generated.ts`, les deux
+empreintes et le remède. Pointée sur le pin d'après, elle rend `ok` et **imprime la révision
+comparée** — un `ok` qui ne dit pas contre quoi ne dit rien.
+
+Conséquence assumée : ce dépôt rougit désormais tant que le pin du worker n'a pas suivi un
+changement du SDK généré. C'est le coût de rendre visible un couplage qui existait déjà et que
+personne ne payait — parce que personne ne le voyait.
