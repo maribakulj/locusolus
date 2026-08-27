@@ -440,7 +440,7 @@ jobs:
             grep -E "cet hôte (délègue|ne délègue pas)" delegation.txt \
               || echo "la lecture n'a rien imprimé — le test a-t-il tourné ?"
             echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
           exit "$code"
 
       - name: Les seize sondes contre un conteneur réel

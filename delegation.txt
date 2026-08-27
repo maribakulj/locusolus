@@ -1,4 +1,4 @@
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.09s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.10s
      Running tests/cgroup.rs (target/debug/deps/cgroup-1c8488f71f5709c0)
 
 running 1 test
