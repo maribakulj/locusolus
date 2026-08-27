@@ -17006,3 +17006,74 @@ pose du cgroup qui demandera un runner.
 Poser le cgroup, y déplacer le processus avant `exec`, nommer le composé, et faire passer les trois
 sondes de quota de `NotRun` à un verdict. Ce passage **est** le test de sortie, l'ADR 0036 décision
 4 le dit : tant que les trois n'ont rien lu, rien n'a été mesuré.
+
+## 2026-08-27 — W5.ai.2 — La pose du cgroup, et l'entrée dedans
+
+Seconde tranche de `W5.ai`. Elle est entièrement vérifiable ici, et pour une raison qui n'était pas
+évidente : **poser un cgroup, c'est créer un répertoire et écrire des fichiers**. La sémantique du
+noyau n'entre en jeu qu'à l'exécution de la sandbox. Un répertoire temporaire suffit donc à éprouver
+ce que le module écrit et où — ce qui reste à prouver ailleurs est que la borne **morde**, et c'est
+ce que les trois sondes de quota diront en CI.
+
+### L'ordre n'est pas indifférent
+
+Les contrôleurs s'activent dans le `cgroup.subtree_control` du **parent**, et c'est ce qui fait
+apparaître `memory.max` dans l'enfant. Créer d'abord et activer ensuite donnerait un répertoire sans
+les fichiers qu'on veut y écrire, et l'échec se lirait « ce noyau ne connaît pas `memory.max` »
+plutôt que « je m'y suis pris à l'envers ».
+
+La pose n'active **que ce que la délégation porte**, et n'écrit **pas** le quota disque —
+`ConfinementPlan` le range déjà hors de `cgroup()` et dit pourquoi : cgroup v2 borne un débit, pas
+un espace. L'écrire ici demanderait de choisir un fichier qui ne fait pas ce qu'on croit.
+
+Un nom déjà pris est refusé. `W5.l` a montré ce que coûte un nom resté pris quand personne ne le
+signale ; ici, réutiliser le répertoire écraserait les bornes d'une sandbox qui tourne.
+
+### L'entrée dans le cgroup, et pourquoi un enveloppeur
+
+L'inscription dans `cgroup.procs` doit avoir lieu **entre le fork et l'exec** : avant, ce serait le
+broker qu'on déplacerait ; après, la sandbox aurait déjà tourné hors de toute borne.
+
+Trois façons — `pre_exec`, donc `unsafe` ; `clone3` avec `CLONE_INTO_CGROUP`, donc une dépendance
+nouvelle qui demanderait son ADR ; ou un enveloppeur qui s'inscrit puis `exec`. Seule la troisième
+ne coûte ni l'un ni l'autre, **et** reste une construction d'arguments, donc vérifiable sans hôte
+comme tout le reste de ce module.
+
+Deux détails de cette ligne ne sont pas du style :
+
+- **`exec`.** Sans lui, le shell resterait entre le broker et la sandbox : un processus de plus dans
+  le cgroup, qui compte dans `pids.max`, et un intermédiaire qui recevrait les signaux à la place de
+  `bwrap` ;
+- **`&&`.** Un `;` lancerait la sandbox même si l'inscription a échoué — hors du cgroup et sans
+  borne, ce qui est exactement l'un des deux modes d'échec silencieux que l'ADR 0036 nomme.
+
+### Les chemins viennent de la mission
+
+`CLAUDE.md` : « aucun `shell-command` construit depuis du contenu distant non échappé ». Les
+montages d'une mission viennent de l'extérieur et arrivent ici dans une ligne de commande ; un
+chemin contenant `'; rm -rf / #` serait exécuté.
+
+Chaque argument passe donc par des guillemets simples, sous la forme canonique — fermer, insérer un
+guillemet échappé, rouvrir. Le test ne se contente pas de relire la chaîne : il donne le chemin
+hostile **au vrai shell** et vérifie qu'il le rend entier.
+
+### Deux affirmations fausses, écrites par moi, corrigées par les tests
+
+**« La charge ne doit pas apparaître dans la ligne. »** Faux : elle apparaît, entre guillemets, donc
+inerte. L'affirmation testait l'**apparence** au lieu de l'**effet**, et elle a échoué contre une
+ligne parfaitement sûre. Ce qui se vérifie est ce que le shell en fait.
+
+**« `rmdir` doit aboutir sur le répertoire posé. »** Faux sous un répertoire ordinaire. Dans un vrai
+cgroup, les fichiers de contrôle sont **synthétisés par le noyau** et disparaissent avec le
+répertoire ; ailleurs, ce sont de vrais fichiers et `rmdir` rend « Directory not empty ». C'est la
+seule chose de ce module qu'un harnais sans hiérarchie réelle ne sait pas éprouver.
+
+La tentation était de retirer les fichiers à la main dans le test pour le faire passer. Cela aurait
+éprouvé le harnais et non le module. Le fait est donc écrit **là où la fonction vit**, et le test
+dit pourquoi il ne l'affirme pas.
+
+### Ce qui reste à `W5.ai`
+
+Brancher la pose sur `BubblewrapBackend`, nommer le composé, et faire passer les trois sondes de
+quota de `NotRun` à un verdict. Ce dernier point **est** le test de sortie, et il ne peut se
+constater que là où un cgroup est délégué — c'est-à-dire en CI.

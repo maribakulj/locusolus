@@ -27,7 +27,9 @@
 
 use std::collections::BTreeSet;
 use std::fmt;
+use std::path::{Path, PathBuf};
 
+use super::plan::ConfinementPlan;
 use super::probe::{HostFacts, REQUIRED_CONTROLLERS};
 
 /// Ce que le broker peut poser autour d'une sandbox.
@@ -155,5 +157,189 @@ fn raison(facts: &HostFacts) -> String {
         }
         super::probe::Support::Unavailable { reason }
         | super::probe::Support::Undetermined { reason } => reason.clone(),
+    }
+}
+
+/// Un cgroup **posé** pour une sandbox, sous celui que l'hôte délègue au broker.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Placement {
+    directory: PathBuf,
+}
+
+/// Ce qui a empêché de poser le cgroup.
+///
+/// Chaque variante nomme **le fichier** et ce que le système en a dit. Un échec de pose qui ne
+/// nommerait pas son fichier laisserait chercher parmi quatre écritures différentes.
+#[derive(Debug)]
+pub enum PlacementError {
+    /// Activer les contrôleurs pour les enfants a échoué.
+    Enabling {
+        /// Le fichier visé.
+        file: String,
+        /// Ce qu'on voulait y écrire.
+        wrote: String,
+        /// Ce que le système a dit.
+        detail: String,
+    },
+    /// Créer le répertoire du cgroup a échoué.
+    Creating {
+        /// Le répertoire visé.
+        directory: String,
+        /// Ce que le système a dit.
+        detail: String,
+    },
+    /// Écrire une limite a échoué.
+    Writing {
+        /// Le fichier visé.
+        file: String,
+        /// Ce qu'on voulait y écrire.
+        wrote: String,
+        /// Ce que le système a dit.
+        detail: String,
+    },
+}
+
+impl fmt::Display for PlacementError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Enabling {
+                file,
+                wrote,
+                detail,
+            } => write!(
+                formatter,
+                "activer les contrôleurs a échoué : « {wrote} » dans {file} — {detail}"
+            ),
+            Self::Creating { directory, detail } => {
+                write!(formatter, "créer le cgroup {directory} a échoué — {detail}")
+            }
+            Self::Writing {
+                file,
+                wrote,
+                detail,
+            } => write!(
+                formatter,
+                "écrire la limite a échoué : « {wrote} » dans {file} — {detail}"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for PlacementError {}
+
+impl Delegation {
+    /// Poser un cgroup pour cette sandbox, et y écrire les limites du plan.
+    ///
+    /// # L'ordre n'est pas indifférent
+    ///
+    /// Les contrôleurs s'activent dans le `cgroup.subtree_control` du **parent**, et c'est ce qui
+    /// fait apparaître `memory.max` et consorts dans l'enfant. Créer d'abord et activer ensuite
+    /// donnerait un répertoire sans les fichiers qu'on veut y écrire, et l'échec se lirait « ce
+    /// noyau ne connaît pas memory.max » plutôt que « je m'y suis pris à l'envers ».
+    ///
+    /// # Ce qui n'est **pas** écrit ici
+    ///
+    /// Le quota disque. `ConfinementPlan::disk_bytes` vit hors de `cgroup()` et le dit : cgroup v2
+    /// ne borne pas un **espace**, `io.max` borne un débit. L'écrire ici demanderait de choisir un
+    /// fichier qui ne fait pas ce qu'on croit.
+    ///
+    /// # Errors
+    ///
+    /// [`PlacementError`], qui nomme dans tous les cas **le fichier** et ce que le système en a dit.
+    pub fn place(
+        &self,
+        under: &Path,
+        name: &str,
+        plan: &ConfinementPlan,
+    ) -> Result<Placement, PlacementError> {
+        let voulus: Vec<&str> = plan
+            .cgroup()
+            .iter()
+            .filter_map(|limite| controleur_de(limite.file))
+            .filter(|controleur| self.carries(controleur))
+            .collect();
+        if !voulus.is_empty() {
+            let subtree = under.join("cgroup.subtree_control");
+            let demande = voulus
+                .iter()
+                .map(|controleur| format!("+{controleur}"))
+                .collect::<Vec<_>>()
+                .join(" ");
+            std::fs::write(&subtree, &demande).map_err(|erreur| PlacementError::Enabling {
+                file: subtree.to_string_lossy().into_owned(),
+                wrote: demande.clone(),
+                detail: erreur.to_string(),
+            })?;
+        }
+
+        let directory = under.join(name);
+        std::fs::create_dir(&directory).map_err(|erreur| PlacementError::Creating {
+            directory: directory.to_string_lossy().into_owned(),
+            detail: erreur.to_string(),
+        })?;
+
+        for limite in plan.cgroup() {
+            let fichier = directory.join(limite.file);
+            std::fs::write(&fichier, &limite.value).map_err(|erreur| PlacementError::Writing {
+                file: fichier.to_string_lossy().into_owned(),
+                wrote: limite.value.clone(),
+                detail: erreur.to_string(),
+            })?;
+        }
+
+        Ok(Placement { directory })
+    }
+}
+
+/// Le contrôleur dont ce fichier de limite dépend — `memory.max` → `memory`.
+///
+/// `None` pour un nom sans point, qui ne peut pas être un fichier de contrôleur : le déduire
+/// autrement reviendrait à activer un contrôleur qu'on aurait inventé.
+fn controleur_de(fichier: &str) -> Option<&str> {
+    fichier.split_once('.').map(|(controleur, _)| controleur)
+}
+
+impl Placement {
+    /// Le répertoire du cgroup posé.
+    #[must_use]
+    pub fn directory(&self) -> &Path {
+        &self.directory
+    }
+
+    /// Le fichier où un processus s'inscrit pour **entrer** dans ce cgroup.
+    ///
+    /// Y écrire un PID déplace ce processus **et ses enfants à venir** : c'est ce qui permet à un
+    /// enveloppeur de s'y inscrire avant d'`exec` la sandbox, sans que le broker ait à s'y mettre
+    /// lui-même.
+    #[must_use]
+    pub fn procs(&self) -> PathBuf {
+        self.directory.join("cgroup.procs")
+    }
+
+    /// Retirer le cgroup.
+    ///
+    /// # Pourquoi l'échec est **rendu** et non ignoré
+    ///
+    /// Un cgroup ne se retire que vide de processus. Un retrait qui échoue dit donc qu'il **reste
+    /// quelqu'un dedans**, ce qui est un fait sur la sandbox, pas un détail de ménage. `W5.l` a
+    /// montré ce que coûte un nom resté pris ; ici c'est le nom **et** les limites qui restent.
+    ///
+    /// # Ce qu'un répertoire ordinaire ne sait pas simuler
+    ///
+    /// Les fichiers de contrôle d'un cgroup sont **synthétisés par le noyau** : ils disparaissent
+    /// avec le répertoire, et `rmdir` aboutit. Sous un répertoire ordinaire, les mêmes noms sont de
+    /// vrais fichiers, et `rmdir` rend « Directory not empty ». C'est l'une des rares choses de ce
+    /// module qu'un harnais sans hiérarchie réelle ne peut pas éprouver — dit ici plutôt que
+    /// contourné par un test qui retirerait les fichiers à la main et éprouverait le harnais.
+    ///
+    /// # Errors
+    ///
+    /// [`PlacementError::Creating`] — même variante, parce que c'est le même répertoire et le même
+    /// fichier à nommer ; seule la phrase du système diffère.
+    pub fn remove(&self) -> Result<(), PlacementError> {
+        std::fs::remove_dir(&self.directory).map_err(|erreur| PlacementError::Creating {
+            directory: self.directory.to_string_lossy().into_owned(),
+            detail: format!("retrait : {erreur}"),
+        })
     }
 }
