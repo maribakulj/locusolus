@@ -16454,3 +16454,184 @@ qu'il corrige.
 
 `W5.af` et `W12.d`, tous deux sur la frontière et aucun bloqué par autre chose que le travail qu'ils
 demandent.
+
+## 2026-08-25 — W5.af.1 — La traduction d'un plan de confinement en arguments `bubblewrap`
+
+**Fichiers** : `apps/locus-execd/src/linux/bubblewrap.rs` (neuf),
+`apps/locus-execd/tests/bubblewrap.rs` (neuf, 16 tests), `apps/locus-execd/src/linux/mod.rs`.
+
+Première tranche de `W5.af`, l'item que `W0.23` a rendu à sa vraie nature — du travail, et non un
+arbitrage.
+
+### L'architecture s'y prêtait déjà
+
+`plan.rs` rend un `ConfinementPlan` **neutre** — namespaces, limites cgroup, montages, posture de
+réseau — et `invocation.rs` le traduit pour podman. Ce module le traduit pour bubblewrap, et rien
+d'autre : pur, testable sans hôte, il ne lance rien. Aucune généralisation n'a été nécessaire ;
+c'est la séparation posée par `W4.d` qui rend la tranche possible sans toucher au reste.
+
+### Quatre faits mesurés, et chacun a changé le code
+
+**1. `bubblewrap` n'écrit aucun cgroup.** Ni mémoire, ni CPU, ni PID : hors de son objet.
+`unenforced` rend donc les limites du plan qu'une invocation **ne portera pas**, sous leurs noms de
+fichiers de contrôleur — `memory.max`, `cpu.max`, `pids.max` — parce qu'un exploitant qui lit ce
+rapport ira chercher ces fichiers-là, et qu'un synonyme lui ferait chercher autre chose. Le module
+rend le **fait** ; il ne décide pas quoi en conclure.
+
+**2. Il n'existe pas de `--unshare-mount`.** `bubblewrap` crée toujours un namespace de montage. La
+première rédaction donnait `--unshare-pid` à `Namespace::Mount`, avec un commentaire renvoyant à une
+note qui n'existait pas. C'est la faute la plus discrète qu'un traducteur d'options puisse commettre
+: elle confine **plus** que demandé, donc elle ne casse rien visiblement et survit à une relecture.
+
+**3. Sous `--ro-bind / /`, bwrap ne peut pas créer un point de montage.** Mesuré aux trois branches
+: `--dir` échoue, un `--tmpfs` sur un parent existant marche, un bind sur une cible existante
+marche. Différence **réelle** avec podman, qui bâtit une racine neuve depuis une image.
+`uncreatable_targets` la signale avant le lancement, l'existence étant **injectée** pour que le
+module reste pur — même discipline que `PodmanBackend::new`, `const fn` pour que construire un
+backend ne lise rien.
+
+**4. Un rattrapage `--unshare-net` était du code mort.** Le bloc n'agissait que pour une posture
+non-`Host` sans `Namespace::Network`. Balayage de **toutes** les paires (niveau, mode) que `plan`
+accepte : ce cas n'existe pas, la boucle des namespaces émet déjà le drapeau. Un filet de sécurité
+qui ne peut pas se déclencher est pire qu'aucun, parce qu'on lui fait confiance. Il est retiré, et
+l'invariant dont la traduction dépend désormais — posture non-`Host` ⇒ `Namespace::Network` — est
+**épinglé par un test** sur ces mêmes paires : si `plan.rs` cessait de le tenir, c'est là que ça
+rougirait, et non dans une traduction qui laisserait passer un réseau en silence.
+
+### Le harnais de mutation avait un défaut, et il a caché deux vrais trous
+
+`grep -qF` avec un motif **multi-ligne** traite chaque ligne comme une alternative : l'ancre «
+existait » dès que sa première ligne existait. Un mutant dont le remplacement ne s'appliquait pas
+était donc annoncé **SURVIVANT** — un trou de test fantôme.
+
+C'est la troisième forme du « compteur qui n'a rien lu ne vaut pas zéro », et la plus coûteuse :
+elle frappe **l'outil qui sert à mesurer**. Le contrôle existant ne la voyait pas — il détecte «
+tout meurt », pas « ce mutant-ci n'a jamais été posé ».
+
+Réparé : la vérification d'application est faite par python, qui échoue si l'ancre est absente **ou
+si le remplacement ne change rien**, et un **second contrôle** vérifie qu'une ancre inventée rend
+bien « NON APPLIQUÉ ». Un harnais qui ne sait pas dire qu'il n'a rien fait ne mesure rien.
+
+Une fois réparé, il a révélé deux gaps réels que le faux survivant masquait :
+
+- **rien n'exerçait une posture seccomp confinée**, donc la branche n'était jamais atteinte ;
+- **le test réseau n'affirmait qu'une borne haute** — « au plus une fois » —, qu'une absence totale
+  satisfait. Une assertion « au plus » a besoin de son « au moins ».
+
+### Deux tests lancent le vrai `bwrap`
+
+Les quatorze autres sont purs : ils vérifient qu'on écrit ce qu'on croit écrire. Deux prennent la
+sortie et la donnent au programme — une traduction juste sur le papier et fausse à l'exécution est
+ce qu'un test pur ne peut pas voir. L'un vérifie que la commande tourne, l'autre que la racine
+annoncée en lecture seule **refuse une écriture**. Sans `bwrap`, ils échouent en le disant.
+
+Le témoin de fuite est **propre à chaque exécution**. La première rédaction visait `/essai-w5af`, un
+chemin global : un run antérieur l'a laissé sur l'hôte, et le suivant a échoué sur une affirmation
+devenue fausse pour une raison qui ne le concernait pas. Un test qui dépend de l'état laissé par ses
+prédécesseurs ne mesure plus ce qu'il annonce.
+
+### Ce que les fixtures ont appris
+
+Trois refus successifs de `plan`, tous justes, et chacun a corrigé la fixture plutôt que d'être
+contourné : `QuotaWithoutWritableSpace`, `DiskQuotaNotEnforceable` — le quota ne vaut qu'en dessous
+de `S2`, ce que `W5.j` a établi — et `MountsNeedNamespace` à `S0`. Une fixture qui les aurait
+contournés éprouverait un plan que le dépôt ne produit pas.
+
+### Une note sur ce qui a été perdu et refait
+
+Le conteneur de session a été réapprovisionné pendant cette tranche : le dépôt local est revenu à un
+commit ancien et le travail non commité a disparu. Les sept PR mergées de la journée étaient sur
+`origin/main` et n'ont rien perdu ; seule cette tranche a été refaite, mesures comprises — elles se
+reproduisent à l'identique. Les clones voisins étaient également en retard, ce qui faisait crier
+`check:roadmap` sur `W2.24` : une garde qui lit quatre dépôts dit faux quand l'un d'eux est périmé,
+et c'est une propriété de l'environnement, pas du plan.
+
+### La CI a été rouge, et la réparation était déjà écrite dans le job
+
+Premier passage : le job `rust` **rouge**, sur les deux tests vivants — « NON MESURÉ : bwrap est
+introuvable sur cet hôte ». Les tests ont fait exactement ce qu'ils annoncent, et le runner n'a pas
+`bubblewrap`.
+
+Deux réparations possibles, et le job en avait déjà tranché une équivalente. Quelques lignes plus
+haut, un service PostgreSQL existe parce qu'un test **échoue** quand `LOCUS_TEST_POSTGRES` manque :
+« un saut silencieux rendrait _vert_ un dépôt où le driver n'a jamais tourné ». La phrase vaut mot
+pour mot ici, en remplaçant le driver par le mécanisme que le worker emploie.
+
+Quand un test refuse de se sauter, on lui **donne la capacité** ; on n'affaiblit pas l'assertion. Le
+job installe donc `bubblewrap` — le paquet de la distribution, parce que ce qui est éprouvé doit
+être ce qu'un hôte ordinaire porte. Aucune variable d'environnement, aucun `#[ignore]`, aucun saut :
+les deux tests tournent à chaque passage ou le job est rouge.
+
+### Installer ne suffisait pas : le second rouge disait autre chose
+
+Le passage suivant est resté rouge, sur les deux mêmes tests, **mais plus pour la même raison**. «
+NON MESURÉ : bwrap est introuvable » avait disparu ; à sa place,
+`bwrap: setting up uid map: Permission denied`. Le programme était installé et l'hôte lui refusait
+le namespace utilisateur non privilégié dont il a besoin — c'est la restriction AppArmor d'Ubuntu
+24.04, `kernel.apparmor_restrict_unprivileged_userns`, que l'image de runner porte.
+
+Le conteneur de développement ne la porte pas : la clé y est **absente**, pas nulle, et le
+reproducteur minimal `bwrap --unshare-user --unshare-pid --ro-bind / / -- /bin/true` y sort `0`,
+sous `root` comme sous un uid non privilégié. D'où deux tests verts ici et rouges là-bas, et d'où le
+fait qu'aucune exécution locale n'aurait pu l'annoncer. C'est mesuré des deux côtés avant d'être
+écrit.
+
+Trois issues étaient ouvertes, et l'une est tombée à la mesure :
+
+- **déplacer les deux tests vivants vers le job `sandbox`** — inutile : ce job tourne sur la même
+  image `ubuntu-latest`, donc la restriction y est identique. Une relocalisation qui ne change pas
+  d'hôte ne change rien ;
+- **sonder et rapporter**, comme `W5.f` — c'est affaiblir l'assertion en constat, exactement le «
+  saut silencieux » que le job refuse par ailleurs ;
+- **donner la capacité** — celle-ci ne touche à rien de ce qui est affirmé. Les deux tests gardent
+  leurs assertions mot pour mot ; c'est l'hôte de CI qu'on rend capable, pas le test qu'on rend
+  indulgent. C'est la réponse déjà donnée à PostgreSQL, puis à `bubblewrap` lui-même.
+
+Le pas **mesure d'abord, ne lève qu'ensuite, et prouve après**. Sonder avant de lever coûte une
+ligne et vaut ce qu'elle coûte : le jour où l'image de runner change, le journal dira « rien à lever
+» au lieu d'abaisser en silence une garde devenue inutile. Et si la levée ne suffit pas, l'échec
+tombe **dans ce pas-là**, en nommant la capacité manquante, plutôt qu'au milieu d'une table de tests
+où il se lirait « le confinement est faux ».
+
+Le pas affiche `n/a` et non `0` quand une clé sysctl n'existe pas. C'est la règle 3 du rythme de
+session appliquée à un fichier de `/proc` : une valeur absente et une valeur nulle ne se réparent
+pas pareil.
+
+Les trois branches du pas ont été **exercées** avant d'être poussées, avec un faux `bwrap` et un
+faux `sudo` sur le `PATH` : hôte capable → `0` sans rien lever ; hôte récalcitrant que la levée
+répare → `0` en le disant ; hôte que la levée ne répare pas → `1`, avec ce que le programme en dit.
+Une garde qu'on n'a pas vue échouer n'est pas une garde vérifiée, et celle-ci existe précisément
+pour le cas où l'hypothèse AppArmor serait fausse.
+
+**Le passage suivant a répondu, et c'est la branche du milieu qui a servi.** Ce que le runner a
+écrit, dans l'ordre :
+
+```
+bubblewrap 0.9.0
+apparmor_restrict_unprivileged_userns : 1
+unprivileged_userns_clone             : 1
+max_user_namespaces                   : 63838
+bwrap: setting up uid map: Permission denied
+l'hôte refuse — levée de la restriction AppArmor, la seule cause connue ici
+kernel.apparmor_restrict_unprivileged_userns = 0
+apparmor_restrict_unprivileged_userns : 0
+levée : l'hôte crée maintenant un namespace utilisateur non privilégié
+```
+
+puis `la_racine_en_lecture_seule_refuse_une_ecriture ... ok` et
+`les_arguments_produits_confinent_reellement ... ok`. Le job `rust` est vert.
+
+Le diagnostic était donc juste, et **la sonde le prouve plutôt que de le supposer** : `1` avant, `0`
+après, et le refus exact entre les deux. Elle a aussi écarté l'autre cause candidate sans qu'on ait
+à le plaider — `unprivileged_userns_clone` valait déjà `1` : ce n'était pas lui. C'est le bénéfice
+qu'on achète en sondant avant de lever plutôt qu'en levant à l'aveugle, et il s'est payé au premier
+passage.
+
+### Ce qui reste de `W5.af`
+
+Le backend derrière `RuntimePort` — `create` et `start` en comptabilité, `attestation` — et la
+campagne. Les deux questions nommées dans la ligne de l'item sont toujours à trancher, et elles le
+seront **dans** le backend : ce que `persist_after_teardown` mesure quand le démontage est la sortie
+du processus, et ce qu'`attestation()` rapporte pour un mécanisme sans conteneur à réinspecter.
+
+Onze mutants posés, zéro survivant, deux contrôles.

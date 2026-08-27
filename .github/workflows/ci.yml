@@ -195,6 +195,73 @@ jobs:
       - name: Clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
 
+      # `W5.af.1` : deux tests donnent les arguments produits au **vrai** `bwrap`, parce qu'une
+      # traduction juste sur le papier et fausse à l'exécution est ce qu'un test pur ne peut pas
+      # voir. Ils **échouent** quand le programme manque, au lieu de se sauter en silence — et le
+      # premier passage de CI l'a montré en rouge, exactement comme annoncé.
+      #
+      # La réponse est celle que ce job donne déjà à PostgreSQL, quelques lignes plus haut : quand
+      # un test refuse de se sauter, on lui **donne la capacité**, on n'affaiblit pas l'assertion.
+      # « Un saut silencieux rendrait vert un dépôt où le driver n'a jamais tourné » vaut mot pour
+      # mot ici, en remplaçant le driver par le mécanisme que le worker emploie.
+      #
+      # Le paquet est celui de la distribution, et non un binaire tiré d'ailleurs : ce qui est
+      # éprouvé doit être ce qu'un hôte ordinaire porte.
+      #
+      # **Installer ne suffisait pas.** Le passage suivant a rendu `bwrap: setting up uid map:
+      # Permission denied` : le programme était là, et l'hôte refusait le namespace utilisateur non
+      # privilégié dont il a besoin. C'est la restriction AppArmor d'Ubuntu 24.04
+      # (`kernel.apparmor_restrict_unprivileged_userns`), que l'image de runner porte et que ce
+      # conteneur de développement ne porte pas — d'où deux tests verts ici et rouges là-bas.
+      #
+      # Ce pas **mesure d'abord, ne lève qu'ensuite, et prouve après**. Sonder avant de lever coûte
+      # une ligne et vaut ce qu'elle coûte : le jour où l'image de runner change, le journal dira
+      # « rien à lever » au lieu d'abaisser en silence une garde devenue inutile. Et si la levée ne
+      # suffit pas, l'échec tombe **ici**, en nommant la capacité manquante, plutôt qu'au milieu
+      # d'une table de tests où il se lirait « le confinement est faux ».
+      #
+      # Ce qu'on abaisse est un réglage de l'hôte de CI, éphémère, et c'est exactement le mécanisme
+      # que le code éprouvé emploie. Rien de ce que le produit affirme n'en est affaibli : les deux
+      # tests vivants gardent mot pour mot leurs assertions.
+      - name: bubblewrap
+        run: |
+          set -uo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends bubblewrap
+          bwrap --version
+
+          # « n/a » et non « 0 » quand la clé n'existe pas : une valeur absente et une valeur nulle
+          # ne se réparent pas pareil, et confondre les deux est la faute que ce dépôt traque.
+          annonce() {
+            echo "apparmor_restrict_unprivileged_userns : $(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2>/dev/null || echo 'n/a')"
+            echo "unprivileged_userns_clone             : $(cat /proc/sys/kernel/unprivileged_userns_clone 2>/dev/null || echo 'n/a')"
+            echo "max_user_namespaces                   : $(cat /proc/sys/user/max_user_namespaces 2>/dev/null || echo 'n/a')"
+          }
+
+          # Le reproducteur minimal de l'échec observé : `--unshare-user` seul suffit à le
+          # déclencher, donc c'est lui qu'on éprouve, et pas une approximation plus large.
+          epreuve() { bwrap --unshare-user --unshare-pid --ro-bind / / -- /bin/true; }
+
+          annonce
+          if epreuve; then
+            echo "l'hôte crée un namespace utilisateur non privilégié — rien à lever"
+            exit 0
+          fi
+
+          echo "l'hôte refuse — levée de la restriction AppArmor, la seule cause connue ici"
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+          annonce
+          if epreuve; then
+            echo "levée : l'hôte crée maintenant un namespace utilisateur non privilégié"
+            exit 0
+          fi
+
+          echo "NON CONFINABLE : « bwrap » est installé et cet hôte refuse quand même le" >&2
+          echo "namespace utilisateur. Les deux tests vivants de W5.af.1 vont échouer, et ils" >&2
+          echo "auront raison. Ce que le programme en dit :" >&2
+          epreuve 2>&1 | sed 's/^/  /' >&2
+          exit 1
+
       - name: Tests
         run: cargo test --all-features
 

@@ -23,6 +23,7 @@
 //! Un conteneur rootless au réseau isolé est `S3`. `S4` est une micro-VM, `S5` une enclave
 //! distante : ce module refuse de les revendiquer, et le refus les nomme.
 
+pub mod bubblewrap;
 pub mod driver;
 pub mod invocation;
 pub mod plan;
