@@ -41,9 +41,8 @@ use std::thread;
 
 use locus_execution::{Observed, SUITE, SandboxLevel, Standing, standing};
 
-use super::driver::PodmanBackend;
-use super::driver::Runner;
-use crate::runtime::{RuntimePort, SandboxId};
+use super::campaign::ProbeHost;
+use crate::runtime::SandboxId;
 
 /// La commande qui tente une sonde, par nom de sonde.
 ///
@@ -735,8 +734,8 @@ impl Trial {
 /// L'ordre est celui de `SUITE`, et chaque sonde y apparaît exactement une fois — y compris celle
 /// dont la sandbox n'a pas pu être créée, qui porte alors [`SANDBOX_REFUSED`] et le message du
 /// runtime. Une suite tronquée se lirait comme une suite passée.
-pub fn run_suite<R: Runner>(
-    backend: &mut PodmanBackend<R>,
+pub fn run_suite<H: ProbeHost + ?Sized>(
+    backend: &mut H,
     spec: &locus_execution::SandboxSpec,
 ) -> Vec<Trial> {
     let mut trials = Vec::with_capacity(SUITE.len());
@@ -753,8 +752,8 @@ pub fn run_suite<R: Runner>(
 /// le nom reste pris pour la sonde suivante. C'est la faute que `W5.l` a trouvée après trois
 /// passages de CI illisibles, et seize créations par campagne au lieu d'une la rendraient seize fois
 /// plus probable si elle revenait.
-fn run_alone<R: Runner>(
-    backend: &mut PodmanBackend<R>,
+fn run_alone<H: ProbeHost + ?Sized>(
+    backend: &mut H,
     spec: &locus_execution::SandboxSpec,
     name: &'static str,
 ) -> Trial {
@@ -781,8 +780,8 @@ fn run_alone<R: Runner>(
 /// `S2` la racine est en lecture seule, donc que le quota ne mord pas là où la mission l'a écrit.
 /// Le `boot_id` vient du **backend**, qui l'a reçu de l'hôte — ou ne l'a pas reçu, et la sonde le
 /// dira.
-fn probe_context<R: Runner>(
-    backend: &PodmanBackend<R>,
+fn probe_context<H: ProbeHost + ?Sized>(
+    backend: &H,
     spec: &locus_execution::SandboxSpec,
 ) -> ProbeContext {
     let quota = super::plan::plan(spec).ok().and_then(|confinement| {
@@ -812,8 +811,8 @@ pub fn verdicts(trials: &[Trial]) -> Vec<(&'static str, Observed)> {
         .collect()
 }
 
-fn attempt<R: Runner>(
-    backend: &PodmanBackend<R>,
+fn attempt<H: ProbeHost + ?Sized>(
+    backend: &H,
     id: &SandboxId,
     name: &'static str,
     context: &ProbeContext,
@@ -821,10 +820,9 @@ fn attempt<R: Runner>(
     let Some(command) = probe_command(name) else {
         return Trial::not_run(name, "aucune commande n'est associée à cette sonde");
     };
-    let arguments = exec_arguments(id, command, context);
     let mut pause = backend.launch_pause();
     for remaining in (0..LAUNCH_ATTEMPTS).rev() {
-        match backend.runner().run(&arguments) {
+        match backend.probe(id, command, context) {
             Ok(execution) => {
                 if TRANSIENT_EXIT_CODES.contains(&execution.code) {
                     // Avant de réessayer, demander s'il y a encore une sandbox. `W5.o` supposait la
@@ -832,7 +830,7 @@ fn attempt<R: Runner>(
                     // entier contre un conteneur mort, six fois, pour chacune des sondes restantes.
                     // Une sandbox morte ne redevient pas vivante : réessayer n'apprend rien et
                     // coûte le budget.
-                    if backend.is_running(id) == Some(false) {
+                    if backend.is_probeable(id) == Some(false) {
                         return Trial::not_run(name, SANDBOX_GONE);
                     }
                     if remaining > 0 {
@@ -883,8 +881,8 @@ fn attempt<R: Runner>(
 /// que ce n'est plus zéro observation — c'est seize absences nommées, chacune portant le message du
 /// runtime. Et le verdict rendu là-dessus est juste : `NotTrusted`, parce que rien n'a été vérifié,
 /// ce qui est exactement la règle de ce fichier. Le `Err` cachait le rapport ; le rapport le dit.
-pub fn certify<R: Runner>(
-    backend: &mut PodmanBackend<R>,
+pub fn certify<H: ProbeHost + ?Sized>(
+    backend: &mut H,
     spec: &locus_execution::SandboxSpec,
     level: SandboxLevel,
 ) -> Standing {
@@ -901,7 +899,7 @@ pub fn certify<R: Runner>(
 /// train de rendre porte sur le confinement, pas sur la capacité du runtime à ranger. Les masquer
 /// serait grave si rien d'autre ne les voyait — mais un nom resté pris se signale au suivant, très
 /// bruyamment, et c'est précisément comme cela que le défaut a été trouvé.
-fn teardown<R: Runner>(backend: &mut PodmanBackend<R>, id: &SandboxId) {
+fn teardown<H: ProbeHost + ?Sized>(backend: &mut H, id: &SandboxId) {
     let _ = backend.stop(id);
     let _ = backend.remove(id);
 }

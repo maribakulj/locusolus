@@ -164,6 +164,26 @@ pub fn unenforced(plan: &ConfinementPlan) -> Vec<Unenforced> {
 /// options — un `--tmpfs` dans un nom de fichier deviendrait un montage.
 #[must_use]
 pub fn wrap_arguments(plan: &ConfinementPlan, command: &[String]) -> Vec<String> {
+    wrap_arguments_with_env(plan, &[], command)
+}
+
+/// La même chose, avec des variables d'environnement **déclarées** pour la commande.
+///
+/// # Pourquoi elles ne passent pas par l'environnement du parent
+///
+/// `bwrap` hérite de l'environnement de qui l'appelle. Compter là-dessus ferait dépendre ce que la
+/// sandbox voit de ce que le processus appelant portait — donc de la machine, et par accident de
+/// tout ce qu'un shell de développeur y a mis. Les seules variables que la commande reçoit sont
+/// celles qu'on lui déclare ici, et `--setenv` les nomme une par une.
+///
+/// C'est la campagne qui s'en sert : les seize commandes de `PROBE_COMMANDS` lisent leur contexte
+/// dans l'environnement, et `podman exec --env` fait exactement la même chose de l'autre côté.
+#[must_use]
+pub fn wrap_arguments_with_env(
+    plan: &ConfinementPlan,
+    env: &[(String, String)],
+    command: &[String],
+) -> Vec<String> {
     // Ce préfixe ne dépend pas du plan : il est ce qu'une sandbox de ce mécanisme **est**, avant
     // même qu'on sache ce qu'elle doit confiner.
     //
@@ -249,6 +269,12 @@ pub fn wrap_arguments(plan: &ConfinementPlan, command: &[String]) -> Vec<String>
         arguments.push("--new-session".to_owned());
     }
 
+    for (nom, valeur) in env {
+        arguments.push("--setenv".to_owned());
+        arguments.push(nom.clone());
+        arguments.push(valeur.clone());
+    }
+
     arguments.push("--".to_owned());
     arguments.extend(command.iter().cloned());
     arguments
@@ -288,3 +314,33 @@ pub fn obtained_namespaces(plan: &ConfinementPlan) -> BTreeSet<Namespace> {
     }
     obtenus
 }
+
+/// Les namespaces qu'une attestation relit, et compare à ceux de l'hôte.
+///
+/// `mnt` en fait partie bien qu'aucun drapeau ne le demande : `bubblewrap` en crée toujours un, et
+/// une attestation qui l'omettrait tairait la seule chose que ce mécanisme garantit sans qu'on la
+/// demande.
+pub const INSPECTED_NAMESPACES: [&str; 7] = ["user", "pid", "ipc", "uts", "net", "cgroup", "mnt"];
+
+/// Ce qu'une sandbox répond quand on lui demande ce qu'elle a **obtenu**.
+///
+/// # Pourquoi la question se pose de l'intérieur
+///
+/// `podman inspect` interroge un conteneur qui existe encore. `bubblewrap` n'a pas de conteneur :
+/// la sandbox est le processus, et elle n'existe plus quand il sort. Il n'y a donc rien à
+/// réinspecter — et rien non plus à inventer, parce qu'une sandbox `bwrap` est **entièrement
+/// déterminée par ses arguments**. Rouvrir avec les mêmes arguments et demander de l'intérieur est
+/// donc une inspection au sens plein, et non une reconstitution.
+///
+/// Chaque ligne est un `clé=valeur`, la forme que `observations` attend déjà de l'autre côté.
+/// `no_new_privs` est **lu** et non supposé : mesuré, `bwrap` le pose à `1` avec ou sans
+/// `--new-session`, mais une attestation qui l'affirmerait sans regarder attesterait de sa propre
+/// lecture de la documentation.
+pub const INSPECTION: &str = concat!(
+    "for ns in user pid ipc uts net cgroup mnt; do ",
+    "echo \"$ns=$(readlink /proc/self/ns/$ns)\"; done; ",
+    "test -w / && echo readonly=false || echo readonly=true; ",
+    "echo no_new_privs=$(grep -c '^NoNewPrivs:[[:space:]]*1$' /proc/self/status); ",
+    "grep -qv '^Iface' /proc/net/route 2>/dev/null ",
+    "&& echo route=present || echo route=absent"
+);

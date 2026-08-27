@@ -427,7 +427,17 @@ fn un_code_de_sortie_non_nul_devient_un_refus_qui_porte_le_verbe_le_code_et_stde
     let mut execd = backend(runner);
     let refused = execd.create(&mission(SandboxLevel::S2, NetworkMode::Full, Vec::new()));
     match refused {
-        Err(RuntimeError::Refused { verb, code, detail }) => {
+        Err(RuntimeError::Refused {
+            backend,
+            verb,
+            code,
+            detail,
+        }) => {
+            assert_eq!(
+                backend,
+                locus_execd::linux::BACKEND,
+                "le refus nomme le mécanisme qui refuse, et c'est bien celui-ci"
+            );
             assert_eq!(verb, "create", "le verbe se lit sans analyser une phrase");
             assert_eq!(code, 125, "et le code non plus");
             assert!(detail.contains("short-name"), "{detail}");

@@ -62,6 +62,16 @@ pub enum RuntimeError {
     /// Le verbe et le code voyagent séparément du texte : un appelant qui veut décider — retenter,
     /// abandonner, changer d'hôte — ne devrait pas avoir à lire une phrase pour retrouver un entier.
     Refused {
+        /// Le mécanisme qui a refusé, sous le nom que `SandboxAttestation.backend` lui donne.
+        ///
+        /// # Pourquoi il a fallu l'ajouter
+        ///
+        /// Le message de cette variante disait `podman {verb}` **en dur**, dans un port qui ne
+        /// connaît aucun mécanisme. Tant qu'il n'y en avait qu'un, personne ne pouvait s'en
+        /// apercevoir ; `W5.af.3` en a branché un second, et le même message aurait attribué à
+        /// podman le refus d'un `bwrap`. C'est la famille de défaut que ce dépôt traque partout : une
+        /// phrase qui affirme une propriété que le code ne tient pas.
+        backend: &'static str,
         /// Le verbe demandé au runtime : `create`, `start`, `exec`, `stop`, `rm`.
         verb: String,
         /// Le code qu'il a rendu.
@@ -86,8 +96,13 @@ impl fmt::Display for RuntimeError {
         match self {
             Self::EmptyId => formatter.write_str("identifiant de sandbox vide"),
             Self::Unavailable { detail } => write!(formatter, "runtime injoignable : {detail}"),
-            Self::Refused { verb, code, detail } => {
-                write!(formatter, "podman {verb} a rendu {code} : {detail}")
+            Self::Refused {
+                backend,
+                verb,
+                code,
+                detail,
+            } => {
+                write!(formatter, "{backend} {verb} a rendu {code} : {detail}")
             }
             Self::Unsupported { capability } => {
                 write!(formatter, "le runtime ne sait pas offrir « {capability} »")
