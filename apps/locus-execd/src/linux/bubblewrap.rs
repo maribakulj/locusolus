@@ -35,7 +35,42 @@
 //!
 //! Namespaces, racine en lecture seule, montages et réseau ont chacun leur forme en `bwrap`, et la
 //! traduction est directe. `--die-with-parent` est posé **toujours** : une sandbox qui survivrait au
-//! processus qui l'a demandée est une fuite, et c'est la seule option ajoutée d'office ici.
+//! processus qui l'a demandée est une fuite.
+//!
+//! # La racine se **bâtit**, elle ne s'emprunte pas
+//!
+//! La première rédaction montait la racine de l'hôte — `--ro-bind / /`, ou `--bind / /` quand le plan
+//! n'exigeait pas la lecture seule. C'était la traduction la plus courte, et elle était fausse sur
+//! quatre points, tous **mesurés** plutôt que raisonnés :
+//!
+//! 1. **Le home de l'utilisateur était monté**, ce que `CLAUDE.md` interdit en toutes lettres. Sous
+//!    racine inscriptible — `S0`, `S1` — un `echo` depuis la sandbox vers `/home/<user>/…`
+//!    **atteignait le fichier sur l'hôte**. La sonde `write_host_home` est contenue à partir de
+//!    `S1` ; elle ne l'était pas.
+//! 2. **Tout le système de fichiers de l'hôte était lisible**, `/etc/shadow` compris.
+//!    `read_host_filesystem` et `read_host_secret_files` sont contenues à partir de `S2` ; elles ne
+//!    l'étaient pas.
+//! 3. **`--unshare-pid` était cosmétique** : sans remontage de `/proc`, la sandbox lisait la table
+//!    des processus de l'hôte. Cent quarante entrées mesurées, contre cinq une fois `/proc` remonté.
+//! 4. **`/dev/null` n'était pas inscriptible**, la racine entière étant en lecture seule. Une
+//!    commande aussi banale que `… 2>/dev/null` échouait alors pour une raison étrangère au
+//!    confinement, ce qu'une campagne lirait comme un verdict.
+//!
+//! Aucun des quatre n'était visible dans les arguments produits : ils se lisaient tous « racine en
+//! lecture seule, namespaces retirés ». C'est la limite d'un test qui compare des chaînes, et c'est
+//! pourquoi plusieurs tests d'ici lancent le vrai programme.
+//!
+//! La racine est donc composée : un `--tmpfs /` neuf, [`SYSTEM_TREE`] emprunté en lecture seule,
+//! [`SYSTEM_LINKS`] pour qu'un `/usr` fusionné se retrouve, un `/proc` et un `/dev` à elle. Ce que la
+//! mission veut en plus passe par ses **montages**, où cela se voit et s'atteste. Quand le plan
+//! demande une racine en lecture seule, `--remount-ro /` la scelle **après** les montages — mesuré :
+//! l'espace de travail posé avant reste inscriptible, et son écriture atteint bien l'hôte.
+//!
+//! Conséquence à ne pas perdre : sous `--ro-bind / /`, `bwrap` ne pouvait pas créer un point de
+//! montage absent, et ce module portait un `uncreatable_targets` pour le signaler avant lancement.
+//! Sur une racine `tmpfs`, il le crée — mesuré aussi. La garde a donc été **retirée** plutôt que
+//! conservée par prudence : une garde qui crie sur ce qui est juste se fait désactiver, et celle-ci
+//! n'avait plus rien à signaler.
 
 use std::collections::BTreeSet;
 
@@ -49,6 +84,30 @@ pub const PROGRAM: &str = "bwrap";
 /// Le mot est celui du protocole, pas un synonyme : `CLAUDE.md` interdit un vocabulaire parallèle, et
 /// « mécanisme » à côté de `backend` en serait un.
 pub const BACKEND: &str = "bubblewrap";
+
+/// Le seul répertoire de l'hôte que la racine bâtie emprunte.
+///
+/// # Pourquoi celui-là, et pourquoi lui seul
+///
+/// La commande a besoin d'un interpréteur et de ses bibliothèques ; sur toute distribution à `/usr`
+/// fusionné — c'est-à-dire toutes celles que ce dépôt vise —, `/usr` les porte **et rien d'autre de
+/// sensible**. `/etc` n'y est pas : c'est là que vivent `/etc/shadow` et les configurations de
+/// l'hôte, et la sonde `read_host_secret_files` les nomme. `/home` n'y est pas non plus, et
+/// `CLAUDE.md` est explicite — « ne monte jamais le home utilisateur … dans une sandbox par
+/// défaut ». Ce qu'une mission veut de plus passe par ses **montages**, où cela se voit et s'atteste.
+pub const SYSTEM_TREE: &str = "/usr";
+
+/// Les liens que la racine bâtie pose pour qu'un `/usr` fusionné se retrouve.
+///
+/// `(cible, lien)`, dans l'ordre où `bwrap` les recevra. Ils sont posés **sans condition** : un lien
+/// pendant est inoffensif, et le rendre conditionnel demanderait de lire l'hôte, ce que ce module ne
+/// fait pas — c'est ce qui le garde pur et testable sans machine.
+pub const SYSTEM_LINKS: &[(&str, &str)] = &[
+    ("usr/bin", "/bin"),
+    ("usr/lib", "/lib"),
+    ("usr/lib64", "/lib64"),
+    ("usr/sbin", "/sbin"),
+];
 
 /// Une limite du plan que `bubblewrap` **n'appliquera pas**.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -98,56 +157,6 @@ pub fn unenforced(plan: &ConfinementPlan) -> Vec<Unenforced> {
     manquantes
 }
 
-/// Une cible de montage que **ce mécanisme ne peut pas créer**.
-///
-/// # Une différence réelle avec podman, et pas un détail de traduction
-///
-/// `podman` bâtit une racine neuve depuis une image : il y crée le point de montage qu'on lui
-/// demande, quel qu'il soit. `bubblewrap` compose une **vue de la racine de l'hôte** ; sous
-/// `--ro-bind / /`, il ne peut pas y créer un répertoire — mesuré : `Can't mkdir /travail:
-/// Read-only file system`, et `--dir` échoue de la même façon.
-///
-/// Une cible qui n'existe pas sur l'hôte est donc **exprimable pour podman et pas pour
-/// bubblewrap**. Ce n'est pas une limite à contourner en silence : un plan qui la porte échouera au
-/// lancement, et il vaut mieux le savoir avant.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct UncreatableTarget {
-    /// La cible telle que le plan la nomme.
-    pub target: String,
-}
-
-/// Les cibles de montage que l'hôte ne porte pas déjà.
-///
-/// # Pourquoi l'existence est **injectée**
-///
-/// Ce module reste pur : il ne touche pas au système de fichiers. `exists` est fourni par l'appelant,
-/// ce qui rend la fonction testable sans hôte et garde la traduction déterministe — même discipline
-/// que `PodmanBackend::new`, qui est `const fn` pour que construire un backend ne lise rien.
-///
-/// L'appelant réel passera `|chemin| std::path::Path::new(chemin).is_dir()`.
-#[must_use]
-pub fn uncreatable_targets(
-    plan: &ConfinementPlan,
-    exists: impl Fn(&str) -> bool,
-) -> Vec<UncreatableTarget> {
-    if !plan.read_only_rootfs() {
-        // Racine inscriptible : bubblewrap peut créer le point de montage, et la question ne se pose
-        // pas. Signaler une cible absente ici serait crier sur ce qui est juste — la leçon de
-        // `W22.d`, qui dit qu'une garde qui le fait se fait désactiver.
-        return Vec::new();
-    }
-    let mut manquantes: Vec<UncreatableTarget> = plan
-        .mounts()
-        .iter()
-        .filter(|mount| !exists(&mount.target))
-        .map(|mount| UncreatableTarget {
-            target: mount.target.clone(),
-        })
-        .collect();
-    manquantes.sort();
-    manquantes
-}
-
 /// Les arguments qui enveloppent une commande dans le confinement de ce plan.
 ///
 /// La commande vient **après** : `bwrap <arguments> -- <commande>`. Le séparateur est rendu par cette
@@ -155,22 +164,38 @@ pub fn uncreatable_targets(
 /// options — un `--tmpfs` dans un nom de fichier deviendrait un montage.
 #[must_use]
 pub fn wrap_arguments(plan: &ConfinementPlan, command: &[String]) -> Vec<String> {
-    let mut arguments = Vec::new();
-
-    // Toujours : une sandbox qui survivrait à qui l'a demandée est une fuite.
-    arguments.push("--die-with-parent".to_owned());
-
-    // La racine. Sans elle, la commande n'a pas d'interpréteur à trouver.
-    arguments.push(
-        if plan.read_only_rootfs() {
-            "--ro-bind"
-        } else {
-            "--bind"
-        }
-        .to_owned(),
-    );
-    arguments.push("/".to_owned());
-    arguments.push("/".to_owned());
+    // Ce préfixe ne dépend pas du plan : il est ce qu'une sandbox de ce mécanisme **est**, avant
+    // même qu'on sache ce qu'elle doit confiner.
+    //
+    // - `--die-with-parent` toujours : une sandbox qui survivrait à qui l'a demandée est une fuite.
+    // - La racine est **bâtie** plutôt qu'empruntée — voir [`SYSTEM_TREE`] et l'en-tête du module
+    //   pour ce que la première rédaction, `--ro-bind / /`, laissait passer, et qui a été mesuré.
+    // - `--proc` n'est pas un confort : sans lui, `--unshare-pid` est **cosmétique**. Mesuré — une
+    //   sandbox qui retirait le namespace PID sans remonter `/proc` lisait quand même la table des
+    //   processus de l'hôte, cent quarante entrées ; avec, elle en voit cinq, les siennes. La sonde
+    //   `observe_host_processes` porte exactement là-dessus.
+    // - `--dev` non plus. Sous une racine en lecture seule, le `/dev/null` de l'hôte est visible et
+    //   **non inscriptible** : toute commande qui écrit `2>/dev/null` échoue alors pour une raison
+    //   étrangère au confinement, et une campagne lirait ce refus comme un verdict. C'est la
+    //   confusion entre « pas mesuré » et « refusé » que `W5.n` à `W5.q` ont mis quatre sprints à
+    //   retirer du harnais ; l'y réintroduire par une racine incomplète serait la refaire.
+    let mut arguments = vec![
+        "--die-with-parent".to_owned(),
+        "--tmpfs".to_owned(),
+        "/".to_owned(),
+        "--ro-bind".to_owned(),
+        SYSTEM_TREE.to_owned(),
+        SYSTEM_TREE.to_owned(),
+    ];
+    for (cible, lien) in SYSTEM_LINKS {
+        arguments.push("--symlink".to_owned());
+        arguments.push((*cible).to_owned());
+        arguments.push((*lien).to_owned());
+    }
+    arguments.push("--proc".to_owned());
+    arguments.push("/proc".to_owned());
+    arguments.push("--dev".to_owned());
+    arguments.push("/dev".to_owned());
 
     for namespace in plan.namespaces() {
         if let Some(flag) = unshare_flag(*namespace) {
@@ -205,6 +230,16 @@ pub fn wrap_arguments(plan: &ConfinementPlan, command: &[String]) -> Vec<String>
         );
         arguments.push(mount.source.clone());
         arguments.push(mount.target.clone());
+    }
+
+    if plan.read_only_rootfs() {
+        // **Après** les montages, et c'est ce qui rend la clause utilisable. Mesuré : `--remount-ro
+        // /` scelle le tmpfs de la racine et laisse inscriptible un `--bind` posé avant lui —
+        // l'espace de travail de la mission écrit donc toujours, et son écriture atteint bien
+        // l'hôte. Posée avant les montages, la clause ne scellerait rien de ce qu'ils ajoutent ;
+        // posée là, elle scelle la racine sans sceller la mission.
+        arguments.push("--remount-ro".to_owned());
+        arguments.push("/".to_owned());
     }
 
     if plan.no_new_privileges() {
