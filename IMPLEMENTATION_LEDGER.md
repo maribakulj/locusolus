@@ -17137,6 +17137,39 @@ après le témoin de fuite de `W5.af.1` et la source de montage. La règle qui s
 de test se nomme par **ce qui le distingue vraiment** — ici l'épreuve —, pas par ce qui est commode
 à obtenir.
 
+### Ce que le runner a répondu, et pourquoi il fallait le demander
+
+La sonde a tourné, et les deux faits qu'elle sépare se sont révélés **différents** :
+
+```
+## Ce que la lecture de délégation a conclu
+cet hôte délègue : {"cpu", "cpuset", "io", "memory", "pids"}
+
+## Ce que cet hôte permet du bornage
+cgroup non posé, et voici pourquoi : activer les contrôleurs a échoué :
+« +cpu +memory +pids » dans
+/sys/fs/cgroup/system.slice/hosted-compute-agent.service/cgroup.subtree_control
+— Permission denied (os error 13)
+```
+
+Le runner **délègue** les trois contrôleurs et **refuse l'écriture**. Déduire le second du premier
+aurait été naturel — la lecture dit « ces contrôleurs sont disponibles pour tes enfants » — et faux.
+
+Le chemin dit le reste : le cgroup du runner est `system.slice/hosted-compute-agent.service`, un
+scope de service systemd, dont le `subtree_control` n'est pas écrivable par le processus qui s'y
+trouve.
+
+**Conséquence pour `W5.ai`, et elle est un fait d'hôte, pas un défaut** : le test de sortie de l'ADR
+0036 décision 4 — les trois sondes de quota passant de `NotRun` à un verdict — **ne peut pas être
+observé sur un runner GitHub tel qu'il est configuré**. Il demande un hôte où le déploiement délègue
+réellement un cgroup, ce que l'ADR 0036 décision 3 énonçait déjà comme une exigence sur le
+déploiement : « on ne crée pas un cgroup dont on n'a pas le parent ».
+
+Ce que cette tranche livre est donc complet pour ce qu'elle annonce — la pose, l'entrée, le nom, le
+témoignage, et le refus quand rien n'est délégué —, et le refus est le chemin que **les deux** hôtes
+de ce chantier empruntent, chacun pour sa raison : ici faute de hiérarchie unifiée, là faute de
+permission.
+
 ### Ce que la sonde vivante mesure, et ce qu'elle ne suppose pas
 
 `ce_que_cet_hote_permet_du_bornage` n'exige ni pose ni refus : la délégation appartient à l'hôte.
