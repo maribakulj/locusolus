@@ -16714,3 +16714,97 @@ est mécanique et remplace une intention : **commiter et pousser dès qu'un fich
 la boucle de vérification et non après. Refaire une tranche coûte peu quand les mesures sont
 consignées — celles-ci l'étaient, et se sont reproduites à l'identique. Ce qui coûte est de les
 redécouvrir.
+
+## 2026-08-27 — W5.af.3 — Le backend `bubblewrap`, et la campagne qui l'exerce
+
+Ce que l'ADR 0035 décision 4 demandait depuis `W5.ad` : « `Proven` ne peut être rempli pour un
+worker réel que par une campagne exerçant le mécanisme que ce worker emploie ». Les seize sondes
+tournent contre le vrai `bwrap`.
+
+### La couture est posée à la primitive, et pas plus haut
+
+`selftest.rs` sait conduire une campagne — une sandbox par sonde, retrait sur tous les chemins,
+reprise bornée, et jamais « contenue » là où il faut lire « pas lancée ». Ce savoir a coûté sept
+sprints, `W5.n` à `W5.r`, et il ne dépend d'aucun mécanisme.
+
+Ce qui en dépend est **une opération** : éprouver une commande dans la sandbox ouverte.
+`podman exec` entre dans un conteneur qui tourne ; `bwrap` n'a ni `exec`, ni `enter`, ni `attach`,
+parce qu'il n'a pas de conteneur où entrer — la sonde **est** la commande qu'il enveloppe.
+
+`ProbeHost` porte donc cette primitive-là, et `run_suite`, `run_alone`, `attempt`, `teardown` et
+`certify` restent partagés. Un trait qui aurait porté « passe la campagne » aurait fait recopier à
+chaque mécanisme exactement ce que ces sept sprints ont appris.
+
+### `is_running` devient `is_probeable`, et ce n'est pas cosmétique
+
+La campagne pose la question à un seul endroit : après un lancement refusé, faut-il retenter ? Pour
+podman, « la sandbox tourne-t-elle » y répond. Pour un mécanisme où **rien ne tourne entre deux
+sondes**, la question n'a pas de réponse honnête — `bwrap` sort à chaque invocation, et répondre
+`false` ferait déclarer morte une sandbox parfaitement utilisable.
+
+« Reste-t-il quelque chose à éprouver » a une réponse des deux côtés. Le `Option` reste, et pour la
+raison d'origine : `None` veut dire **on n'a pas pu demander**.
+
+### Un déplacement qui n'est pas cosmétique non plus
+
+`Execution`, `Runner` et `SystemRunner` quittent `driver.rs` pour `process.rs`. Ils n'ont jamais
+rien eu de podman — ils lancent un programme, bornent son temps, drainent ses flux — mais tant qu'il
+n'y avait qu'un consommateur, leur place ne se voyait pas. Avec deux, un type partagé qui reste chez
+l'un d'eux se lit « bubblewrap dépend du driver podman », ce qui est faux et ce que personne ne
+devrait avoir à démentir en relisant. Les chemins publics n'ont pas bougé.
+
+### `create` et `start` sont de la comptabilité, et un test le **compte**
+
+Zéro lancement après `create`, `start` et `stop`. Le dire dans une doc n'aurait engagé personne ; le
+compter engage le code. Ce qui reste à ces verbes est de **refuser** un identifiant inconnu — sans
+quoi une sonde pourrait porter sur une sandbox que personne n'a créée.
+
+### L'attestation n'a rien à réinspecter, et n'invente rien pour autant
+
+`podman inspect` interroge un conteneur qui existe encore ; ici il n'y en a plus. Mais une sandbox
+`bwrap` est **entièrement déterminée par ses arguments** : rouvrir avec les mêmes et demander de
+l'intérieur est une inspection au sens plein, et non une reconstitution.
+
+Deux précautions, et chacune répare une manière de mentir :
+
+- **les namespaces se lisent par comparaison.** De l'intérieur, `readlink /proc/self/ns/user` rend
+  un inode qui, seul, ne dit rien ; c'est sa différence avec celui de l'hôte qui dit qu'un namespace
+  a été obtenu. Les valeurs de l'hôte sont **injectées**, et sans elles l'attestation **refuse** au
+  lieu de croire le drapeau demandé sur parole ;
+- **`no_new_privs` est lu.** Mesuré : `bwrap` le pose à `1` avec ou sans `--new-session`. Une
+  attestation qui l'affirmerait sans regarder attesterait de sa propre lecture de la documentation.
+
+`S4` reste inatteignable, et c'est écrit : il promet un **autre noyau**, et `bubblewrap` compose des
+namespaces sur celui de l'hôte.
+
+### Le produit de l'item est la table, et elle est nette
+
+Neuf sondes de confinement `Blocked` — la racine bâtie de `W5.af.2`, éprouvée cette fois par la
+campagne et non par un test écrit à la main. Et le verdict :
+
+```
+NotTrusted { level: S2, blocking: [exceed_cpu_quota, exceed_memory_quota, exceed_pid_quota] }
+```
+
+Les trois sont `NotRun` — « ce qu'elle devait lire n'était pas là » — et ce sont **exactement** les
+trois contrôleurs que `unenforced` déclarait d'avance : `cpu.max`, `memory.max`, `pids.max`.
+
+C'est la vérification la plus forte de cette tranche, parce qu'elle fait se rencontrer deux choses
+écrites séparément : une déclaration _a priori_ et une mesure _a posteriori_. Si l'une mentait, les
+deux ensembles divergeraient. Un test l'exige par **égalité d'ensembles**, pas par lecture de
+phrase.
+
+Ce n'est pas un défaut à réparer. `bubblewrap` n'écrit aucun cgroup — c'est hors de son objet — donc
+un `Proven` pour un worker sous ce mécanisme demandera que ces bornes soient posées **autour** de
+`bwrap`, par qui le lance. C'est `W5.ai`, ouvert par cette mesure et non par une intention.
+
+### Un défaut corrigé en chemin
+
+`RuntimeError::Refused` écrivait `podman {verb}` **en dur**, dans un port qui ne connaît aucun
+mécanisme. Tant qu'il n'y en avait qu'un, personne ne pouvait s'en apercevoir ; le second aurait
+fait attribuer à podman le refus d'un `bwrap`. La variante porte maintenant son `backend`, et les
+deux côtés l'affirment — celui qui l'a révélé comme celui qui l'a longtemps caché.
+
+C'est la famille de défaut que cette session a rencontrée le plus souvent : une phrase qui affirme
+une propriété que le code ne tient pas. Elle ne se trouve pas en relisant la phrase, mais en donnant
+au code un second cas.

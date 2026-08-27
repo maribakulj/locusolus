@@ -24,16 +24,20 @@
 //! distante : ce module refuse de les revendiquer, et le refus les nomme.
 
 pub mod bubblewrap;
+pub mod bubblewrap_driver;
+pub mod campaign;
 pub mod driver;
 pub mod invocation;
 pub mod plan;
 pub mod probe;
+pub mod process;
 pub mod seccomp;
 pub mod selftest;
 
+pub use bubblewrap_driver::{BubblewrapBackend, host_namespaces};
+pub use campaign::ProbeHost;
 pub use driver::{
-    BACKEND, CALL_BUDGET, Execution, FIRST_LAUNCH_PAUSE, PodmanBackend, RUNNING_TEMPLATE, Runner,
-    SystemRunner, boot_id_from, host_boot_id,
+    BACKEND, FIRST_LAUNCH_PAUSE, PodmanBackend, RUNNING_TEMPLATE, boot_id_from, host_boot_id,
 };
 pub use invocation::{
     INSPECTED_FIELDS, InvocationError, SeccompProfiles, Workload, create_arguments,
@@ -48,6 +52,7 @@ pub use probe::{
     HostFacts, LocalReader, Missing, NO_STORAGE_DECLARED, PROJECT_QUOTA_OPTIONS,
     QUOTA_CAPABLE_FILESYSTEMS, REQUIRED_CONTROLLERS, Reader, Support,
 };
+pub use process::{CALL_BUDGET, Execution, Runner, SystemRunner};
 pub use seccomp::{MUST_DENY, ProfileError, RestrictedProfile};
 pub use selftest::{
     BOOT_ID_PATH_VARIABLE, HOST_BOOT_ID_VARIABLE, INCONCLUSIVE_EXIT_CODE, LAUNCH_ATTEMPTS,
