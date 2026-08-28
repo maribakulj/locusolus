@@ -28,6 +28,7 @@
 //!    l'exécution ne les distinguerait : ce sont deux ULID de même forme.
 
 pub mod branch;
+pub mod canonical;
 pub mod cognition;
 pub mod conflict;
 pub mod envelope;
@@ -41,6 +42,7 @@ pub mod task;
 pub mod validation;
 
 pub use branch::{Branch, BranchState, Condition, Origin, TransitionError, ValidationWitness};
+pub use canonical::{CanonicalError, canonical_hash, canonical_json};
 pub use cognition::CognitionClass;
 pub use conflict::{Conflict, ConflictLog, ConflictOrigin, Verdict, conflicts_from_merge};
 pub use envelope::{Confidentiality, Envelope, Ref, Revision};

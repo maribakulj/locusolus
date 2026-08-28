@@ -648,6 +648,7 @@ dependencies = [
 name = "locus-lep"
 version = "0.0.0"
 dependencies = [
+ "locus-domain",
  "serde",
  "serde_json",
 ]
