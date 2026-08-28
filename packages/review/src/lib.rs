@@ -42,7 +42,7 @@ pub mod subscription;
 pub use contamination::{Contamination, ContextItem, Recipient, contradictions_dropped, inspect};
 pub mod from_retrieval;
 
-pub use context_view::{ContextView, ContextViewError, Redaction, Unrestricted, Visible};
+pub use context_view::{ContextView, ContextViewError, Filtered, Redaction, Unrestricted, Visible};
 pub use disclosure::{
     Contestation, Disclosure, DisclosureError, DisclosureGranted, Motive, Reason, Reconsidered,
     Scope, Standing,

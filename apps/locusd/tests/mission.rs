@@ -23,6 +23,7 @@ use locus_domain::task::TaskState;
 use locus_lep::{MissionEnvelopeBudget, NetworkMode, ResourceSpec, SandboxLevel};
 use locus_protocol::id::{Agent, Command as CommandId, Event as EventId, Project, Workspace};
 use locus_protocol::{Id, IdKind, Timestamp};
+use locusd::context_view::Requested;
 use locusd::lep::{Desk, Identities, MemoryQueue, MemoryRegistry, MissionQueue, Submitted};
 use locusd::mission::{Authority, Proposal, claimable};
 use locusd::{CommandError, Runtime};
@@ -66,8 +67,49 @@ impl Identities for Identites {
     }
 }
 
-fn proposition() -> Proposal {
+/// L'empreinte qu'emploient les tests **sans daemon**.
+///
+/// Ceux-là construisent une `MissionEnvelope` depuis une `Proposal` et ne proposent rien : aucune
+/// liaison n'est traversée, donc aucune vue n'a à exister. La leur faire déposer une vue ferait
+/// croire que la construction d'une enveloppe en dépend.
+const EMPREINTE_DE_FIXTURE: &str =
+    "sha256:abababababababababababababababababababababababababababababababab";
+
+/// Déposer la vue que les propositions de ce fichier nomment, et rendre **son** empreinte.
+///
+/// Depuis `W20.ac`, `lep_propose` refuse une proposition qui nomme une vue que personne n'a bâtie,
+/// ou qui en annonce une empreinte qui n'est pas la sienne. Les tests d'ici passent donc par la
+/// commande réelle plutôt que d'inventer un condensat — ce qui est le point de l'item.
+///
+/// La demande est lue d'un document JSON pour deux raisons : elle exerce les défauts de `serde`, et
+/// elle n'oblige pas ce fichier à énumérer les seize champs facultatifs de §16.2.
+fn depose_la_vue(runtime: &Runtime<locus_event_store::MemoryEventStore>) -> String {
+    let demande: Requested = serde_json::from_value(serde_json::json!({
+        "id": "ctx_1",
+        "query": "tenue du catalyseur A",
+        "source_event_watermark": 0,
+        "recipient": {
+            "agent_id": id::<Agent>(9).to_string(),
+            "worker_id": "canterel-vm-linux-01",
+            "clearance": "internal"
+        },
+        "candidates": []
+    }))
+    .expect("la demande de vue est bien formée");
+    runtime
+        .build_context_view(
+            &demande,
+            autorite(),
+            &soumis("idem-vue"),
+            Timestamp::from_millis(1_700_000_000_000),
+        )
+        .expect("la vue est bâtie")
+        .content_hash
+}
+
+fn proposition(context_view_hash: &str) -> Proposal {
     Proposal {
+        context_view_hash: context_view_hash.to_owned(),
         cognition: locus_domain::CognitionClass::Economy,
         statement: "Le catalyseur A tient-il au-delà de 300 °C ?".to_owned(),
         success_conditions: vec!["une mesure reproductible à trois essais".to_owned()],
@@ -76,7 +118,6 @@ fn proposition() -> Proposal {
         attempt: 1,
         branch_id: "br_principal".to_owned(),
         context_view_id: "ctx_1".to_owned(),
-        context_view_hash: "sha256:".to_owned() + &"ab".repeat(32),
         environment_id: "env_linux".to_owned(),
         sandbox_level: SandboxLevel::S2,
         network: NetworkMode::Deny,
@@ -137,9 +178,10 @@ fn daemon() -> (
 #[test]
 fn proposer_ecrit_un_fait_et_ne_met_rien_en_file() {
     let (runtime, file) = daemon();
+    let empreinte = depose_la_vue(&runtime);
     runtime
         .lep_propose(
-            &proposition(),
+            &proposition(&empreinte),
             autorite(),
             &soumis("idem-propose"),
             Timestamp::from_millis(1_700_000_000_000),
@@ -153,7 +195,12 @@ fn proposer_ecrit_un_fait_et_ne_met_rien_en_file() {
         .iter()
         .map(|entry| entry.event_type.clone())
         .collect();
-    assert_eq!(faits, vec!["task.proposed".to_owned()]);
+    // `context_view.built` précède, et c'est `W20.ac` : une mission ne nomme plus un contexte que
+    // personne n'a déposé, donc le dépôt de la vue est un fait du journal comme les autres.
+    assert_eq!(
+        faits,
+        vec!["context_view.built".to_owned(), "task.proposed".to_owned()]
+    );
     assert!(
         file.is_empty(),
         "rien n'est mis en file par une proposition"
@@ -167,7 +214,7 @@ fn proposer_ecrit_un_fait_et_ne_met_rien_en_file() {
 #[test]
 fn mettre_en_file_depose_la_mission_que_la_question_decrit() {
     let (runtime, file) = daemon();
-    let proposal = proposition();
+    let proposal = proposition(&depose_la_vue(&runtime));
     let maintenant = Timestamp::from_millis(1_700_000_000_000);
 
     runtime
@@ -191,7 +238,11 @@ fn mettre_en_file_depose_la_mission_que_la_question_decrit() {
         .collect();
     assert_eq!(
         faits,
-        vec!["task.proposed".to_owned(), "task.queued".to_owned()]
+        vec![
+            "context_view.built".to_owned(),
+            "task.proposed".to_owned(),
+            "task.queued".to_owned()
+        ]
     );
 
     let en_file = file.take("peu-importe").expect("une mission attend");
@@ -218,7 +269,7 @@ fn mettre_en_file_depose_la_mission_que_la_question_decrit() {
 #[test]
 fn une_transition_interdite_ne_met_rien_en_file() {
     let (runtime, file) = daemon();
-    let proposal = proposition();
+    let proposal = proposition(&depose_la_vue(&runtime));
     let maintenant = Timestamp::from_millis(1_700_000_000_000);
 
     runtime
@@ -283,7 +334,11 @@ fn mettre_en_file_une_tache_inconnue_nomme_le_champ() {
 #[test]
 fn une_question_vide_est_refusee_en_nommant_le_champ() {
     let (runtime, _) = daemon();
-    let mut muette = proposition();
+    // La vue existe : ce test veut voir le refus de la **question**, et un contexte introuvable en
+    // produirait un autre, plus tôt. Une assertion ne vaut que si elle observe le défaut qu'elle
+    // nomme.
+    let empreinte = depose_la_vue(&runtime);
+    let mut muette = proposition(&empreinte);
     muette.statement = "   ".to_owned();
 
     let refus = runtime
@@ -299,7 +354,7 @@ fn une_question_vide_est_refusee_en_nommant_le_champ() {
         "{refus:?}"
     );
 
-    let mut sans_critere = proposition();
+    let mut sans_critere = proposition(&empreinte);
     sans_critere.success_conditions.clear();
     let refus = runtime
         .lep_propose(
@@ -346,7 +401,8 @@ fn la_mission_porte_tous_les_champs_que_le_schema_exige() {
         "le schéma doit exiger quelque chose — {exiges:?} ne prouverait rien"
     );
 
-    let mission = serde_json::to_value(proposition().envelope()).expect("sérialisable");
+    let mission =
+        serde_json::to_value(proposition(EMPREINTE_DE_FIXTURE).envelope()).expect("sérialisable");
     let objet = mission.as_object().expect("une mission est un objet");
     for champ in exiges {
         assert!(
@@ -368,7 +424,7 @@ fn la_mission_porte_tous_les_champs_que_le_schema_exige() {
 /// qui est vérifiée, champ par champ, et non la forme.
 #[test]
 fn chaque_champ_de_la_mission_vient_de_la_proposition() {
-    let proposal = proposition();
+    let proposal = proposition(EMPREINTE_DE_FIXTURE);
     let mission = proposal.envelope();
 
     assert_eq!(mission.task_id, proposal.task_id);
@@ -399,7 +455,10 @@ fn chaque_champ_de_la_mission_vient_de_la_proposition() {
 /// **Et elle annonce la version que ce daemon sert.**
 #[test]
 fn la_mission_annonce_le_protocole_du_daemon() {
-    assert_eq!(proposition().envelope().protocol, "lep/1.0");
+    assert_eq!(
+        proposition(EMPREINTE_DE_FIXTURE).envelope().protocol,
+        "lep/1.0"
+    );
 }
 
 /// **Les champs optionnels restent absents.**
@@ -409,7 +468,8 @@ fn la_mission_annonce_le_protocole_du_daemon() {
 /// `offline_allowed` est le cas le plus net : une **dispense** accordée sans qu'on la demande.
 #[test]
 fn les_champs_optionnels_restent_absents() {
-    let mission = serde_json::to_value(proposition().envelope()).expect("sérialisable");
+    let mission =
+        serde_json::to_value(proposition(EMPREINTE_DE_FIXTURE).envelope()).expect("sérialisable");
     let objet = mission.as_object().expect("un objet");
     for champ in [
         "role",

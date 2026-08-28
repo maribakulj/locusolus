@@ -772,6 +772,7 @@ dependencies = [
  "locus-policy",
  "locus-projections",
  "locus-protocol",
+ "locus-review",
  "serde",
  "serde_json",
  "tokio",

@@ -94,6 +94,8 @@ where
         .route(ENROLL_PATH, post(enroll::<S>))
         .route(PROPOSE_PATH, post(propose::<S>))
         .route(QUEUE_PATH, post(queue::<S>))
+        .route(BUILD_VIEW_PATH, post(build_view::<S>))
+        .route(VIEW_PATH, get(context_view::<S>))
         .route(DECLARE_PATH, post(declare::<S>))
         .route(CONTENT_PATH, put(upload::<S>))
         .with_state(Offload::new(runtime))
@@ -440,6 +442,26 @@ pub const DECLARE_PATH: &str = "/lep/v1/artifacts";
 /// littéral est le motif qu'`axum` route, et un test vérifie que les deux s'accordent — deux
 /// endroits qui construisent le même chemin finissent par en construire deux.
 pub const CONTENT_PATH: &str = "/lep/v1/artifacts/{artifact_id}/content";
+
+/// `POST` — la construction d'une `ContextView`, §16.2, `W20.ac`.
+///
+/// **Sous `/commands/`**, comme les deux de §22.3 : bâtir une vue est un acte d'administration. Un
+/// worker qui pourrait s'en construire une choisirait ce qu'il a le droit de savoir, ce qui est
+/// exactement l'inverse de l'invariant 11.
+pub const BUILD_VIEW_PATH: &str = "/commands/context-view/build";
+
+/// `GET` — la `ContextView` que la mission nomme, §16.2 et §12.3, `W20.ac`.
+///
+/// # §22.4 ne la liste pas, et cette route existe quand même
+///
+/// La liste des queries essentielles est courte et ne prétend pas être close — `/events`,
+/// `/conflicts` et les quatre chemins `lep/v1` n'y sont pas davantage. Celle-ci est **présupposée**
+/// par §12.3, qui exige du worker qu'il vérifie l'empreinte de la vue avant de démarrer : la mission
+/// ne porte que `{id, hash}`, donc sans surface qui rende le document, la vérification n'a pas
+/// d'objet et le matérialisateur du worker n'a pas de source.
+///
+/// Hors de `/lep/` : c'est une lecture, comme `/graph/{revision_id}`.
+pub const VIEW_PATH: &str = "/context-views/{id}";
 
 /// `GET` — le dossier épistémique d'une conclusion, §9.4, `W20.u`.
 ///
@@ -870,6 +892,79 @@ async fn queue<S: EventStore + Send + Sync + 'static>(
     }
 }
 
+/// Ce que porte `POST /commands/context-view/build`, et rien d'autre.
+///
+/// `view` y est obligatoire, pour la raison écrite dans [`ProposeBody`] : une demande sans
+/// description ne demande rien, et c'est serde qui nomme le champ absent.
+#[derive(Debug, Deserialize)]
+struct BuildViewBody {
+    #[serde(flatten)]
+    command: CommandBody,
+    /// Encadrée : la demande porte la description de §16.2 **et** ses candidats.
+    view: Box<crate::context_view::Requested>,
+}
+
+/// `POST /commands/context-view/build` — §16.2, `W20.ac`.
+///
+/// Rend la vue **scellée**, avec l'empreinte que le worker recalculera : c'est cette valeur-là que
+/// la proposition devra annoncer, et la rendre ici évite que l'appelant la devine.
+async fn build_view<S: EventStore + Send + Sync + 'static>(
+    State(desk): State<Offload<S>>,
+    headers: axum::http::HeaderMap,
+    body: String,
+) -> Response {
+    let Some(credential) = bearer(&headers) else {
+        return sans_creance();
+    };
+    let corps: BuildViewBody = match serde_json::from_str(&body) {
+        Ok(lu) => lu,
+        Err(error) => return commande_refusee(&corps_illisible(&error)),
+    };
+    let credential = credential.to_owned();
+    let now = maintenant();
+    match hors_du_fil(&desk, move |runtime| {
+        let authority = authorite(runtime, &credential)?;
+        runtime.build_context_view(&corps.view, authority, &corps.command.submitted(now)?, now)
+    })
+    .await
+    {
+        Err(sature) => commande_refusee(&sature),
+        Ok(Ok(vue)) => rendu(StatusCode::CREATED, &vue),
+        Ok(Err(error)) => commande_refusee(&error),
+    }
+}
+
+/// `GET /context-views/{id}` — la vue que la mission nomme, `W20.ac`.
+///
+/// # Pourquoi `404` ici, alors que `/graph/{revision_id}` rend `200` pour une conclusion vide
+///
+/// Parce que les deux questions ne sont pas la même. Là-bas, « rien ne soutient cette conclusion »
+/// **est** une réponse. Ici, une vue absente n'est pas une vue vide : le worker a reçu un
+/// identifiant dans sa mission, et lui rendre `200` avec un document fabriqué lui ferait vérifier
+/// une empreinte contre quelque chose que personne n'a bâti. Un `404` dit ce qui est vrai — cet
+/// identifiant ne désigne rien ici.
+///
+/// Aucune créance n'est exigée pour l'instant, comme pour `/graph/{revision_id}` et le fil : §22
+/// demande une authentification que ce daemon n'a pas encore, et la simuler sur une seule route
+/// donnerait l'illusion d'une garantie. Ce que la route ne fait **pas** est de choisir ce qu'elle
+/// montre en fonction de qui demande — la vue est déjà filtrée pour son destinataire au moment où
+/// elle est bâtie, et c'est là que l'invariant 11 se joue.
+async fn context_view<S: EventStore + Send + Sync + 'static>(
+    State(desk): State<Offload<S>>,
+    Path(id): Path<String>,
+) -> Response {
+    match hors_du_fil(&desk, move |runtime| runtime.context_view(&id)).await {
+        Err(sature) => commande_refusee(&sature),
+        Ok(Ok(Some(vue))) => rendu(StatusCode::OK, &vue),
+        Ok(Ok(None)) => probleme(
+            StatusCode::NOT_FOUND,
+            "validation",
+            "aucune vue de contexte sous cet identifiant",
+        ),
+        Ok(Err(error)) => commande_refusee(&error),
+    }
+}
+
 /// `GET /graph/{revision_id}` — les six termes de §9.4, `W20.u`.
 ///
 /// # Pourquoi `200` pour une conclusion que rien ne soutient
@@ -1146,7 +1241,7 @@ pub const DEFAULT_BIND: &str = "127.0.0.1:8787";
 /// fichier : ajouter une route sans l'annoncer fait rougir, qu'elle soit une `Collection` ou non.
 /// Le déstructurage reste, pour ce qu'il couvre — un nom, pas seulement un nombre.
 #[must_use]
-pub fn served() -> [&'static str; 16] {
+pub fn served() -> [&'static str; 18] {
     let [timeline, workers, conflicts, events, history] = Collection::ALL.map(Collection::name);
     [
         timeline,
@@ -1171,5 +1266,8 @@ pub fn served() -> [&'static str; 16] {
         CONTENT_PATH,
         // Le graphe épistémique de §9.4 — `W20.u`.
         GRAPH_PATH,
+        // La `ContextView` de §16.2, bâtie puis servie — `W20.ac`.
+        BUILD_VIEW_PATH,
+        VIEW_PATH,
     ]
 }

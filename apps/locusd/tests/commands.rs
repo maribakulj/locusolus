@@ -24,7 +24,7 @@ use locus_domain::task::TaskState;
 use locus_lep::{MissionEnvelopeBudget, NetworkMode, ResourceSpec, SandboxLevel};
 use locus_protocol::id::{Agent, Command as CommandId, Event as EventId, Project, Workspace};
 use locus_protocol::{Id, IdKind, Timestamp};
-use locusd::http::{PROPOSE_PATH, QUEUE_PATH, router};
+use locusd::http::{BUILD_VIEW_PATH, PROPOSE_PATH, QUEUE_PATH, router};
 use locusd::lep::{Desk, Identities, MemoryQueue, MemoryRegistry, WorkerIdentity};
 use locusd::mission::{Authority, MemoryAdministrators, Proposal};
 use locusd::{CommandError, MissionQueue, Runtime};
@@ -37,6 +37,12 @@ const ADMIN: &str = "creance-d-administration";
 const WORKER_CREANCE: &str = "creance-de-worker";
 const WORKER: &str = "canterel-vm-linux-01";
 const TACHE: &str = "tsk_catalyseur";
+/// L'empreinte d'une vue que personne n'a bâtie.
+///
+/// Elle ne sert qu'aux deux refus d'**autorisation** : ceux-là tranchent avant que la liaison de
+/// `W20.ac` soit atteinte, et leur faire déposer une vue laisserait croire que la vue y est pour
+/// quelque chose.
+const INEXISTANTE: &str = "sha256:abababababababababababababababababababababababababababababababab";
 
 fn id<K: IdKind>(seed: u8) -> Id<K> {
     let mut entropy = [0_u8; 10];
@@ -84,8 +90,49 @@ fn autorite() -> Authority {
     }
 }
 
-fn proposition() -> Proposal {
+/// La demande de vue que ces tests déposent avant de proposer — `W20.ac`.
+///
+/// Sans candidat : ce fichier vérifie les deux commandes de §22.3, pas le filtre de `W7.b`, qui a
+/// son propre test de sortie. Ce qui compte ici est qu'une vue **existe** et que la proposition
+/// annonce **son** empreinte, parce qu'une mission ne nomme plus un contexte que personne n'a
+/// déposé.
+fn corps_vue(cle: &str) -> String {
+    format!(
+        "{{\"idempotency_key\":\"{cle}\",\"project_id\":\"{}\",\"view\":{{\
+           \"id\":\"ctx_1\",\
+           \"query\":\"tenue du catalyseur A\",\
+           \"source_event_watermark\":0,\
+           \"recipient\":{{\"agent_id\":\"{}\",\"worker_id\":\"{WORKER}\",\"clearance\":\"internal\"}},\
+           \"candidates\":[]}}}}",
+        id::<Project>(4),
+        id::<Agent>(9)
+    )
+}
+
+/// Déposer la vue et rendre **son** empreinte, telle que le daemon l'a scellée.
+///
+/// Lue de la réponse et jamais recalculée ici : un test qui recalculerait l'empreinte referait le
+/// travail du serveur et passerait même si les deux se trompaient de la même façon.
+async fn batir_vue(adresse: &str, cle: &str) -> String {
+    let reponse = poster(adresse, BUILD_VIEW_PATH, Some(ADMIN), &corps_vue(cle)).await;
+    assert!(
+        reponse.starts_with("HTTP/1.1 201"),
+        "une vue est bâtie :\n{reponse}"
+    );
+    let corps = reponse
+        .split_once("\r\n\r\n")
+        .map_or("", |(_, corps)| corps);
+    let vue: serde_json::Value =
+        serde_json::from_str(corps).unwrap_or_else(|_| panic!("vue lisible :\n{reponse}"));
+    vue["content_hash"]
+        .as_str()
+        .expect("une vue scellée porte son empreinte")
+        .to_owned()
+}
+
+fn proposition(context_view_hash: &str) -> Proposal {
     Proposal {
+        context_view_hash: context_view_hash.to_owned(),
         cognition: locus_domain::CognitionClass::Economy,
         statement: "Le catalyseur A tient-il au-delà de 300 °C ?".to_owned(),
         success_conditions: vec!["une mesure reproductible à trois essais".to_owned()],
@@ -94,7 +141,6 @@ fn proposition() -> Proposal {
         attempt: 3,
         branch_id: "br_principal".to_owned(),
         context_view_id: "ctx_1".to_owned(),
-        context_view_hash: "sha256:".to_owned() + &"ab".repeat(32),
         environment_id: "env_linux".to_owned(),
         sandbox_level: SandboxLevel::S2,
         network: NetworkMode::Deny,
@@ -196,11 +242,11 @@ async fn demander(adresse: &str, cible: &str) -> String {
     String::from_utf8_lossy(&reponse).into_owned()
 }
 
-fn corps_propose(cle: &str) -> String {
+fn corps_propose(cle: &str, empreinte: &str) -> String {
     format!(
         "{{\"idempotency_key\":\"{cle}\",\"project_id\":\"{}\",\"proposal\":{}}}",
         id::<Project>(4),
-        serde_json::to_string(&proposition()).expect("la proposition se sérialise")
+        serde_json::to_string(&proposition(empreinte)).expect("la proposition se sérialise")
     )
 }
 
@@ -242,12 +288,13 @@ async fn faits(adresse: &str) -> Vec<String> {
 async fn une_question_posee_sur_le_fil_produit_une_mission() {
     let (runtime, file) = daemon();
     let adresse = servir(runtime).await;
+    let empreinte = batir_vue(&adresse, "idem-v").await;
 
     let propose = poster(
         &adresse,
         PROPOSE_PATH,
         Some(ADMIN),
-        &corps_propose("idem-p"),
+        &corps_propose("idem-p", &empreinte),
     )
     .await;
     assert!(
@@ -271,13 +318,19 @@ async fn une_question_posee_sur_le_fil_produit_une_mission() {
         "une mise en file est acceptée :\n{queue}"
     );
 
+    // La vue précède la proposition, et le journal le montre : depuis `W20.ac`, une mission ne
+    // nomme plus un contexte que personne n'a déposé.
     assert_eq!(
         faits(&adresse).await,
-        vec!["task.proposed".to_owned(), "task.queued".to_owned()]
+        vec![
+            "context_view.built".to_owned(),
+            "task.proposed".to_owned(),
+            "task.queued".to_owned()
+        ]
     );
 
     let en_file = file.take("peu-importe").expect("une mission attend");
-    let attendue = proposition();
+    let attendue = proposition(&empreinte);
     assert_eq!(en_file.mission.task_id, attendue.task_id);
     assert_eq!(en_file.mission.objective.statement, attendue.statement);
     assert_eq!(
@@ -313,7 +366,7 @@ async fn une_creance_de_worker_n_ouvre_pas_les_commandes_de_22_3() {
     let adresse = servir(runtime).await;
 
     for (chemin, corps) in [
-        (PROPOSE_PATH, corps_propose("idem-usurpe")),
+        (PROPOSE_PATH, corps_propose("idem-usurpe", INEXISTANTE)),
         (QUEUE_PATH, corps_queue("idem-usurpe", TACHE)),
     ] {
         let reponse = poster(&adresse, chemin, Some(WORKER_CREANCE), &corps).await;
@@ -340,7 +393,13 @@ async fn sans_creance_les_commandes_sont_refusees() {
     let (runtime, _) = daemon();
     let adresse = servir(runtime).await;
 
-    let reponse = poster(&adresse, PROPOSE_PATH, None, &corps_propose("idem-nu")).await;
+    let reponse = poster(
+        &adresse,
+        PROPOSE_PATH,
+        None,
+        &corps_propose("idem-nu", INEXISTANTE),
+    )
+    .await;
 
     assert!(reponse.starts_with("HTTP/1.1 401"), "{reponse}");
 }
@@ -361,12 +420,13 @@ async fn sans_creance_les_commandes_sont_refusees() {
 async fn mettre_en_file_deux_fois_est_refuse_par_7_1() {
     let (runtime, file) = daemon();
     let adresse = servir(runtime).await;
+    let empreinte = batir_vue(&adresse, "idem-v").await;
 
     let _ = poster(
         &adresse,
         PROPOSE_PATH,
         Some(ADMIN),
-        &corps_propose("idem-p"),
+        &corps_propose("idem-p", &empreinte),
     )
     .await;
     let premier = poster(
@@ -493,19 +553,20 @@ async fn un_corps_ampute_est_refuse_en_nommant_le_champ() {
 async fn deux_propositions_sous_la_meme_cle_produisent_une_tache() {
     let (runtime, _) = daemon();
     let adresse = servir(runtime).await;
+    let empreinte = batir_vue(&adresse, "idem-v").await;
 
     let premier = poster(
         &adresse,
         PROPOSE_PATH,
         Some(ADMIN),
-        &corps_propose("idem-p"),
+        &corps_propose("idem-p", &empreinte),
     )
     .await;
     let second = poster(
         &adresse,
         PROPOSE_PATH,
         Some(ADMIN),
-        &corps_propose("idem-p"),
+        &corps_propose("idem-p", &empreinte),
     )
     .await;
 
@@ -516,7 +577,7 @@ async fn deux_propositions_sous_la_meme_cle_produisent_une_tache() {
     );
     assert_eq!(
         faits(&adresse).await,
-        vec!["task.proposed".to_owned()],
+        vec!["context_view.built".to_owned(), "task.proposed".to_owned()],
         "deux envois de la même clé produisent un fait, pas deux"
     );
 }
@@ -537,16 +598,17 @@ async fn deux_propositions_sous_la_meme_cle_produisent_une_tache() {
 async fn la_mise_en_file_ignore_une_proposition_glissee_dans_le_corps() {
     let (runtime, file) = daemon();
     let adresse = servir(runtime).await;
+    let empreinte = batir_vue(&adresse, "idem-v").await;
 
     let _ = poster(
         &adresse,
         PROPOSE_PATH,
         Some(ADMIN),
-        &corps_propose("idem-p"),
+        &corps_propose("idem-p", &empreinte),
     )
     .await;
 
-    let mut autre = proposition();
+    let mut autre = proposition(&empreinte);
     "Le catalyseur B est-il inerte ?".clone_into(&mut autre.statement);
     let corps = format!(
         "{{\"idempotency_key\":\"idem-q\",\"project_id\":\"{}\",\"task_id\":\"{TACHE}\",\"proposal\":{}}}",
@@ -559,7 +621,7 @@ async fn la_mise_en_file_ignore_une_proposition_glissee_dans_le_corps() {
     let en_file = file.take("peu-importe").expect("une mission attend");
     assert_eq!(
         en_file.mission.objective.statement,
-        proposition().statement,
+        proposition(&empreinte).statement,
         "la mission déposée est celle qui a été **proposée**, pas celle qu'on a glissée dans la \
          requête de mise en file"
     );
