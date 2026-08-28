@@ -17738,3 +17738,38 @@ un modèle qui bloque `W2.27` et le reste de `W12.d`. La vérification a son tes
 **Prochain item.** La frontière reste `W2.27` et `W12.d`, toutes deux en attente d'un hôte qui
 annonce un modèle. Les autres lignes ouvertes attendent un arbitrage — `W5.ag` (vocabulaire),
 `W19.c` (protocole), `W23.d` et `W23.e` (mesure préalable) — ou un hôte externe (`W5.am`, `W18.f`).
+
+## 2026-08-28 — Défaut — un inventaire de six modules en comptait un de trop
+
+**Périmètre.** `docs/10_V1_ROADMAP.md`, la cellule de `W2.27`. Aucun code.
+
+**Ce n'est pas une livraison, et le titre le dit.** `W2.27` n'est pas fait ; ce qui est corrigé est
+un chiffre que sa cellule affirmait et qui avait cessé d'être vrai. La garde `livre-non-marque` a
+d'ailleurs attrapé la première rédaction de cette entrée, titrée « W2.27 — … » : elle a exigé que la
+ligne porte **fait**, ce qui aurait été faux. C'est exactement `W0.13` — « une entrée qui consigne
+un blocage n'est pas une livraison » — appliqué à une correction.
+
+**Tests exécutés.** Le comptage lui-même, dans `canterel` à `ce03025c` :
+
+```
+grep -rln 'from "./<module>.ts"' backend/cli/src/locus/ | grep -v index.ts
+```
+
+**Ce que le recomptage a trouvé.** `W2.27` annonce « six modules livrés, testés, et sans aucun
+appelant dans la boucle ». Ils sont **cinq** depuis `W20.ac.3` : `context-materializer` a un
+appelant atteignable depuis `runLoop` — `worker-client` récupère la vue que la mission nomme et la
+vérifie deux fois, avant l'ouverture de session.
+
+Le module n'est pas pour autant branché : `materialize`, `applyRedactions` et `requestExtension`
+n'ont toujours aucun appelant, parce que matérialiser demande des **éléments** que rien ne fournit.
+Ce qui est branché est la vérification, pas la matérialisation. Écrire « `context-materializer` est
+fait » aurait été aussi faux que de le laisser dans la liste des six.
+
+**Décision prise.** Le compte a été **refait**, pas déduit du fait qu'un item a été livré. C'est ce
+que `W2.27` avait établi en se trouvant lui-même — l'inventaire y venait de compter les appelants
+réels, et non de lire les entrées de ledger —, et un chiffre qu'on met à jour de mémoire perd
+exactement la propriété qui lui donnait sa valeur.
+
+**Écart avec la spec.** Aucun.
+
+**Prochain item.** Inchangé : `W2.27` et `W12.d` attendent un hôte qui annonce un modèle.
