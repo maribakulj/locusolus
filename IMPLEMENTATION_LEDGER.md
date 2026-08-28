@@ -17417,3 +17417,122 @@ mains et la jeter — commise cette fois par le harnais.
 qu'`annonceDe` : leurs refus sont la moitié qui compte, et `npm test` les tient sans monter la
 chaîne. Cinq refus distincts, dont celui qui sépare « pas d'identité » de « pas de manifeste » — le
 second dit que l'enrôlement n'a pas pris, et le chercher dans le manifeste ferait perdre un étage.
+
+## 2026-08-27 — W12.d.5 — Le daemon redémarre et retrouve ses faits
+
+`tests/e2e/chain.chain.ts`, `tests/e2e/harness.ts`, et un service PostgreSQL dans le job `e2e`.
+
+### Pourquoi celle-ci est atteignable alors que le reste ne l'est pas
+
+Ce qui reste de `W12.d` après la quatrième clause — la session tourne, les événements repartent, les
+artefacts sont hashés — passe **toute** par une session ouverte, donc par un worker qui annonce un
+modèle. Sur un runner sans fournisseur configuré, `mapMission` refuse `model_unavailable` avant même
+d'y arriver.
+
+Le redémarrage ne demande rien au worker. Il demande au plan de contrôle de tenir ce que son profil
+promet, et c'est vérifiable partout où une base existe.
+
+### `single-node-vm`, et non un `personal-local` branché sur PostgreSQL
+
+Les quatre clauses précédentes montent le défaut, dont le journal est **en mémoire** — exact,
+annoncé au démarrage, et rien n'y survit. Cette clause monte un profil qui **promet** la durabilité,
+ce que le montage volatile n'aurait pas : `Choice::decide` refuse de démarrer un `single-node-vm`
+sans journal durable. La promesse est donc dans le démarrage lui-même, et c'est elle que le
+redémarrage vérifie.
+
+Brancher un `personal-local` sur PostgreSQL aurait marché et prouvé autre chose : un daemon qui se
+trouve durable, pas un daemon qui l'a promis.
+
+### La clause compare, elle ne constate pas une non-vacuité
+
+La première rédaction exigeait seulement que `task.queued` soit encore là après le redémarrage.
+**C'était un faux vert en attente.** Une base réutilisée d'une exécution à l'autre — le cas sur une
+machine de développeur, la CI montant un conteneur neuf — porte déjà le fait, et l'assertion aurait
+passé même si le redémarrage avait tout perdu.
+
+Ce qui est comparé est donc le journal **avant** et **après**, plus une exigence de non-vacuité pour
+que deux journaux vides ne se comparent pas égaux. Trouvé en relisant, puis **mesuré** : la suite a
+été relancée sur une base déjà peuplée, et les deux listes sont identiques.
+
+### Trois précautions dans le harnais, chacune pour un mode d'échec
+
+- **L'environnement du daemon est nommé** plutôt qu'écrit dans l'appel : un redémarrage doit
+  repartir sur exactement le même, et deux littéraux à tenir d'accord divergeraient au premier
+  amorçage ajouté.
+- **La sortie de l'ancien est attendue.** Le neuf se lie au **même port** ; le lancer avant que
+  l'ancien ait rendu la socket produirait un « address already in use » intermittent dont le message
+  parlerait du port là où la cause est un ordre.
+- **L'entrée est remplacée, jamais ajoutée.** `annonceDe` trouve par nom et rendrait le **premier**
+  : deux entrées « locusd » feraient lire l'annonce du processus mort comme celle du vivant.
+
+Seul `locusd` redémarre. Le broker et le worker n'ont rien à voir avec la durabilité du journal, et
+les arrêter aussi ferait passer un redémarrage de chaîne pour un redémarrage de daemon.
+
+### Deux modes, et la règle vient de `W20.i`
+
+Le job `e2e` reçoit un service PostgreSQL — le **même** que le job `rust`, sous la même variable
+`LOCUS_TEST_POSTGRES` : deux variables pour une base donneraient deux endroits à tenir d'accord. Le
+contrôle de santé porte `-U locus -d locus_e2e` et non `pg_isready` nu, leçon payée là-bas où
+l'omission faisait prendre l'utilisateur du système, donc `root`, qui n'existe pas dans cette image
+— le contrôle n'y passait **jamais** au vert tout en donnant l'air d'ordonnancer.
+
+`journalDurable` **lève** si `CI` est défini sans la variable : le service est déclaré dans le
+workflow, son absence est une panne de câblage, pas une machine ordinaire. Hors CI, la clause se
+déclare non exercée et le **dit**, ce qui empêche de lire « quatorze verts » comme « le redémarrage
+a été exercé ».
+
+### Un défaut de test, de moi, corrigé en chemin
+
+`assert.equal(reponse.status, 200, await reponse.text())` consomme le corps — le message d'assertion
+est évalué avant l'assertion, donc toujours — et le `json()` suivant levait « Body has already been
+read ». Le test échouait sur sa propre lecture en accusant le redémarrage : exactement la confusion
+que les autres clauses de ce fichier existent à retirer.
+
+## 2026-08-27 — Défaut — un service de CI change l'empreinte d'hôte du job qui le déclare
+
+Trouvé en poussant `W12.d.5`, et la seule CI rouge de cette série. Elle n'a pas rougi sur la clause
+livrée : sur `W5.ab`, le convoyeur d'attestations, qui a fait exactement son travail.
+
+### Ce que le convoyeur a dit, et la mesure qui a tranché
+
+`{"kind":"lues","honorees":0,"etrangeres":1}` — l'attestation déposée par le job `sandbox` était
+**étrangère** à l'hôte du job `e2e`. Le message du test posait la bonne alternative : « si c'est
+bien celui du job `sandbox`, le chemin d'enregistrement est cassé ; sinon le parc a cessé d'être
+homogène ».
+
+La mesure est faite dans un **seul et même passage**, ce qui exclut un changement d'image de runner
+:
+
+| job                  | empreinte                                                      |
+| -------------------- | -------------------------------------------------------------- |
+| `sandbox` (déposant) | `controllers=cpu,cpuset,io,memory,pids`                        |
+| `e2e` (lecteur)      | `controllers=cpu,cpuset,dmem,hugetlb,io,memory,misc,pids,rdma` |
+
+Même instant, même image, deux empreintes. Et la seule différence entre les deux jobs, du côté qui a
+bougé, est le `services: postgres` que je venais d'ajouter à `e2e`.
+
+### Pourquoi un service change une empreinte
+
+Déclarer un service démarre des conteneurs Docker, ce qui change le cgroup où tournent les pas du
+job — donc les contrôleurs que `HostFacts` y lit. C'est précisément la lecture « délégués **à ce
+processus** » que `W5.ai.1` a choisie exprès, contre celle de la racine : elle décrit ce que _ce_
+processus peut faire, et un conteneur de service la déplace.
+
+Le broker a donc rejeté une attestation qui ne décrivait plus son hôte. Correctement.
+
+### La conséquence dépasse la réparation
+
+**L'empreinte d'hôte est propre au job, pas au runner.** `W5.x` avait mesuré que deux runners
+rendent la même empreinte, et cette conclusion tient — _pour deux jobs configurés pareil_. C'est une
+qualification du dessin de `W5.z`, qui indexe les attestations par empreinte d'hôte : deux jobs sur
+des runners identiques peuvent ne pas se reconnaître si l'un déclare un service et l'autre non.
+
+Un job qui vérifie le convoyeur doit donc rester configuré comme celui qui atteste.
+
+### La réparation, et les deux qu'elle écarte
+
+PostgreSQL vient désormais de l'**image du runner**, démarré par systemd, sans conteneur. Un pas de
+plus, aucune modification de la forme du job.
+
+Écartées : donner un service au job `sandbox` aussi, ce qui ferait tenir la mesure en la truquant ;
+et sortir la clause durable dans un job à elle, qui dupliquerait dix pas de montage pour un test.
