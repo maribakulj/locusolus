@@ -17773,3 +17773,46 @@ exactement la propriété qui lui donnait sa valeur.
 **Écart avec la spec.** Aucun.
 
 **Prochain item.** Inchangé : `W2.27` et `W12.d` attendent un hôte qui annonce un modèle.
+
+## 2026-08-28 — Défaut — mon propre recomptage comptait mal, dans le commit qui disait le contraire
+
+**Périmètre.** `docs/10_V1_ROADMAP.md`, la cellule de `W2.27`. Aucun code.
+
+**Ce que l'entrée précédente affirmait, et pourquoi c'était faux.** Elle disait « l'inventaire est
+passé de six à cinq », et son argument était que le compte avait été **refait** plutôt que déduit.
+Le compte était faux de trois façons, et c'est le même commit qui se réclamait de la méthode qui les
+aurait évitées.
+
+1. **Un import de type compté comme un appelant.** `usage-meter` n'entre nulle part à l'exécution :
+   `resume-store` en importe `BudgetDimension` par `import type`, effacé à la compilation. Ma
+   commande grep ne distinguait pas les deux, donc elle a vu un appelant là où il n'y en a pas — et
+   si j'avais suivi ce chiffre, `usage-meter` serait sorti d'une liste où il a sa place.
+2. **Un seul module recompté, les autres pris de mémoire.** `event-bridge` a quitté la liste avec
+   `W2.27.1`, qui lui a donné `attemptEvent` et `coalesce` dans la boucle. Je l'y ai laissé parce
+   que je n'ai vérifié que celui dont je venais de parler.
+3. **Et la ligne que je corrigeais était elle-même imprécise.** `context-materializer` n'aurait
+   jamais dû figurer dans la liste sous cette forme : `classRank` y était déjà appelé par
+   `model-policy`, que `mapMission` traverse à chaque tour. Ce que `W20.ac.3` lui a donné est un
+   appelant pour sa **substance** — la vérification de la vue avant la session — et non pour un
+   utilitaire de rang.
+
+**Le compte, cette fois avec la distinction qui manquait.** Sans appelant d'exécution atteignable
+depuis `runLoop` : `artifact-client`, `artifact-scanner`, `epistemic-commit`, `usage-meter` —
+**quatre**. Les deux premiers ne s'appellent qu'entre eux et depuis `epistemic-commit`, que rien
+n'importe ; le quatrième n'a qu'un import de type.
+
+```
+grep -rn 'from "./<module>.ts"' backend/cli/src/locus/ | grep -v index.ts
+```
+
+puis, pour chaque ligne, lire si elle commence par `import type` — c'est le pas qui manquait.
+
+**Ce que ça dit de la méthode, et pas seulement de ce chiffre.** « Le compte a été refait » n'est
+pas une propriété qu'une phrase confère : c'est une chose qu'on fait ou qu'on ne fait pas, et
+l'écrire dans un message de commit ne la rend pas vraie. Un recomptage partiel a exactement la forme
+d'un recomptage complet — même commande, même sortie, même ton — et c'est pourquoi il fallait le
+constater plutôt que se relire.
+
+**Écart avec la spec.** Aucun.
+
+**Prochain item.** Inchangé : `W2.27` et `W12.d` attendent un hôte qui annonce un modèle.
