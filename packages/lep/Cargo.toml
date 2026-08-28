@@ -13,3 +13,10 @@ workspace = true
 [dependencies]
 serde = { workspace = true }
 serde_json = { workspace = true }
+
+[dev-dependencies]
+# `W20.ac` : l'accord entre les deux canonicalisations de §7.7 se constate ici, sur le corpus
+# partagé — `packages/domain` ne lit aucun fichier, pas même en test. Dépendance de **test** :
+# rien du SDK généré ne dépend du domaine, et l'y faire entrer autrement élargirait le graphe de
+# production pour une vérification.
+locus-domain = { path = "../domain" }

@@ -17536,3 +17536,54 @@ plus, aucune modification de la forme du job.
 
 Écartées : donner un service au job `sandbox` aussi, ce qui ferait tenir la mesure en la truquant ;
 et sortir la clause durable dans un job à elle, qui dupliquerait dix pas de montage pour un test.
+
+## 2026-08-28 — W20.ac.1 — La forme canonique de §7.7 n'existait qu'en TypeScript
+
+**Périmètre.** `packages/domain/src/canonical.rs` (neuf) et son export dans `lib.rs` ;
+`packages/domain/tests/canonical.rs` ; `tests/fixtures/canonical.json` (corpus partagé) ;
+`packages/lep/tests/canonical_corpus.rs` et la dev-dependency qui le rend possible ;
+`tests/testing/canonical.test.ts`.
+
+**Tests exécutés.** `cargo test -p locus-domain --test canonical` → 12 passés.
+`cargo test -p locus-lep --test canonical_corpus` → 1 passé, sur les dix cas du corpus.
+`node --test tests/testing/canonical.test.ts` → 11 passés. Le test de sortie de cette tranche est le
+corpus : les deux implémentations rendent la même forme canonique et la même empreinte pour dix
+documents, dont un qui discrimine l'ordre UTF-16 de l'ordre des octets.
+
+**Décisions prises.**
+
+1. **Les flottants sont refusés**, pas approximés. C'est la seule divergence assumée avec la moitié
+   TypeScript, qui les accepte. Écrire un flottant à l'identique des deux côtés demanderait de
+   reproduire la sérialisation d'ECMAScript, qui rend `1e+21` là où `{}` en Rust rend les vingt-deux
+   chiffres. Deux pairs conformes, deux empreintes, un refus d'intégrité sur une vue valide. Le
+   refus est nommé — `CanonicalError::NonIntegerNumber` — et il inclut `4.0`, qui est un flottant
+   pour `serde_json` et un entier pour JavaScript : c'est exactement le cas qui a motivé la
+   canonicalisation en `W0.8`.
+2. **Le tri des clés suit les unités de code UTF-16**, pas les octets UTF-8. Les deux ordres
+   coïncident sur l'ASCII et divergent au-delà du plan multilingue de base : une paire de substituts
+   commence en `0xD800` et passe donc avant `U+FFFD`, quand ses octets UTF-8 commencent par `0xF0`
+   et passent après. Un cas du corpus porte les deux clés, et un tri par octets les inverserait.
+3. **Les attendus du corpus sont produits par TypeScript**, jamais par Rust. Un corpus dont les
+   attendus viendraient de l'implémentation testée ne vérifierait que sa propre stabilité. La moitié
+   TypeScript est celle qui vérifie réellement — elle est vendorée dans le worker depuis `W0.8` —,
+   donc c'est elle qu'on enregistre, et un second test la gèle pour qu'elle ne dérive pas en
+   emmenant le corpus et Rust avec elle.
+4. **Le test d'accord vit dans `packages/lep`**, pas dans `packages/domain`. Le domaine ne lit aucun
+   fichier, pas même en test — `hash.rs` le dit et `packages/artifacts` héberge déjà la vérification
+   du vocabulaire de hash pour cette raison. `locus-domain` entre en dev-dependency de `locus-lep` :
+   rien du SDK généré n'en dépend, et le graphe de production n'en porte rien.
+
+**Écart avec la spec.** Aucun. §7.7 demande « une canonicalisation stable » sans en nommer une ; RFC
+8785 est celle que la moitié TypeScript applique depuis `W0.8`, et cette tranche fait que les deux
+moitiés en appliquent une seule.
+
+**Ce que cette tranche ne fait pas.** Personne ne l'appelle encore. C'est une **capacité** au sens
+de l'ADR 0022 décision 0 — un sous-système fini et testé — et non une promesse : elle n'annonce
+aucun effet qui n'a pas lieu. Son appelant est la tranche suivante.
+
+**Prochain item.** `W20.ac.2` — bâtir la `ContextView`, la conserver sous son identifiant, la servir
+sous la forme du fil. Dépendance satisfaite : c'est celle-ci. Reste à écrire côté `locusolus` la
+séparation « filtrer puis sceller » dans `packages/review` — `ContextView::build` prend aujourd'hui
+une empreinte de son appelant, sans qu'aucun lien ne l'attache au contenu —, le module de jonction
+dans `apps/locusd`, la route qui sert, et la liaison qui empêche une mission de nommer une vue que
+personne n'a déposée.

@@ -1,0 +1,111 @@
+{
+  "cas": [
+    {
+      "nom": "objet vide",
+      "valeur": {},
+      "canonique": "{}",
+      "empreinte": "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+    },
+    {
+      "nom": "tableau vide",
+      "valeur": [],
+      "canonique": "[]",
+      "empreinte": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    {
+      "nom": "clés désordonnées",
+      "valeur": {
+        "b": 1,
+        "a": 2,
+        "A": 3,
+        "_": 4
+      },
+      "canonique": "{\"A\":3,\"_\":4,\"a\":2,\"b\":1}",
+      "empreinte": "sha256:ec8967c245840cc8553e1ee73ea67e40683bac7fbafa2b853a34cebe10d89312"
+    },
+    {
+      "nom": "clés hors du plan multilingue de base",
+      "valeur": {
+        "�": 1,
+        "😀": 2,
+        "z": 3
+      },
+      "canonique": "{\"z\":3,\"😀\":2,\"�\":1}",
+      "empreinte": "sha256:c70632d46f1e28b800fe559fceada6ff2509c2f537bf8d179c6aa8501bc480d5"
+    },
+    {
+      "nom": "imbrication",
+      "valeur": {
+        "z": {
+          "y": [
+            1,
+            {
+              "x": null
+            }
+          ]
+        },
+        "a": true
+      },
+      "canonique": "{\"a\":true,\"z\":{\"y\":[1,{\"x\":null}]}}",
+      "empreinte": "sha256:6c4bd24a0f97706cf13f2e8e3eff0b8b4bb51176ca1b2a7d4ed1f32de3166402"
+    },
+    {
+      "nom": "échappements",
+      "valeur": {
+        "t": "un \"guillemet\", une \\ et un \n"
+      },
+      "canonique": "{\"t\":\"un \\\"guillemet\\\", une \\\\ et un \\n\"}",
+      "empreinte": "sha256:b8383c5607d7c51eeb7c624d739fccff6856c4e217e5c0a6b92d91e2b20b36e6"
+    },
+    {
+      "nom": "null et booléens",
+      "valeur": {
+        "n": null,
+        "v": true,
+        "f": false
+      },
+      "canonique": "{\"f\":false,\"n\":null,\"v\":true}",
+      "empreinte": "sha256:35712cd4c06f1fff19099827381f4d8f895ee38f1419d13d7eb8f926aa9af803"
+    },
+    {
+      "nom": "bornes entières exactes",
+      "valeur": {
+        "haut": 9007199254740991,
+        "bas": -9007199254740991
+      },
+      "canonique": "{\"bas\":-9007199254740991,\"haut\":9007199254740991}",
+      "empreinte": "sha256:8d39eb849b905de618adebe0cceb82a49b76971077c79a6f5247b835f631daa0"
+    },
+    {
+      "nom": "zéro et négatif",
+      "valeur": {
+        "zero": 0,
+        "moins": -7
+      },
+      "canonique": "{\"moins\":-7,\"zero\":0}",
+      "empreinte": "sha256:a0e66b1f9120df5d4d052e3d003d2f6227f55a0d9f3857d0894ab0aa67883741"
+    },
+    {
+      "nom": "vue de contexte, sans son empreinte",
+      "valeur": {
+        "id": "ctx_01J",
+        "query": "que sait-on du refroidissement ?",
+        "root_ids": ["rev_2", "rev_1"],
+        "max_depth": 3,
+        "branch_scope": ["br_principal"],
+        "confidentiality_ceiling": "internal",
+        "negative_result_policy": "include",
+        "redactions": [
+          {
+            "target": "rev_9",
+            "reason": "confidentiality_ceiling"
+          }
+        ],
+        "source_event_watermark": 42,
+        "generated_at": "2026-08-28T10:00:00Z"
+      },
+      "canonique": "{\"branch_scope\":[\"br_principal\"],\"confidentiality_ceiling\":\"internal\",\"generated_at\":\"2026-08-28T10:00:00Z\",\"id\":\"ctx_01J\",\"max_depth\":3,\"negative_result_policy\":\"include\",\"query\":\"que sait-on du refroidissement ?\",\"redactions\":[{\"reason\":\"confidentiality_ceiling\",\"target\":\"rev_9\"}],\"root_ids\":[\"rev_2\",\"rev_1\"],\"source_event_watermark\":42}",
+      "empreinte": "sha256:2383659efd8ca034b9019774803eef4ca88ab7ba29f85bc7f134ddae71303a4a"
+    }
+  ]
+}
