@@ -38,6 +38,7 @@ import {
   type Chain,
 } from "./harness.ts";
 import type { CapabilityManifest } from "@locus/lep";
+import { payloadHash } from "@locus/testing";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
@@ -89,6 +90,32 @@ async function batirVue(controlPlane: string, id: string, cle: string): Promise<
   const brut = await reponse.text();
   assert.equal(reponse.status, 201, brut);
   return (JSON.parse(brut) as { readonly content_hash: string }).content_hash;
+}
+
+/**
+ * Lire la vue que la route sert, et **recalculer son empreinte** — `W20.ac`.
+ *
+ * La définition est celle du worker, `viewContentHash` : le hash du document privé du champ qui le
+ * porte. Elle est réappliquée ici sur les octets que le binaire a réellement rendus, et non sur ce
+ * que le daemon a répondu à la construction — sinon ce test comparerait une valeur à elle-même.
+ *
+ * `payloadHash` vient de `@locus/testing`, c'est-à-dire de la moitié TypeScript de §7.7, la même
+ * qui est vendorée dans le worker. C'est donc **le calcul du worker** qui est appliqué au document
+ * du serveur, ce qui est exactement la confrontation que la jonction demande.
+ */
+async function lireVue(controlPlane: string, id: string): Promise<Record<string, unknown>> {
+  const reponse = await fetch(`${controlPlane}/context-views/${id}`);
+  const brut = await reponse.text();
+  assert.equal(reponse.status, 200, brut);
+  const vue = JSON.parse(brut) as Record<string, unknown>;
+  const { content_hash: annoncee, ...reste } = vue;
+  assert.equal(
+    annoncee,
+    payloadHash(reste),
+    `la vue servie annonce une empreinte que son contenu ne donne pas : ${brut}`,
+  );
+  assert.equal(vue["id"], id, `la route sert « ${String(vue["id"])} » sous « ${id} »`);
+  return vue;
 }
 
 function proposition(contextViewId: string, contextViewHash: string) {
@@ -795,6 +822,8 @@ describe("le daemon redémarre et retrouve ses faits — W12.d, cinquième claus
   let chain: Chain | undefined;
   /** Ce que le journal portait **avant** le redémarrage. Comparé, jamais supposé. */
   let avant: readonly string[] = [];
+  /** La vue que la route servait avant le redémarrage. Comparée aussi, et pour la même raison. */
+  let vueAvant: Record<string, unknown> = {};
   /**
    * L'adresse du journal, lue **dans le premier test** et non au chargement du fichier.
    *
@@ -873,6 +902,13 @@ describe("le daemon redémarre et retrouve ses faits — W12.d, cinquième claus
     );
     avant = ecrits;
     t.diagnostic(`au journal avant redémarrage : ${[...new Set(avant)].join(", ")}`);
+
+    // La vue **servie par le binaire réel**, et son empreinte recalculée comme le worker la
+    // recalcule — `W20.ac`. Le test Rust de la route tourne contre un serveur monté dans le
+    // processus ; ce qui est vérifié ici est que le routeur du binaire la sert, sur un socket, avec
+    // un journal durable derrière.
+    vueAvant = await lireVue(chain.controlPlane, "ctx_e2e_durable");
+    t.diagnostic(`vue servie avant redémarrage : ${vueAvant.content_hash}`);
   });
 
   it("après le redémarrage, le fait est toujours au journal", async (t) => {
@@ -924,6 +960,21 @@ describe("le daemon redémarre et retrouve ses faits — W12.d, cinquième claus
     assert.ok(
       types.includes("task.queued"),
       `le journal ne porte pas le fait attendu : ${types.join(", ")}`,
+    );
+
+    // **Et la vue de contexte survit aussi** — `W20.ac`.
+    //
+    // Elle n'est pas un fait de plus dans la liste : c'est un **document** que la route reconstruit
+    // du journal à chaque lecture. Un daemon qui aurait gardé ses vues en mémoire passerait la
+    // comparaison de types ci-dessus sans rien servir ici, et une mission déjà proposée nommerait
+    // alors un contexte devenu introuvable — c'est-à-dire la faute que `W20.ac` a fermée à la
+    // proposition, rouverte par le redémarrage.
+    const vueApres = await lireVue(chain.controlPlane, "ctx_e2e_durable");
+    assert.deepEqual(
+      vueApres,
+      vueAvant,
+      "le daemon a redémarré et la vue qu'il sert a changé : « ce que l'agent pouvait connaître » " +
+        "n'est plus la même chose avant et après (§16.2)",
     );
   });
 });

@@ -17697,3 +17697,44 @@ l'exposition serait légitimée par un `Disclosure` est écarté plutôt qu'incl
 
 **Prochain item.** La frontière redevient `W2.27` et `W12.d`, toutes deux en attente d'une session
 qui produise quelque chose — donc d'un hôte annonçant un modèle.
+
+## 2026-08-28 — W12.d.6 — La vue de contexte survit au redémarrage, et ce que la chaîne ne couvre pas encore
+
+**Périmètre.** `tests/e2e/chain.chain.ts` (le lecteur `lireVue` et deux assertions dans la cinquième
+clause) ; `tests/e2e/WORKER-PINNED.json` (le pin passe à `ce03025c`).
+
+**Tests exécutés.** `npm run e2e` avec le worker `canterel` réel — à la révision **qui vient d'être
+épinglée**, pas à celle d'avant — et un PostgreSQL local : **14 passés**. Diagnostic de la clause :
+`vue servie avant redémarrage : sha256:0fa7374e…`. `npm run typecheck` → 0 ; `check:worker-pin` →
+`ok`.
+
+**Ce que la clause ajoute, et pourquoi ce n'est pas un doublon du test Rust.** Le test de sortie de
+`W20.ac.2` monte un serveur **dans le processus** avec un journal en mémoire. Ici, c'est le binaire
+`locusd` réel, son routeur assemblé par `main.rs`, un socket, et un journal PostgreSQL qui survit à
+un `kill`. Ce qui est vérifié en plus : la vue n'est pas un fait de plus dans la liste que `W12.d.5`
+compare — c'est un **document** que la route reconstruit du journal à chaque lecture. Un daemon qui
+aurait gardé ses vues en mémoire passerait la comparaison de types sans rien servir ici.
+
+**L'empreinte est recalculée, jamais comparée à elle-même.** `lireVue` réapplique `payloadHash` de
+`@locus/testing` — la moitié TypeScript de §7.7, celle qui est vendorée dans le worker — sur les
+octets que le binaire a rendus. Comparer à ce que le daemon avait répondu à la construction aurait
+vérifié qu'une valeur est égale à elle-même.
+
+**Le pin du worker passe à `ce03025c`.** ADR 0033 décision 1 : un acte qui se voit dans un diff. La
+chaîne a été exécutée contre ce worker-là **avant** le bump, pas après — c'est ce qui rend le bump
+sûr plutôt que probable.
+
+**Ce que la chaîne ne couvre pas, mesuré plutôt que supposé.** La vérification livrée par `W20.ac.3`
+côté worker — récupérer la vue et refuser celle qu'on lui échange — n'est **pas** exercée par la CI,
+et le bump ne change rien à cela. Le tour de la quatrième clause s'arrête sur
+`tour : mission refusée à l'admission — model_unavailable` : `mapMission` refuse avant que la boucle
+atteigne `ports.contextView`. Il aurait été facile de présenter le bump comme « la jonction est
+désormais exercée de bout en bout » ; elle ne l'est pas, et ce qui manque est le même hôte annonçant
+un modèle qui bloque `W2.27` et le reste de `W12.d`. La vérification a son test de sortie dans
+`canterel`, contre un serveur d'épreuve ; ce qui n'existe nulle part est leur rencontre.
+
+**Écart avec la spec.** Aucun.
+
+**Prochain item.** La frontière reste `W2.27` et `W12.d`, toutes deux en attente d'un hôte qui
+annonce un modèle. Les autres lignes ouvertes attendent un arbitrage — `W5.ag` (vocabulaire),
+`W19.c` (protocole), `W23.d` et `W23.e` (mesure préalable) — ou un hôte externe (`W5.am`, `W18.f`).
