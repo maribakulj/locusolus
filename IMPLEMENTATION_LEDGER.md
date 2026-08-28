@@ -17658,3 +17658,42 @@ toujours de conclure quand elle n'a rien lu.
 vérifie qu'elle porte l'identifiant **et** l'empreinte reçus, et refuse celle qu'on lui échange.
 `assertViewIntegrity` ne vérifie aujourd'hui que la cohérence interne du document — une vue échangée
 mais cohérente passerait. Dépendance satisfaite : la route existe et sert.
+
+## 2026-08-28 — W20.ac — La jonction ContextView, close en trois tranches
+
+**Périmètre.** Cette entrée **clôt** l'item ; ce qu'il a coûté est consigné dans les trois entrées
+qui la précèdent — `W20.ac.1` et `W20.ac.2` ici, `W20.ac.3` dans le ledger de `canterel`. Le seul
+fichier que celle-ci touche est `docs/10_V1_ROADMAP.md`, qui marque le parent.
+
+**Tests exécutés.** Aucun test neuf : les trois tranches portent les leurs. `check:roadmap` et
+`check:citations` → 0.
+
+**Ce que l'item cherchait, et ce qu'il a trouvé de plus.** Il partait d'un constat de surface — le
+matérialiseur de `canterel` exige une `ContextView` entière et aucune route n'en rendait une. Ce
+qu'il a trouvé en chemin est plus grave que l'absence de route : **rien ne rattachait
+`context_view : {id, hash}` à un document**. Une mission pouvait donc nommer une vue qui n'existe
+pas, ou annoncer d'une vue réelle une empreinte étrangère, et le premier à s'en apercevoir aurait
+été le worker — après réclamation, bail frappé et attempt ouvert.
+
+**Les trois clauses du test de sortie, et où chacune est tenue.**
+
+1. _Une route rend la vue que la mission nomme_ — `apps/locusd/tests/context_view.rs`, identifiant
+   et empreinte comparés sur la mission réellement mise en file.
+2. _Le worker la vérifie contre l'empreinte reçue_ — `canterel`, `context-view.test.ts`, la vue
+   étant demandée en `GET` avant l'ouverture de session.
+3. _Une vue échangée est refusée_ — **deux fois**, et c'est le point. À la proposition, où elle
+   coûte un refus HTTP et rien d'autre ; et chez le worker, qui ne fait confiance à personne pour ce
+   que §12.3 lui demande de vérifier lui-même.
+
+**Ce que l'item laisse en place pour la suite.** Une canonicalisation JSON en Rust dont l'accord
+avec la moitié TypeScript se **constate** sur un corpus partagé ; une séparation « filtrer puis
+sceller » dans `packages/review` qui rend inexprimable une vue dont l'empreinte ne décrirait pas le
+contenu ; et deux routes qui sont la première surface de lecture servie hors de §22.4 — ajoutée
+parce que §12.3 la présuppose, pas parce qu'une liste la demandait.
+
+**Ce qu'il ne lève pas.** Un candidat ne peut pas porter de dévoilement, donc un élément dont
+l'exposition serait légitimée par un `Disclosure` est écarté plutôt qu'inclus. Nommé dans
+`apps/locusd/src/context_view.rs`, dans la direction sûre, et levable par `W26.d`.
+
+**Prochain item.** La frontière redevient `W2.27` et `W12.d`, toutes deux en attente d'une session
+qui produise quelque chose — donc d'un hôte annonçant un modèle.
