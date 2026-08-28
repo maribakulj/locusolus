@@ -52,7 +52,46 @@ const TACHE = "task_01HF7YAT000000000000000005";
  * fichier aurait donné un second corps à maintenir, et un `400` sur un champ oublié se serait lu
  * comme un refus du daemon.
  */
-function proposition() {
+/**
+ * Bâtir une `ContextView` et rendre **son** empreinte — `W20.ac`.
+ *
+ * Depuis cet item, une proposition qui nomme une vue que personne n'a déposée est refusée, et une
+ * qui en annonce une autre empreinte aussi. L'empreinte est donc **lue de la réponse** : la
+ * recalculer ici referait le travail du daemon et passerait même si les deux se trompaient de la
+ * même façon.
+ *
+ * Sans candidat : la chaîne vérifie le câblage du binaire, pas le filtre de `W7.b`, qui a son test
+ * de sortie dans `apps/locusd/tests/context_view.rs`.
+ */
+async function batirVue(controlPlane: string, id: string, cle: string): Promise<string> {
+  const reponse = await fetch(`${controlPlane}/commands/context-view/build`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${ADMINISTRATION.credential}`,
+    },
+    body: JSON.stringify({
+      idempotency_key: cle,
+      project_id: ADMINISTRATION.projectId,
+      view: {
+        id,
+        query: "tenue du catalyseur A",
+        source_event_watermark: 0,
+        recipient: {
+          agent_id: ADMINISTRATION.principalId,
+          worker_id: "canterel-e2e",
+          clearance: "internal",
+        },
+        candidates: [],
+      },
+    }),
+  });
+  const brut = await reponse.text();
+  assert.equal(reponse.status, 201, brut);
+  return (JSON.parse(brut) as { readonly content_hash: string }).content_hash;
+}
+
+function proposition(contextViewId: string, contextViewHash: string) {
   return {
     // `W25.a` : une mission **déclare sa classe de cognition**, et le champ est obligatoire — une
     // mission sans classe n'est pas une mission. C'est `economy`, comme la fixture Rust dont
@@ -68,8 +107,8 @@ function proposition() {
     attempt_id: "att_1",
     attempt: 3,
     branch_id: "br_principal",
-    context_view_id: "ctx_1",
-    context_view_hash: `sha256:${"ab".repeat(32)}`,
+    context_view_id: contextViewId,
+    context_view_hash: contextViewHash,
     environment_id: "env_linux",
     // `S2` et non `S3` : ADR 0033 et `W12.e` séparent le confinement qu'un runner peut tenir de
     // celui qui est **attesté**, et ce test tourne sur le premier.
@@ -275,6 +314,8 @@ describe("la chaîne monte, se voit et s'arrête — W12.f", () => {
   it("une question posée à un daemon réel produit une mission — W12.d, première clause", async () => {
     assert.ok(chain, "la chaîne est montée par le premier test");
 
+    const empreinte = await batirVue(chain.controlPlane, "ctx_e2e_1", "e2e-vue-1");
+
     const propose = await fetch(`${chain.controlPlane}/commands/task/propose`, {
       method: "POST",
       headers: {
@@ -284,7 +325,7 @@ describe("la chaîne monte, se voit et s'arrête — W12.f", () => {
       body: JSON.stringify({
         idempotency_key: "e2e-propose-1",
         project_id: ADMINISTRATION.projectId,
-        proposal: proposition(),
+        proposal: proposition("ctx_e2e_1", empreinte),
       }),
     });
 
@@ -426,13 +467,15 @@ describe("un worker fait son tour sur une mission en file — W12.d, troisième 
     // empêche l'option de redevenir silencieusement le défaut.
     assert.deepEqual(chain.processes, ["locus-execd", "locusd"]);
 
+    const empreinte = await batirVue(chain.controlPlane, "ctx_e2e_tour", "e2e-vue-tour");
+
     for (const [route, corps] of [
       [
         "/commands/task/propose",
         {
           idempotency_key: "e2e-tour-propose",
           project_id: ADMINISTRATION.projectId,
-          proposal: proposition(),
+          proposal: proposition("ctx_e2e_tour", empreinte),
         },
       ],
       [
@@ -591,7 +634,11 @@ describe("une mission taillée sur le manifeste est réclamée — W12.d, quatri
         `${manifeste.resources.disk_free_mb} Mo libres`,
     );
 
-    taillee = propositionTaillee(manifeste);
+    taillee = propositionTaillee(
+      manifeste,
+      "ctx_e2e_taillee",
+      await batirVue(chain.controlPlane, "ctx_e2e_taillee", "e2e-vue-taillee"),
+    );
     t.diagnostic(
       `mission taillée : ${taillee.sandbox_level} / ${taillee.network} / ` +
         `${JSON.stringify(taillee.resources)}`,
@@ -686,7 +733,11 @@ const TACHE_TAILLEE = "task_01HF7YAT000000000000000006";
  * pas une charge, et une réservation généreuse échouerait sur un hôte modeste pour une raison qui
  * n'a rien à voir avec ce qui est affirmé.
  */
-function propositionTaillee(manifeste: CapabilityManifest) {
+function propositionTaillee(
+  manifeste: CapabilityManifest,
+  contextViewId: string,
+  contextViewHash: string,
+) {
   const modes = manifeste.sandbox.network_modes;
   return {
     cognition: "economy",
@@ -696,8 +747,8 @@ function propositionTaillee(manifeste: CapabilityManifest) {
     attempt_id: "att_1",
     attempt: 1,
     branch_id: "br_principal",
-    context_view_id: "ctx_1",
-    context_view_hash: `sha256:${"ab".repeat(32)}`,
+    context_view_id: contextViewId,
+    context_view_hash: contextViewHash,
     environment_id: "env_linux",
     // Le seul niveau plaçable sans attestation — voir l'en-tête du bloc.
     sandbox_level: "S0",
@@ -784,13 +835,15 @@ describe("le daemon redémarre et retrouve ses faits — W12.d, cinquième claus
       `la chaîne devait monter un journal durable, et le daemon annonce : ${finDe(annonce, 3)}`,
     );
 
+    const empreinte = await batirVue(chain.controlPlane, "ctx_e2e_durable", "e2e-vue-durable");
+
     for (const [route, corps] of [
       [
         "/commands/task/propose",
         {
           idempotency_key: "e2e-durable-propose",
           project_id: ADMINISTRATION.projectId,
-          proposal: { ...proposition(), task_id: TACHE_DURABLE },
+          proposal: { ...proposition("ctx_e2e_durable", empreinte), task_id: TACHE_DURABLE },
         },
       ],
       [

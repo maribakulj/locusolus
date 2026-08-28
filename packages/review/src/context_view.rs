@@ -71,6 +71,70 @@ impl fmt::Display for Redaction {
     }
 }
 
+/// Ce que le filtre a retenu et ce qu'il a écarté — une vue **pas encore scellée**.
+///
+/// # Pourquoi ce type existe — `W20.ac`
+///
+/// Une [`ContextView`] est « adressée par hash » (§16.2), et son empreinte porte sur le document
+/// qui la transporte : c'est celui-là que le worker recalcule avant de démarrer (§12.3). Or ce
+/// document nomme ce que le filtre a écarté — il ne peut donc pas être écrit avant que le filtre ait
+/// tourné, ni hashé avant d'être écrit.
+///
+/// Sans ce type, la seule façon d'obtenir le résultat du filtre était de fournir d'avance
+/// l'empreinte qu'on cherchait à calculer. `Filtered` nomme le moment qui manquait, et il rend le
+/// sceau opposable : [`Filtered::seal`] est le seul endroit d'où une `ContextView` sort.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Filtered {
+    included: Vec<RevisionId>,
+    redactions: Vec<Redaction>,
+    confidentiality_ceiling: Confidentiality,
+    source_event_watermark: u64,
+}
+
+impl Filtered {
+    /// Ce que le filtre a retenu.
+    #[must_use]
+    pub fn included(&self) -> &[RevisionId] {
+        &self.included
+    }
+
+    /// Ce qu'il a écarté, et pourquoi.
+    #[must_use]
+    pub fn redactions(&self) -> &[Redaction] {
+        &self.redactions
+    }
+
+    /// Le plafond de confidentialité appliqué.
+    #[must_use]
+    pub const fn confidentiality_ceiling(&self) -> Confidentiality {
+        self.confidentiality_ceiling
+    }
+
+    /// L'instant du journal auquel le filtre s'est arrêté.
+    #[must_use]
+    pub const fn source_event_watermark(&self) -> u64 {
+        self.source_event_watermark
+    }
+
+    /// Sceller ce contenu sous une empreinte.
+    ///
+    /// Ce crate ne calcule pas l'empreinte, et ce n'est pas un oubli : elle porte sur le **document
+    /// du fil** — la forme de `schemas/lep/1.0/context-view.schema.json` —, que ce crate ne
+    /// construit pas. La calculer ici sur une autre forme en donnerait une seconde définition, et le
+    /// worker recalculerait la sienne : deux empreintes pour une vue, donc un refus d'intégrité sur
+    /// une vue correcte.
+    #[must_use]
+    pub fn seal(self, content_hash: ContentHash) -> ContextView {
+        ContextView {
+            included: self.included,
+            redactions: self.redactions,
+            confidentiality_ceiling: self.confidentiality_ceiling,
+            source_event_watermark: self.source_event_watermark,
+            content_hash,
+        }
+    }
+}
+
 /// Une vue de contexte, immuable.
 ///
 /// # Ce qu'on ne peut pas en faire
@@ -119,6 +183,38 @@ impl ContextView {
         )
     }
 
+    /// Le contenu filtré, **avant** qu'une empreinte le scelle.
+    ///
+    /// # Pourquoi les deux moments sont séparés — `W20.ac`
+    ///
+    /// [`ContextView::build`] reçoit son `content_hash` de l'appelant, et **rien n'attache cette
+    /// empreinte au contenu** : elle est prise telle quelle. C'était sans conséquence tant que
+    /// personne ne la vérifiait ; §12.3 dit que le worker recalcule l'empreinte de la vue avant de
+    /// démarrer, et l'empreinte qu'il recalcule porte sur le **document du fil**, qui ne peut pas
+    /// exister avant que le filtre ait dit ce qu'il écarte.
+    ///
+    /// D'où l'ordre : filtrer, écrire le document, le hasher, sceller. Fondre les deux moments
+    /// obligerait l'appelant à inventer une empreinte pour obtenir ce dont il a besoin pour la
+    /// calculer.
+    ///
+    /// # Errors
+    ///
+    /// Les mêmes que [`ContextView::build`] — c'est le même calcul.
+    pub fn filter(
+        candidates: &[(ContextItem, u64)],
+        recipient: &Recipient,
+        source_event_watermark: u64,
+        at: Timestamp,
+    ) -> Result<Filtered, ContextViewError> {
+        Self::filter_under(
+            candidates,
+            recipient,
+            source_event_watermark,
+            &Unrestricted,
+            at,
+        )
+    }
+
     /// La même construction, sous une visibilité déclarée.
     ///
     /// # Ce que la visibilité change, et ce qu'elle ne change pas
@@ -143,6 +239,30 @@ impl ContextView {
         visible: &impl Visible,
         at: Timestamp,
     ) -> Result<Self, ContextViewError> {
+        Ok(
+            Self::filter_under(candidates, recipient, source_event_watermark, visible, at)?
+                .seal(content_hash),
+        )
+    }
+
+    /// Le contenu filtré sous une visibilité déclarée, **avant** qu'une empreinte le scelle.
+    ///
+    /// C'est le seul endroit où le filtrage s'écrit : [`ContextView::build`],
+    /// [`ContextView::build_under`] et [`ContextView::filter`] y mènent tous. Un second chemin
+    /// divergerait le jour où l'un des deux est corrigé, et personne ne saurait lequel dit la vérité
+    /// — l'argument que [`Unrestricted`] porte déjà pour la visibilité.
+    ///
+    /// # Errors
+    ///
+    /// [`ContextViewError::BeyondWatermark`] quand un élément provient d'un événement postérieur au
+    /// watermark.
+    pub fn filter_under(
+        candidates: &[(ContextItem, u64)],
+        recipient: &Recipient,
+        source_event_watermark: u64,
+        visible: &impl Visible,
+        at: Timestamp,
+    ) -> Result<Filtered, ContextViewError> {
         let mut included = Vec::new();
         let mut redactions = Vec::new();
 
@@ -173,12 +293,11 @@ impl ContextView {
             }
         }
 
-        Ok(Self {
+        Ok(Filtered {
             included,
             redactions,
             confidentiality_ceiling: recipient.clearance,
             source_event_watermark,
-            content_hash,
         })
     }
 

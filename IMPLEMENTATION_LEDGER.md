@@ -17587,3 +17587,74 @@ séparation « filtrer puis sceller » dans `packages/review` — `ContextView::
 une empreinte de son appelant, sans qu'aucun lien ne l'attache au contenu —, le module de jonction
 dans `apps/locusd`, la route qui sert, et la liaison qui empêche une mission de nommer une vue que
 personne n'a déposée.
+
+## 2026-08-28 — W20.ac.2 — La vue est bâtie, conservée et servie, et la mission ne peut plus en nommer une autre
+
+**Périmètre.** `packages/review/src/context_view.rs` (le type `Filtered` et la séparation « filtrer
+/ sceller ») et son export ; `apps/locusd/src/context_view.rs` (neuf) ; `apps/locusd/src/http.rs`
+(deux routes, `served()` passe à 18) ; `apps/locusd/src/mission.rs` (la liaison de la proposition) ;
+`apps/locusd/Cargo.toml` (dépendance interne vers `locus-review`) ;
+`apps/locusd/tests/context_view.rs` (neuf) ; `apps/locusd/tests/{commands,mission}.rs` mis à jour ;
+`tests/e2e/chain.chain.ts` ; `tooling/transcriptions/transcriptions.ts`.
+
+**Tests exécutés.** `cargo test --all-features` → 224 binaires verts, dont
+`locusd --test context_view` (11) ; `cargo clippy --all-targets --all-features -D warnings` → 0 ;
+`npm test` → 281 passés ; `npm run e2e` avec le worker `canterel` réel et un PostgreSQL local → **14
+passés**, les quatre clauses qui proposent bâtissant désormais leur vue d'abord. Les gardes
+documentaires — `roadmap`, `citations`, `transcriptions`, `boundaries`, `coherence`, `deps`,
+`schemas`, `generated`, `typecheck` — toutes à 0.
+
+Le test de sortie de l'item est `apps/locusd/tests/context_view.rs` : la route rend la vue que la
+mission nomme (identifiant **et** empreinte comparés) ; l'empreinte servie est recalculée sur les
+octets réellement rendus, privés du champ qui la porte ; une proposition qui annonce une autre
+empreinte est refusée en nommant `context_view.hash`, et une qui nomme une vue absente en nommant
+`context_view.id`.
+
+**Décisions prises.**
+
+1. **Filtrer et sceller sont deux moments**, et `Filtered` porte le premier. `ContextView::build`
+   recevait une empreinte de son appelant sans qu'aucun lien ne l'attache au contenu — sans
+   conséquence tant que personne ne la vérifiait. §12.3 dit que le worker la recalcule, et
+   l'empreinte qu'il recalcule porte sur le document du fil, qui ne peut pas exister avant que le
+   filtre ait dit ce qu'il écarte. `build` et `build_under` restent, et passent tous les deux par
+   `filter_under` : un second chemin de filtrage divergerait.
+2. **L'empreinte est calculée sur le document privé du champ qui la porte**, la définition
+   qu'applique `viewContentHash` côté worker. Conséquence directe et vérifiée par un test : la
+   valeur d'entrée de `content_hash` n'entre pas dans le résultat, donc « sceller » n'est jamais «
+   faire confiance à ce qu'on nous a annoncé ».
+3. **La liaison est à la proposition**, pas plus tard. Sans elle, une mission pouvait nommer une vue
+   inexistante ou annoncer une empreinte étrangère, et le premier à s'en apercevoir aurait été le
+   worker — après réclamation, bail frappé et attempt ouvert. Ici, c'est un refus HTTP.
+4. **Une vue est immuable, mais une resoumission n'est pas une réécriture.** §22.5 : « les clients
+   peuvent resoumettre sans dupliquer l'effet ». La distinction se lit sur la **clé d'idempotence**
+   du fait, pas sur le contenu : `generated_at` change d'un envoi à l'autre, donc deux demandes
+   identiques produisent deux documents différents, et une comparaison de contenu appellerait «
+   réécriture » ce qui n'est qu'un renvoi. Sans cette distinction, la chaîne de bout en bout
+   relancée sur un journal durable se serait heurtée au refus d'immuabilité.
+5. **`404` sur une vue inconnue**, là où `/graph/{revision_id}` rend `200` sur une conclusion vide.
+   « Rien ne soutient cette conclusion » est une réponse ; « cette vue n'existe pas » n'en est pas
+   une pour un worker à qui la mission vient de la nommer.
+6. **La commande de construction est sous `/commands/`**, pas sous `/lep/`. Un worker qui pourrait
+   se bâtir une vue choisirait ce qu'il a le droit de savoir — l'inverse exact de l'invariant 11.
+
+**Écart avec la spec.** §22.4 ne liste pas `GET /context-views/:id`. La liste des queries
+essentielles n'est pas close — `/events`, `/conflicts` et les quatre chemins `lep/v1` n'y sont pas
+davantage —, et §12.3 **présuppose** cette surface : la mission ne porte que `{id, hash}`, donc sans
+route qui rende le document, la vérification d'empreinte n'a pas d'objet.
+
+**Ce que ce module ne sait pas faire, et ce qui le lèverait.** Un candidat ne peut pas porter de
+dévoilement (`Disclosure`, ADR 0027) : la commande le transporte en JSON, et un dévoilement se
+construit par `Disclosure::granting`, qui écrit un fait. Un élément dont l'exposition serait
+légitimée par un dévoilement est donc **écarté** au lieu d'être inclus — la direction sûre, le
+filtre retirant sans jamais ajouter. Le registre de `W26.d` atteignant cette commande le lèverait.
+
+**Ce que la garde des transcriptions a attrapé.** La fixture e2e a dû recevoir l'empreinte de la
+vue, donc prendre des paramètres ; la lecture exigeait `function X() {` et n'a plus rien trouvé.
+Elle a refusé bruyamment plutôt que de rendre vert — c'est sa règle. Mais ce qu'elle compare est un
+**jeu de champs**, pas une signature : la lecture part maintenant de l'accolade ouvrante, et refuse
+toujours de conclure quand elle n'a rien lu.
+
+**Prochain item.** `W20.ac.3`, dans `canterel` : le worker récupère la vue que sa mission nomme,
+vérifie qu'elle porte l'identifiant **et** l'empreinte reçus, et refuse celle qu'on lui échange.
+`assertViewIntegrity` ne vérifie aujourd'hui que la cohérence interne du document — une vue échangée
+mais cohérente passerait. Dépendance satisfaite : la route existe et sert.

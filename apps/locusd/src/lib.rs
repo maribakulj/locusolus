@@ -46,6 +46,7 @@ pub mod branch;
 pub mod broker;
 pub mod command;
 pub mod composition;
+pub mod context_view;
 pub mod cursor;
 pub mod enrollment;
 pub mod epistemic;

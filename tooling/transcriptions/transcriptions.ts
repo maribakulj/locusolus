@@ -86,9 +86,23 @@ export function rustFields(source: string, structure: string): string[] | undefi
   return [...corps.matchAll(/^\s{4}pub (\w+):/gmu)].map((match) => match[1] ?? "");
 }
 
-/** Les clés de premier niveau de l'objet que rend une fonction nommée. */
+/**
+ * Les clés de premier niveau de l'objet que rend une fonction nommée.
+ *
+ * # La signature n'est pas regardée, et c'est délibéré — `W20.ac`
+ *
+ * Cette lecture exigeait `function X() {`, donc zéro paramètre. Le jour où la fixture a dû recevoir
+ * l'empreinte de la vue de contexte que la mission nomme, la garde n'a plus rien lu — et elle a
+ * refusé bruyamment, comme elle doit. Mais ce qu'elle compare est un **jeu de champs**, pas une
+ * signature : une fixture paramétrée décrit le même corps de requête. La lecture part donc de
+ * l'accolade ouvrante, quelle que soit la liste d'arguments, et refuse toujours de rendre « ok »
+ * quand elle n'a rien trouvé.
+ */
 export function fixtureKeys(source: string, fonction: string): string[] | undefined {
-  const debut = source.indexOf(`function ${fonction}() {`);
+  const signature = source.indexOf(`function ${fonction}(`);
+  if (signature === -1) return undefined;
+  // La première accolade après la signature ouvre le corps : aucune liste de paramètres n'en porte.
+  const debut = source.indexOf("{", signature);
   if (debut === -1) return undefined;
   const fin = source.indexOf("\n}", debut);
   if (fin === -1) return undefined;

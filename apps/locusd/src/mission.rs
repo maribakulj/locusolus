@@ -393,6 +393,7 @@ impl<S: EventStore> Runtime<S> {
         submitted: &Submitted,
         now: Timestamp,
     ) -> Result<(), CommandError> {
+        self.bind_context_view(proposal)?;
         let propose = Propose {
             proposal: proposal.clone(),
         };
@@ -449,6 +450,48 @@ impl<S: EventStore> Runtime<S> {
             attempt: proposal.attempt,
         });
         Ok(())
+    }
+
+    /// La vue que cette proposition nomme existe-t-elle, et est-ce bien celle-là ? — `W20.ac`
+    ///
+    /// # Ce que ce contrôle empêche, et pourquoi il est ici et pas plus tard
+    ///
+    /// `MissionEnvelope` porte `context_view : {id, hash}`, et rien n'attachait ces deux valeurs à
+    /// un document. Une proposition pouvait donc nommer une vue qui n'existe pas, ou annoncer d'une
+    /// vue réelle une empreinte qui n'est pas la sienne. Dans les deux cas, le premier à s'en
+    /// apercevoir aurait été le **worker**, après réclamation, au moment où §12.3 lui demande de
+    /// vérifier l'empreinte avant de démarrer : une mission confiée, un bail frappé, un attempt
+    /// ouvert, pour un contexte introuvable.
+    ///
+    /// Le contrôle est donc à la proposition, où il coûte un refus et rien d'autre.
+    ///
+    /// # Errors
+    ///
+    /// [`CommandError::Validation`] nommant `context_view.id` quand aucune vue n'a été bâtie sous
+    /// cet identifiant, `context_view.hash` quand l'empreinte annoncée n'est pas celle du document
+    /// conservé.
+    fn bind_context_view(&self, proposal: &Proposal) -> Result<(), CommandError> {
+        let vue = self
+            .context_view(&proposal.context_view_id)?
+            .ok_or_else(|| CommandError::Validation {
+                field: "context_view.id".to_owned(),
+                detail: format!(
+                    "aucune vue « {} » n'a été bâtie : une mission ne nomme pas un contexte que \
+                     personne n'a déposé (§16.2)",
+                    proposal.context_view_id
+                ),
+            })?;
+        if vue.content_hash == proposal.context_view_hash {
+            return Ok(());
+        }
+        Err(CommandError::Validation {
+            field: "context_view.hash".to_owned(),
+            detail: format!(
+                "la vue « {} » porte {}, la proposition annonce {} : sans cet accord, « ce que \
+                 l'agent pouvait connaître » n'est plus vérifiable (§16.2)",
+                proposal.context_view_id, vue.content_hash, proposal.context_view_hash
+            ),
+        })
     }
 
     /// Ce que le journal dit de cette tâche : ce qui a été proposé, et où elle en est.

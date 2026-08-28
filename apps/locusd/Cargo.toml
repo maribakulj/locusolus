@@ -55,6 +55,9 @@ locus-event-store = { path = "../../packages/event-store" }
 locus-deployment = { path = "../../packages/deployment" }
 locus-policy = { path = "../../packages/policy" }
 locus-projections = { path = "../../packages/projections" }
+# `W20.ac` : la jonction `ContextView` réutilise le filtre de `W7.b` plutôt que d'en écrire un
+# second. Dépendance interne, donc hors de `dependencies.json`, qui ne porte que les externes.
+locus-review = { path = "../../packages/review" }
 locus-lep = { path = "../../packages/lep" }
 locus-protocol = { path = "../../packages/protocol" }
 serde = { workspace = true }
