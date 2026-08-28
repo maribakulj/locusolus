@@ -564,34 +564,26 @@ jobs:
     needs: sandbox
     if: always()
 
-    # `W12.d.5` : la cinquième clause tue `locusd` et le relance sur le **même** journal. Sous le
-    # défaut `personal-local`, le journal est en mémoire et il n'y aurait rien à retrouver — la
-    # clause monte donc un `single-node-vm`, un profil qui **promet** la durabilité et que
-    # `Choice::decide` refuse de démarrer sans base. Ce service est ce qui la lui donne.
+    # `W12.d.5` a besoin d'une base, et **ce job ne peut pas en prendre une en conteneur**.
     #
-    # Le job `rust` a déjà exactement ce service, sous la même variable : `LOCUS_TEST_POSTGRES`, et
-    # pas une seconde. Deux variables pour une base donneraient deux endroits à tenir d'accord.
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_USER: locus
-          POSTGRES_PASSWORD: locus
-          POSTGRES_DB: locus_e2e
-        ports:
-          - 5432:5432
-        # `-U locus -d locus_e2e` et non `pg_isready` nu — la leçon est celle du job `rust`, où la
-        # première rédaction omettait les deux : `pg_isready` prend alors l'utilisateur du système,
-        # donc `root`, qui n'existe pas dans cette image, et le contrôle ne passe **jamais** au vert.
-        # Il n'ordonnance alors rien, tout en donnant l'air de le faire.
-        options: >-
-          --health-cmd "pg_isready -U locus -d locus_e2e"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
-    env:
-      LOCUS_TEST_POSTGRES: "host=localhost port=5432 user=locus password=locus dbname=locus_e2e"
+    # La première rédaction déclarait un `services: postgres`, comme le job `rust`. La CI a rougi, et
+    # pas sur la clause durable : sur `W5.ab`, le convoyeur d'attestations. La mesure, faite dans un
+    # **seul et même passage**, ne laisse pas de place au doute — le job `sandbox` a déposé
+    # `controllers=cpu,cpuset,io,memory,pids`, et ce job-ci s'est lu
+    # `controllers=cpu,cpuset,dmem,hugetlb,io,memory,misc,pids,rdma`. Même image de runner, même
+    # instant, deux empreintes différentes.
+    #
+    # Déclarer un service démarre des conteneurs Docker, ce qui change le cgroup où tournent les pas
+    # du job, donc les contrôleurs que `HostFacts` y lit — c'est la lecture « délégués **à ce
+    # processus** » que `W5.ai.1` a choisie exprès. L'attestation du job `sandbox` devenait alors
+    # étrangère à cet hôte, et le broker la rejetait : correctement.
+    #
+    # **L'empreinte d'hôte est donc propre au job, pas au runner.** `W5.x` avait mesuré que deux
+    # runners rendent la même, et cette conclusion tient — pour deux jobs configurés pareil. Ce
+    # job-ci vérifie le convoyeur ; il doit donc rester configuré comme celui qui atteste.
+    #
+    # D'où PostgreSQL **de l'image du runner**, démarré par systemd, sans aucun conteneur. La
+    # variable reste celle du job `rust` : `LOCUS_TEST_POSTGRES`, et pas une seconde.
 
     steps:
       - uses: actions/checkout@v4
@@ -669,6 +661,25 @@ jobs:
 
       - name: Install
         run: npm ci
+
+      # La base de `W12.d.5`, prise sur l'image du runner. Aucun `continue-on-error` : si PostgreSQL
+      # n'y est plus, `journalDurable` lèvera de toute façon sous `CI`, et deux diagnostics pour une
+      # cause valent moins qu'un — celui-ci nomme l'image, l'autre nommerait la variable.
+      - name: La base du redémarrage durable
+        run: |
+          sudo systemctl start postgresql
+          # `pg_isready` avec l'utilisateur et la base **nommés** : nu, il prend l'utilisateur du
+          # système, et le contrôle ne conclut rien tout en donnant l'air de conclure. La leçon est
+          # celle du service du job `rust`, payée là-bas.
+          for essai in $(seq 1 30); do
+            pg_isready -h localhost -p 5432 -U postgres && break
+            sleep 1
+          done
+          pg_isready -h localhost -p 5432 -U postgres
+          sudo -u postgres psql -c "CREATE ROLE locus LOGIN PASSWORD 'locus' SUPERUSER"
+          sudo -u postgres createdb -O locus locus_e2e
+          echo "LOCUS_TEST_POSTGRES=host=localhost port=5432 user=locus password=locus dbname=locus_e2e" \
+            >> "$GITHUB_ENV"
 
       # `W0.24` : la lecture du SDK par le worker est-elle à jour ? La question ne peut se poser
       # qu'ici — le consommateur ne peut pas savoir qu'une source qu'il n'a pas le droit de lire a

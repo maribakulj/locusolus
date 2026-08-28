@@ -17487,3 +17487,52 @@ a été exercé ».
 est évalué avant l'assertion, donc toujours — et le `json()` suivant levait « Body has already been
 read ». Le test échouait sur sa propre lecture en accusant le redémarrage : exactement la confusion
 que les autres clauses de ce fichier existent à retirer.
+
+## 2026-08-27 — Défaut — un service de CI change l'empreinte d'hôte du job qui le déclare
+
+Trouvé en poussant `W12.d.5`, et la seule CI rouge de cette série. Elle n'a pas rougi sur la clause
+livrée : sur `W5.ab`, le convoyeur d'attestations, qui a fait exactement son travail.
+
+### Ce que le convoyeur a dit, et la mesure qui a tranché
+
+`{"kind":"lues","honorees":0,"etrangeres":1}` — l'attestation déposée par le job `sandbox` était
+**étrangère** à l'hôte du job `e2e`. Le message du test posait la bonne alternative : « si c'est
+bien celui du job `sandbox`, le chemin d'enregistrement est cassé ; sinon le parc a cessé d'être
+homogène ».
+
+La mesure est faite dans un **seul et même passage**, ce qui exclut un changement d'image de runner
+:
+
+| job                  | empreinte                                                      |
+| -------------------- | -------------------------------------------------------------- |
+| `sandbox` (déposant) | `controllers=cpu,cpuset,io,memory,pids`                        |
+| `e2e` (lecteur)      | `controllers=cpu,cpuset,dmem,hugetlb,io,memory,misc,pids,rdma` |
+
+Même instant, même image, deux empreintes. Et la seule différence entre les deux jobs, du côté qui a
+bougé, est le `services: postgres` que je venais d'ajouter à `e2e`.
+
+### Pourquoi un service change une empreinte
+
+Déclarer un service démarre des conteneurs Docker, ce qui change le cgroup où tournent les pas du
+job — donc les contrôleurs que `HostFacts` y lit. C'est précisément la lecture « délégués **à ce
+processus** » que `W5.ai.1` a choisie exprès, contre celle de la racine : elle décrit ce que _ce_
+processus peut faire, et un conteneur de service la déplace.
+
+Le broker a donc rejeté une attestation qui ne décrivait plus son hôte. Correctement.
+
+### La conséquence dépasse la réparation
+
+**L'empreinte d'hôte est propre au job, pas au runner.** `W5.x` avait mesuré que deux runners
+rendent la même empreinte, et cette conclusion tient — _pour deux jobs configurés pareil_. C'est une
+qualification du dessin de `W5.z`, qui indexe les attestations par empreinte d'hôte : deux jobs sur
+des runners identiques peuvent ne pas se reconnaître si l'un déclare un service et l'autre non.
+
+Un job qui vérifie le convoyeur doit donc rester configuré comme celui qui atteste.
+
+### La réparation, et les deux qu'elle écarte
+
+PostgreSQL vient désormais de l'**image du runner**, démarré par systemd, sans conteneur. Un pas de
+plus, aucune modification de la forme du job.
+
+Écartées : donner un service au job `sandbox` aussi, ce qui ferait tenir la mesure en la truquant ;
+et sortir la clause durable dans un job à elle, qui dupliquerait dix pas de montage pour un test.
