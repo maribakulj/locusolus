@@ -65,6 +65,7 @@ pub mod offload;
 pub mod organisation;
 pub mod outcome;
 pub mod query;
+pub mod refusal;
 pub mod stream;
 pub mod subagents;
 pub mod transaction;

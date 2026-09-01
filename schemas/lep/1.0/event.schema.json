@@ -6,9 +6,11 @@
   "type": "object",
   "required": ["protocol", "event_type", "sequence", "occurred_at", "idempotency_key"],
   "properties": {
-    "protocol": { "$ref": "urn:locus:schema:lep:1.0:vocabulary#/definitions/protocol_version" },
+    "protocol": {
+      "$ref": "urn:locus:schema:lep:1.0:vocabulary#/definitions/protocol_version"
+    },
     "event_type": {
-      "description": "Fermé exprès, contrairement aux documents. Un type d'événement inconnu n'est pas un champ qu'on peut ignorer : le consommateur ne saura ni quoi en faire ni s'il vient de rater quelque chose. Un nouveau type est un ajout mineur qui met à jour cette liste.",
+      "description": "Fermé exprès, contrairement aux documents. Un type d'événement inconnu n'est pas un champ qu'on peut ignorer : le consommateur ne saura ni quoi en faire ni s'il vient de rater quelque chose.\n\n**Un membre n'entre donc que gardé par une feature négociée du même mineur** — ADR 0037. La phrase précédente de cette description disait « un nouveau type est un ajout mineur qui met à jour cette liste », ce qui est exactement ce que l'interdit 3 de l'ADR 0017 refuse, et elle a été corrigée avec `W19.c`. La garde est ce qui réconcilie les deux textes : un pair qui n'a pas négocié la feature ne reçoit jamais la valeur, donc la faute que l'interdit protège — manquer quelque chose sans le savoir — ne peut pas se produire. Ce qui la rend solide plutôt que pieuse est l'interdit 4 du même ADR : aucune feature n'est présumée.\n\n`task.refused` est le premier membre entré sous cette règle, gardé par `refusal-events`.",
       "type": "string",
       "enum": [
         "worker.registered",
@@ -26,7 +28,8 @@
         "attempt.completed",
         "attempt.failed",
         "attempt.orphaned",
-        "epistemic_commit.submitted"
+        "epistemic_commit.submitted",
+        "task.refused"
       ]
     },
     "sequence": {
@@ -34,20 +37,45 @@
       "type": "integer",
       "minimum": 0
     },
-    "occurred_at": { "type": "string", "format": "date-time" },
+    "occurred_at": {
+      "type": "string",
+      "format": "date-time"
+    },
     "idempotency_key": {
       "description": "Un événement rejoué après reconnexion porte la même clé. C'est ce qui rend la reprise sûre plutôt que dupliquante.",
       "type": "string",
       "minLength": 1
     },
-    "task_id": { "type": "string", "minLength": 1 },
-    "attempt": { "type": "integer", "minimum": 1 },
-    "lease_id": { "type": "string", "minLength": 1 },
-    "worker_id": { "type": "string", "minLength": 1 },
-    "correlation_id": { "type": "string", "minLength": 1 },
-    "causation_id": { "type": "string", "minLength": 1 },
-    "payload": { "type": "object" },
-    "payload_hash": { "$ref": "urn:locus:schema:lep:1.0:vocabulary#/definitions/content_hash" }
+    "task_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "attempt": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "lease_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "worker_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "correlation_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "causation_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "payload": {
+      "type": "object"
+    },
+    "payload_hash": {
+      "$ref": "urn:locus:schema:lep:1.0:vocabulary#/definitions/content_hash"
+    }
   },
   "allOf": [
     {
@@ -74,7 +102,65 @@
         },
         "required": ["event_type"]
       },
-      "then": { "required": ["task_id", "attempt"] }
+      "then": {
+        "required": ["task_id", "attempt"]
+      }
+    },
+    {
+      "$comment": "`task.refused` porte ce qui a été refusé, sinon il ne dit rien de plus qu'un silence. `details` est obligatoire **même vide** : un objet absent se lit « je n'ai pas regardé » aussi bien que « rien à dire », et seul l'un des deux est un refus structuré.",
+      "if": {
+        "properties": {
+          "event_type": {
+            "const": "task.refused"
+          }
+        },
+        "required": ["event_type"]
+      },
+      "then": {
+        "required": ["payload"],
+        "properties": {
+          "payload": {
+            "type": "object",
+            "required": ["code", "details"],
+            "properties": {
+              "code": {
+                "$ref": "#/definitions/refusal_code"
+              },
+              "details": {
+                "description": "Ce qui était demandé et ce qui est offert, sous une forme qu'une machine lit. Jamais une phrase.",
+                "type": "object"
+              },
+              "message": {
+                "description": "Le confort humain, explicitement secondaire — §10.2 de la spec du worker.",
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        }
+      }
     }
-  ]
+  ],
+  "definitions": {
+    "refusal_code": {
+      "description": "Les codes de refus d'admission **du worker** — `repos/canterel/SPEC_V1.md` §10.2, « Refus structuré ». À ne pas confondre avec les motifs de refus de placement du **broker**, que `admission-refusal.schema.json` porte et qui viennent de SPEC_V1 §12.2 : les deux répondent à des questions différentes, l'un « ce worker-ci ne peut pas », l'autre « aucun hôte ne convient ». Énumération **neuve**, donc l'interdit 3 de l'ADR 0017 ne mord pas dessus.\n\nL'ordre est celui du texte de §10.2. « Le message humain est secondaire ; le code et les détails structurés sont canoniques » — c'est pourquoi `code` et `details` sont obligatoires et `message` ne l'est pas.",
+      "type": "string",
+      "enum": [
+        "unsupported_protocol",
+        "invalid_signature",
+        "capability_missing",
+        "model_unavailable",
+        "tool_forbidden",
+        "sandbox_unavailable",
+        "network_policy_unsupported",
+        "data_locality_violation",
+        "confidentiality_unsupported",
+        "resource_exhausted",
+        "budget_unenforceable",
+        "deadline_impossible",
+        "worker_draining",
+        "local_policy_denied"
+      ]
+    }
+  }
 }

@@ -115,6 +115,42 @@ pub enum LimitResult {
     NotRun,
 }
 
+/// Les codes de refus d'admission **du worker** — `repos/canterel/SPEC_V1.md` §10.2, « Refus structuré ». À ne pas confondre avec les motifs de refus de placement du **broker**, que `admission-refusal.schema.json` porte et qui viennent de SPEC_V1 §12.2 : les deux répondent à des questions différentes, l'un « ce worker-ci ne peut pas », l'autre « aucun hôte ne convient ». Énumération **neuve**, donc l'interdit 3 de l'ADR 0017 ne mord pas dessus.
+///
+/// L'ordre est celui du texte de §10.2. « Le message humain est secondaire ; le code et les détails structurés sont canoniques » — c'est pourquoi `code` et `details` sont obligatoires et `message` ne l'est pas.
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RefusalCode {
+    #[serde(rename = "unsupported_protocol")]
+    UnsupportedProtocol,
+    #[serde(rename = "invalid_signature")]
+    InvalidSignature,
+    #[serde(rename = "capability_missing")]
+    CapabilityMissing,
+    #[serde(rename = "model_unavailable")]
+    ModelUnavailable,
+    #[serde(rename = "tool_forbidden")]
+    ToolForbidden,
+    #[serde(rename = "sandbox_unavailable")]
+    SandboxUnavailable,
+    #[serde(rename = "network_policy_unsupported")]
+    NetworkPolicyUnsupported,
+    #[serde(rename = "data_locality_violation")]
+    DataLocalityViolation,
+    #[serde(rename = "confidentiality_unsupported")]
+    ConfidentialityUnsupported,
+    #[serde(rename = "resource_exhausted")]
+    ResourceExhausted,
+    #[serde(rename = "budget_unenforceable")]
+    BudgetUnenforceable,
+    #[serde(rename = "deadline_impossible")]
+    DeadlineImpossible,
+    #[serde(rename = "worker_draining")]
+    WorkerDraining,
+    #[serde(rename = "local_policy_denied")]
+    LocalPolicyDenied,
+}
+
 /// Références à des artefacts, par identifiant et hash — la provenance passe par le contenu, pas par le nom.
 pub type Refs = Vec<RefsItem>;
 
@@ -755,7 +791,11 @@ pub struct SandboxAttestation {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Event {
     pub protocol: ProtocolVersion,
-    /// Fermé exprès, contrairement aux documents. Un type d'événement inconnu n'est pas un champ qu'on peut ignorer : le consommateur ne saura ni quoi en faire ni s'il vient de rater quelque chose. Un nouveau type est un ajout mineur qui met à jour cette liste.
+    /// Fermé exprès, contrairement aux documents. Un type d'événement inconnu n'est pas un champ qu'on peut ignorer : le consommateur ne saura ni quoi en faire ni s'il vient de rater quelque chose.
+    ///
+    /// **Un membre n'entre donc que gardé par une feature négociée du même mineur** — ADR 0037. La phrase précédente de cette description disait « un nouveau type est un ajout mineur qui met à jour cette liste », ce qui est exactement ce que l'interdit 3 de l'ADR 0017 refuse, et elle a été corrigée avec `W19.c`. La garde est ce qui réconcilie les deux textes : un pair qui n'a pas négocié la feature ne reçoit jamais la valeur, donc la faute que l'interdit protège — manquer quelque chose sans le savoir — ne peut pas se produire. Ce qui la rend solide plutôt que pieuse est l'interdit 4 du même ADR : aucune feature n'est présumée.
+    ///
+    /// `task.refused` est le premier membre entré sous cette règle, gardé par `refusal-events`.
     pub event_type: String,
     /// Monotone par connexion. C'est ce qui permet l'acquittement et la reprise de stream (§12.4) : sans lui, « rien perdu, rien dupliqué » n'est pas vérifiable.
     pub sequence: i64,
@@ -1127,13 +1167,14 @@ pub const LEP_DOCUMENTS: [&str; 14] = [
 ];
 
 /// Les features négociables au handshake, avec le mineur qui les introduit.
-pub const LEP_FEATURES: [(&str, &str); 6] = [
+pub const LEP_FEATURES: [(&str, &str); 7] = [
     ("late-results", "1.0"),
     ("human-input", "1.0"),
     ("pull-queue", "1.0"),
     ("artifact-streaming", "1.0"),
     ("signed-events", "1.0"),
     ("subagent-visibility", "1.1"),
+    ("refusal-events", "1.1"),
 ];
 
 /// Les mécanismes de confinement dont ce dépôt sait ce qu'ils désignent — registre

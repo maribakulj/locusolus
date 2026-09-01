@@ -507,7 +507,14 @@ impl<S: EventStore> Runtime<S> {
     /// [`CommandError::NotFound`] quand rien n'a été proposé, [`CommandError::Internal`] quand le
     /// fait de proposition ne porte pas de proposition relisible — ce qui ne peut venir que d'un
     /// journal écrit par une version antérieure, et se répare par migration, pas par le client.
-    fn proposed(&self, stream: &str, task_id: &str) -> Result<(Proposal, TaskState), CommandError> {
+    /// `pub(crate)` depuis `W19.c` : la remise en file après un refus de worker refait exactement
+    /// cette lecture, et lui donner une seconde façon de retrouver une proposition aurait produit
+    /// deux vérités pour un même fait.
+    pub(crate) fn proposed(
+        &self,
+        stream: &str,
+        task_id: &str,
+    ) -> Result<(Proposal, TaskState), CommandError> {
         let faits = self.transaction_store().read_stream(stream, 0);
         let brut = faits
             .iter()

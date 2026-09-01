@@ -1,5 +1,5 @@
 {
   "_pourquoi": "La révision de canterel que le harnais e2e monte. Voir tests/e2e/pin.ts et l'ADR 0033 décision 1.",
   "repo": "https://github.com/maribakulj/canterel",
-  "commit": "3f512b2cf8fd71ad8d5f0717d35e40d890a16a7b"
+  "commit": "243e9d54858b80e47655b9b2c29aeeb80c4fcbad"
 }
