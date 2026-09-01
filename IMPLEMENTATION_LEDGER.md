@@ -18072,3 +18072,106 @@ fait** entre les deux, pas de le livrer en deux temps.
 feature, la forme du `payload` de `task.refused`, ce que l'institution fait d'un refus reçu, et si
 les autres énumérations inline méritent le même traitement — aucune ne le demande, et généraliser
 depuis un seul cas est la faute que ce dépôt nomme ailleurs.
+
+## 2026-09-01 — Défaut — j'ai écrit « il ne reste que du travail » sans avoir mesuré si la garde pouvait s'ouvrir
+
+**Périmètre.** `docs/10_V1_ROADMAP.md`, la cellule de `W19.c` et la ligne neuve `W19.e`. Aucun code.
+
+**Ce que la cellule affirmait.** En débloquant `W19.c` avec l'ADR 0037, j'ai écrit : « ce qui reste
+est du travail, et il est mesuré », suivi de trois faits — la boucle refuse sans émettre,
+`ports.emit` existe déjà, l'ingestion existe sur `POST /lep/v1/events`. Les trois sont exacts, je
+les ai vérifiés au code, et ils ne suffisaient pas.
+
+**Ce que je n'avais pas mesuré.** L'ADR 0037 **exige** une garde : un membre n'entre dans une
+énumération fermée que si son émission est gardée par une feature négociée. J'ai vérifié que la
+règle était tenable en principe sans vérifier qu'elle était tenable **ici**.
+
+Elle ne l'est pas :
+
+- `locusd` n'a aucune route de handshake. La liste de ses routes — `/timeline`, `/workers`,
+  `/conflicts`, `/events`, `/branches/…`, `/projections/status`, le graphe, `claim`, `events`,
+  `result`, `enroll`, `propose`, `queue`, les vues de contexte, `declare`, `content` — n'en porte
+  aucune ;
+- sa réponse d'enrôlement, `Credential`, porte le worker, la créance, les dates, le scope et les
+  labels. Ni `supported_versions`, ni `features`, ni `server_sequence` ;
+- `canterel`, lui, **sait** lire un ServerHello : `readServerHello` puis `completeHandshake`, qui
+  appelle `negotiate([...SUPPORTED_FEATURES], [...serverFeatures])`. Avec une liste serveur vide,
+  `negotiate` range **tout** dans `declined`.
+
+Une feature ne peut donc jamais être accordée entre ces deux pairs, une valeur gardée ne peut jamais
+être émise, et `task.refused` serait une valeur d'énumération sans effet — ce que l'ADR 0022
+décision 0 refuse et que l'ADR 0037 rappelle à sa dernière décision. La garde serait fermée pour
+toujours.
+
+**Pourquoi c'est la même faute qu'ailleurs, sous un nouveau costume.** « Un compteur qui n'a rien lu
+ne vaut pas zéro » : j'ai lu trois choses, elles ont répondu, et j'ai conclu sur une quatrième que
+je n'avais pas interrogée. La cellule ne mentait pas sur ce qu'elle affirmait ; elle affirmait moins
+qu'elle ne laissait croire, ce qui produit le même effet sur la session suivante — elle aurait
+commencé à écrire un émetteur dont la garde ne s'ouvre pas.
+
+**La correction.** `W19.c` repasse `bloqué`, sous `attend:W19.e` — un identifiant d'item et non un
+motif en prose, pour que le blocage se périme tout seul quand l'item est fait (`W0.16`). Et `W19.e`
+est nommé : le plan de contrôle annonce ses features, et le handshake a enfin deux moitiés.
+
+**Deux pièges trouvés en dimensionnant `W19.e`, et écrits dans sa ligne plutôt que découverts par la
+session suivante.** Le premier : annoncer `LEP_FEATURES` en bloc serait faux. Le registre porte les
+features que le **protocole** définit, pas celles que ce daemon tient — `late-results` suppose qu'un
+résultat tardif soit conservé, `human-input` qu'une tentative se suspende, `signed-events` que les
+signatures soient vérifiées. Les recopier annoncerait cinq capacités qu'on n'a pas constatées, et le
+pair d'en face **négocierait** dessus : une promesse de la pire espèce, puisqu'elle serait tenue
+pour un accord. Le cœur de l'item est donc une mesure par feature.
+
+Le second : ne pas vérifier la signature du hello, et le dire. `canterel` la pose, son commentaire
+annonce que `locusd` la vérifiera, et le registre ne conserve aucune clé publique — `WorkerIdentity`
+porte le worker, le workspace et le principal. La réponse au hello étant identique pour tout le
+monde et n'accordant rien, l'authentifier ne protégerait rien aujourd'hui ; le faire demanderait la
+moitié serveur de `W2.4`. C'est une abstention motivée, pas un oubli, et elle se rouvre le jour où
+le handshake liera un état de session.
+
+**La mesure par feature est commencée, et son résultat provisoire est consigné plutôt que laissé à
+refaire.** Trois paraissent tenues, chacune parce que le mécanisme a été **trouvé** :
+
+| feature               | ce qui a été trouvé                                                                                    |
+| --------------------- | ------------------------------------------------------------------------------------------------------ |
+| `pull-queue`          | `POST /lep/v1/claim` — le worker tire, et ce daemon n'a pas d'autre mode                               |
+| `artifact-streaming`  | `POST /lep/v1/artifacts` déclare, `PUT` porte les octets : ils ne passent pas par le canal de contrôle |
+| `subagent-visibility` | `apps/locusd/src/subagents.rs` lit `attempt.subagents`                                                 |
+
+Trois paraissent non tenues, et **cette moitié-là est plus faible**, parce qu'elle s'appuie sur une
+absence de résultat de recherche : `late-results` — rien ne conserve un résultat tardif ;
+`signed-events` — aucune vérification de signature sur le chemin d'événements ; `human-input` —
+aucun `human.input`, et le seul `suspended` trouvé est `agent.suspended` de §14.2, c'est-à-dire le
+cycle de vie d'une **instance** et non la suspension d'un attempt en attente d'entrée humaine. C'est
+celle des six qui demande la lecture la plus attentive, précisément parce qu'un mot voisin s'y
+trouve et qu'il invite à conclure vite.
+
+Une absence de résultat n'est pas une preuve d'absence — c'est la règle du dépôt appliquée à ma
+propre recherche —, donc les trois négatives ont été **confirmées par lecture** avant d'être
+écrites, et aucune ne repose sur un `grep` muet :
+
+- **`signed-events`** — `packages/event-store` le dit de lui-même : « les trois que §10.2 nomme et
+  qui appartiennent aux items suivants : signature de fédération, upcasters de migration, snapshots
+  ». Et l'événement LEP n'a de toute façon aucune propriété de signature : ses treize champs sont
+  connus, aucun ne la porte. La feature est inapplicable en l'état du schéma, pas seulement non
+  implémentée.
+- **`late-results`** — la feature demande que le serveur conserve un résultat rendu **après
+  expiration du bail**, comme late candidate. Ce daemon ne suit aucune expiration : il ne conserve
+  pas la mission après l'avoir servie et ne tient aucun registre de baux. Il ne peut donc pas
+  distinguer un résultat tardif d'un résultat ordinaire, et encore moins le ranger à part.
+- **`human-input`** — la plus intéressante, et celle où le mot voisin invitait à se tromper.
+  `TaskState::WaitingForHuman` **existe** dans le domaine, et ses transitions sont éprouvées :
+  `Running → WaitingForHuman → Succeeded`. Mais rien dans `apps/locusd/` ne l'emprunte —
+  `human.input.requested` traverse le chemin générique de `Report`, écrit un fait, et la tâche reste
+  `Running` pour l'institution. La moitié « et se suspendre » n'est pas tenue, alors que tout ce
+  qu'il faut pour la tenir est déjà là. C'est donc un item à part, pas un élargissement de `W19.e`.
+
+**Liste à annoncer, sauf démenti d'une relecture** : `pull-queue`, `artifact-streaming`,
+`subagent-visibility`. Trois sur six — exactement le genre de résultat qu'une liste recopiée depuis
+le registre aurait fait passer pour six.
+
+**Ce que `W19.e` n'est pas.** Ce n'est pas une capacité neuve : c'est la fermeture d'une boucle
+ouverte depuis `W2.7`, qui a livré la moitié cliente. Le worker pose une question depuis, et rien
+n'y répond ; son défaut — liste vide, tout refusé — est correct et **indistinguable** d'un serveur
+qui ne tiendrait aucune feature. Ce que la moitié serveur doit porter est déjà fixé par ce que le
+client lit, donc rien n'y est à décider : `supported_versions`, `features` — celles de
+`LEP_FEATURES`, donc du registre, jamais une seconde liste — et `server_sequence`.
