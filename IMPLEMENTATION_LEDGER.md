@@ -18006,3 +18006,69 @@ deux codes y sont entrés.
 par le SDK épinglé — la description du schéma, via `generated.ts`, et
 `packages/testing/src/worker.ts`. Les corriger séparément coûterait un second aller-retour de
 re-vendoring pour quelques caractères. Elle a ses commits propres, et son entrée ici.
+
+## 2026-09-01 — W19.d — ADR 0037, ce qu'un mineur peut ajouter à une énumération
+
+**Périmètre.** `docs/adr/0037-un-membre-garde-par-une-feature.md` (neuf), `docs/10_V1_ROADMAP.md`.
+Aucun code : c'est la décision que `W19.c` attendait, et l'item qui l'implémente vient après.
+
+**Ce que l'arbitrage demandait.** `W19.c` porte un trou trouvé en exécutant la chaîne : `runLoop`
+réclame, refuse à l'admission, et **rend la main sans rien dire au plan de contrôle**. La mission
+reste sous bail jusqu'à expiration, et « le worker a refusé » se confond avec « le worker est mort
+». Deux des trois voies étaient déjà refusées avec leurs raisons — `attempt.failed` parce que
+`rejected` et `failed` n'envoient pas au même endroit, `AdmissionRefusal` parce que sa liste porte
+les motifs du broker et aucun code propre au worker. Restait un événement `task.refused`, et il bute
+sur l'interdit 3 de l'ADR 0017 : « aucun membre nouveau sur une énumération existante ».
+
+**Le raisonnement a dû être rouvert, et c'est une mesure qui l'a obligé.** L'interdit 3 justifie son
+refus par un mécanisme nommé : « ajouter `"S6"` à `sandbox_level` ferait échouer la désérialisation
+chez tout consommateur `1.0`, en silence pour l'émetteur ». Vérifié plutôt que cru :
+
+- les **huit** énumérations que l'interdit nomme — `sandbox_level`, `network_mode`,
+  `accelerator_type`, `os`, `arch`, `data_class`, `containment_result`, `limit_result` — sont toutes
+  écrites dans des `definitions`, et le générateur les rend en `enum` Rust **fermés**. Le mécanisme
+  est exact pour elles ;
+- `event_type` est écrite **inline**, sur sa propriété, et le générateur la rend en **`String`** —
+  son propre commentaire dit pourquoi : « an inline enum has no name of its own ; the wire value is
+  what matters and a string keeps the round-trip exact ». Côté TypeScript, elle devient une union de
+  littéraux fermée.
+
+Donc un `task.refused` arrivant chez un consommateur Rust `1.0` **ne casserait aucune
+désérialisation**. Si le mécanisme cité était la seule raison de l'interdit, il ne s'appliquerait
+pas ici, et il n'y aurait rien à trancher. Personne n'avait vérifié ; l'interdit était obéi pour un
+motif qui ne vaut pas partout où on le lui faisait dire.
+
+**La vraie raison est ailleurs, et elle est écrite dans le schéma lui-même.** « Un type d'événement
+inconnu n'est pas un champ qu'on peut ignorer : le consommateur ne saura ni quoi en faire **ni s'il
+vient de rater quelque chose**. » C'est la panne muette de l'ADR 0036 appliquée au protocole : ce
+qui est dangereux n'est pas l'erreur bruyante, c'est le pair qui continue en croyant une mission en
+cours alors qu'elle a été refusée.
+
+**La décision.** Un membre entre dans une énumération fermée **si et seulement si** son émission est
+gardée par une feature négociée introduite dans le **même** mineur. Un pair qui ne l'a pas négociée
+ne la reçoit jamais, donc ne peut pas manquer ce qu'il ne connaît pas. Ce qui rend la garde solide
+plutôt que pieuse est l'interdit **4** du même ADR — « aucune feature n'est présumée » —, qui a déjà
+son code : `negotiate` sépare `features`, `declined` et `unknown`, et un pair qui n'annonce rien
+obtient une liste vide. Une feature d'un mineur **antérieur** ne conviendrait pas : elle atteindrait
+un pair qui a négocié cette feature-là sans connaître la valeur.
+
+**Trois choses que l'ADR impose à l'item qui suivra.** La garde se teste **dans les deux sens** —
+une garde qui ne dirait que « émis quand la feature est accordée » passerait aussi sur un émetteur
+qui émet toujours. La description de `event_type` est **corrigée** : elle dit aujourd'hui « un
+nouveau type est un ajout mineur qui met à jour cette liste », c'est-à-dire exactement ce que
+l'interdit 3 refuse, sans garde — deux textes du dépôt se contredisent sur le même champ, et le
+schéma étant le contrat, c'est lui qui a tort. Et un membre gardé ne se dégarde pas sans un mineur
+nouveau.
+
+**Une règle a été réécrite en cours de rédaction, parce qu'elle allait être fausse.** La première
+version disait « une valeur n'entre qu'avec l'émetteur qui la produit et le lecteur qui en tire une
+conséquence » — ce qui est l'ADR 0022 décision 0, et ce que j'allais enfreindre à la ligne suivante
+: le protocole et le lecteur vivent ici, l'émetteur vit dans `canterel`, et l'ADR 0033 impose que le
+worker relise le contrat avant que le pin avance. Les deux ne **peuvent pas** tenir dans un même
+commit. La règle dit donc ce qu'elle voulait dire : ce qui est interdit est de **déclarer l'item
+fait** entre les deux, pas de le livrer en deux temps.
+
+**Ce que l'ADR ne décide pas**, et le dire évite qu'un item s'y croie autorisé : le nom de la
+feature, la forme du `payload` de `task.refused`, ce que l'institution fait d'un refus reçu, et si
+les autres énumérations inline méritent le même traitement — aucune ne le demande, et généraliser
+depuis un seul cas est la faute que ce dépôt nomme ailleurs.
