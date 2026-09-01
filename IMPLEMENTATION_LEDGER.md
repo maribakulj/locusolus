@@ -18072,3 +18072,50 @@ fait** entre les deux, pas de le livrer en deux temps.
 feature, la forme du `payload` de `task.refused`, ce que l'institution fait d'un refus reçu, et si
 les autres énumérations inline méritent le même traitement — aucune ne le demande, et généraliser
 depuis un seul cas est la faute que ce dépôt nomme ailleurs.
+
+## 2026-09-01 — Défaut — j'ai écrit « il ne reste que du travail » sans avoir mesuré si la garde pouvait s'ouvrir
+
+**Périmètre.** `docs/10_V1_ROADMAP.md`, la cellule de `W19.c` et la ligne neuve `W19.e`. Aucun code.
+
+**Ce que la cellule affirmait.** En débloquant `W19.c` avec l'ADR 0037, j'ai écrit : « ce qui reste
+est du travail, et il est mesuré », suivi de trois faits — la boucle refuse sans émettre,
+`ports.emit` existe déjà, l'ingestion existe sur `POST /lep/v1/events`. Les trois sont exacts, je
+les ai vérifiés au code, et ils ne suffisaient pas.
+
+**Ce que je n'avais pas mesuré.** L'ADR 0037 **exige** une garde : un membre n'entre dans une
+énumération fermée que si son émission est gardée par une feature négociée. J'ai vérifié que la
+règle était tenable en principe sans vérifier qu'elle était tenable **ici**.
+
+Elle ne l'est pas :
+
+- `locusd` n'a aucune route de handshake. La liste de ses routes — `/timeline`, `/workers`,
+  `/conflicts`, `/events`, `/branches/…`, `/projections/status`, le graphe, `claim`, `events`,
+  `result`, `enroll`, `propose`, `queue`, les vues de contexte, `declare`, `content` — n'en porte
+  aucune ;
+- sa réponse d'enrôlement, `Credential`, porte le worker, la créance, les dates, le scope et les
+  labels. Ni `supported_versions`, ni `features`, ni `server_sequence` ;
+- `canterel`, lui, **sait** lire un ServerHello : `readServerHello` puis `completeHandshake`, qui
+  appelle `negotiate([...SUPPORTED_FEATURES], [...serverFeatures])`. Avec une liste serveur vide,
+  `negotiate` range **tout** dans `declined`.
+
+Une feature ne peut donc jamais être accordée entre ces deux pairs, une valeur gardée ne peut jamais
+être émise, et `task.refused` serait une valeur d'énumération sans effet — ce que l'ADR 0022
+décision 0 refuse et que l'ADR 0037 rappelle à sa dernière décision. La garde serait fermée pour
+toujours.
+
+**Pourquoi c'est la même faute qu'ailleurs, sous un nouveau costume.** « Un compteur qui n'a rien lu
+ne vaut pas zéro » : j'ai lu trois choses, elles ont répondu, et j'ai conclu sur une quatrième que
+je n'avais pas interrogée. La cellule ne mentait pas sur ce qu'elle affirmait ; elle affirmait moins
+qu'elle ne laissait croire, ce qui produit le même effet sur la session suivante — elle aurait
+commencé à écrire un émetteur dont la garde ne s'ouvre pas.
+
+**La correction.** `W19.c` repasse `bloqué`, sous `attend:W19.e` — un identifiant d'item et non un
+motif en prose, pour que le blocage se périme tout seul quand l'item est fait (`W0.16`). Et `W19.e`
+est nommé : le plan de contrôle annonce ses features, et le handshake a enfin deux moitiés.
+
+**Ce que `W19.e` n'est pas.** Ce n'est pas une capacité neuve : c'est la fermeture d'une boucle
+ouverte depuis `W2.7`, qui a livré la moitié cliente. Le worker pose une question depuis, et rien
+n'y répond ; son défaut — liste vide, tout refusé — est correct et **indistinguable** d'un serveur
+qui ne tiendrait aucune feature. Ce que la moitié serveur doit porter est déjà fixé par ce que le
+client lit, donc rien n'y est à décider : `supported_versions`, `features` — celles de
+`LEP_FEATURES`, donc du registre, jamais une seconde liste — et `server_sequence`.
