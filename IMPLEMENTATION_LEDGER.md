@@ -18113,6 +18113,21 @@ commencé à écrire un émetteur dont la garde ne s'ouvre pas.
 motif en prose, pour que le blocage se périme tout seul quand l'item est fait (`W0.16`). Et `W19.e`
 est nommé : le plan de contrôle annonce ses features, et le handshake a enfin deux moitiés.
 
+**Deux pièges trouvés en dimensionnant `W19.e`, et écrits dans sa ligne plutôt que découverts par la
+session suivante.** Le premier : annoncer `LEP_FEATURES` en bloc serait faux. Le registre porte les
+features que le **protocole** définit, pas celles que ce daemon tient — `late-results` suppose qu'un
+résultat tardif soit conservé, `human-input` qu'une tentative se suspende, `signed-events` que les
+signatures soient vérifiées. Les recopier annoncerait cinq capacités qu'on n'a pas constatées, et le
+pair d'en face **négocierait** dessus : une promesse de la pire espèce, puisqu'elle serait tenue
+pour un accord. Le cœur de l'item est donc une mesure par feature.
+
+Le second : ne pas vérifier la signature du hello, et le dire. `canterel` la pose, son commentaire
+annonce que `locusd` la vérifiera, et le registre ne conserve aucune clé publique — `WorkerIdentity`
+porte le worker, le workspace et le principal. La réponse au hello étant identique pour tout le
+monde et n'accordant rien, l'authentifier ne protégerait rien aujourd'hui ; le faire demanderait la
+moitié serveur de `W2.4`. C'est une abstention motivée, pas un oubli, et elle se rouvre le jour où
+le handshake liera un état de session.
+
 **Ce que `W19.e` n'est pas.** Ce n'est pas une capacité neuve : c'est la fermeture d'une boucle
 ouverte depuis `W2.7`, qui a livré la moitié cliente. Le worker pose une question depuis, et rien
 n'y répond ; son défaut — liste vide, tout refusé — est correct et **indistinguable** d'un serveur
