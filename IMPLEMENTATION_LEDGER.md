@@ -18146,8 +18146,28 @@ celle des six qui demande la lecture la plus attentive, précisément parce qu'u
 trouve et qu'il invite à conclure vite.
 
 Une absence de résultat n'est pas une preuve d'absence — c'est la règle du dépôt appliquée à ma
-propre recherche —, donc l'item confirmera les trois négatives **par lecture** avant de figer la
-liste. Ce qui est acquis ici est le travail de repérage, pas le verdict.
+propre recherche —, donc les trois négatives ont été **confirmées par lecture** avant d'être
+écrites, et aucune ne repose sur un `grep` muet :
+
+- **`signed-events`** — `packages/event-store` le dit de lui-même : « les trois que §10.2 nomme et
+  qui appartiennent aux items suivants : signature de fédération, upcasters de migration, snapshots
+  ». Et l'événement LEP n'a de toute façon aucune propriété de signature : ses treize champs sont
+  connus, aucun ne la porte. La feature est inapplicable en l'état du schéma, pas seulement non
+  implémentée.
+- **`late-results`** — la feature demande que le serveur conserve un résultat rendu **après
+  expiration du bail**, comme late candidate. Ce daemon ne suit aucune expiration : il ne conserve
+  pas la mission après l'avoir servie et ne tient aucun registre de baux. Il ne peut donc pas
+  distinguer un résultat tardif d'un résultat ordinaire, et encore moins le ranger à part.
+- **`human-input`** — la plus intéressante, et celle où le mot voisin invitait à se tromper.
+  `TaskState::WaitingForHuman` **existe** dans le domaine, et ses transitions sont éprouvées :
+  `Running → WaitingForHuman → Succeeded`. Mais rien dans `apps/locusd/` ne l'emprunte —
+  `human.input.requested` traverse le chemin générique de `Report`, écrit un fait, et la tâche reste
+  `Running` pour l'institution. La moitié « et se suspendre » n'est pas tenue, alors que tout ce
+  qu'il faut pour la tenir est déjà là. C'est donc un item à part, pas un élargissement de `W19.e`.
+
+**Liste à annoncer, sauf démenti d'une relecture** : `pull-queue`, `artifact-streaming`,
+`subagent-visibility`. Trois sur six — exactement le genre de résultat qu'une liste recopiée depuis
+le registre aurait fait passer pour six.
 
 **Ce que `W19.e` n'est pas.** Ce n'est pas une capacité neuve : c'est la fermeture d'une boucle
 ouverte depuis `W2.7`, qui a livré la moitié cliente. Le worker pose une question depuis, et rien
