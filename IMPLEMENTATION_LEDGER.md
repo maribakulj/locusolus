@@ -18306,3 +18306,34 @@ feature.
 **Suite immédiate.** `W19.c.2` : l'émetteur gardé dans `canterel`, testé **dans les deux sens** —
 émis quand la feature est accordée, absent sinon, une garde qui ne dirait que le premier passant sur
 un émetteur qui émet toujours. Puis le re-vendoring et le pin, dans l'ordre que l'ADR 0033 impose.
+
+## 2026-09-01 — W19.c — Le refus d'admission du worker, clos en deux tranches
+
+**Périmètre.** `tests/e2e/WORKER-PINNED.json`, `docs/10_V1_ROADMAP.md`. Les deux tranches ont leurs
+entrées propres — `W19.c.1` ici, `W19.c.2` dans `canterel`.
+
+**Ce que l'item aura coûté, et ce qu'il aura fait trouver.** La ligne attendait « une décision de
+protocole » depuis `W12.d.4`. Elle en a demandé une, puis deux items qu'elle ne prévoyait pas :
+
+1. **L'ADR 0037** (`W19.d`), parce que l'interdit 3 de l'ADR 0017 refuse à la lettre ce que l'item
+   voulait faire. En le mesurant, son mécanisme allégué — la désérialisation qui échoue — s'est
+   révélé exact pour les huit énumérations qu'il nomme et **faux** pour `event_type`, qui est inline
+   et rendue en `String`. La vraie raison était ailleurs, et c'est elle qui a donné la règle.
+2. **`W19.e`**, parce que la garde que l'ADR exige n'aurait **jamais pu s'ouvrir** : `locusd`
+   n'annonçait aucune feature, donc `negotiate` refusait tout. Cette découverte-là est venue d'une
+   correction de ma propre cellule de roadmap, qui affirmait « il ne reste que du travail » sans
+   avoir interrogé le seul point dont tout dépendait.
+
+Le chemin le plus court aurait été d'ajouter `task.refused` à l'énumération et un `emit` dans la
+branche de refus : une demi-heure, et une valeur qu'aucun pair n'aurait jamais accordée, dans une
+énumération qu'un interdit protège pour une raison que personne n'aurait relue.
+
+**Ce qui est tenu, bout à bout.** Un worker refuse une mission à l'admission ; s'il a négocié
+`refusal-events`, il émet un `task.refused` portant son code et ses détails structurés ; le plan de
+contrôle écrit le fait **et** remet la mission en file, relue du journal. Un pair qui n'a pas
+négocié la feature n'émet rien et n'en reçoit rien, donc ne peut pas manquer un refus sans le
+savoir.
+
+**Ce qui reste dû, et il est nommé ailleurs.** Aucun de ces chemins ne tourne encore de bout en bout
+: ni le handshake, ni la boucle assemblée. C'est `W2.27`, qui porte la composition du worker, et qui
+figure déjà à la frontière de cette roadmap.
