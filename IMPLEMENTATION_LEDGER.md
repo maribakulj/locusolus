@@ -18128,6 +18128,27 @@ monde et n'accordant rien, l'authentifier ne protégerait rien aujourd'hui ; le 
 moitié serveur de `W2.4`. C'est une abstention motivée, pas un oubli, et elle se rouvre le jour où
 le handshake liera un état de session.
 
+**La mesure par feature est commencée, et son résultat provisoire est consigné plutôt que laissé à
+refaire.** Trois paraissent tenues, chacune parce que le mécanisme a été **trouvé** :
+
+| feature               | ce qui a été trouvé                                                                                    |
+| --------------------- | ------------------------------------------------------------------------------------------------------ |
+| `pull-queue`          | `POST /lep/v1/claim` — le worker tire, et ce daemon n'a pas d'autre mode                               |
+| `artifact-streaming`  | `POST /lep/v1/artifacts` déclare, `PUT` porte les octets : ils ne passent pas par le canal de contrôle |
+| `subagent-visibility` | `apps/locusd/src/subagents.rs` lit `attempt.subagents`                                                 |
+
+Trois paraissent non tenues, et **cette moitié-là est plus faible**, parce qu'elle s'appuie sur une
+absence de résultat de recherche : `late-results` — rien ne conserve un résultat tardif ;
+`signed-events` — aucune vérification de signature sur le chemin d'événements ; `human-input` —
+aucun `human.input`, et le seul `suspended` trouvé est `agent.suspended` de §14.2, c'est-à-dire le
+cycle de vie d'une **instance** et non la suspension d'un attempt en attente d'entrée humaine. C'est
+celle des six qui demande la lecture la plus attentive, précisément parce qu'un mot voisin s'y
+trouve et qu'il invite à conclure vite.
+
+Une absence de résultat n'est pas une preuve d'absence — c'est la règle du dépôt appliquée à ma
+propre recherche —, donc l'item confirmera les trois négatives **par lecture** avant de figer la
+liste. Ce qui est acquis ici est le travail de repérage, pas le verdict.
+
 **Ce que `W19.e` n'est pas.** Ce n'est pas une capacité neuve : c'est la fermeture d'une boucle
 ouverte depuis `W2.7`, qui a livré la moitié cliente. Le worker pose une question depuis, et rien
 n'y répond ; son défaut — liste vide, tout refusé — est correct et **indistinguable** d'un serveur
