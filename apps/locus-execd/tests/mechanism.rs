@@ -182,6 +182,27 @@ fn une_preuve_sous_le_mecanisme_employe_place() {
     );
 }
 
+/// **Une preuve étrangère à côté d'une preuve suffisante ne refuse rien.**
+///
+/// Le rapprochement n'entre en jeu que là où il manque quelque chose. Un candidat qui convient
+/// convient, et une attestation surnuméraire portant sur un autre mécanisme n'est pas un défaut —
+/// c'est une machine qui a fait tourner deux campagnes. Une garde qui refuserait ici transformerait
+/// une richesse d'information en panne.
+#[test]
+fn une_preuve_etrangere_ne_gene_pas_une_preuve_suffisante() {
+    let candidat = Candidate::new("worker-bwrap", hote(SandboxLevel::S3, Some(BUBBLEWRAP)))
+        .attested(atteste(PODMAN, SandboxLevel::S3))
+        .attested(atteste(BUBBLEWRAP, SandboxLevel::S2));
+
+    assert_eq!(
+        place(&mission(SandboxLevel::S2), &[candidat]),
+        Placement::Placed {
+            worker: "worker-bwrap".to_owned(),
+            level: SandboxLevel::S2,
+        }
+    );
+}
+
 /// **Une preuve sous un autre mécanisme n'est pas une preuve pour ce worker — et le refus le dit
 /// sous son propre motif.**
 ///

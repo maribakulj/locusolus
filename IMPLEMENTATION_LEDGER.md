@@ -17917,11 +17917,14 @@ pas, ce que l'ADR 0035 refuse explicitement dans sa question ouverte. Ils renden
 rapproché », ce qui refuse un placement au lieu d'en accorder un sur une supposition. Une garde côté
 TypeScript le constate par égalité plutôt que de le laisser se découvrir sur un refus.
 
-**Tests.** 13 dans `apps/locus-execd/tests/mechanism.rs` — les cinq cas du rapprochement, les six du
-placement, l'inertie sous `S0`, et le `NotTrusted` sous un mécanisme étranger qui ne se lit pas «
-prouvé ailleurs ». Un de plus dans `tests/attestation.rs` pour la survie du mécanisme du fichier
-jusqu'au port ; un dans `tests/announced.rs` qui confronte les constantes de mécanisme au corpus
-plutôt que de les supposer ; deux gardes de registre côté TypeScript.
+**Tests.** 14 dans `apps/locus-execd/tests/mechanism.rs` — les cinq cas du rapprochement, les sept
+du placement, l'inertie sous `S0`, et le `NotTrusted` sous un mécanisme étranger qui ne se lit pas «
+prouvé ailleurs ». L'un des sept est le pendant positif qu'une garde de ce genre oublie facilement :
+une attestation surnuméraire portant sur un autre mécanisme, à côté d'une preuve suffisante, ne
+refuse **rien** — c'est une machine qui a fait tourner deux campagnes, pas une panne. Un de plus
+dans `tests/attestation.rs` pour la survie du mécanisme du fichier jusqu'au port ; un dans
+`tests/announced.rs` qui confronte les constantes de mécanisme au corpus plutôt que de les supposer
+; deux gardes de registre côté TypeScript.
 
 **Ce que l'item ne fait pas.** Il ne rend aucun `Proven` réel plus riche : la seule campagne qui
 existe atteste `podman-rootless`, aucun worker `canterel` ne l'emploie, et l'ADR 0035 décision 4 dit
