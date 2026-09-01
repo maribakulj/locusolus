@@ -52,6 +52,7 @@ pub mod enrollment;
 pub mod epistemic;
 pub mod error;
 pub mod handler;
+pub mod handshake;
 pub mod http;
 pub mod identities;
 pub mod journal;
