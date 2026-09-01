@@ -92,6 +92,7 @@ where
         .route(EVENTS_PATH, post(worker_events::<S>))
         .route(RESULT_PATH, post(result::<S>))
         .route(ENROLL_PATH, post(enroll::<S>))
+        .route(HELLO_PATH, post(hello))
         .route(PROPOSE_PATH, post(propose::<S>))
         .route(QUEUE_PATH, post(queue::<S>))
         .route(BUILD_VIEW_PATH, post(build_view::<S>))
@@ -420,6 +421,12 @@ pub const RESULT_PATH: &str = "/lep/v1/result";
 /// L'enrôlement de §7.2 — `W20.n`. Le seul chemin qui se parle **sans** créance, par construction :
 /// c'est celui par lequel on en obtient une.
 pub const ENROLL_PATH: &str = "/lep/v1/enroll";
+/// `POST` — le handshake de `docs/06` : le worker dit ce qu'il parle, le daemon dit ce qu'il tient.
+///
+/// La seule route de ce daemon qui ne demande **aucune créance**, et c'est délibéré : sa réponse est
+/// identique pour tout le monde, n'accorde rien et ne consulte ni le journal ni le registre. Voir
+/// [`crate::handshake`] pour ce que cela dispense de vérifier, et ce que cela ne dispense pas.
+pub const HELLO_PATH: &str = "/lep/v1/hello";
 
 /// Les deux commandes de §22.3 — `W20.s`. **Hors** de `/lep/`, et ce n'est pas cosmétique.
 ///
@@ -892,6 +899,48 @@ async fn queue<S: EventStore + Send + Sync + 'static>(
     }
 }
 
+/// Ce qu'un `worker.hello` porte et que ce daemon lit.
+///
+/// **Deux champs sur les onze** que `canterel` envoie. Le reste — l'identité, le manifeste, le
+/// nonce, la signature — n'entre pas dans la décision : ce daemon répond la même chose à tout le
+/// monde, et lire ce qu'on n'utilise pas donnerait à croire qu'on le vérifie.
+///
+/// Les deux sont facultatifs **séparément** et le refus vient de leur réunion vide : un worker qui
+/// n'annonce que `protocol` est parfaitement lisible, et un qui n'annonce que `supported_versions`
+/// aussi. Exiger les deux refuserait des pairs corrects.
+#[derive(Debug, serde::Deserialize)]
+struct HelloBody {
+    #[serde(default)]
+    protocol: Option<String>,
+    #[serde(default)]
+    supported_versions: Vec<String>,
+}
+
+/// `POST /lep/v1/hello` — le handshake de `docs/06`, moitié serveur.
+async fn hello(body: String) -> Response {
+    let corps: HelloBody = match serde_json::from_str(&body) {
+        Ok(lu) => lu,
+        Err(error) => return commande_refusee(&corps_illisible(&error)),
+    };
+    let mut offered = corps.supported_versions;
+    if let Some(protocol) = corps.protocol {
+        offered.push(protocol);
+    }
+    match crate::handshake::answer(&offered) {
+        Ok(rendu) => match serde_json::to_string(&rendu) {
+            Ok(json_rendu) => json(StatusCode::OK, json_rendu),
+            Err(error) => probleme(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "internal",
+                &error.to_string(),
+            ),
+        },
+        // `400` et non `409` : ce n'est pas un conflit d'état mais une demande que ce daemon ne
+        // sait pas servir, et le pair doit la corriger avant de réessayer.
+        Err(refus) => probleme(StatusCode::BAD_REQUEST, "validation", &refus.to_string()),
+    }
+}
+
 /// Ce que porte `POST /commands/context-view/build`, et rien d'autre.
 ///
 /// `view` y est obligatoire, pour la raison écrite dans [`ProposeBody`] : une demande sans
@@ -1241,7 +1290,7 @@ pub const DEFAULT_BIND: &str = "127.0.0.1:8787";
 /// fichier : ajouter une route sans l'annoncer fait rougir, qu'elle soit une `Collection` ou non.
 /// Le déstructurage reste, pour ce qu'il couvre — un nom, pas seulement un nombre.
 #[must_use]
-pub fn served() -> [&'static str; 18] {
+pub fn served() -> [&'static str; 19] {
     let [timeline, workers, conflicts, events, history] = Collection::ALL.map(Collection::name);
     [
         timeline,
@@ -1258,6 +1307,8 @@ pub fn served() -> [&'static str; 18] {
         EVENTS_PATH,
         RESULT_PATH,
         ENROLL_PATH,
+        // Le handshake de `docs/06`, dont la moitié serveur manquait depuis `W2.7` — `W19.e`.
+        HELLO_PATH,
         // Les deux de §22.3 — `W20.s`.
         PROPOSE_PATH,
         QUEUE_PATH,

@@ -18175,3 +18175,64 @@ n'y répond ; son défaut — liste vide, tout refusé — est correct et **indi
 qui ne tiendrait aucune feature. Ce que la moitié serveur doit porter est déjà fixé par ce que le
 client lit, donc rien n'y est à décider : `supported_versions`, `features` — celles de
 `LEP_FEATURES`, donc du registre, jamais une seconde liste — et `server_sequence`.
+
+## 2026-09-01 — W19.e — Le plan de contrôle annonce ses features, et le handshake a deux moitiés
+
+**Périmètre.** `apps/locusd/src/handshake.rs` (neuf), `apps/locusd/src/http.rs`,
+`apps/locusd/src/lib.rs`, `apps/locusd/tests/handshake.rs` (neuf), `docs/10_V1_ROADMAP.md`.
+
+**La boucle que cet item ferme.** `docs/06` fait de la négociation de features un acte du handshake,
+et `W2.7` en a livré la moitié **cliente** : `canterel` envoie un hello, lit un ServerHello, appelle
+`negotiate`. La moitié serveur n'existait pas. Le worker posait donc une question à laquelle rien ne
+répondait depuis `W2.7`, et son défaut — liste serveur vide, donc tout en `declined` — était correct
+et **indistinguable** d'un plan de contrôle qui ne tiendrait aucune feature.
+
+Sans cet item, la garde que l'ADR 0037 exige d'un membre d'énumération serait fermée pour toujours :
+une feature ne pouvant jamais être accordée, une valeur gardée ne pourrait jamais être émise.
+
+**Ce que le daemon annonce, et pourquoi pas le registre.** Trois features sur six — `pull-queue`,
+`artifact-streaming`, `subagent-visibility`. Annoncer `LEP_FEATURES` en bloc aurait été exact du
+**protocole** et faux de ce daemon, et la faute aurait été pire qu'une promesse ordinaire : le pair
+d'en face **négocie** dessus et tient l'accord pour acquis. Un worker qui se replie parce qu'une
+feature est refusée fonctionne ; un worker qui compte sur une feature accordée à tort casse.
+
+Les trois retenues l'ont été parce qu'on a trouvé leur mécanisme ; les trois écartées parce qu'on a
+lu leur absence, et le détail est dans l'entrée précédente — celle du défaut qui a nommé cet item.
+
+**Les versions se dérivent, elles ne s'écrivent pas.** `lep/1.0` est le socle, et chaque feature
+tenue ajoute le mineur qui l'introduit, lu par `feature_since` dans le registre. Une constante
+écrite à la main aurait dérivé sans que rien ne le dise : le jour où une feature `1.1` quitte la
+liste, l'annonce continuerait de promettre `lep/1.1`. Ici elle retombe seule à `1.0`, et un test le
+vérifie contre le registre plutôt que contre une liste recopiée.
+
+**Ce qui est vérifié du pair, et ce qui ne l'est pas.** Le **majeur** l'est : servir une liste de
+features à un `lep/2.0` serait négocier dans le vide, puisqu'il ne saurait pas lire les documents
+qui vont avec. Deux refus distincts, parce qu'ils se réparent à deux endroits — « je parle autre
+chose » envoie changer de pair, « je n'ai pas dit ce que je parle » envoie corriger son hello. Les
+fondre enverrait la moitié des cas au mauvais endroit, la règle que ce dépôt applique déjà aux
+motifs de §12.2.
+
+La **signature** du hello ne l'est pas, et c'est une abstention motivée plutôt qu'un oubli.
+`canterel` la pose et annonce que `locusd` la vérifiera ; deux choses s'y opposent aujourd'hui — le
+registre ne conserve aucune clé publique, `WorkerIdentity` portant le worker, le workspace et le
+principal ; et la réponse est **identique pour tout le monde**, n'accorde rien et ne consulte ni le
+journal ni le registre. Authentifier une annonce publique ne protégerait rien ; le faire demanderait
+la moitié serveur de `W2.4`. C'est écrit dans le module, avec ce qui la rouvrirait : un handshake
+qui lierait un état de session.
+
+C'est aussi ce qui fait de `/lep/v1/hello` la **seule** route de ce daemon sans créance, et la
+constante le dit à l'endroit où on la lira.
+
+**Tests.** Neuf. Les trois issues de la négociation sont jouées par le **vrai** `negotiate` et non
+par une réimplémentation : accordée, refusée, inconnue. La troisième compte autant que les deux
+autres — un test qui n'aurait vu que `features` et `declined` laisserait croire que la négociation a
+deux issues, alors qu'un nom hors registre est un troisième signal, celui d'un pair plus récent ou
+mal configuré. S'y ajoutent : chaque feature annoncée est au registre — la garde qui attrape une
+faute de frappe qu'aucune relecture ne voit ; les trois non tenues ne sont pas annoncées,
+**nommées** plutôt que comptées, parce que « trois sur six » deviendrait faux le jour où une
+septième feature entre au registre alors que la propriété resterait vraie ; et les versions
+dérivées.
+
+**Ce que l'item ne fait pas, et le dire évite qu'on le croie.** Aucun handshake ne tourne encore de
+bout en bout : `register`, côté worker, attend ses ports, ce qui est `W2.27` et non une lacune
+d'ici. Cet item ferme la moitié **protocole** ; l'assemblage est ailleurs et porte déjà un nom.
