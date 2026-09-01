@@ -93,6 +93,13 @@ export type Model = {
   readonly documents: readonly string[];
   /** Negotiable features, from schemas/lep/1.0/features.json. */
   readonly features: readonly Feature[];
+  /**
+   * Known confinement mechanisms, from schemas/lep/1.0/mechanisms.json.
+   *
+   * Names only: what a consumer needs is « do I know this one », and the notes explaining each
+   * choice belong to the register, which is the single place they are kept.
+   */
+  readonly mechanisms: readonly string[];
 };
 
 /** `mission-envelope` → `MissionEnvelope`; `lep/1.0/lease.schema.json` → `Lease`. */
@@ -138,7 +145,20 @@ export function buildModel(schemasDir: string): { model: Model; findings: Findin
   const features = JSON.parse(readFileSync(join(schemasDir, "lep/1.0/features.json"), "utf8")) as {
     features: Feature[];
   };
-  return { model: { structs, aliases, unions, documents, features: features.features }, findings };
+  const register = JSON.parse(
+    readFileSync(join(schemasDir, "lep/1.0/mechanisms.json"), "utf8"),
+  ) as { mechanisms: { name: string }[] };
+  return {
+    model: {
+      structs,
+      aliases,
+      unions,
+      documents,
+      features: features.features,
+      mechanisms: register.mechanisms.map((mechanism) => mechanism.name),
+    },
+    findings,
+  };
 }
 
 function schemaFiles(registry: Registry): string[] {

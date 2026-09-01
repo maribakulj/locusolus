@@ -63,7 +63,7 @@ use locus_execution::SandboxLevel;
 use locus_execution::selftest::Standing;
 use serde::{Deserialize, Serialize};
 
-use crate::announced::Proven;
+use crate::announced::{Attested, Proven};
 use crate::linux::{HostFacts, Support};
 
 /// La variable qui dit où les attestations sont conservées.
@@ -354,14 +354,22 @@ impl RecordedProven {
 }
 
 impl Proven for RecordedProven {
-    fn standing(&self, worker_id: &str) -> Vec<Standing> {
+    fn standing(&self, worker_id: &str) -> Vec<Attested> {
         self.honoured(worker_id)
             .into_iter()
             // `parse` ne peut pas échouer ici : `read` refuse le fichier entier sur un code
             // inconnu, donc tout ce qui est stocké se relit. `filter_map` plutôt qu'`expect` quand
             // même — une invariante tenue ailleurs se maintient mal par une panique.
             .filter_map(|record| {
-                SandboxLevel::parse(&record.level).map(|level| Standing::Trusted { level })
+                // Le mécanisme voyage avec le verdict. `W5.ae` a rendu `backend` obligatoire dans
+                // l'enregistrement, et cette traduction le **perdait** aussitôt : le site de
+                // placement recevait un niveau nu et n'avait rien à confronter au manifeste, si
+                // bien que la décision 3 de l'ADR 0035 ne pouvait pas se coder — quel qu'ait été le
+                // vocabulaire qu'on lui aurait donné.
+                SandboxLevel::parse(&record.level).map(|level| Attested {
+                    backend: record.backend.clone(),
+                    standing: Standing::Trusted { level },
+                })
             })
             .collect()
     }

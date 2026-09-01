@@ -29,7 +29,7 @@
   },
   "definitions": {
     "reason": {
-      "description": "Les sept motifs. Écrits **inline** parce qu'une variante n'a pas d'existence hors de son union : la nommer ailleurs produirait une structure autonome que personne n'instancie, et deux endroits à corriger le jour où la forme change.",
+      "description": "Les neuf motifs. Écrits **inline** parce qu'une variante n'a pas d'existence hors de son union : la nommer ailleurs produirait une structure autonome que personne n'instancie, et deux endroits à corriger le jour où la forme change. Le compte a monté deux fois depuis ADR 0017 §5.2, qui en nommait six — `disk_quota_not_enforceable` avec W5.g et W5.j, puis les deux motifs de mécanisme avec W5.ag. C'est possible sans toucher à l'interdit 3 de l'ADR parce que ce document est **né** dans le mineur `1.1` : aucun consommateur `1.0` ne le reçoit, donc aucune énumération que `1.0` connaît ne gagne de membre.",
       "oneOf": [
         {
           "description": "L'hôte ne sait pas confiner aussi fort que la mission l'exige. **Distinct de `level_not_attested`** : « l'hôte ne sait pas faire » envoie chercher une autre machine ; « l'hôte l'annonce sans l'avoir prouvé » envoie faire tourner une campagne de self-tests. Les fondre ferait acheter du matériel pour un problème d'attestation.",
@@ -121,6 +121,55 @@
             },
             "proven": {
               "$ref": "urn:locus:schema:lep:1.0:vocabulary#/definitions/sandbox_level"
+            }
+          }
+        },
+        {
+          "description": "Une campagne a conclu pour cet hôte et ce worker, mais sous un mécanisme que le worker n'emploie pas — ADR 0035 décision 3. **Distinct de `level_not_attested`**, et la distinction est tout l'intérêt : « aucune campagne n'a conclu » envoie lancer les self-tests, celui-ci envoie en lancer une **autre**, sous le mécanisme que ce worker emploie réellement. Les fondre ferait relancer indéfiniment une campagne qui conclut déjà, et bien. Les deux noms sont au registre `schemas/lep/1.0/mechanisms.json` et ils désignent deux mécanismes différents : ADR 0035 et ADR 0036 les tiennent pour incomparables faute de les avoir mesurés l'un contre l'autre.",
+          "type": "object",
+          "required": ["code", "required", "employs", "attested"],
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "const": "mechanism_not_employed"
+            },
+            "required": {
+              "$ref": "urn:locus:schema:lep:1.0:vocabulary#/definitions/sandbox_level"
+            },
+            "employs": {
+              "description": "Le mécanisme que le manifeste du worker annonce.",
+              "type": "string",
+              "minLength": 1
+            },
+            "attested": {
+              "description": "Les mécanismes sous lesquels une campagne a conclu pour ce worker, et qui ont été écartés faute de correspondre. Au pluriel : plusieurs campagnes peuvent avoir déposé, et n'en nommer qu'une ferait chercher la mauvaise.",
+              "type": "array",
+              "minItems": 1,
+              "items": { "type": "string", "minLength": 1 }
+            }
+          }
+        },
+        {
+          "description": "Le mécanisme attesté et celui du worker n'ont pas pu être **rapprochés**, faute d'un nom que le registre connaisse. Distinct de `mechanism_not_employed` : là, les deux noms sont connus et diffèrent ; ici, on ne sait pas ce qu'un nom désigne, et « ce n'est pas le même » serait une affirmation qu'on n'a pas les moyens de faire. `employs` est **absent** quand le manifeste ne nomme aucun mécanisme — `backend` est facultatif dans `CapabilityManifestSandbox` alors qu'il est obligatoire dans `SandboxAttestation` —, et ce n'est pas la même ignorance qu'un nom présent mais hors registre : l'une envoie faire annoncer son mécanisme au worker, l'autre envoie ajouter le nom au registre ou corriger l'émetteur. `unregistered` peut donc être **vide**, et il l'est exactement quand le défaut est du côté de l'annonce.",
+          "type": "object",
+          "required": ["code", "required", "unregistered"],
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "const": "mechanism_unresolved"
+            },
+            "required": {
+              "$ref": "urn:locus:schema:lep:1.0:vocabulary#/definitions/sandbox_level"
+            },
+            "employs": {
+              "description": "Le mécanisme que le manifeste annonce, quand il en annonce un.",
+              "type": "string",
+              "minLength": 1
+            },
+            "unregistered": {
+              "description": "Les noms que le registre ne connaît pas, celui du manifeste comme ceux des attestations.",
+              "type": "array",
+              "items": { "type": "string", "minLength": 1 }
             }
           }
         },

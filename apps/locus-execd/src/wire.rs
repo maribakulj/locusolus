@@ -105,6 +105,24 @@ pub fn reason(refusal: &RefusalReason) -> Reason {
             required: level(*required),
             native_level: level(*native_level),
         },
+        RefusalReason::MechanismNotEmployed {
+            required,
+            employs,
+            attested,
+        } => Reason::MechanismNotEmployed {
+            required: level(*required),
+            employs: employs.clone(),
+            attested: attested.clone(),
+        },
+        RefusalReason::MechanismUnresolved {
+            required,
+            employs,
+            unregistered,
+        } => Reason::MechanismUnresolved {
+            required: level(*required),
+            employs: employs.clone(),
+            unregistered: unregistered.clone(),
+        },
     }
 }
 

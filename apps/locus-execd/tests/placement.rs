@@ -8,7 +8,7 @@
 //! tenu. W4.d.3 a produit le juge ; ce module le branche.
 
 use locus_execd::admission::AcceleratorReach;
-use locus_execd::{Candidate, HostCapabilities, Placement, RefusalReason, place};
+use locus_execd::{Attested, Candidate, HostCapabilities, Placement, RefusalReason, place};
 use locus_execution::{
     Mount, NetworkMode, ResourceSpec, SandboxLevel, SandboxProfile, SandboxSpec, Standing,
 };
@@ -21,12 +21,28 @@ fn capacity() -> ResourceSpec {
     ResourceSpec::new(8_000, 32 << 30, 4_096, 1 << 40, 86_400).expect("quotas non nuls")
 }
 
+/// Le mécanisme que les hôtes de ce module annoncent et sous lequel leurs campagnes concluent.
+///
+/// Un seul, parce que ces tests-ci parlent du **niveau** prouvé. Le rapprochement de mécanismes a
+/// ses propres cas, plus bas : les mélanger ferait qu'un défaut de l'un se lirait comme un défaut de
+/// l'autre.
+const MECANISME: &str = "bubblewrap";
+
 fn host(best: SandboxLevel) -> HostCapabilities {
     HostCapabilities::new(
         best,
         capacity(),
         vec!["deny", "connector_only", "allowlist", "full"],
     )
+    .employing(MECANISME)
+}
+
+/// Ce qu'une campagne a conclu sous le mécanisme que l'hôte emploie.
+fn sous_mecanisme(standing: Standing) -> Attested {
+    Attested {
+        backend: MECANISME.to_owned(),
+        standing,
+    }
 }
 
 fn mission(level: SandboxLevel) -> SandboxSpec {
@@ -47,7 +63,7 @@ fn mission(level: SandboxLevel) -> SandboxSpec {
 
 /// Un candidat qui annonce et qui a prouvé.
 fn proven(worker: &str, level: SandboxLevel) -> Candidate {
-    Candidate::new(worker, host(level)).attested(Standing::Trusted { level })
+    Candidate::new(worker, host(level)).attested(sous_mecanisme(Standing::Trusted { level }))
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -84,11 +100,12 @@ fn s0_ne_demande_aucune_preuve_puisqu_il_ne_promet_rien() {
 
 #[test]
 fn une_campagne_perdue_ne_vaut_pas_une_campagne_gagnee() {
-    let failed =
-        Candidate::new("worker-perce", host(SandboxLevel::S3)).attested(Standing::NotTrusted {
+    let failed = Candidate::new("worker-perce", host(SandboxLevel::S3)).attested(sous_mecanisme(
+        Standing::NotTrusted {
             level: SandboxLevel::S3,
             blocking: Vec::new(),
-        });
+        },
+    ));
     let Placement::Refused { shortfalls } = place(&mission(SandboxLevel::S2), &[failed]) else {
         panic!("un backend qui a échappé une sonde n'est pas trusted")
     };
@@ -121,11 +138,12 @@ fn l_attestation_s_ajoute_a_l_admission_sans_la_remplacer() {
             SandboxLevel::S3,
             ResourceSpec::new(100, 1 << 20, 4, 0, 10).expect("quotas non nuls"),
             vec!["deny"],
-        ),
+        )
+        .employing(MECANISME),
     )
-    .attested(Standing::Trusted {
+    .attested(sous_mecanisme(Standing::Trusted {
         level: SandboxLevel::S3,
-    });
+    }));
 
     let Placement::Refused { shortfalls } = place(&mission(SandboxLevel::S3), &[starved]) else {
         panic!("un hôte prouvé mais sans mémoire ne convient pas")
@@ -254,11 +272,12 @@ fn un_hote_natif_prouve_reste_ecarte_d_une_mission_conteneurisee_accelereee() {
                 .expect("accélérateur déclaré"),
             vec!["deny", "full"],
         )
-        .native_only(SandboxLevel::S1),
+        .native_only(SandboxLevel::S1)
+        .employing(MECANISME),
     )
-    .attested(Standing::Trusted {
+    .attested(sous_mecanisme(Standing::Trusted {
         level: SandboxLevel::S3,
-    });
+    }));
     assert_eq!(
         mac.capabilities().reach(),
         &AcceleratorReach::NativeOnly {

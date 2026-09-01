@@ -36,6 +36,7 @@ pub mod build;
 pub mod link;
 pub mod linux;
 pub mod macos;
+pub mod mechanism;
 pub mod placement;
 pub mod readiness;
 pub mod reroute;
@@ -46,7 +47,7 @@ pub use admission::{
     AcceleratorReach, Admission, DiskQuota, HostCapabilities, RefusalReason, admit,
 };
 pub use announced::{
-    NothingProven, Proven, Unreadable, candidate, capabilities, placement, requirement,
+    Attested, NothingProven, Proven, Unreadable, candidate, capabilities, placement, requirement,
 };
 pub use build::{BuildContext, BuildDriver, BuildDriverError, build_arguments};
 pub use link::{answer_ask, serve, verdict};
@@ -54,6 +55,7 @@ pub use linux::Missing;
 pub use linux::{ConfinementPlan, HostFacts, PlanError, PodmanBackend, Workload, plan};
 pub use linux::{NO_STORAGE_DECLARED, PROJECT_QUOTA_OPTIONS, QUOTA_CAPABLE_FILESYSTEMS, Support};
 pub use macos::{MachineFacts, MachineState};
+pub use mechanism::{Employment, employment};
 pub use placement::{Candidate, Placement, place};
 pub use readiness::Readiness;
 pub use reroute::{Attempt, RerouteError, Rerouting, reroute};

@@ -10,7 +10,7 @@
 //! même forme de porte : le **défaut ne change rien**, et un fichier nommé qui ne se lit pas
 //! **refuse** au lieu de démarrer sans.
 
-use locus_execd::announced::{NothingProven, Proven};
+use locus_execd::announced::{Attested, NothingProven, Proven};
 use locus_execd::attestation::{
     Attestation, EMIT_ENV, RECORD_ENV, RecordedProven, annonce, emit, fingerprint, load, record,
 };
@@ -374,10 +374,40 @@ fn ce_qu_une_campagne_depose_se_relit_et_est_honore() {
     assert_eq!(recorded.honoured("canterel-01").len(), 1);
     assert_eq!(
         recorded.standing("canterel-01"),
-        vec![Standing::Trusted {
-            level: SandboxLevel::S2
+        vec![Attested {
+            backend: locus_execd::linux::BACKEND.to_owned(),
+            standing: Standing::Trusted {
+                level: SandboxLevel::S2
+            }
         }],
-        "le niveau déposé est celui qui ressort"
+        "le niveau **et le mécanisme** déposés sont ceux qui ressortent"
+    );
+}
+
+/// **Le mécanisme survit de l'enregistrement jusqu'au port.**
+///
+/// `W5.ae` a rendu `backend` obligatoire dans l'enregistrement ; la traduction vers [`Proven`] le
+/// perdait aussitôt, et le site de placement recevait un niveau nu. La décision 3 de l'ADR 0035 —
+/// « un mécanisme que ce worker emploie » — n'avait donc **rien à comparer**, quel qu'ait été le
+/// vocabulaire qu'on lui aurait donné. C'est la moitié du blocage de `W5.ag` que personne n'avait
+/// vue, et elle ne demandait aucun arbitrage.
+///
+/// Le test lit un mécanisme qui n'est **pas** celui du driver local : recopier `BACKEND` des deux
+/// côtés passerait aussi avec une traduction qui écrit une constante au lieu de lire le champ.
+#[test]
+fn le_mecanisme_atteste_ressort_du_port() {
+    let facts = faits();
+    let mut record = attestation("canterel-01", "S2", &fingerprint(&facts));
+    record.backend = "bubblewrap".to_owned();
+
+    let recorded = RecordedProven::read(&json(&[record]), "/attestations.json", &facts)
+        .expect("le fichier se lit");
+
+    let rendus = recorded.standing("canterel-01");
+    assert_eq!(rendus.len(), 1);
+    assert_eq!(
+        rendus[0].backend, "bubblewrap",
+        "le port rend le mécanisme du fichier, pas celui du driver de cette machine"
     );
 }
 

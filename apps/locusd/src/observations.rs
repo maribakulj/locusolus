@@ -225,5 +225,35 @@ fn motif(reason: &Reason) -> String {
         Reason::NetworkModeUnsupported { mode } => {
             format!("l'hôte ne sait pas appliquer le mode réseau {mode:?}")
         }
+        // Les deux motifs de mécanisme disent où aller, et ce n'est pas au même endroit que
+        // `level_not_attested`. Le premier envoie lancer une **autre** campagne — celle du
+        // mécanisme que ce worker emploie ; le second envoie nommer un mécanisme, au registre ou
+        // dans le manifeste. Les rendre par la même phrase referait la confusion que l'ADR 0035
+        // décision 3 défait.
+        Reason::MechanismNotEmployed {
+            required,
+            employs,
+            attested,
+        } => format!(
+            "confinement {required:?} prouvé sous « {} », mécanisme que ce worker n'emploie pas — \
+             il annonce « {employs} », donc lancer une campagne sous ce mécanisme-là",
+            attested.join(" », « ")
+        ),
+        Reason::MechanismUnresolved {
+            required,
+            employs,
+            unregistered,
+        } => match employs {
+            Some(employs) => format!(
+                "confinement {required:?} non rapproché : le worker annonce « {employs} » et le \
+                 registre des mécanismes ne connaît pas « {} » — l'ajouter au registre ou corriger \
+                 l'émetteur",
+                unregistered.join(" », « ")
+            ),
+            None => format!(
+                "confinement {required:?} non rapproché : le manifeste ne nomme aucun mécanisme de \
+                 confinement — le faire annoncer par le worker"
+            ),
+        },
     }
 }

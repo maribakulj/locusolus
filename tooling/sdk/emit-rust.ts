@@ -52,6 +52,17 @@ export function emitRust(model: Model): string {
         )
         .join("\n") +
       "\n];\n",
+    `${doc(
+      "Les mécanismes de confinement dont ce dépôt sait ce qu'ils désignent — registre\n" +
+        "`schemas/lep/1.0/mechanisms.json`, ADR 0035 décision 3.\n\n" +
+        "Ce n'est pas une énumération du fil : `backend` reste une chaîne libre dans les deux schémas\n" +
+        "qui le portent. Un nom absent d'ici n'est pas invalide, il est **non rapproché**, et c'est un\n" +
+        "verdict différent de « ce n'est pas le même mécanisme ».",
+      "",
+    )}` +
+      `pub const LEP_MECHANISMS: [&str; ${model.mechanisms.length}] = [\n` +
+      model.mechanisms.map((name) => `    ${JSON.stringify(name)},`).join("\n") +
+      "\n];\n",
   );
   return parts.join("\n");
 }

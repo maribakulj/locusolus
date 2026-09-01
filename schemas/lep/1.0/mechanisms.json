@@ -1,0 +1,34 @@
+{
+  "$comment": "Le registre des mécanismes de confinement — les valeurs que `SandboxAttestation.backend` et `CapabilityManifestSandbox.backend` peuvent porter et dont ce dépôt sait ce qu'elles désignent. Il ne fait PAS partie du fil : `backend` reste une chaîne libre `minLength: 1` dans les deux schémas, et rien ici ne rétrécit ce qui est valide. Un pair qui écrit un nom absent d'ici n'est jamais refusé par le protocole ; son attestation ne peut simplement pas être rapprochée du mécanisme que le worker annonce, et le refus le dit sous son propre motif. C'est ce qui permet à ce fichier d'exister sans toucher à `lep/1.0`, gelé.\n\nÀ quoi il sert : l'ADR 0035 décision 3 fait qu'une attestation ne vaut pour un worker que si le mécanisme est un des siens. Comparer deux `backend` demande donc de savoir lesquels sont connus — sans quoi « ce n'est pas le même mécanisme » et « je ne sais pas ce que ce nom désigne » se confondent, alors qu'ils se réparent différemment : le premier envoie lancer une AUTRE campagne, le second envoie ajouter un nom ici ou corriger l'émetteur.\n\nCe qu'il ne fait PAS : aucune équivalence. Un nom désigne lui-même, et deux noms ne se rapprochent que si une mesure établit qu'ils désignent le même mécanisme — il n'y en a aucune aujourd'hui. L'ADR 0035 laisse `podman-rootless` et `bubblewrap` incomparables faute de les avoir mesurés l'un contre l'autre, et l'ADR 0036 applique le même critère à `bubblewrap` et `bubblewrap+cgroup` : ils échouent différemment et s'installent différemment, donc ils ne partagent pas de nom. C'est ici que vivrait une équivalence si elle était un jour mesurée, et nulle part ailleurs.\n\nCe qui n'y est pas, et pourquoi : `rootless-oci` et `lima-podman` apparaissent dans les exemples de `lep/1.0` et ne sont écrits par aucun émetteur. Rien n'établit ce qu'ils désignent — `rootless-oci` peut être podman, crun ou runc sans racine, et les ranger avec `podman-rootless` ferait hériter un worker d'une preuve portant sur un mécanisme qu'il n'emploie pas, ce que l'ADR 0035 refuse explicitement. Ils rendent donc « non rapproché », ce qui refuse un placement au lieu d'en accorder un sur une supposition.",
+  "protocol": "lep/1.0",
+  "mechanisms": [
+    {
+      "name": "bubblewrap",
+      "writes": [
+        "apps/locus-execd/src/linux/bubblewrap.rs",
+        "canterel backend/cli/src/locus/capability-manifest.ts"
+      ],
+      "note": "`bwrap` seul : namespaces et montages, sans comptabilité des ressources. Le seul nom que les deux côtés écrivent aujourd'hui, donc le seul rapprochement qui puisse aboutir. ADR 0036 : les bornes de ressources ne sont pas tenues par ce mécanisme, et `unenforced` le déclare."
+    },
+    {
+      "name": "bubblewrap+cgroup",
+      "writes": ["apps/locus-execd/src/linux/bubblewrap_driver.rs"],
+      "note": "`bwrap` dans un cgroup posé par le broker — ADR 0036 décision 1. Un mécanisme distinct de `bubblewrap`, pas une variante : il échoue de trois façons que l'autre ne connaît pas, dont deux silencieuses, et il exige une délégation que l'hôte accorde ou non."
+    },
+    {
+      "name": "podman-rootless",
+      "writes": ["apps/locus-execd/src/linux/driver.rs"],
+      "note": "Podman sans racine, tel que la campagne des seize sondes le mesure. ADR 0035 : ce que cette campagne atteste est le chemin du broker, qu'aucun worker n'emprunte encore."
+    },
+    {
+      "name": "seatbelt",
+      "writes": ["canterel backend/cli/src/locus/capability-manifest.ts"],
+      "note": "Le bac à sable de macOS. Annoncé par un worker, jamais attesté ici : aucune campagne ne tourne sous ce mécanisme dans ce dépôt."
+    },
+    {
+      "name": "none",
+      "writes": ["canterel backend/cli/src/locus/capability-manifest.ts"],
+      "note": "Aucun mécanisme. Enregistré parce qu'un émetteur l'écrit et qu'on sait exactement ce qu'il veut dire — l'omettre ferait lire « nom inconnu » là où le worker a répondu clairement qu'il ne confine rien."
+    }
+  ]
+}

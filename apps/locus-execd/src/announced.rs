@@ -142,7 +142,27 @@ pub trait Proven: Send + Sync {
     /// Vide veut dire « aucune campagne n'a conclu », jamais « la campagne a conclu que non » :
     /// [`Standing::NotTrusted`] existe pour la seconde, et `denies_trust` a déjà tranché que
     /// l'absence de preuve n'est pas une preuve.
-    fn standing(&self, worker_id: &str) -> Vec<Standing>;
+    fn standing(&self, worker_id: &str) -> Vec<Attested>;
+}
+
+/// Ce qu'une campagne a conclu, **et sous quel mécanisme** — ADR 0035 décision 3.
+///
+/// # Pourquoi les deux voyagent ensemble
+///
+/// Le port rendait un [`Standing`] nu, qui ne porte que le niveau et ce qui le bloque. La décision 3
+/// demande de vérifier « un mécanisme que ce worker emploie » ; avec un verdict nu, le site de
+/// placement n'avait **rien à comparer**, quelle que soit la table de vocabulaire qu'on lui aurait
+/// donnée. `W5.ae` a rendu le champ obligatoire dans l'enregistrement sur disque, et la traduction
+/// vers le port le perdait aussitôt.
+///
+/// Les tenir dans une seule valeur plutôt qu'en deux listes appariées rend le demi-état
+/// inexprimable : personne ne peut prendre le verdict et oublier le mécanisme.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Attested {
+    /// Le mécanisme, sous le nom que `SandboxAttestation.backend` lui donne.
+    pub backend: String,
+    /// Ce que la campagne a conclu sous ce mécanisme.
+    pub standing: Standing,
 }
 
 /// La source par défaut : aucune campagne n'a conclu, sur personne.
@@ -150,7 +170,7 @@ pub trait Proven: Send + Sync {
 pub struct NothingProven;
 
 impl Proven for NothingProven {
-    fn standing(&self, _worker_id: &str) -> Vec<Standing> {
+    fn standing(&self, _worker_id: &str) -> Vec<Attested> {
         Vec::new()
     }
 }
@@ -299,7 +319,15 @@ pub fn capabilities(
     // `/proc/mounts` par `W5.g`, sur la machine, et pas une chose qu'on déclare. Ne pas refuser sur
     // ce motif ici est donc exact ; le poser à `NotEnforceable` refuserait tous les workers pour une
     // raison qu'on n'a pas constatée.
-    Ok(HostCapabilities::new(best, capacity, modes))
+    // Le mécanisme annoncé voyage avec le reste : c'est le troisième terme de l'ADR 0035 décision 3,
+    // et le manifeste est le seul endroit où il se lise. `None` quand le manifeste ne le nomme pas —
+    // `backend` est facultatif ici alors qu'il est obligatoire dans l'attestation, et confondre
+    // « absent » avec une chaîne vide ferait comparer un nom que personne n'a écrit.
+    let announced = HostCapabilities::new(best, capacity, modes);
+    Ok(match manifest.sandbox.backend.as_deref() {
+        Some(mechanism) => announced.employing(mechanism),
+        None => announced,
+    })
 }
 
 /// L'accélérateur du manifeste qui répond au genre demandé, s'il y en a un.
