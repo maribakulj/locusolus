@@ -15,7 +15,7 @@
 //! # Ce que ce module n'annonce pas, et c'est le travail
 //!
 //! **Pas `LEP_FEATURES`.** Le registre porte les features que le *protocole* définit ; ce daemon
-//! n'en tient que trois, et les recopier en bloc en annoncerait six. La faute serait pire qu'une
+//! n'en tient qu'une partie, et les recopier en bloc les annoncerait toutes. La faute serait pire qu'une
 //! promesse ordinaire : le pair d'en face **négocie** dessus, et tient l'accord pour acquis. Un
 //! worker qui se replie parce qu'une feature est refusée fonctionne ; un worker qui compte sur une
 //! feature accordée à tort casse.
@@ -56,14 +56,26 @@ use serde::{Deserialize, Serialize};
 
 /// Les features que **ce daemon** tient, par opposition à celles que le protocole définit.
 ///
-/// Trois sur six. La liste est courte parce qu'elle est vraie ; voir le module pour ce que chacune
+/// Quatre sur sept. La liste est courte parce qu'elle est vraie ; voir le module pour ce que chacune
 /// des trois autres exigerait et que ce daemon ne fait pas.
 ///
 /// - `pull-queue` — `POST /lep/v1/claim` : le worker **tire**, et ce daemon n'a pas d'autre mode ;
 /// - `artifact-streaming` — `POST /lep/v1/artifacts` déclare et `PUT` porte les octets, qui ne
 ///   passent donc pas par le canal de contrôle ;
-/// - `subagent-visibility` — [`crate::subagents`] lit les sous-agents qu'un attempt déclare.
-pub const HELD: [&str; 3] = ["pull-queue", "artifact-streaming", "subagent-visibility"];
+/// - `subagent-visibility` — [`crate::subagents`] lit les sous-agents qu'un attempt déclare ;
+/// - `refusal-events` — [`crate::refusal`] lit `task.refused` et **remet la mission en file**, au
+///   lieu de la laisser sous un bail que plus personne n'honore.
+///
+/// La dernière est celle que l'ADR 0037 rend obligatoire plutôt que facultative au sens ordinaire :
+/// `task.refused` est un membre neuf d'une énumération fermée, et sans la garde il n'aurait pas eu le
+/// droit d'entrer. L'annoncer ici n'est donc pas une commodité — c'est la moitié qui rend la valeur
+/// émissible.
+pub const HELD: [&str; 4] = [
+    "pull-queue",
+    "artifact-streaming",
+    "subagent-visibility",
+    "refusal-events",
+];
 
 /// Le majeur que ce daemon parle.
 ///

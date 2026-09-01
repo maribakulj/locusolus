@@ -37,6 +37,12 @@
       "since": "1.1",
       "source": "docs/10 `W16.d`, ADR 0017 §5.4, ADR 0027 décision 7",
       "note": "Le harnais déclare les sous-agents internes d'un attempt : qu'ils ont existé, leur classe de cognition, leur coût et leur résultat. **Facultative** au sens strict — un harnais qui ne subdivise pas n'a rien à déclarer, et l'obliger à déclarer « aucun » ferait payer la fonctionnalité à ceux qui ne l'utilisent pas. Ce qu'elle n'ouvre pas : le contexte et le raisonnement des sous-agents, que l'invariant 11 borne et que les trois classes de lecteurs de l'ADR 0027 gouvernent seules."
+    },
+    {
+      "name": "refusal-events",
+      "since": "1.1",
+      "source": "docs/10 `W19.c`, ADR 0037, `repos/canterel/SPEC_V1.md` §10.2",
+      "note": "Le worker fait remonter ses refus d'admission comme événements, sous `task.refused`. **Facultative parce qu'elle doit l'être** : `task.refused` est un membre neuf d'une énumération fermée, et l'ADR 0037 n'en autorise l'entrée que gardée par une feature négociée du même mineur — un pair qui ne l'a pas accordée ne reçoit jamais la valeur, donc ne peut pas manquer ce qu'il ne connaît pas. Ce qu'elle change quand elle est accordée : un refus cesse d'être muet. Sans elle, la boucle du worker refuse et rend la main, la mission reste sous bail jusqu'à expiration, et « le worker a refusé » se confond avec « le worker est mort »."
     }
   ]
 }

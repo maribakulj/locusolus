@@ -1352,12 +1352,28 @@ impl<S: EventStore> Runtime<S> {
     ) -> Result<(), CommandError> {
         let identity = self.identify(credential)?;
         let count = events.len();
-        let stream = stream_of_task(first_task(&events));
+        let task = first_task(&events).to_owned();
+        let stream = stream_of_task(&task);
+        // Relevé **avant** que `Report` prenne les événements. Ce n'est pas une contrainte
+        // d'emprunt déguisée en décision : la remise en file a lieu après l'écriture, et ce qu'elle
+        // vise doit être lu tant que le lot est là.
+        let refusals: Vec<crate::refusal::Refused> = events
+            .iter()
+            .filter_map(|event| crate::refusal::refused(event, &task))
+            .collect();
         let report = Report {
             events,
             worker_id: identity.worker_id.clone(),
         };
-        self.write_worker_fact(&identity, submitted, &stream, count, &report, now)
+        self.write_worker_fact(&identity, submitted, &stream, count, &report, now)?;
+        // **Après** l'écriture, jamais avant — `W19.c`. Une mission remise en file alors que le
+        // fait n'a pas été écrit serait réclamable sans qu'aucune trace ne dise pourquoi elle est
+        // revenue, ce qui est le silence même que cet item retire. L'ordre inverse aurait aussi
+        // rendu la remise irréversible sur un `Conflict` d'écriture.
+        for refused in &refusals {
+            self.requeue_refused(refused)?;
+        }
+        Ok(())
     }
 
     /// Rendre un résultat — `POST /lep/v1/result`.

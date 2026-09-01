@@ -18236,3 +18236,73 @@ dérivées.
 **Ce que l'item ne fait pas, et le dire évite qu'on le croie.** Aucun handshake ne tourne encore de
 bout en bout : `register`, côté worker, attend ses ports, ce qui est `W2.27` et non une lacune
 d'ici. Cet item ferme la moitié **protocole** ; l'assemblage est ailleurs et porte déjà un nom.
+
+## 2026-09-01 — W19.c.1 — Le refus du worker a sa forme sur le fil, et le plan de contrôle en tire une conséquence
+
+**Périmètre.** `schemas/lep/1.0/{event,features}.json`, `packages/lep/src/generated.{rs,ts}`,
+`apps/locusd/src/refusal.rs` (neuf), `apps/locusd/src/{lep,handshake,mission,lib}.rs`,
+`apps/locusd/tests/refusal.rs` (neuf), `apps/locusd/tests/mission.rs`.
+
+**Le trou que l'item retire.** `runLoop` réclame, l'admission dit non, et la boucle rend la main
+**sans rien dire au plan de contrôle** : la mission reste sous bail jusqu'à expiration, et « le
+worker a refusé » se confond avec « le worker est mort ». Trouvé en exécutant la chaîne (`W12.d.4`),
+pas en la lisant.
+
+**Le premier membre entré sous l'ADR 0037.** `task.refused` rejoint une énumération **fermée**, ce
+que l'interdit 3 de l'ADR 0017 refuse — sauf sous la garde que l'ADR 0037 a posée : une feature
+négociée du même mineur, ici `refusal-events`. Un pair qui ne l'a pas accordée ne reçoit jamais la
+valeur, donc ne peut pas manquer ce qu'il ne connaît pas.
+
+La description de `event_type` est corrigée par la même occasion. Elle disait « un nouveau type est
+un ajout mineur qui met à jour cette liste », c'est-à-dire exactement ce que l'interdit refuse, sans
+garde — deux textes du dépôt se contredisaient sur le même champ, et le schéma étant le contrat,
+c'est lui qui avait tort.
+
+**La feature a deux moitiés, et l'une sans l'autre ne sert à rien.** `features.json` la rend
+**définissable**, `handshake::HELD` la rend **annonçable**. Définie et non annoncée, elle ne serait
+jamais accordée, `task.refused` ne serait jamais émis, et le membre serait entré pour rien. C'est
+`W19.e`, livré une heure plus tôt, qui a rendu la seconde moitié possible.
+
+**Ce qui fixe la forme du lecteur, et c'est le cœur de l'item.** Écrire un fait n'aurait **rien**
+ajouté : le chemin générique de `Report` en écrit déjà un pour n'importe quel type d'événement. Un
+`task.refused` qui n'aurait fait que cela serait une valeur d'énumération sans effet — la promesse
+que l'ADR 0022 décision 0 refuse et que l'ADR 0037 rappelle. La conséquence est donc la **remise en
+file** : la mission redevient réclamable au lieu d'attendre l'expiration d'un bail que plus personne
+n'honore.
+
+La mission se relit du **journal**. Le daemon n'en garde aucune copie — `lep_claim` la retire de la
+file et ne la conserve pas —, mais le fait `task.proposed` porte la proposition entière, et son
+commentaire disait déjà pourquoi : « l'invariant 2 dit que le journal est la vérité institutionnelle
+; il faut donc qu'il porte de quoi reconstruire ce qu'on y a proposé ». C'est la lecture que
+`lep_queue` faisait déjà, rendue `pub(crate)` plutôt que refaite — deux façons de retrouver une
+proposition auraient produit deux vérités pour un même fait.
+
+La remise a lieu **après** l'écriture du fait, jamais avant : une mission réclamable sans qu'aucune
+trace ne dise pourquoi elle est revenue serait le silence même que cet item retire, et l'ordre
+inverse aurait rendu la remise irréversible sur un conflit d'écriture.
+
+**Un piège écarté, et pour la raison inverse de celle qu'on attend.** La file de référence est FIFO
+et ne filtre pas par worker : une mission remise revient au même worker, qui la refusera encore. Une
+première rédaction voulait l'éviter en marquant la mission « refusée par ce worker » pour que la
+file la saute.
+
+C'est ce qui a été refusé, parce que **sauter est plus silencieux**. Une mission écartée de la
+circulation ne produit plus rien à lire, et un exploitant qui la cherche ne trouve qu'une file qui
+l'ignore. Un refus répété écrit à chaque tour un fait qui **nomme son code** — `model_unavailable`,
+`sandbox_unavailable` — et dit donc ce qui manque à cette installation. Ce dépôt préfère partout la
+panne bruyante à la panne muette ; il n'y avait pas de raison d'inverser ici. Le refus n'est
+d'ailleurs pas définitif : un worker qui installe le modèle qui manquait acceptera la mission au
+tour suivant, et l'écarter par avance ferait de ce qui est vrai maintenant une décision permanente.
+
+**Tests.** Sept. Le décisif compare la mission **remise** à celle qui avait été servie — en remettre
+une autre serait pire que n'en remettre aucune — et vérifie que le rang d'attempt vient de la
+proposition et non du bail perdu, aucune tentative n'ayant eu lieu. Son symétrique exige qu'un
+événement ordinaire ne remette **rien** en file : une remise déclenchée par n'importe quelle
+remontée ferait réclamer deux fois une mission qui s'exécute. S'y ajoutent la reconnaissance par le
+**type** et non par la présence d'un champ, le refus d'agir sur un document dont le `code` ne se lit
+pas — le fait s'écrit quand même, seule la conséquence est retenue —, et les deux moitiés de la
+feature.
+
+**Suite immédiate.** `W19.c.2` : l'émetteur gardé dans `canterel`, testé **dans les deux sens** —
+émis quand la feature est accordée, absent sinon, une garde qui ne dirait que le premier passant sur
+un émetteur qui émet toujours. Puis le re-vendoring et le pin, dans l'ordre que l'ADR 0033 impose.

@@ -158,13 +158,29 @@ fn daemon() -> (
     Arc<MemoryQueue>,
 ) {
     let file = Arc::new(MemoryQueue::new());
+    let registre = Arc::new(MemoryRegistry::new());
+    // Une créance reconnue : `lep_events` identifie le worker avant d'écrire, et un daemon qui n'en
+    // connaîtrait aucun refuserait la remontée avant d'arriver au refus qu'on veut éprouver.
+    registre.admit(
+        CREANCE,
+        locusd::lep::WorkerIdentity {
+            worker_id: WORKER.to_owned(),
+            workspace_id: id::<Workspace>(2),
+            principal_id: id::<Agent>(3),
+            project_id: id::<Project>(4),
+        },
+    );
     let desk = Desk::new(
         Arc::clone(&file) as Arc<dyn MissionQueue>,
-        Arc::new(MemoryRegistry::new()),
+        registre,
         Arc::new(Identites::default()),
     );
     (Runtime::in_memory().with_lep(desk), file)
 }
+
+/// La créance du worker de ces tests, et le worker qu'elle désigne.
+const CREANCE: &str = "creance-de-test";
+const WORKER: &str = "canterel-de-test";
 
 // ---------------------------------------------------------------------------------------------
 // 1. Une question produit une mission, et le fait atteint le journal.
@@ -533,4 +549,147 @@ fn creer_une_mission_ne_choisit_aucun_hote() {
              `locus-execd`"
         );
     }
+}
+
+// ---------------------------------------------------------------------------------------------
+// 4. Un refus de worker remet la mission en file — `W19.c`, ADR 0037.
+// ---------------------------------------------------------------------------------------------
+
+/// Un `task.refused` tel que le worker l'émettra, une fois `refusal-events` négociée.
+fn refus(task_id: &str, code: &str) -> locus_lep::Event {
+    locus_lep::Event {
+        protocol: "lep/1.1".to_owned(),
+        event_type: "task.refused".to_owned(),
+        sequence: 1,
+        occurred_at: "2026-09-01T10:00:00Z".to_owned(),
+        idempotency_key: "idem-refus".to_owned(),
+        task_id: Some(task_id.to_owned()),
+        attempt: Some(1),
+        lease_id: None,
+        worker_id: None,
+        correlation_id: None,
+        causation_id: None,
+        payload: Some(serde_json::json!({ "code": code, "details": {} })),
+        payload_hash: None,
+    }
+}
+
+/// **Le refus d'un worker remet la mission en file, et le fait est écrit.**
+///
+/// C'est le test de sortie de `W19.c`. Avant lui, `runLoop` refusait et rendait la main : la mission
+/// restait sous bail jusqu'à expiration, et « le worker a refusé » se confondait avec « le worker est
+/// mort ».
+///
+/// **La conséquence est ce qui compte, pas la trace.** Le chemin générique de `Report` écrit déjà un
+/// fait pour n'importe quel type d'événement ; un `task.refused` qui n'aurait fait que cela serait
+/// une valeur d'énumération sans effet, ce que l'ADR 0022 décision 0 refuse. Le test exige donc les
+/// deux, et la mission remise est **comparée** à celle qui avait été mise en file — remettre une
+/// autre mission serait pire que n'en remettre aucune.
+#[test]
+fn un_refus_de_worker_remet_la_mission_en_file() {
+    let (runtime, file) = daemon();
+    let proposal = proposition(&depose_la_vue(&runtime));
+    let maintenant = Timestamp::from_millis(1_700_000_000_000);
+
+    runtime
+        .lep_propose(&proposal, autorite(), &soumis("idem-propose"), maintenant)
+        .expect("proposition");
+    runtime
+        .lep_queue(
+            &proposal.task_id,
+            autorite(),
+            &soumis("idem-queue"),
+            maintenant,
+        )
+        .expect("mise en file");
+
+    // La réclamation, modélisée par ce qu'elle fait à la file : la mission en sort. Passer par
+    // `lep_claim` demanderait un broker, et ce qui est éprouvé ici est l'état « la mission n'est plus
+    // réclamable », quelle que soit la façon dont elle y est arrivée.
+    let servie = file
+        .take(WORKER)
+        .expect("la mission mise en file est réclamable");
+    assert!(file.is_empty(), "une mission servie quitte la file");
+
+    runtime
+        .lep_events(
+            CREANCE,
+            vec![refus(&proposal.task_id, "model_unavailable")],
+            &locusd::lep::WorkerSubmission {
+                idempotency_key: "idem-refus".to_owned(),
+                proposed_project: None,
+                occurred_at: maintenant,
+            },
+            maintenant,
+        )
+        .expect("la remontée d'un refus aboutit");
+
+    let revenue = file
+        .take(WORKER)
+        .expect("le refus remet la mission en file : c'est toute la conséquence de W19.c");
+    assert_eq!(
+        revenue.mission.task_id, servie.mission.task_id,
+        "la mission remise est celle qui avait été servie"
+    );
+    assert_eq!(
+        revenue.attempt, servie.attempt,
+        "le rang vient de la proposition, pas du bail perdu : aucune tentative n'a eu lieu"
+    );
+
+    let faits: Vec<String> = runtime
+        .timeline(None, None)
+        .expect("timeline")
+        .items
+        .iter()
+        .map(|entry| entry.event_type.clone())
+        .collect();
+    assert!(
+        faits.iter().any(|fait| fait.contains("task.refused")),
+        "le refus laisse aussi une trace, sans quoi la mission reviendrait sans qu'on sache pourquoi : {faits:?}"
+    );
+}
+
+/// **Un événement ordinaire ne remet rien en file.**
+///
+/// Le symétrique, et il n'est pas décoratif : une remise en file déclenchée par n'importe quelle
+/// remontée ferait réclamer deux fois une mission qui s'exécute. La reconnaissance se fait sur le
+/// type, et ce test est ce qui l'exige.
+#[test]
+fn un_evenement_ordinaire_ne_remet_rien_en_file() {
+    let (runtime, file) = daemon();
+    let proposal = proposition(&depose_la_vue(&runtime));
+    let maintenant = Timestamp::from_millis(1_700_000_000_000);
+
+    runtime
+        .lep_propose(&proposal, autorite(), &soumis("idem-propose"), maintenant)
+        .expect("proposition");
+    runtime
+        .lep_queue(
+            &proposal.task_id,
+            autorite(),
+            &soumis("idem-queue"),
+            maintenant,
+        )
+        .expect("mise en file");
+    file.take(WORKER).expect("la mission est servie");
+
+    let mut progres = refus(&proposal.task_id, "model_unavailable");
+    progres.event_type = "progress".to_owned();
+    runtime
+        .lep_events(
+            CREANCE,
+            vec![progres],
+            &locusd::lep::WorkerSubmission {
+                idempotency_key: "idem-progres".to_owned(),
+                proposed_project: None,
+                occurred_at: maintenant,
+            },
+            maintenant,
+        )
+        .expect("la remontée aboutit");
+
+    assert!(
+        file.is_empty(),
+        "seul un refus remet en file : un progrès laisse la mission là où elle est"
+    );
 }
