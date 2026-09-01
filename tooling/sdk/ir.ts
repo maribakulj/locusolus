@@ -50,7 +50,7 @@ export type Alias = {
 /**
  * Une union **discriminée** : plusieurs formes distinguées par la valeur d'une propriété commune.
  *
- * Le premier document qui en demande une est le refus d'admission (ADR 0017 §5.2) : sept motifs qui
+ * Le premier document qui en demande une est le refus d'admission (ADR 0017 §5.2) : neuf motifs qui
  * ne portent pas les mêmes données — un niveau exigé et un meilleur niveau pour l'un, un genre
  * d'accélérateur pour l'autre, rien du tout pour un troisième. Un objet unique aux champs tous
  * facultatifs le dirait aussi mal qu'un `Value` non typé : le lecteur devrait deviner quelle

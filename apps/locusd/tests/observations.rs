@@ -7,7 +7,7 @@
 //! première propriété tenue ici est donc une **asymétrie** : le second cas parle, le premier se
 //! tait, et le silence devient un renseignement plutôt qu'une ambiguïté.
 //!
-//! La seconde est que les sept motifs de §10.2 **ne se fondent pas**. `packages/lep` les a séparés
+//! La seconde est que les neuf motifs de §12.2 **ne se fondent pas**. `packages/lep` les a séparés
 //! parce qu'ils envoient à des endroits opposés ; une phrase qui dirait « l'hôte ne convient pas »
 //! annulerait ce travail au dernier mètre, là où un humain lit.
 

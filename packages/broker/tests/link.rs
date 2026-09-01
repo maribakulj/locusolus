@@ -576,7 +576,7 @@ fn une_demande_de_placement_traverse_sans_perdre_un_champ() {
 ///
 /// La même propriété que `les_manques_traversent_tous_et_dans_l_ordre` tient pour la disponibilité,
 /// et pour la même raison : n'en transmettre qu'un ferait corriger une condition, relancer,
-/// découvrir la suivante. Le vocabulaire est celui de §10.2, donc celui qu'un `AdmissionRefusal`
+/// découvrir la suivante. Le vocabulaire est celui de §12.2, donc celui qu'un `AdmissionRefusal`
 /// emploie déjà — pas une seconde écriture.
 #[test]
 fn un_refus_de_placement_porte_tous_ses_motifs() {

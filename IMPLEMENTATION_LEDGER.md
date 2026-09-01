@@ -17933,3 +17933,73 @@ lisible.
 `check:worker-pin` le refuse. L'ordre n'est pas libre — le job `e2e` monte `canterel` à la révision
 épinglée et y joue la garde en mode strict —, donc la relecture est mergée **là-bas** avant que le
 pin avance ici.
+
+## 2026-09-01 — Défaut — « §10.2 » désignait trois sections différentes, et vingt-cinq citations visaient la mauvaise
+
+**Périmètre.** `schemas/lep/1.0/admission-refusal.schema.json`, `packages/broker/src/protocol.rs`,
+`packages/broker/tests/link.rs`, `packages/testing/src/worker.ts`,
+`apps/locusd/src/observations.rs`, `apps/locusd/tests/observations.rs`, `tooling/sdk/ir.ts`,
+`tests/schemas/lep.test.ts`, `tests/repo/worker-pin.test.ts`, `tests/testing/harness.test.ts`,
+`tests/e2e/harness.ts`, `tests/e2e/harness.test.ts`, `tests/e2e/chain.chain.ts`,
+`docs/10_V1_ROADMAP.md`, `docs/adr/0032-le-placement-demande.md`. Prose et une liste de test ;
+aucune logique.
+
+**Comment il s'est trouvé.** En préparant `W19.c`, dont la ligne de roadmap cite « les codes de
+§10.2 » pour le refus **du worker**. En allant lire `docs/SPEC_V1.md` §10.2, on y trouve « Garanties
+» — ordre total par stream, concurrence optimiste, idempotence par commande. Rien sur un refus. Les
+codes cherchés sont dans `repos/canterel/SPEC_V1.md` §10.2, « Refus structuré ».
+
+**C'est le coût que `CLAUDE.md` annonce, réalisé.** « Une citation nue vers l'autre dépôt y désigne
+donc autre chose **sans erreur visible** », et « ce que la garde ne sait pas voir : un numéro qui
+existe ici et qui visait ailleurs ». `check:citations` a validé ces treize sites sans broncher :
+`§10.2` existe bien ici, il ne dit simplement pas ce qu'on lui fait dire.
+
+**Trois référents, et les distinguer était tout le travail.**
+
+1. **Les motifs de refus du broker** — `level_unavailable`, `capacity_exceeded`, … Ils viennent
+   d'`admit` et de `place`, dans `apps/locus-execd`, dont les deux modules citent déjà **§12.2
+   Placement** dans leur propre en-tête. C'est le bon numéro ; **dix-neuf** occurrences disaient
+   §10.2, dont deux dans le SDK généré — donc dix-sept écrites à la main —, le titre de la décision
+   3 de l'ADR 0032 (« le vocabulaire de refus est celui de §10.2 ») et quatre cellules de roadmap.
+   Corrigées. Un ADR ne se réécrit pas à la légère ; ici la décision ne bouge pas d'un mot, seul le
+   numéro qu'elle cite est remplacé par celui qu'elle a toujours voulu dire.
+2. **Le refus structuré du worker** — `model_unavailable`, `capability_missing`, … C'est bien un
+   §10.2, mais celui de `repos/canterel/SPEC_V1.md`. **Quatre** occurrences le visaient : le
+   commentaire de `chain.chain.ts` sur ce que le tour rend quand aucun modèle n'est configuré, et
+   trois cellules de roadmap — `W2.8`, `W2.23`, `W20.ac.3`. Ils nomment désormais leur document, ce
+   qui les dispense de la garde et dit au lecteur duquel ils parlent.
+3. **La politique locale plus restrictive** — `repos/canterel/SPEC_V1.md` §10.3, pas §10.2 même
+   là-bas. **Deux** occurrences, `packages/testing/src/worker.ts` et son test.
+
+Dix-neuf, quatre et deux : vingt-cinq, et le compte vient d'un `git diff` compté ligne à ligne, pas
+d'une addition de mémoire. Une session de ce chantier s'est déjà trompée en recomptant de tête dans
+le commit même qui disait avoir recompté.
+
+**Un site reste, et il n'est pas corrigé — délibérément.** `docs/adr/0011` liste les machines à
+états qui motivent Rust : « niveaux de validation (§8.1), états de lease (§12.3), statuts de commit
+épistémique (§2.3), issues d'admission (§10.2) ». Les trois premières sont des sections de ce dépôt
+; la quatrième peut viser §12.2 ici — `Admission::{Admitted, Refused}` est bien le type somme en
+question — comme le §10.2 de `canterel`, dont la section s'appelle littéralement « Admission d'une
+MissionEnvelope ». Trancher demanderait de décider ce que son auteur visait, ce qui est une
+conjecture et non une lecture. Il est nommé ici plutôt que corrigé au jugé.
+
+**Ce qui reste correct et n'a pas été touché.** `packages/event-store`, `packages/migrations`,
+`apps/locusd/src/transaction.rs`, `apps/locusd/src/messaging.rs` et `packages/coordination` citent
+§10.2 pour l'immutabilité, l'idempotence et l'ordre par stream : c'est exactement ce que la section
+dit. `features.json` cite §10.2 pour la signature des événements, « facultative en local,
+obligatoire en fédération » — la phrase y est mot pour mot. Le numéro n'est pas maudit ; il était
+surchargé.
+
+**Le compte, aussi, avait dérivé.** Neuf sites parlaient des « sept motifs » d'une union qui en
+porte **neuf** depuis `W5.ag` — y compris la décision 3 de l'ADR 0032, qui comptait encore l'ajout
+de `W5.g` comme le seul survenu depuis l'ADR 0017. Là où le compte n'apportait rien à la phrase, il
+est retiré plutôt que remis à jour : un nombre en prose est un otage. Un l'était pour de bon :
+`tests/schemas/lep.test.ts` tient une garde qui vérifie qu'aucun schéma ancien ne nomme un code de
+refus, et sa liste s'arrêtait à sept — elle rendait donc « ok » sans avoir regardé les deux
+nouveaux. C'est la forme de défaut que ce dépôt traque, dans l'outillage qui sert à la traquer ; les
+deux codes y sont entrés.
+
+**Pourquoi cette correction voyage avec `W5.ag`.** Deux fichiers touchés sont vendus chez `canterel`
+par le SDK épinglé — la description du schéma, via `generated.ts`, et
+`packages/testing/src/worker.ts`. Les corriger séparément coûterait un second aller-retour de
+re-vendoring pour quelques caractères. Elle a ses commits propres, et son entrée ici.

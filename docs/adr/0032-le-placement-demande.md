@@ -58,11 +58,12 @@ remplira ce port est nommé — `W12.e`, l'attestation — et non simulé.
 
 ---
 
-## Décision 3 — Le vocabulaire de refus est celui de §10.2, pas un second
+## Décision 3 — Le vocabulaire de refus est celui de §12.2, pas un second
 
-Un manque de placement s'écrit `locus_lep::Reason`, les sept motifs que `wire.rs` produit déjà pour
+Un manque de placement s'écrit `locus_lep::Reason`, les neuf motifs que `wire.rs` produit déjà pour
 un `AdmissionRefusal`. Une seconde écriture aurait divergé au premier motif ajouté — et il s'en est
-ajouté un : `disk_quota_not_enforceable`, né avec `W5.g` après l'ADR 0017 qui en nommait six.
+ajouté trois : `disk_quota_not_enforceable`, né avec `W5.g` après l'ADR 0017 qui en nommait six,
+puis `mechanism_not_employed` et `mechanism_unresolved` avec `W5.ag`.
 
 Le refus porte **tous** ses motifs, comme `admit` le fait déjà : n'en transmettre qu'un ferait
 corriger une condition, relancer, découvrir la suivante.

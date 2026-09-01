@@ -112,8 +112,8 @@ test("un worker qui accepte au-dessus de ses moyens est pris", async () => {
 });
 
 test("refuser une mission n'est pas une faute", async () => {
-  // La politique locale d'un worker peut être plus restrictive que son manifeste (§10.2). Un
-  // worker qui accepte tout est le vrai défaut.
+  // La politique locale d'un worker peut être plus restrictive que son manifeste
+  // (`repos/canterel/SPEC_V1.md` §10.3). Un worker qui accepte tout est le vrai défaut.
   const prudent: WorkerUnderTest = {
     ...conformant(),
     register: () => UNDERPOWERED,

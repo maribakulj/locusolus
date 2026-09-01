@@ -541,7 +541,7 @@ describe("un worker fait son tour sur une mission en file — W12.d, troisième 
    *   confinement S2 annoncé mais jamais prouvé, aucune campagne n'a conclu — lancer les self-tests
    * ```
    *
-   * Le worker s'est bien soumis, et le daemon a refusé pour trois motifs de §10.2 tous exacts sur
+   * Le worker s'est bien soumis, et le daemon a refusé pour trois motifs de §12.2 tous exacts sur
    * cette machine. Exiger la réclamation aurait donc fait de cette clause une affirmation sur
    * **l'hôte** — rouge sur un conteneur de développement, verte sur un runner capable —, ce que
    * `W5.x` a refusé d'écrire quelques heures plus tôt pour l'empreinte.
@@ -609,7 +609,7 @@ describe("un worker fait son tour sur une mission en file — W12.d, troisième 
  * # Ce que la troisième clause a laissé, et pourquoi elle l'a laissé
  *
  * Elle n'a pas pu exiger la réclamation. La mission du corpus demande `S2` et `deny`, et `locusd` la
- * refusait pour trois motifs de §10.2 **tous exacts** sur la machine où elle tournait. Exiger la
+ * refusait pour trois motifs de §12.2 **tous exacts** sur la machine où elle tournait. Exiger la
  * réclamation aurait fait de la clause une affirmation sur l'hôte : rouge sur un conteneur pauvre,
  * verte sur un runner capable, sans que rien du dépôt n'ait changé.
  *
@@ -741,7 +741,8 @@ describe("une mission taillée sur le manifeste est réclamée — W12.d, quatri
 
     // Ce qui suit la réclamation dépend de la machine, et les deux issues sont **nommées**. Un
     // `tour : mission … exécutée` là où un modèle est configuré ; un refus d'admission portant son
-    // code de §10.2 là où il n'y en a pas. Ce que la clause interdit est une troisième forme, muette.
+    // code de `repos/canterel/SPEC_V1.md` §10.2 là où il n'y en a pas — c'est le refus **du worker**,
+    // pas celui du daemon. Ce que la clause interdit est une troisième forme, muette.
     const nomme = tour.some(
       (ligne) => ligne.includes("exécutée") || /refusée à l'admission — \S+/.test(ligne),
     );

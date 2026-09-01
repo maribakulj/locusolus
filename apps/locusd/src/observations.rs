@@ -1,4 +1,4 @@
-//! Ce que le daemon **dit** d'une décision qu'aucune réponse ne porte — `W20.aa`, §10.2.
+//! Ce que le daemon **dit** d'une décision qu'aucune réponse ne porte — `W20.aa`, §12.2.
 //!
 //! # Le défaut, tel que la chaîne réelle l'a rendu
 //!
@@ -10,7 +10,7 @@
 //! - une mission **était** là, le broker a répondu `NotPlaced`, et la mission est retournée en file.
 //!
 //! Dans le second cas, `Placement::NotPlaced` porte un [`Shortfall`] par worker examiné, chacun avec
-//! ses [`Reason`] — les sept motifs de §10.2, que `packages/lep` distingue avec soin parce que « cet
+//! ses [`Reason`] — les neuf motifs de §12.2, que `packages/lep` distingue avec soin parce que « cet
 //! hôte ne sait pas faire » et « cet hôte ne l'a jamais prouvé » envoient à des endroits opposés.
 //!
 //! `Runtime::placed` écrivait `Ok(Placement::NotPlaced { .. }) => Ok(false)`. **Tout était jeté.**
@@ -131,7 +131,7 @@ pub fn refusal_note(task_id: &str, placement: &Placement) -> Option<String> {
 ///
 /// # Ce qu'elle ne fond pas
 ///
-/// Les sept motifs de §10.2 sont distincts parce qu'ils envoient à des endroits différents, et les
+/// Les neuf motifs de §12.2 sont distincts parce qu'ils envoient à des endroits différents, et les
 /// résumer en « l'hôte ne convient pas » annulerait le travail que `packages/lep` a fait pour les
 /// séparer. `level_unavailable` envoie changer de machine ; `level_not_attested` envoie lancer une
 /// campagne de self-tests ; `capacity_exceeded` envoie libérer de la place ;
