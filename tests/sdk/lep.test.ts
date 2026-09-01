@@ -7,6 +7,7 @@ import test from "node:test";
 import {
   LEP_DOCUMENTS,
   LEP_FEATURES,
+  LEP_MECHANISMS,
   featureSince,
   negotiate,
   type CapabilityManifest,
@@ -142,4 +143,34 @@ test("chaque feature déclare le mineur qui l'introduit", () => {
     assert.match(featureSince(name) ?? "", /^1\.\d+$/, name);
   }
   assert.equal(featureSince("telepathy"), undefined);
+});
+
+// ---------------------------------------------------------------------------------------------
+// Le registre des mécanismes — `W5.ag`, ADR 0035 décision 3.
+// ---------------------------------------------------------------------------------------------
+
+test("le registre des mécanismes ne porte ni doublon ni nom vide", () => {
+  // Un doublon ne casserait rien et ne ferait rien : le nom serait connu deux fois, et la seule
+  // trace en serait une ligne de plus dans un fichier que personne ne relit. Un nom vide serait
+  // pire — `backend` est `minLength: 1` dans les deux schémas, donc il ne se rapprocherait d'aucun
+  // document valide tout en donnant au registre l'air de le connaître.
+  assert.equal(new Set(LEP_MECHANISMS).size, LEP_MECHANISMS.length);
+  for (const name of LEP_MECHANISMS) assert.ok(name.length > 0, JSON.stringify(name));
+});
+
+test("le registre nomme le mécanisme que chaque manifeste du corpus annonce", () => {
+  // Le registre est la moitié qui rend le rapprochement décidable ; le corpus est ce sur quoi la
+  // chaîne s'exécute. Un manifeste dont le mécanisme sort du registre n'est pas invalide — c'est
+  // délibéré, `lep/1.0` laisse `backend` libre — mais il ne peut plus tirer d'aucune attestation,
+  // et le savoir ici vaut mieux que de le découvrir sur un refus de placement.
+  const inconnus = [];
+  for (const nom of ["capability-manifest.json", "capability-manifest-vm-linux.json"]) {
+    const manifeste = stripFixture(JSON.parse(readFileSync(join(examples, nom), "utf8")))
+      .body as CapabilityManifest;
+    const backend = manifeste.sandbox.backend;
+    if (backend !== undefined && !(LEP_MECHANISMS as readonly string[]).includes(backend)) {
+      inconnus.push(`${nom} → « ${backend} »`);
+    }
+  }
+  assert.deepEqual(inconnus, ["capability-manifest-vm-linux.json → « rootless-oci »"]);
 });

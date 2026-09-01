@@ -17816,3 +17816,193 @@ constater plutôt que se relire.
 **Écart avec la spec.** Aucun.
 
 **Prochain item.** Inchangé : `W2.27` et `W12.d` attendent un hôte qui annonce un modèle.
+
+## 2026-09-01 — W5.ag — Le registre des mécanismes, et les trois verdicts du rapprochement
+
+**Périmètre.** `schemas/lep/1.0/mechanisms.json` (neuf),
+`schemas/lep/1.0/admission-refusal.schema.json`, `schemas/examples/capability-manifest.json`,
+`tooling/sdk/{ir,emit-rust,emit-ts}.ts`, `packages/lep/src/{lib.rs,generated.rs,generated.ts}`,
+`apps/locus-execd/src/mechanism.rs` (neuf),
+`apps/locus-execd/src/{announced,admission,placement,attestation,wire,lib}.rs`,
+`apps/locusd/src/observations.rs`, `apps/locus-execd/tests/mechanism.rs` (neuf), et les tests
+existants d'`announced`, `attestation`, `placement`, `reroute`, `tests/sdk/lep.test.ts`.
+
+**Ce que l'item devait débloquer.** L'ADR 0035 décision 3 : une attestation ne vaut pour un worker
+que si trois choses tiennent ensemble — même hôte, même worker, **et un mécanisme que ce worker
+emploie**. Les deux premières étaient vérifiées depuis `W5.z` ; la troisième ne l'était pas, et la
+roadmap tenait le blocage pour un arbitrage de vocabulaire : « comparer deux `backend` demande
+qu'ils viennent du même vocabulaire, et il n'y en a pas ».
+
+**Ce que la mesure a trouvé avant d'écrire, et qui reclasse l'item.** `Proven::standing` rendait un
+`Standing` **nu**. Ce type ne porte que le niveau et ce qui le bloque : le site de placement n'avait
+donc **rien à comparer**, quelle qu'ait été la table de vocabulaire qu'on lui aurait donnée. Pire,
+le champ existait en amont — `W5.ae` avait rendu `backend` obligatoire dans l'enregistrement sur
+disque, en argumentant longuement pourquoi son absence serait « un enregistrement dont on ne sait
+pas ce qu'il affirme » — et `RecordedProven::standing` le laissait tomber à la ligne suivante :
+
+```rust
+SandboxLevel::parse(&record.level).map(|level| Standing::Trusted { level })
+```
+
+Le blocage n'était donc pas _seulement_ un arbitrage. C'était un arbitrage **et** une moitié de
+plomberie que personne n'avait vue parce que le champ était là où on l'avait mis, pas là où on en
+avait besoin. `Attested { backend, standing }` les tient maintenant ensemble : le demi-état est
+inexprimable, personne ne peut prendre le verdict et oublier le mécanisme. Le test qui le tient lit
+un mécanisme **différent** de celui du driver local, sans quoi une traduction qui écrirait une
+constante au lieu de lire le champ passerait aussi.
+
+**Le registre, et pourquoi il ne touche pas au fil.** `schemas/lep/1.0/mechanisms.json`, à côté de
+`features.json` et généré comme lui dans les deux SDK (`LEP_MECHANISMS`). Il **n'est pas un document
+de protocole** : `backend` reste une chaîne libre `minLength: 1` dans
+`capability-manifest.schema.json` et dans `sandbox-attestation.schema.json`, aucun document valide
+ne cesse de l'être, et c'est exactement ce qui lui permet d'exister à côté d'un `lep/1.0` gelé —
+l'autre voie, l'énumération, aurait demandé le mineur de l'ADR 0017.
+
+Il n'énonce **aucune équivalence**, et c'est délibéré. Un nom désigne lui-même ; deux noms ne se
+rapprochent que si une mesure établit qu'ils désignent le même mécanisme. L'ADR 0035 laisse
+`podman-rootless` et `bubblewrap` incomparables faute de les avoir mesurés l'un contre l'autre, et
+l'ADR 0036 applique le même critère à `bubblewrap` et `bubblewrap+cgroup` — ils échouent
+différemment, ils s'installent différemment. Le registre est l'endroit **unique** où une équivalence
+s'écrirait le jour où elle serait mesurée ; il n'en porte aucune aujourd'hui, et une table d'alias
+vide aurait été de la machinerie pour zéro entrée.
+
+Ce qu'il achète, alors, tient en une phrase : il rend décidable la différence entre « ce n'est pas
+le même mécanisme » et « je ne sais pas ce que ce nom désigne ». C'est la forme de `negotiate`, dont
+la documentation dit déjà pourquoi : les fondre en un seul non rendrait un pair mal orthographié
+indiscernable d'un pair légitime. Ici les deux se réparent différemment — l'un en lançant une
+**autre** campagne, l'autre en nommant un mécanisme.
+
+**Les trois verdicts.** `Employed` ; `Foreign` (les deux noms au registre, différents) ;
+`Unresolved` (les noms diffèrent et l'un au moins manque au registre, **ou** le manifeste n'en
+annonce aucun).
+
+**Les deux motifs de refus, et pourquoi deux et pas un.** `mechanism_not_employed` porte le
+mécanisme annoncé et ceux qui ont été écartés ; `mechanism_unresolved` porte les noms hors registre
+et un `employs` **absent** quand le manifeste ne nomme rien. Ils sont distincts de
+`level_not_attested`, ce que le test de sortie de `W5.ae` demandait déjà : « prouvé, mais pour un
+autre mécanisme » n'envoie pas relancer une campagne, il envoie en lancer une autre. L'interdit 3 de
+l'ADR 0017 tient sans exception : `admission-refusal` est **né** dans le mineur `1.1`, donc aucune
+énumération qu'un consommateur `1.0` connaît ne gagne de membre — c'est déjà ce qui avait permis à
+`disk_quota_not_enforceable` d'entrer après coup avec `W5.g` et `W5.j`.
+
+Une règle de composition s'y ajoute, et elle est facile à casser sans le voir : `level_not_attested`
+**ne s'ajoute pas** quand une preuve écartée atteignait le niveau exigé. « L'hôte annonce ce niveau
+et ne l'a jamais prouvé » serait alors faux — il l'a prouvé, ailleurs — et les deux phrases côte à
+côte enverraient l'exploitant à deux endroits dont un seul est le bon. Deux tests la tiennent, l'un
+par l'absence du motif, l'autre par sa présence quand la preuve écartée était trop basse elle aussi.
+
+**Deux choses trouvées en livrant, et la seconde a changé le dessin.**
+
+1. **`backend` est facultatif du côté du manifeste et obligatoire du côté de l'attestation.** Une
+   asymétrie des deux schémas gelés que personne n'avait relevée. Sans nom annoncé, le troisième
+   terme de la décision 3 ne se vérifie pas : un worker qui n'annonce pas son mécanisme ne peut
+   **plus** tirer d'aucune attestation. C'est un durcissement, et il est assumé — l'alternative
+   serait de traiter « je n'ai pas dit » comme « ça correspond », c'est-à-dire de ranger une
+   ignorance du côté permissif. Le refus dit quoi faire, ce que le silence d'avant ne faisait pas.
+   `schemas/examples/capability-manifest.json` nomme désormais `seatbelt`, ce que `sandboxBackend`
+   de `canterel` écrit réellement sur macOS ; la fixture était en retard sur son émetteur.
+2. **Deux noms égaux se rapprochent même hors registre.** Une première rédaction refusait, au motif
+   qu'une ignorance ne se range pas du bon côté. C'était appliquer la règle au mauvais endroit : ce
+   que l'ADR 0035 interdit est de rapprocher deux mécanismes **distincts**, pas un nom de lui-même,
+   et exiger l'inscription obligerait chaque déploiement tiers à modifier un fichier de ce dépôt-ci
+   pour placer quoi que ce soit. Le registre sert à distinguer les deux façons de dire non, pas à
+   autoriser le oui. L'ignorance reste du bon côté là où elle compte : un nom inconnu ne se
+   rapproche **jamais** d'un nom différent.
+
+**Ce qui reste hors registre, et c'est une décision.** `rootless-oci` et `lima-podman` n'existent
+que dans les exemples de `lep/1.0` ; aucun émetteur ne les écrit, et rien n'établit ce qu'ils
+désignent — `rootless-oci` peut être podman, crun ou runc sans racine. Les ranger avec
+`podman-rootless` ferait hériter un worker d'une preuve portant sur un mécanisme qu'il n'emploie
+pas, ce que l'ADR 0035 refuse explicitement dans sa question ouverte. Ils rendent donc « non
+rapproché », ce qui refuse un placement au lieu d'en accorder un sur une supposition. Une garde côté
+TypeScript le constate par égalité plutôt que de le laisser se découvrir sur un refus.
+
+**Tests.** 14 dans `apps/locus-execd/tests/mechanism.rs` — les cinq cas du rapprochement, les sept
+du placement, l'inertie sous `S0`, et le `NotTrusted` sous un mécanisme étranger qui ne se lit pas «
+prouvé ailleurs ». L'un des sept est le pendant positif qu'une garde de ce genre oublie facilement :
+une attestation surnuméraire portant sur un autre mécanisme, à côté d'une preuve suffisante, ne
+refuse **rien** — c'est une machine qui a fait tourner deux campagnes, pas une panne. Un de plus
+dans `tests/attestation.rs` pour la survie du mécanisme du fichier jusqu'au port ; un dans
+`tests/announced.rs` qui confronte les constantes de mécanisme au corpus plutôt que de les supposer
+; deux gardes de registre côté TypeScript.
+
+**Ce que l'item ne fait pas.** Il ne rend aucun `Proven` réel plus riche : la seule campagne qui
+existe atteste `podman-rootless`, aucun worker `canterel` ne l'emploie, et l'ADR 0035 décision 4 dit
+déjà que ce qu'elle mesure est le chemin du broker. Ce qui change est que le refus le **dit** au
+lieu de rendre « aucune campagne n'a conclu » — c'est exactement le constat que l'ADR voulait rendre
+lisible.
+
+**Suite immédiate.** `W5.ag.1` : le SDK généré change, donc `canterel` relit un contrat périmé et
+`check:worker-pin` le refuse. L'ordre n'est pas libre — le job `e2e` monte `canterel` à la révision
+épinglée et y joue la garde en mode strict —, donc la relecture est mergée **là-bas** avant que le
+pin avance ici.
+
+## 2026-09-01 — Défaut — « §10.2 » désignait trois sections différentes, et vingt-cinq citations visaient la mauvaise
+
+**Périmètre.** `schemas/lep/1.0/admission-refusal.schema.json`, `packages/broker/src/protocol.rs`,
+`packages/broker/tests/link.rs`, `packages/testing/src/worker.ts`,
+`apps/locusd/src/observations.rs`, `apps/locusd/tests/observations.rs`, `tooling/sdk/ir.ts`,
+`tests/schemas/lep.test.ts`, `tests/repo/worker-pin.test.ts`, `tests/testing/harness.test.ts`,
+`tests/e2e/harness.ts`, `tests/e2e/harness.test.ts`, `tests/e2e/chain.chain.ts`,
+`docs/10_V1_ROADMAP.md`, `docs/adr/0032-le-placement-demande.md`. Prose et une liste de test ;
+aucune logique.
+
+**Comment il s'est trouvé.** En préparant `W19.c`, dont la ligne de roadmap cite « les codes de
+§10.2 » pour le refus **du worker**. En allant lire `docs/SPEC_V1.md` §10.2, on y trouve « Garanties
+» — ordre total par stream, concurrence optimiste, idempotence par commande. Rien sur un refus. Les
+codes cherchés sont dans `repos/canterel/SPEC_V1.md` §10.2, « Refus structuré ».
+
+**C'est le coût que `CLAUDE.md` annonce, réalisé.** « Une citation nue vers l'autre dépôt y désigne
+donc autre chose **sans erreur visible** », et « ce que la garde ne sait pas voir : un numéro qui
+existe ici et qui visait ailleurs ». `check:citations` a validé ces treize sites sans broncher :
+`§10.2` existe bien ici, il ne dit simplement pas ce qu'on lui fait dire.
+
+**Trois référents, et les distinguer était tout le travail.**
+
+1. **Les motifs de refus du broker** — `level_unavailable`, `capacity_exceeded`, … Ils viennent
+   d'`admit` et de `place`, dans `apps/locus-execd`, dont les deux modules citent déjà **§12.2
+   Placement** dans leur propre en-tête. C'est le bon numéro ; **dix-neuf** occurrences disaient
+   §10.2, dont deux dans le SDK généré — donc dix-sept écrites à la main —, le titre de la décision
+   3 de l'ADR 0032 (« le vocabulaire de refus est celui de §10.2 ») et quatre cellules de roadmap.
+   Corrigées. Un ADR ne se réécrit pas à la légère ; ici la décision ne bouge pas d'un mot, seul le
+   numéro qu'elle cite est remplacé par celui qu'elle a toujours voulu dire.
+2. **Le refus structuré du worker** — `model_unavailable`, `capability_missing`, … C'est bien un
+   §10.2, mais celui de `repos/canterel/SPEC_V1.md`. **Quatre** occurrences le visaient : le
+   commentaire de `chain.chain.ts` sur ce que le tour rend quand aucun modèle n'est configuré, et
+   trois cellules de roadmap — `W2.8`, `W2.23`, `W20.ac.3`. Ils nomment désormais leur document, ce
+   qui les dispense de la garde et dit au lecteur duquel ils parlent.
+3. **La politique locale plus restrictive** — `repos/canterel/SPEC_V1.md` §10.3, pas §10.2 même
+   là-bas. **Deux** occurrences, `packages/testing/src/worker.ts` et son test.
+
+Dix-neuf, quatre et deux : vingt-cinq, et le compte vient d'un `git diff` compté ligne à ligne, pas
+d'une addition de mémoire. Une session de ce chantier s'est déjà trompée en recomptant de tête dans
+le commit même qui disait avoir recompté.
+
+**Un site reste, et il n'est pas corrigé — délibérément.** `docs/adr/0011` liste les machines à
+états qui motivent Rust : « niveaux de validation (§8.1), états de lease (§12.3), statuts de commit
+épistémique (§2.3), issues d'admission (§10.2) ». Les trois premières sont des sections de ce dépôt
+; la quatrième peut viser §12.2 ici — `Admission::{Admitted, Refused}` est bien le type somme en
+question — comme le §10.2 de `canterel`, dont la section s'appelle littéralement « Admission d'une
+MissionEnvelope ». Trancher demanderait de décider ce que son auteur visait, ce qui est une
+conjecture et non une lecture. Il est nommé ici plutôt que corrigé au jugé.
+
+**Ce qui reste correct et n'a pas été touché.** `packages/event-store`, `packages/migrations`,
+`apps/locusd/src/transaction.rs`, `apps/locusd/src/messaging.rs` et `packages/coordination` citent
+§10.2 pour l'immutabilité, l'idempotence et l'ordre par stream : c'est exactement ce que la section
+dit. `features.json` cite §10.2 pour la signature des événements, « facultative en local,
+obligatoire en fédération » — la phrase y est mot pour mot. Le numéro n'est pas maudit ; il était
+surchargé.
+
+**Le compte, aussi, avait dérivé.** Neuf sites parlaient des « sept motifs » d'une union qui en
+porte **neuf** depuis `W5.ag` — y compris la décision 3 de l'ADR 0032, qui comptait encore l'ajout
+de `W5.g` comme le seul survenu depuis l'ADR 0017. Là où le compte n'apportait rien à la phrase, il
+est retiré plutôt que remis à jour : un nombre en prose est un otage. Un l'était pour de bon :
+`tests/schemas/lep.test.ts` tient une garde qui vérifie qu'aucun schéma ancien ne nomme un code de
+refus, et sa liste s'arrêtait à sept — elle rendait donc « ok » sans avoir regardé les deux
+nouveaux. C'est la forme de défaut que ce dépôt traque, dans l'outillage qui sert à la traquer ; les
+deux codes y sont entrés.
+
+**Pourquoi cette correction voyage avec `W5.ag`.** Deux fichiers touchés sont vendus chez `canterel`
+par le SDK épinglé — la description du schéma, via `generated.ts`, et
+`packages/testing/src/worker.ts`. Les corriger séparément coûterait un second aller-retour de
+re-vendoring pour quelques caractères. Elle a ses commits propres, et son entrée ici.

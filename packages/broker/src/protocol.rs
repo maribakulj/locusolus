@@ -23,7 +23,7 @@
 //!
 //! La même règle vaut pour [`Ask::Place`], et elle décide tout ce que cette variante porte : le
 //! manifeste est [`locus_lep::CapabilityManifest`], l'exigence est [`locus_lep::SandboxSpec`] et
-//! [`locus_lep::ResourceSpec`], et un manque s'écrit [`locus_lep::Reason`] — les sept motifs que
+//! [`locus_lep::ResourceSpec`], et un manque s'écrit [`locus_lep::Reason`] — les neuf motifs que
 //! `apps/locus-execd/src/wire.rs` produit déjà pour un refus d'admission. Une seconde écriture des
 //! motifs aurait divergé au premier motif ajouté, et `W5.g` a montré qu'il s'en ajoute.
 //!
@@ -193,7 +193,7 @@ pub enum Verdict {
 
 /// Ce qui manquait à un worker, sur le fil.
 ///
-/// Les motifs sont ceux de §10.2 — [`Reason`], que `apps/locus-execd/src/wire.rs` produit déjà pour
+/// Les motifs sont ceux de §12.2 — [`Reason`], que `apps/locus-execd/src/wire.rs` produit déjà pour
 /// un `AdmissionRefusal`. Les réécrire ici aurait fait deux vocabulaires de refus dans le même
 /// binaire, dont l'un aurait manqué le motif suivant : c'est arrivé une fois, avec
 /// `disk_quota_not_enforceable`, né après l'ADR qui en nommait six.

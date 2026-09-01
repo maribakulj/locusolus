@@ -244,7 +244,7 @@ export type Chain = {
    * # Pourquoi le harnais a besoin de le lire
    *
    * Une mission écrite en dur affirme quelque chose sur l'hôte. La troisième clause l'a appris :
-   * `sandbox_level: "S2"` et `network: "deny"` étaient refusés pour trois motifs de §10.2 tous
+   * `sandbox_level: "S2"` et `network: "deny"` étaient refusés pour trois motifs de §12.2 tous
    * exacts sur cette machine, et exiger la réclamation aurait rendu la clause rouge sur un
    * conteneur de développement et verte sur un runner capable.
    *

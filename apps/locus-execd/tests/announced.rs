@@ -22,7 +22,7 @@ use std::thread;
 
 use locus_broker::port::{BrokerPort, Placement};
 use locus_broker::unix::{UnixSocketBroker, listen};
-use locus_execd::announced::{NothingProven, Proven, placement, requirement};
+use locus_execd::announced::{Attested, NothingProven, Proven, placement, requirement};
 use locus_execd::link::serve;
 use locus_execd::linux::HostFacts;
 use locus_execution::{SandboxLevel as Niveau, Standing};
@@ -30,6 +30,14 @@ use locus_lep::{CapabilityManifest, MissionEnvelope, Reason, SandboxLevel};
 
 const MACOS: &str = "canterel-macbook-01";
 const LINUX: &str = "canterel-vm-linux-01";
+
+/// Les mécanismes que les deux manifestes de fixture **annoncent** — ADR 0035 décision 3.
+///
+/// Repris du corpus, pas choisis ici : une campagne qui attesterait sous un autre nom serait écartée
+/// par le rapprochement, et chaque cas de placement éprouverait le rapprochement au lieu de ce qu'il
+/// annonce éprouver. Un test le vérifie plutôt que de le supposer.
+const MECANISME_MACOS: &str = "seatbelt";
+const MECANISME_LINUX: &str = "rootless-oci";
 
 fn fixture<T: serde::de::DeserializeOwned>(nom: &str) -> T {
     let chemin = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -66,13 +74,22 @@ fn manifeste(nom: &str) -> CapabilityManifest {
 /// permissif.
 struct Campagne {
     worker: String,
+    /// Le mécanisme sous lequel elle a conclu — ADR 0035 décision 3.
+    ///
+    /// Le double par défaut atteste sous le mécanisme que les manifestes de fixture annoncent : sans
+    /// cela, chaque cas de placement se ferait écarter par le rapprochement de mécanismes plutôt que
+    /// d'éprouver ce qu'il annonce éprouver.
+    backend: String,
     verdict: Standing,
 }
 
 impl Proven for Campagne {
-    fn standing(&self, worker_id: &str) -> Vec<Standing> {
+    fn standing(&self, worker_id: &str) -> Vec<Attested> {
         if worker_id == self.worker {
-            vec![self.verdict.clone()]
+            vec![Attested {
+                backend: self.backend.clone(),
+                standing: self.verdict.clone(),
+            }]
         } else {
             Vec::new()
         }
@@ -90,6 +107,8 @@ fn codes(reasons: &[Reason]) -> Vec<&'static str> {
             Reason::NetworkModeUnsupported { .. } => "network_mode_unsupported",
             Reason::LevelNotAttested { .. } => "level_not_attested",
             Reason::AcceleratorOutsideSandbox { .. } => "accelerator_outside_sandbox",
+            Reason::MechanismNotEmployed { .. } => "mechanism_not_employed",
+            Reason::MechanismUnresolved { .. } => "mechanism_unresolved",
         })
         .collect()
 }
@@ -151,6 +170,7 @@ fn sur_le_tube(
 fn campagne_linux() -> Campagne {
     Campagne {
         worker: LINUX.to_owned(),
+        backend: MECANISME_LINUX.to_owned(),
         verdict: Standing::Trusted { level: Niveau::S3 },
     }
 }
@@ -158,6 +178,31 @@ fn campagne_linux() -> Campagne {
 // ---------------------------------------------------------------------------------------------
 // 1. La paire de refus de `W0.7` : un worker macOS ne reçoit pas une mission `S3`.
 // ---------------------------------------------------------------------------------------------
+
+/// **Les mécanismes que ces tests attestent sont ceux que les fixtures annoncent.**
+///
+/// `MECANISME_MACOS` et `MECANISME_LINUX` sont des constantes de ce fichier, donc des affirmations
+/// sur le corpus. Si une fixture change de `backend` sans que la constante suive, chaque campagne
+/// serait écartée par le rapprochement de l'ADR 0035 décision 3 — et tous les cas de placement
+/// tomberaient d'un coup, en accusant le placement plutôt que la constante. Le lire ici le dit une
+/// fois, à l'endroit où l'on peut le corriger.
+#[test]
+fn les_constantes_de_mecanisme_sont_celles_du_corpus() {
+    assert_eq!(
+        manifeste("capability-manifest.json")
+            .sandbox
+            .backend
+            .as_deref(),
+        Some(MECANISME_MACOS)
+    );
+    assert_eq!(
+        manifeste("capability-manifest-vm-linux.json")
+            .sandbox
+            .backend
+            .as_deref(),
+        Some(MECANISME_LINUX)
+    );
+}
 
 /// **Un worker macOS n'est pas placé sur une mission qui exige `S3`.**
 ///
@@ -175,6 +220,7 @@ fn un_worker_macos_ne_recoit_pas_une_mission_qui_exige_s3() {
         &macos,
         Campagne {
             worker: MACOS.to_owned(),
+            backend: MECANISME_MACOS.to_owned(),
             // La campagne a conclu, et elle a conclu **bas**. C'est le cas qui compte : « il a
             // prouvé S2 » n'est pas « on ne sait pas », et le refus doit le dire.
             verdict: Standing::Trusted { level: Niveau::S2 },
@@ -230,6 +276,7 @@ fn un_worker_linux_qui_a_prouve_s3_est_place_au_niveau_exige() {
         &linux,
         Campagne {
             worker: LINUX.to_owned(),
+            backend: MECANISME_LINUX.to_owned(),
             verdict: Standing::Trusted { level: Niveau::S3 },
         },
     );
@@ -271,6 +318,7 @@ fn un_worker_qui_annonce_s3_sans_l_avoir_prouve_n_est_pas_place() {
             // prêter. Un port qui rendrait le même verdict à tout le monde passerait les deux
             // autres tests.
             worker: MACOS.to_owned(),
+            backend: MECANISME_MACOS.to_owned(),
             verdict: Standing::Trusted { level: Niveau::S3 },
         },
     );
@@ -304,6 +352,7 @@ fn l_horizon_d_une_mission_ne_decide_d_aucun_placement() {
     let mission = mission();
     let campagne = Campagne {
         worker: LINUX.to_owned(),
+        backend: MECANISME_LINUX.to_owned(),
         verdict: Standing::Trusted { level: Niveau::S3 },
     };
 
@@ -335,6 +384,7 @@ fn le_profil_prete_a_une_mission_qui_n_en_nomme_aucun_est_inerte() {
     let mission = mission();
     let campagne = Campagne {
         worker: LINUX.to_owned(),
+        backend: MECANISME_LINUX.to_owned(),
         verdict: Standing::Trusted { level: Niveau::S3 },
     };
     assert!(

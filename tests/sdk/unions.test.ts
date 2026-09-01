@@ -212,7 +212,7 @@ test("une branche d'union par $ref est refusée, en disant quoi faire", async ()
   assert.match(branche[0]?.message ?? "", /inline/);
 });
 
-/** Un répertoire de schémas minimal : le registre, les features, et le schéma à lire. */
+/** Un répertoire de schémas minimal : le registre, les features, les mécanismes, et le schéma. */
 async function toy(schema: unknown): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), "locus-sdk-"));
   scratch.push(root);
@@ -220,6 +220,7 @@ async function toy(schema: unknown): Promise<string> {
   await mkdir(join(root, "lep/1.0"), { recursive: true });
   await writeFile(join(root, "toy/1.0/refusal.schema.json"), JSON.stringify(schema));
   await writeFile(join(root, "lep/1.0/features.json"), JSON.stringify({ features: [] }));
+  await writeFile(join(root, "lep/1.0/mechanisms.json"), JSON.stringify({ mechanisms: [] }));
   await writeFile(
     join(root, "registry.json"),
     JSON.stringify({

@@ -358,7 +358,7 @@ describe("le manifeste se lit de ce que le worker imprime — W12.d, quatrième 
    *
    * Les deux n'envoient pas au même endroit : le second dit que l'enrôlement du harnais n'a pas
    * pris, et le chercher dans le manifeste ferait perdre un étage. C'est la séparation que ce dépôt
-   * applique aux sept motifs de §10.2, ramenée à une commande.
+   * applique aux neuf motifs de §12.2, ramenée à une commande.
    */
   it("une installation non enrôlée a son propre refus", () => {
     assert.throws(

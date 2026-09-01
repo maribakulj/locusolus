@@ -8,7 +8,7 @@
 //! tentative, c'est la même, déplacée.
 
 use locus_execd::{
-    Attempt, Candidate, HostCapabilities, RefusalReason, RerouteError, Rerouting, reroute,
+    Attempt, Attested, Candidate, HostCapabilities, RefusalReason, RerouteError, Rerouting, reroute,
 };
 use locus_execution::{
     Mount, NetworkMode, ResourceSpec, SandboxLevel, SandboxProfile, SandboxSpec, Standing,
@@ -24,10 +24,19 @@ fn host(best: SandboxLevel) -> HostCapabilities {
         ResourceSpec::new(8_000, 32 << 30, 4_096, 1 << 40, 86_400).expect("quotas non nuls"),
         vec!["deny", "connector_only", "allowlist", "full"],
     )
+    // Le mécanisme annoncé, et le même sous lequel la campagne conclut : ces tests-ci parlent de
+    // reroutage, pas de rapprochement de mécanismes — ADR 0035 décision 3 a ses propres cas.
+    .employing(MECANISME)
 }
 
+/// Le mécanisme que ces hôtes annoncent et sous lequel leurs campagnes concluent.
+const MECANISME: &str = "bubblewrap";
+
 fn proven(worker: &str, level: SandboxLevel) -> Candidate {
-    Candidate::new(worker, host(level)).attested(Standing::Trusted { level })
+    Candidate::new(worker, host(level)).attested(Attested {
+        backend: MECANISME.to_owned(),
+        standing: Standing::Trusted { level },
+    })
 }
 
 fn mission(level: SandboxLevel) -> SandboxSpec {

@@ -50,7 +50,7 @@ export type Alias = {
 /**
  * Une union **discriminée** : plusieurs formes distinguées par la valeur d'une propriété commune.
  *
- * Le premier document qui en demande une est le refus d'admission (ADR 0017 §5.2) : sept motifs qui
+ * Le premier document qui en demande une est le refus d'admission (ADR 0017 §5.2) : neuf motifs qui
  * ne portent pas les mêmes données — un niveau exigé et un meilleur niveau pour l'un, un genre
  * d'accélérateur pour l'autre, rien du tout pour un troisième. Un objet unique aux champs tous
  * facultatifs le dirait aussi mal qu'un `Value` non typé : le lecteur devrait deviner quelle
@@ -93,6 +93,13 @@ export type Model = {
   readonly documents: readonly string[];
   /** Negotiable features, from schemas/lep/1.0/features.json. */
   readonly features: readonly Feature[];
+  /**
+   * Known confinement mechanisms, from schemas/lep/1.0/mechanisms.json.
+   *
+   * Names only: what a consumer needs is « do I know this one », and the notes explaining each
+   * choice belong to the register, which is the single place they are kept.
+   */
+  readonly mechanisms: readonly string[];
 };
 
 /** `mission-envelope` → `MissionEnvelope`; `lep/1.0/lease.schema.json` → `Lease`. */
@@ -138,7 +145,20 @@ export function buildModel(schemasDir: string): { model: Model; findings: Findin
   const features = JSON.parse(readFileSync(join(schemasDir, "lep/1.0/features.json"), "utf8")) as {
     features: Feature[];
   };
-  return { model: { structs, aliases, unions, documents, features: features.features }, findings };
+  const register = JSON.parse(
+    readFileSync(join(schemasDir, "lep/1.0/mechanisms.json"), "utf8"),
+  ) as { mechanisms: { name: string }[] };
+  return {
+    model: {
+      structs,
+      aliases,
+      unions,
+      documents,
+      features: features.features,
+      mechanisms: register.mechanisms.map((mechanism) => mechanism.name),
+    },
+    findings,
+  };
 }
 
 function schemaFiles(registry: Registry): string[] {

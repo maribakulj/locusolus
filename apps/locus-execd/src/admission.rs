@@ -16,6 +16,7 @@ pub struct HostCapabilities {
     network_modes: Vec<&'static str>,
     reach: AcceleratorReach,
     disk_quota: DiskQuota,
+    mechanism: Option<String>,
 }
 
 /// D'où l'accélérateur de l'hôte est atteignable.
@@ -60,7 +61,26 @@ impl HostCapabilities {
             network_modes,
             reach: AcceleratorReach::InsideSandbox,
             disk_quota: DiskQuota::Enforceable,
+            mechanism: None,
         }
+    }
+
+    /// Déclarer le mécanisme de confinement que cet hôte emploie — ADR 0035 décision 3.
+    ///
+    /// Le défaut est `None`, et il n'est pas une lacune : `backend` est **facultatif** dans
+    /// `CapabilityManifestSandbox`, donc un manifeste peut légitimement ne pas le nommer. Ce que le
+    /// placement en fait est de refuser d'appliquer une attestation qu'il ne peut pas rapprocher, en
+    /// le disant — pas de supposer un mécanisme.
+    #[must_use]
+    pub fn employing(mut self, mechanism: &str) -> Self {
+        self.mechanism = Some(mechanism.to_owned());
+        self
+    }
+
+    /// Le mécanisme annoncé, quand le manifeste en nomme un.
+    #[must_use]
+    pub fn mechanism(&self) -> Option<&str> {
+        self.mechanism.as_deref()
     }
 
     /// Déclarer que cet hôte **ne peut pas** tenir de quota disque, et pourquoi.
@@ -173,6 +193,36 @@ pub enum RefusalReason {
         /// Le meilleur niveau que l'hôte a prouvé tenir, s'il en a prouvé un.
         proven: Option<SandboxLevel>,
     },
+    /// Une campagne a conclu, mais sous un mécanisme que ce worker n'emploie pas.
+    ///
+    /// ADR 0035 décision 3. **Distinct de [`RefusalReason::LevelNotAttested`]**, et la distinction
+    /// est tout l'intérêt : « aucune campagne n'a conclu » envoie lancer les self-tests, celui-ci
+    /// envoie en lancer une **autre**, sous le mécanisme que ce worker emploie. Les fondre ferait
+    /// relancer indéfiniment une campagne qui conclut déjà, et bien.
+    MechanismNotEmployed {
+        /// Ce que la mission exige.
+        required: SandboxLevel,
+        /// Le mécanisme que le worker annonce employer.
+        employs: String,
+        /// Les mécanismes attestés qui ont été écartés faute de correspondre.
+        attested: Vec<String>,
+    },
+    /// Le mécanisme attesté et celui du worker n'ont pas pu être **rapprochés**.
+    ///
+    /// Distinct de [`RefusalReason::MechanismNotEmployed`] : là, les deux noms sont au registre et
+    /// diffèrent ; ici, on ne sait pas ce qu'un nom désigne, et affirmer qu'ils diffèrent serait
+    /// affirmer plus qu'on ne sait.
+    MechanismUnresolved {
+        /// Ce que la mission exige.
+        required: SandboxLevel,
+        /// Le mécanisme annoncé, quand le manifeste en nomme un.
+        ///
+        /// `None` **est** l'information : le manifeste ne nomme aucun mécanisme, et ce n'est pas la
+        /// même ignorance qu'un nom présent mais hors registre.
+        employs: Option<String>,
+        /// Les noms que le registre ne connaît pas — vide quand le défaut est du côté de l'annonce.
+        unregistered: Vec<String>,
+    },
     /// L'accélérateur existe, mais pas là où la mission veut être confinée.
     ///
     /// Le refus est distinct de [`RefusalReason::AcceleratorUnavailable`] : l'accélérateur **est**
@@ -223,6 +273,33 @@ impl fmt::Display for RefusalReason {
                 None => write!(
                     formatter,
                     "aucune campagne de self-tests n'a conclu sur cet hôte : {} n'est pas prouvé",
+                    required.code()
+                ),
+            },
+            Self::MechanismNotEmployed {
+                required,
+                employs,
+                attested,
+            } => write!(
+                formatter,
+                "{} est prouvé sous « {} », que ce worker n'emploie pas : il annonce « {employs} »",
+                required.code(),
+                attested.join(" », « ")
+            ),
+            Self::MechanismUnresolved {
+                required,
+                employs,
+                unregistered,
+            } => match employs {
+                Some(employs) => write!(
+                    formatter,
+                    "{} ne se rapproche pas : « {employs} » est annoncé, et le registre des mécanismes ne connaît pas « {} »",
+                    required.code(),
+                    unregistered.join(" », « ")
+                ),
+                None => write!(
+                    formatter,
+                    "{} ne se rapproche pas : le manifeste ne nomme aucun mécanisme de confinement",
                     required.code()
                 ),
             },

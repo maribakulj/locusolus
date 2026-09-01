@@ -588,7 +588,7 @@ function readdirSyncSorted(): string[] {
 
 const REFUSAL = "urn:locus:schema:lep:1.0:admission-refusal";
 
-/** Les sept motifs, sous les codes qui voyagent. */
+/** Les neuf motifs, sous les codes qui voyagent. */
 const REFUSAL_CODES = [
   "level_unavailable",
   "capacity_exceeded",
@@ -597,6 +597,8 @@ const REFUSAL_CODES = [
   "network_mode_unsupported",
   "level_not_attested",
   "accelerator_outside_sandbox",
+  "mechanism_not_employed",
+  "mechanism_unresolved",
 ];
 
 test("un refus porte au moins un motif", () => {

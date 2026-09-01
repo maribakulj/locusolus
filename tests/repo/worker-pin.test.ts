@@ -77,7 +77,7 @@ test("une empreinte à jour ne produit aucun constat", async () => {
  *
  * Les deux se réparent ailleurs : l'une en re-vendorant, l'autre en corrigeant la table de
  * réécritures du consommateur. Les fondre en un seul motif enverrait la moitié des cas au mauvais
- * endroit — c'est la règle que `unplaced_note` applique déjà aux sept motifs de §10.2.
+ * endroit — c'est la règle que `unplaced_note` applique déjà aux neuf motifs de §12.2.
  */
 test("une source qui n'existe plus ici porte son propre motif", async () => {
   const worker = await fauxWorker(pinAvec("0".repeat(64), "packages/lep/src/disparu.ts"));

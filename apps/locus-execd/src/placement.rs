@@ -26,13 +26,15 @@ use std::fmt;
 use locus_execution::{SandboxLevel, SandboxSpec, Standing};
 
 use crate::admission::{Admission, HostCapabilities, RefusalReason, admit};
+use crate::announced::Attested;
+use crate::mechanism::{Employment, employment};
 
 /// Un hôte candidat, avec ce qu'il annonce et ce qu'il a prouvé.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Candidate {
     worker: String,
     capabilities: HostCapabilities,
-    attested: Vec<Standing>,
+    attested: Vec<Attested>,
 }
 
 impl Candidate {
@@ -50,10 +52,15 @@ impl Candidate {
         }
     }
 
-    /// Joindre le verdict d'une campagne de self-tests.
+    /// Joindre le verdict d'une campagne de self-tests, **avec le mécanisme sous lequel elle a
+    /// conclu**.
+    ///
+    /// Le mécanisme n'est pas un ornement : sans lui, la décision 3 de l'ADR 0035 n'a rien à
+    /// comparer. C'est [`Attested`] qui les tient ensemble, précisément pour qu'un appelant ne
+    /// puisse pas joindre l'un en oubliant l'autre.
     #[must_use]
-    pub fn attested(mut self, standing: Standing) -> Self {
-        self.attested.push(standing);
+    pub fn attested(mut self, attested: Attested) -> Self {
+        self.attested.push(attested);
         self
     }
 
@@ -69,19 +76,19 @@ impl Candidate {
         &self.capabilities
     }
 
-    /// Le niveau le plus élevé auquel il a été jugé `Trusted`.
+    /// Le niveau le plus élevé auquel il a été jugé `Trusted` **sous un mécanisme qu'il emploie**.
     ///
     /// `None` quand aucune campagne n'a conclu — ce qui n'est pas la même chose qu'une campagne
     /// ayant conclu `S0`.
+    ///
+    /// La restriction au mécanisme employé est l'ADR 0035 décision 3, et elle change ce que cette
+    /// méthode veut dire : une preuve portant sur un mécanisme que ce worker n'emploie pas n'est
+    /// pas un niveau prouvé **pour lui**. Sans elle, un worker sans `bwrap` hériterait du `S2` que
+    /// podman a prouvé sur la même machine, et le placement enverrait une mission dans un
+    /// confinement que personne n'appliquerait.
     #[must_use]
     pub fn proven_level(&self) -> Option<SandboxLevel> {
-        self.attested
-            .iter()
-            .filter_map(|standing| match standing {
-                Standing::Trusted { level } => Some(*level),
-                Standing::NotTrusted { .. } => None,
-            })
-            .max()
+        self.reconciled().employed
     }
 
     /// Ce qui manque à ce candidat pour cette mission.
@@ -95,21 +102,117 @@ impl Candidate {
             Admission::Refused { reasons } => reasons,
         };
         let required = spec.minimum_level();
-        if required > SandboxLevel::S0 && !self.proves(required) {
-            reasons.push(RefusalReason::LevelNotAttested {
-                required,
-                proven: self.proven_level(),
-            });
+        if required > SandboxLevel::S0 {
+            reasons.extend(self.reconciled().shortfall(required, &self.capabilities));
         }
         reasons
     }
 
-    fn proves(&self, required: SandboxLevel) -> bool {
-        self.proven_level()
-            .is_some_and(|proven| proven.satisfies(required))
+    /// Ce que les attestations de ce candidat deviennent une fois rapprochées de son mécanisme.
+    fn reconciled(&self) -> Reconciled {
+        let employs = self.capabilities.mechanism();
+        let mut reconciled = Reconciled::default();
+        for attested in &self.attested {
+            // Seuls les verdicts `Trusted` entrent dans le rapprochement. Un `NotTrusted` ne prouve
+            // rien sous aucun mécanisme, et le compter parmi les preuves écartées ferait dire
+            // « prouvé, mais ailleurs » d'une campagne qui a conclu que non.
+            let Standing::Trusted { level } = attested.standing else {
+                continue;
+            };
+            match employment(&attested.backend, employs) {
+                Employment::Employed => {
+                    reconciled.employed = reconciled.employed.max(Some(level));
+                }
+                Employment::Foreign => {
+                    reconciled.foreign.push(attested.backend.clone());
+                    reconciled.discarded = reconciled.discarded.max(Some(level));
+                }
+                Employment::Unresolved { unregistered } => {
+                    reconciled.unresolved = true;
+                    reconciled.unregistered.extend(unregistered);
+                    reconciled.discarded = reconciled.discarded.max(Some(level));
+                }
+            }
+        }
+        reconciled.foreign.sort_unstable();
+        reconciled.foreign.dedup();
+        reconciled.unregistered.sort_unstable();
+        reconciled.unregistered.dedup();
+        reconciled
     }
 }
 
+/// Ce que les attestations d'un candidat deviennent une fois confrontées à son mécanisme.
+///
+/// Une seule passe produit tout ce dont le refus a besoin. En deux passes, le jour où l'une change,
+/// l'autre reste — et le refus dirait une chose que le placement ne fait plus.
+#[derive(Debug, Default)]
+struct Reconciled {
+    /// Le meilleur niveau prouvé sous un mécanisme que ce worker emploie.
+    employed: Option<SandboxLevel>,
+    /// Le meilleur niveau prouvé sous un mécanisme **écarté**, quelle qu'en soit la raison.
+    discarded: Option<SandboxLevel>,
+    /// Les mécanismes attestés, connus du registre, que ce worker n'emploie pas.
+    foreign: Vec<String>,
+    /// Un rapprochement au moins n'a pas pu se faire.
+    ///
+    /// Distinct de `!unregistered.is_empty()` : le rapprochement échoue aussi quand le manifeste ne
+    /// nomme aucun mécanisme, et il n'y a alors **aucun** nom hors registre à montrer.
+    unresolved: bool,
+    /// Les noms hors registre rencontrés, triés et sans doublon.
+    unregistered: Vec<String>,
+}
+
+impl Reconciled {
+    /// Ce qui manque à ce candidat du côté de l'attestation, une fois le mécanisme pris en compte.
+    fn shortfall(
+        &self,
+        required: SandboxLevel,
+        capabilities: &HostCapabilities,
+    ) -> Vec<RefusalReason> {
+        if self
+            .employed
+            .is_some_and(|proven| proven.satisfies(required))
+        {
+            return Vec::new();
+        }
+        let mut reasons = Vec::new();
+        // `foreign` non vide implique un mécanisme annoncé : sans annonce, aucun rapprochement ne
+        // conclut `Foreign`. Le `if let` le dit au compilateur plutôt qu'à un lecteur.
+        if let Some(employs) = capabilities.mechanism()
+            && !self.foreign.is_empty()
+        {
+            reasons.push(RefusalReason::MechanismNotEmployed {
+                required,
+                employs: employs.to_owned(),
+                attested: self.foreign.clone(),
+            });
+        }
+        if self.unresolved {
+            reasons.push(RefusalReason::MechanismUnresolved {
+                required,
+                employs: capabilities.mechanism().map(str::to_owned),
+                unregistered: self.unregistered.clone(),
+            });
+        }
+        // `level_not_attested` dit « l'hôte annonce ce niveau et ne l'a jamais prouvé ». Quand une
+        // preuve écartée l'atteignait, c'est faux : le niveau **a** été prouvé, sous un mécanisme
+        // qui n'est pas celui-ci, et les motifs ci-dessus le disent déjà. L'ajouter enverrait
+        // relancer une campagne qui conclut déjà — exactement la confusion que ce découpage défait.
+        if !self
+            .discarded
+            .is_some_and(|proven| proven.satisfies(required))
+        {
+            reasons.push(RefusalReason::LevelNotAttested {
+                required,
+                proven: self.employed,
+            });
+        }
+        reasons
+    }
+}
+
+/// Le verdict du placement.
 /// Le verdict du placement.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Placement {

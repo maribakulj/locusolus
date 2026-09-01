@@ -31,6 +31,16 @@ export function emitTypeScript(model: Model): string {
         .join("\n") +
       `\n} as const;\n`,
     `export type LepFeature = keyof typeof LEP_FEATURES;\n`,
+    doc(
+      "Les mécanismes de confinement dont ce dépôt sait ce qu'ils désignent — registre\n" +
+        "`schemas/lep/1.0/mechanisms.json`, ADR 0035 décision 3. Ce n'est pas une énumération du\n" +
+        "fil : `backend` reste une chaîne libre dans les deux schémas qui le portent, et un nom\n" +
+        "absent d'ici n'est pas invalide — il est non rapproché, ce qui est un verdict différent de\n" +
+        "« ce n'est pas le même mécanisme ».",
+      "",
+    ),
+    `export const LEP_MECHANISMS = [\n${model.mechanisms.map((name) => `  ${JSON.stringify(name)},`).join("\n")}\n] as const;\n`,
+    `export type LepMechanism = (typeof LEP_MECHANISMS)[number];\n`,
   );
   return parts.join("\n");
 }

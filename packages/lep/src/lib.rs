@@ -65,3 +65,21 @@ pub fn feature_since(feature: &str) -> Option<&'static str> {
         .find(|(name, _)| *name == feature)
         .map(|(_, since)| *since)
 }
+
+/// Ce nom de mécanisme est-il au registre — `schemas/lep/1.0/mechanisms.json` ?
+///
+/// # Ce que « non » veut dire, et ce qu'il ne veut pas dire
+///
+/// Pas « invalide » : `backend` est une chaîne libre `minLength: 1` dans les deux schémas qui le
+/// portent, et le rester est ce qui permet au registre de vivre à côté d'un `lep/1.0` gelé. Un nom
+/// hors registre est un nom **dont ce dépôt ne sait pas ce qu'il désigne**, ce qui est exactement
+/// l'information dont un rapprochement de mécanismes a besoin pour ne pas confondre « ce n'est pas
+/// le même » avec « je ne sais pas ».
+///
+/// La comparaison est **exacte** : ni casse repliée, ni espaces rognés. Un nom est un jeton choisi
+/// par un émetteur, et replier la casse rapprocherait deux jetons que personne n'a mesurés comme
+/// désignant le même mécanisme — ce que l'ADR 0035 refuse dans sa question ouverte.
+#[must_use]
+pub fn mechanism_registered(name: &str) -> bool {
+    LEP_MECHANISMS.contains(&name)
+}

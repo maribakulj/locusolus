@@ -148,6 +148,25 @@ pub enum Reason {
         #[serde(skip_serializing_if = "Option::is_none", default)]
         proven: Option<SandboxLevel>,
     },
+    /// Une campagne a conclu pour cet hôte et ce worker, mais sous un mécanisme que le worker n'emploie pas — ADR 0035 décision 3. **Distinct de `level_not_attested`**, et la distinction est tout l'intérêt : « aucune campagne n'a conclu » envoie lancer les self-tests, celui-ci envoie en lancer une **autre**, sous le mécanisme que ce worker emploie réellement. Les fondre ferait relancer indéfiniment une campagne qui conclut déjà, et bien. Les deux noms sont au registre `schemas/lep/1.0/mechanisms.json` et ils désignent deux mécanismes différents : ADR 0035 et ADR 0036 les tiennent pour incomparables faute de les avoir mesurés l'un contre l'autre.
+    #[serde(rename = "mechanism_not_employed")]
+    MechanismNotEmployed {
+        required: SandboxLevel,
+        /// Le mécanisme que le manifeste du worker annonce.
+        employs: String,
+        /// Les mécanismes sous lesquels une campagne a conclu pour ce worker, et qui ont été écartés faute de correspondre. Au pluriel : plusieurs campagnes peuvent avoir déposé, et n'en nommer qu'une ferait chercher la mauvaise.
+        attested: Vec<String>,
+    },
+    /// Le mécanisme attesté et celui du worker n'ont pas pu être **rapprochés**, faute d'un nom que le registre connaisse. Distinct de `mechanism_not_employed` : là, les deux noms sont connus et diffèrent ; ici, on ne sait pas ce qu'un nom désigne, et « ce n'est pas le même » serait une affirmation qu'on n'a pas les moyens de faire. `employs` est **absent** quand le manifeste ne nomme aucun mécanisme — `backend` est facultatif dans `CapabilityManifestSandbox` alors qu'il est obligatoire dans `SandboxAttestation` —, et ce n'est pas la même ignorance qu'un nom présent mais hors registre : l'une envoie faire annoncer son mécanisme au worker, l'autre envoie ajouter le nom au registre ou corriger l'émetteur. `unregistered` peut donc être **vide**, et il l'est exactement quand le défaut est du côté de l'annonce.
+    #[serde(rename = "mechanism_unresolved")]
+    MechanismUnresolved {
+        required: SandboxLevel,
+        /// Le mécanisme que le manifeste annonce, quand il en annonce un.
+        #[serde(skip_serializing_if = "Option::is_none", default)]
+        employs: Option<String>,
+        /// Les noms que le registre ne connaît pas, celui du manifeste comme ceux des attestations.
+        unregistered: Vec<String>,
+    },
     /// L'accélérateur **est** sur cet hôte, mais pas là où la mission veut être confinée. Distinct d'`accelerator_unavailable` : le dire « absent » enverrait chercher du matériel au lieu de choisir entre le conteneur et l'accélérateur.
     #[serde(rename = "accelerator_outside_sandbox")]
     AcceleratorOutsideSandbox {
@@ -1078,7 +1097,7 @@ pub struct HumanReviewFinding {
     pub recorded_at: Option<String>,
 }
 
-/// Pourquoi une mission n'a pas été admise sur un hôte — SPEC_V1 §10.2, ADR 0017 §5.2, tranche 2 du mineur `lep/1.1`. Document **nouveau** : aucune énumération existante ne gagne un membre, ce que l'interdit 3 de l'ADR refuse. Il porte des données et pas seulement des codes — le niveau exigé, le meilleur niveau prouvé, le genre d'accélérateur — donc un membre de plus sur une énumération n'aurait de toute façon pas suffi.
+/// Pourquoi une mission n'a pas été admise sur un hôte — SPEC_V1 §12.2, ADR 0017 §5.2, tranche 2 du mineur `lep/1.1`. Document **nouveau** : aucune énumération existante ne gagne un membre, ce que l'interdit 3 de l'ADR refuse. Il porte des données et pas seulement des codes — le niveau exigé, le meilleur niveau prouvé, le genre d'accélérateur — donc un membre de plus sur une énumération n'aurait de toute façon pas suffi.
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AdmissionRefusal {
@@ -1115,4 +1134,18 @@ pub const LEP_FEATURES: [(&str, &str); 6] = [
     ("artifact-streaming", "1.0"),
     ("signed-events", "1.0"),
     ("subagent-visibility", "1.1"),
+];
+
+/// Les mécanismes de confinement dont ce dépôt sait ce qu'ils désignent — registre
+/// `schemas/lep/1.0/mechanisms.json`, ADR 0035 décision 3.
+///
+/// Ce n'est pas une énumération du fil : `backend` reste une chaîne libre dans les deux schémas
+/// qui le portent. Un nom absent d'ici n'est pas invalide, il est **non rapproché**, et c'est un
+/// verdict différent de « ce n'est pas le même mécanisme ».
+pub const LEP_MECHANISMS: [&str; 5] = [
+    "bubblewrap",
+    "bubblewrap+cgroup",
+    "podman-rootless",
+    "seatbelt",
+    "none",
 ];
