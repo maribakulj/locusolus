@@ -62,9 +62,11 @@ use std::process;
 
 use locus_execd::linux::{
     HostFacts, MUST_DENY, PodmanBackend, ProbeContext, RestrictedProfile, Runner, SANDBOX_REFUSED,
-    SeccompProfiles, SystemRunner, Trial, Workload, exec_arguments, host_boot_id, run_suite,
-    verdicts,
+    SeccompProfiles, SystemRunner, Trial, Workload, exec_arguments, run_suite, verdicts,
 };
+// Le noyau qui confine est celui de la VM sur macOS : voir `boot_id_du_noyau_qui_confine`.
+#[cfg(not(target_os = "macos"))]
+use locus_execd::linux::host_boot_id;
 use locus_execd::{RuntimePort, SandboxId};
 use locus_execution::{
     Expectation, Mount, MountMode, NetworkMode, Observed, ResourceSpec, SUITE, SandboxLevel,
@@ -136,6 +138,28 @@ fn write_restricted_profile(tag: &str) -> (PathBuf, RestrictedProfile) {
 ///
 /// `disk_bytes` est un paramètre parce que les deux tests de ce fichier en font deux usages
 /// distincts, et que la différence est le sujet du premier — voir son en-tête.
+/// Le `boot_id` du noyau qui fait tourner les conteneurs.
+///
+/// # Sur macOS, ce n'est pas celui de la machine qui exécute le test
+///
+/// `host_boot_id` lit `/proc/sys/kernel/random/boot_id` **localement**, et sa documentation prévoit
+/// déjà `None` sur un hôte non-Linux. Le conteneur, lui, partage le noyau de la VM podman : sans
+/// cette distinction, `reach_host_kernel_interfaces` n'a rien à quoi comparer et ne conclut pas —
+/// ce qui, à `S2`, compte comme non mesuré et fait échouer la campagne pour une raison qui n'a rien
+/// à voir avec le confinement.
+fn boot_id_du_noyau_qui_confine() -> Option<String> {
+    #[cfg(target_os = "macos")]
+    {
+        locus_execd::MachineFacts::read(&SystemRunner::new())
+            .boot_id()
+            .map(str::to_owned)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        host_boot_id()
+    }
+}
+
 fn probed_spec(workspace: &str, disk_bytes: u64) -> SandboxSpec {
     SandboxSpec::new(
         LEVEL,
@@ -388,7 +412,7 @@ fn probe(spec: &SandboxSpec, tag: &str) -> Result<Vec<Trial>, String> {
     )
     // `W5.i` : sans le `boot_id` de l'hôte, `reach_host_kernel_interfaces` n'a rien à quoi comparer
     // et ne conclut pas. Le lui donner est ce qui la fait mesurer ce que son nom annonce.
-    .with_host_boot_id(host_boot_id());
+    .with_host_boot_id(boot_id_du_noyau_qui_confine());
 
     let outcome = exercise(&mut backend, spec);
     let _ = fs::remove_file(&profile_path);
@@ -643,7 +667,7 @@ fn inspect_network(spec: &SandboxSpec) -> Result<String, String> {
     )
     // `W5.i` : sans le `boot_id` de l'hôte, `reach_host_kernel_interfaces` n'a rien à quoi comparer
     // et ne conclut pas. Le lui donner est ce qui la fait mesurer ce que son nom annonce.
-    .with_host_boot_id(host_boot_id());
+    .with_host_boot_id(boot_id_du_noyau_qui_confine());
 
     let seen = match backend.create(spec) {
         Ok(id) => {
@@ -728,7 +752,7 @@ fn claim_name(spec: &SandboxSpec, tag: &str) -> Result<String, String> {
     )
     // `W5.i` : sans le `boot_id` de l'hôte, `reach_host_kernel_interfaces` n'a rien à quoi comparer
     // et ne conclut pas. Le lui donner est ce qui la fait mesurer ce que son nom annonce.
-    .with_host_boot_id(host_boot_id());
+    .with_host_boot_id(boot_id_du_noyau_qui_confine());
     let claimed = match backend.create(spec) {
         Ok(id) => {
             let name = id.as_str().to_owned();

@@ -12,7 +12,8 @@
 
 use locus_execd::announced::{Attested, NothingProven, Proven};
 use locus_execd::attestation::{
-    Attestation, EMIT_ENV, RECORD_ENV, RecordedProven, annonce, emit, fingerprint, load, record,
+    Attestation, EMIT_ENV, RECORD_ENV, RecordedProven, annonce, campaign_inputs, emit, fingerprint,
+    load, record,
 };
 use locus_execd::linux::HostFacts;
 use locus_execution::SandboxLevel;
@@ -96,6 +97,26 @@ fn une_attestation_d_un_autre_hote_est_ecartee_et_comptee() {
     );
 }
 
+/// Un arbre qui **porte** les fichiers du noyau, écrit pour ce test.
+///
+/// La comparaison avait un côté implicite : « l'hôte qui fait tourner ces tests » était supposé
+/// avoir un `/sys/fs/cgroup`, ce qui est vrai sous Linux et faux partout ailleurs. Sur macOS les
+/// deux côtés lisaient un arbre sans aucun de ces fichiers, rendaient les mêmes indéterminations,
+/// et le test échouait en annonçant une empreinte qui ne suit pas les faits — alors que ce qu'il
+/// avait constaté est qu'il n'y avait pas deux faits à distinguer.
+///
+/// L'arbre est donc **écrit**, et c'est ce qui rend la comparaison vraie partout : le côté peuplé
+/// l'est par ce test, quel que soit le noyau qui l'exécute. On ne bricole toujours pas la structure
+/// `HostFacts` — elle reste **lue**, ce qui était le point de la version d'origine.
+fn faits_d_un_hote_peuple() -> HostFacts {
+    let racine = std::env::temp_dir().join("locus-attestation-peuple");
+    let cgroup = racine.join("sys/fs/cgroup");
+    std::fs::create_dir_all(&cgroup).expect("l'arbre se crée");
+    std::fs::write(cgroup.join("cgroup.controllers"), "cpu memory pids\n")
+        .expect("les contrôleurs s'écrivent");
+    HostFacts::read(&racine)
+}
+
 /// **L'empreinte suit les faits, et deux hôtes différents n'en rendent pas la même.**
 ///
 /// Tenu en **lisant** deux arbres, plutôt qu'en fabriquant deux structures : ce que le module
@@ -103,7 +124,10 @@ fn une_attestation_d_un_autre_hote_est_ecartee_et_comptee() {
 /// ne dirait rien de cette promesse-là.
 #[test]
 fn deux_hotes_ne_rendent_pas_la_meme_empreinte() {
-    assert_ne!(fingerprint(&faits()), fingerprint(&faits_d_ailleurs()));
+    assert_ne!(
+        fingerprint(&faits_d_un_hote_peuple()),
+        fingerprint(&faits_d_ailleurs())
+    );
     // Et elle est stable : deux lectures du même hôte se répondent, sans quoi aucune attestation ne
     // survivrait à un redémarrage.
     assert_eq!(fingerprint(&faits()), fingerprint(&faits()));
@@ -636,4 +660,110 @@ fn le_quota_disque_pese_dans_l_empreinte() {
         sur_ext4_declare,
         fingerprint(&HostFacts::probe(&sur_xfs).with_storage(&sur_xfs, "/")),
     );
+}
+
+// ---------------------------------------------------------------------------------------------
+// Ce qu'une campagne exige de l'exploitant
+// ---------------------------------------------------------------------------------------------
+
+/// Un environnement de mensonge, complet.
+fn entrees_completes() -> Vec<(&'static str, &'static str)> {
+    vec![
+        ("LOCUS_PROBE_IMAGE", "localhost/sonde@sha256:abc"),
+        ("LOCUS_EXECD_SECCOMP_PROFILE", "/profils/restreint.json"),
+        ("LOCUS_EXECD_PROBE_WORKSPACE", "/travail"),
+        ("LOCUS_EXECD_ATTESTATION_WORKER", "canterel-1"),
+        ("LOCUS_EXECD_ATTESTATION_OUT", "/depot/attestations.json"),
+    ]
+}
+
+fn lire(paires: &[(&'static str, &'static str)], nom: &str) -> Option<String> {
+    paires
+        .iter()
+        .find(|(cle, _)| *cle == nom)
+        .map(|(_, valeur)| (*valeur).to_owned())
+}
+
+#[test]
+fn une_campagne_complete_se_lit() {
+    let paires = entrees_completes();
+    let entrees = campaign_inputs(
+        |nom| lire(&paires, nom),
+        |_| Some("{\"defaultAction\":\"SCMP_ACT_ALLOW\"}".to_owned()),
+    )
+    .expect("les cinq entrées sont là");
+    assert_eq!(entrees.image, "localhost/sonde@sha256:abc");
+    assert_eq!(entrees.worker_id, "canterel-1");
+    assert_eq!(entrees.out, "/depot/attestations.json");
+}
+
+/// **Chaque variable absente refuse, et le refus la nomme.**
+///
+/// Tenu sur les cinq et non sur une : c'est en oubliant la quatrième qu'on découvrirait que le
+/// message parle de la première. Un refus qui nomme la mauvaise variable coûte plus cher qu'un
+/// refus muet, parce qu'on le croit.
+#[test]
+fn chaque_variable_manquante_refuse_en_se_nommant() {
+    for (absente, _) in entrees_completes() {
+        let paires: Vec<_> = entrees_completes()
+            .into_iter()
+            .filter(|(cle, _)| *cle != absente)
+            .collect();
+        let refus = campaign_inputs(|nom| lire(&paires, nom), |_| Some("{}".to_owned()))
+            .expect_err("une entrée manque");
+        assert_eq!(
+            refus.variable, absente,
+            "le refus doit nommer la variable réellement absente"
+        );
+    }
+}
+
+/// **Une valeur vide ne vaut pas une valeur.**
+///
+/// `LOCUS_PROBE_IMAGE=` dans un script est une variable posée par quelqu'un qui croit avoir choisi.
+/// La traiter comme absente est juste ; la traiter comme une image ne l'est pas.
+#[test]
+fn une_valeur_vide_est_traitee_comme_absente() {
+    let paires = vec![
+        ("LOCUS_PROBE_IMAGE", "   "),
+        ("LOCUS_EXECD_SECCOMP_PROFILE", "/p.json"),
+        ("LOCUS_EXECD_PROBE_WORKSPACE", "/travail"),
+        ("LOCUS_EXECD_ATTESTATION_WORKER", "w"),
+        ("LOCUS_EXECD_ATTESTATION_OUT", "/o.json"),
+    ];
+    let refus = campaign_inputs(|nom| lire(&paires, nom), |_| Some("{}".to_owned()))
+        .expect_err("une image vide n'est pas une image");
+    assert_eq!(refus.variable, "LOCUS_PROBE_IMAGE");
+}
+
+/// **Un tag est refusé : une attestation citant un tag vaudrait pour une autre image demain.**
+#[test]
+fn une_image_par_tag_est_refusee() {
+    let paires = vec![
+        ("LOCUS_PROBE_IMAGE", "alpine:3.20"),
+        ("LOCUS_EXECD_SECCOMP_PROFILE", "/p.json"),
+        ("LOCUS_EXECD_PROBE_WORKSPACE", "/travail"),
+        ("LOCUS_EXECD_ATTESTATION_WORKER", "w"),
+        ("LOCUS_EXECD_ATTESTATION_OUT", "/o.json"),
+    ];
+    let refus = campaign_inputs(|nom| lire(&paires, nom), |_| Some("{}".to_owned()))
+        .expect_err("un tag se déplace");
+    assert_eq!(refus.variable, "LOCUS_PROBE_IMAGE");
+    assert!(
+        refus.reason.contains("digest"),
+        "le refus dit ce qu'il attend : {}",
+        refus.reason
+    );
+}
+
+/// **Un profil nommé mais illisible refuse**, comme les amorçages de `locusd`.
+///
+/// L'exploitant qui a posé le chemin veut que ce profil compte. Démarrer sans lui ferait conclure
+/// une campagne sur une posture seccomp que personne n'a choisie.
+#[test]
+fn un_profil_nomme_et_illisible_refuse() {
+    let paires = entrees_completes();
+    let refus =
+        campaign_inputs(|nom| lire(&paires, nom), |_| None).expect_err("le profil ne se lit pas");
+    assert_eq!(refus.variable, "LOCUS_EXECD_SECCOMP_PROFILE");
 }

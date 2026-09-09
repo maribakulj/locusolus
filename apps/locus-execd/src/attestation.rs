@@ -497,6 +497,130 @@ pub fn record(
     }
 }
 
+/// L'image dans laquelle les sondes tournent, par digest.
+///
+/// # Aucun défaut, et c'est le cœur de l'affaire
+///
+/// L'image **est** ce que la campagne éprouve : les seize sondes s'exécutent dedans, et une
+/// attestation dit « ce niveau tient » pour cette image-là. En choisir une à la place de
+/// l'exploitant ferait signer une garantie sur un contenu qu'il n'a pas désigné, ce qui est
+/// exactement la déclaration sans mesure que l'ADR 0025 rend coûteuse.
+///
+/// Par **digest** et non par tag : un tag se déplace, et une attestation qui le citerait vaudrait
+/// pour une image différente le lendemain sans que rien ne change dans le fichier.
+pub const PROBE_IMAGE_ENV: &str = "LOCUS_PROBE_IMAGE";
+
+/// Le profil seccomp restreint, en chemin vers un fichier JSON.
+///
+/// Il est **relu et validé** — [`crate::linux::RestrictedProfile::parse`] refuse un profil qui
+/// laisserait passer un appel de `MUST_DENY`. Un profil permissif accepté ici ferait conclure une
+/// campagne sur un confinement que le noyau n'applique pas.
+pub const SECCOMP_PROFILE_ENV: &str = "LOCUS_EXECD_SECCOMP_PROFILE";
+
+/// Le répertoire monté en écriture dans la sandbox des sondes.
+///
+/// La campagne a besoin d'un espace de travail légitime — sans lui, les sondes qui écrivent ne
+/// distinguent pas « contenue » de « rien à écrire ». Il n'a pas de défaut pour la même raison que
+/// les autres : c'est un chemin de la machine de l'exploitant.
+pub const PROBE_WORKSPACE_ENV: &str = "LOCUS_EXECD_PROBE_WORKSPACE";
+
+/// Ce qui a empêché une campagne de conclure, avec la variable en cause.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CampaignRefusal {
+    /// La variable fautive, sous son nom — ou `""` quand le refus ne vient pas d'une variable.
+    pub variable: &'static str,
+    /// Ce qui n'allait pas.
+    pub reason: String,
+}
+
+impl std::fmt::Display for CampaignRefusal {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.variable.is_empty() {
+            return write!(formatter, "campagne impossible — {}", self.reason);
+        }
+        write!(
+            formatter,
+            "campagne impossible — `{}` : {}",
+            self.variable, self.reason
+        )
+    }
+}
+
+/// Ce qu'une campagne demande à l'exploitant, lu et vérifié.
+///
+/// # Pourquoi les trois sont obligatoires ensemble
+///
+/// Elles décrivent **ce sur quoi** la campagne conclut : l'image, la posture seccomp, l'espace de
+/// travail. Une attestation est une phrase sur un système ; les trois nomment ce système. En
+/// deviner une reviendrait à signer une phrase dont un mot serait de nous.
+///
+/// Même forme que les amorçages de `locusd` : variable absente, rien ne se fait ; variable présente
+/// et illisible, **refus**, en la nommant. Un exploitant qui a posé une variable veut qu'elle compte.
+#[derive(Debug, Clone)]
+pub struct CampaignInputs {
+    /// L'image de sonde, par digest.
+    pub image: String,
+    /// Le chemin du profil seccomp.
+    pub profile_path: String,
+    /// Le corps du profil, tel qu'il a été lu.
+    pub profile_body: String,
+    /// Le répertoire de travail monté dans la sandbox.
+    pub workspace: String,
+    /// Le worker pour lequel la campagne atteste.
+    pub worker_id: String,
+    /// Où déposer l'enregistrement.
+    pub out: String,
+}
+
+/// Lire ce qu'une campagne exige, ou dire ce qui manque.
+///
+/// `lookup` rend la valeur d'une variable, `read_file` le contenu d'un fichier : les deux sont des
+/// paramètres pour que cette fonction s'éprouve sans toucher ni l'environnement ni le disque.
+///
+/// # Errors
+///
+/// [`CampaignRefusal`] dès qu'une variable manque, est vide, ou désigne un fichier illisible. Le
+/// refus **nomme la variable**, parce qu'un exploitant qui lit « campagne impossible » sans savoir
+/// laquelle relit cinq documentations.
+pub fn campaign_inputs(
+    lookup: impl Fn(&str) -> Option<String>,
+    read_file: impl Fn(&str) -> Option<String>,
+) -> Result<CampaignInputs, CampaignRefusal> {
+    let exige = |name: &'static str| -> Result<String, CampaignRefusal> {
+        lookup(name)
+            .map(|value| value.trim().to_owned())
+            .filter(|value| !value.is_empty())
+            .ok_or(CampaignRefusal {
+                variable: name,
+                reason: "absente ou vide — une campagne ne devine pas ce sur quoi elle conclut"
+                    .to_owned(),
+            })
+    };
+    let image = exige(PROBE_IMAGE_ENV)?;
+    if !image.contains('@') {
+        return Err(CampaignRefusal {
+            variable: PROBE_IMAGE_ENV,
+            reason: format!(
+                "« {image} » n'est pas une référence par digest : un tag se déplace, et \
+                 l'attestation vaudrait alors pour une autre image"
+            ),
+        });
+    }
+    let profile_path = exige(SECCOMP_PROFILE_ENV)?;
+    let profile_body = read_file(&profile_path).ok_or(CampaignRefusal {
+        variable: SECCOMP_PROFILE_ENV,
+        reason: format!("« {profile_path} » ne se lit pas"),
+    })?;
+    Ok(CampaignInputs {
+        image,
+        profile_path,
+        profile_body,
+        workspace: exige(PROBE_WORKSPACE_ENV)?,
+        worker_id: exige(EMIT_WORKER_ENV)?,
+        out: exige(EMIT_ENV)?,
+    })
+}
+
 /// Le fichier qu'une campagne dépose, à partir de ce qu'elle a conclu.
 ///
 /// # Errors

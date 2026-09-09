@@ -88,6 +88,27 @@ pub fn read_arguments(machine: &str, path: &str) -> Vec<String> {
     ]
 }
 
+/// Le nom de la machine, sans la marque de la machine par défaut.
+///
+/// # Un astérisque qui coûtait tout l'invité
+///
+/// `podman machine list --format "{{.Name}}"` rend `podman-machine-default*` — l'astérisque marque
+/// la machine **par défaut**, et il fait partie du champ, pas du gabarit. Passé tel quel à
+/// `podman machine ssh`, il n'est plus un nom de machine : le shell le reçoit comme une commande,
+/// répond `podman-machine-default*: command not found`, et [`MachineReader`] rend `None` pour
+/// **chaque** fichier.
+///
+/// L'effet était silencieux et trompeur : une machine correctement démarrée, reconnue comme telle
+/// et annoncée « tourne », dont l'invité paraissait dépourvu de cgroup v2 et de seccomp. Le plafond
+/// tombait à `S0` sur un hôte qui tient `S2`, et le diagnostic imprimé accusait le noyau invité —
+/// c'est-à-dire l'endroit exact où personne n'irait chercher un défaut de parsing.
+///
+/// La marque est retirée à la lecture plutôt qu'à l'usage : un nom qui ne désigne pas une machine
+/// ne doit pas circuler dans le reste du module, où chaque appel devrait alors s'en souvenir.
+fn nom_de_machine(brut: &str) -> &str {
+    brut.strip_suffix('*').unwrap_or(brut)
+}
+
 /// Lire l'état des machines.
 pub fn state<R: Runner + ?Sized>(runner: &R) -> MachineState {
     let Ok(execution) = runner.run(&list_arguments()) else {
@@ -110,6 +131,7 @@ pub fn state<R: Runner + ?Sized>(runner: &R) -> MachineState {
         let (Some(name), Some(running)) = (parts.next(), parts.next()) else {
             continue;
         };
+        let name = nom_de_machine(name);
         if running.eq_ignore_ascii_case("true") {
             return MachineState::Running {
                 name: name.to_owned(),
@@ -150,11 +172,138 @@ impl<R: Runner + ?Sized> Reader for MachineReader<'_, R> {
     }
 }
 
+/// Les fichiers que la sonde demande, plus celui qu'elle **dérive**.
+///
+/// La liste couple ce module à [`crate::linux::probe`], et c'est assumé : la raison est écrite sur
+/// [`MachineSnapshot`], et elle tient en une phrase — un lecteur qui rouvre une session par fichier
+/// ne peut pas répondre de façon cohérente à deux questions liées.
+const FICHIERS: [&str; 7] = [
+    "/proc/self/mountinfo",
+    "/sys/fs/cgroup/cgroup.controllers",
+    "/proc/self/cgroup",
+    "/proc/sys/user/max_user_namespaces",
+    "/proc/sys/kernel/unprivileged_userns_clone",
+    "/proc/sys/kernel/seccomp/actions_avail",
+    // Pas lu par `HostFacts::probe` : c'est [`MachineFacts::boot_id`] qui le sert, et il voyage
+    // dans le même instantané parce qu'il décrit le même noyau au même instant.
+    crate::linux::driver::BOOT_ID_PATH,
+];
+
+/// La marque qui sépare deux fichiers dans l'instantané.
+const BORNE: &str = "===locus===";
+
+/// Le script qui lit tout l'invité **en une fois**.
+///
+/// La dernière ligne est celle qui compte : elle résout le cgroup de la session courante et lit ses
+/// contrôleurs *dans la même session*, sous exactement le chemin que
+/// `crate::linux::probe::own_cgroup_path` reconstruira.
+fn script() -> String {
+    use std::fmt::Write as _;
+    let mut script = String::new();
+    for fichier in FICHIERS {
+        let _ = write!(
+            script,
+            "printf '%s\\n%s\\n' '{BORNE}' '{fichier}'; cat '{fichier}' 2>/dev/null; "
+        );
+    }
+    let _ = write!(
+        script,
+        "propre=$(sed -n 's|^0::/*||p' /proc/self/cgroup | head -1); \
+         if [ -n \"$propre\" ]; then \
+           chemin=\"/sys/fs/cgroup/$propre/cgroup.controllers\"; \
+           printf '%s\\n%s\\n' '{BORNE}' \"$chemin\"; cat \"$chemin\" 2>/dev/null; \
+         fi"
+    );
+    script
+}
+
+/// Les arguments qui prennent l'instantané.
+#[must_use]
+pub fn snapshot_arguments(machine: &str) -> Vec<String> {
+    vec![
+        "machine".to_owned(),
+        "ssh".to_owned(),
+        machine.to_owned(),
+        "sh".to_owned(),
+        "-c".to_owned(),
+        script(),
+    ]
+}
+
+/// Tout l'invité, lu en une session — et pourquoi c'est nécessaire.
+///
+/// # Deux lectures liées ne survivent pas à deux sessions
+///
+/// La sonde de cgroup demande d'abord `/proc/self/cgroup`, puis les contrôleurs du répertoire
+/// qu'elle y trouve. Sur un système de fichiers local, « self » est le même processus aux deux
+/// instants. À travers `podman machine ssh`, **chaque lecture est une session SSH distincte**, donc
+/// un scope systemd distinct : la première répond `session-14.scope`, la seconde s'exécute dans
+/// `session-19.scope`, et le répertoire de la première n'existe plus.
+///
+/// Le symptôme était trompeur au point de désigner le mauvais coupable : cgroup v2 « indéterminé,
+/// ce chemin est illisible », sur une VM dont la racine `cgroup.controllers` liste pourtant
+/// `cpuset cpu io memory pids`. Le plafond tombait à `S1` sur un hôte qui tient `S2`, et le
+/// diagnostic accusait le noyau invité — c'est-à-dire l'endroit où personne n'irait chercher un
+/// défaut de transport.
+///
+/// L'instantané rétablit ce que le lecteur local offrait gratuitement : **une vue cohérente**. Le
+/// prix est la liste [`FICHIERS`], qui doit suivre la sonde ; le prix de l'autre choix était une
+/// réponse fausse, ce qui n'est pas un prix mais une dette.
+pub struct MachineSnapshot {
+    fichiers: std::collections::BTreeMap<String, String>,
+}
+
+impl MachineSnapshot {
+    /// Prendre l'instantané de MACHINE.
+    pub fn read<R: Runner + ?Sized>(runner: &R, machine: &str) -> Self {
+        let Ok(execution) = runner.run(&snapshot_arguments(machine)) else {
+            return Self {
+                fichiers: std::collections::BTreeMap::new(),
+            };
+        };
+        Self {
+            fichiers: Self::parse(&execution.stdout),
+        }
+    }
+
+    /// Relire la sortie du script en (CHEMIN, CONTENU).
+    ///
+    /// Un fichier absent laisse un contenu vide plutôt qu'aucune entrée : `cat` a échoué, la
+    /// question a bien été posée, et la sonde doit pouvoir distinguer « lu, vide » de « pas lu ».
+    /// Le second cas est celui d'une machine qui ne répond pas du tout, et il rend une carte vide.
+    fn parse(sortie: &str) -> std::collections::BTreeMap<String, String> {
+        let mut fichiers = std::collections::BTreeMap::new();
+        for bloc in sortie.split(BORNE).skip(1) {
+            let mut lignes = bloc.trim_start_matches('\n').splitn(2, '\n');
+            let (Some(chemin), contenu) = (lignes.next(), lignes.next().unwrap_or("")) else {
+                continue;
+            };
+            let chemin = chemin.trim();
+            if !chemin.is_empty() {
+                fichiers.insert(chemin.to_owned(), contenu.to_owned());
+            }
+        }
+        fichiers
+    }
+}
+
+impl Reader for MachineSnapshot {
+    fn read(&self, path: &str) -> Option<String> {
+        let contenu = self.fichiers.get(path)?;
+        if contenu.is_empty() {
+            None
+        } else {
+            Some(contenu.clone())
+        }
+    }
+}
+
 /// Ce qu'un hôte macOS peut offrir : l'état de la machine, et ce que son invité permet.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MachineFacts {
     state: MachineState,
     guest: Option<HostFacts>,
+    boot_id: Option<String>,
 }
 
 impl MachineFacts {
@@ -166,11 +315,40 @@ impl MachineFacts {
     /// là où il suffit de démarrer la machine.
     pub fn read<R: Runner + ?Sized>(runner: &R) -> Self {
         let state = state(runner);
-        let guest = state
-            .name()
-            .filter(|_| state.is_running())
-            .map(|machine| HostFacts::probe(&MachineReader::new(runner, machine)));
-        Self { state, guest }
+        let Some(machine) = state.name().filter(|_| state.is_running()) else {
+            return Self {
+                state,
+                guest: None,
+                boot_id: None,
+            };
+        };
+        let instantane = MachineSnapshot::read(runner, machine);
+        let boot_id = instantane
+            .read(crate::linux::driver::BOOT_ID_PATH)
+            .and_then(|contenu| crate::linux::driver::boot_id_from(&contenu));
+        Self {
+            guest: Some(HostFacts::probe(&instantane)),
+            state,
+            boot_id,
+        }
+    }
+
+    /// Le `boot_id` du noyau **qui confine**, quand il se lit.
+    ///
+    /// # Pourquoi il ne peut pas venir de `host_boot_id`
+    ///
+    /// Celle-ci lit `/proc/sys/kernel/random/boot_id` du processus courant, et sa documentation
+    /// prévoit déjà `None` « sur un hôte non-Linux ». Sur macOS c'est exactement le cas, et la
+    /// conséquence était que `reach_host_kernel_interfaces` n'avait rien à quoi comparer : elle ne
+    /// concluait pas, ce qui à `S2` compte comme non mesuré.
+    ///
+    /// Or le conteneur ne partage pas le noyau du Mac — il partage celui de la VM. La valeur qui
+    /// discrimine est donc celle de l'invité, et elle est lue dans le **même instantané** que le
+    /// reste : un `boot_id` pris dans une autre session décrirait le même noyau, mais rien ne
+    /// l'aurait garanti.
+    #[must_use]
+    pub fn boot_id(&self) -> Option<&str> {
+        self.boot_id.as_deref()
     }
 
     /// L'état de la machine.

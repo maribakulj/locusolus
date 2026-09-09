@@ -296,10 +296,48 @@ pub fn unrunnable(code: i32) -> Option<&'static str> {
 /// les tests — mais leur **sémantique** ne l'est pas : rien ici ne prouve que `nr_throttled` bouge
 /// quand `cpu.max` mord. C'est écrit au ledger comme dette nommée, et c'est le premier travail d'un
 /// hôte capable de S2.
+/// Dépasser le quota CPU — et pouvoir vraiment le dépasser.
+///
+/// # La rédaction précédente ne pouvait pas échouer
+///
+/// Elle lançait **une** boucle et regardait si `nr_throttled` bougeait. Une boucle occupe un cœur ;
+/// la campagne réserve `1_000` millicores, c'est-à-dire un cœur. La sonde restait donc exactement
+/// dans son quota, n'était jamais throttlée, et l'absence de throttling se lisait « évasion ».
+///
+/// Mesuré sur un hôte macOS + VM podman : la sonde annonçait une évasion à `S2` alors qu'un
+/// `podman run --cpu-quota=10000 --cpu-period=100000` sur la même machine rendait
+/// `nr_throttled: 0 -> 22`. Le confinement tenait ; c'est la sonde qui ne l'exerçait pas.
+///
+/// Une sonde qui ne peut pas échouer n'en est pas une — c'est « un compteur qui n'a rien lu ne vaut
+/// pas zéro », appliqué à la mesure plutôt qu'au comptage.
+///
+/// # Ce qu'elle fait maintenant
+///
+/// Elle **lit le quota** dans `cpu.max`, en déduit combien de cœurs sont accordés, et lance un
+/// occupant de plus que ce nombre. Le dépassement est alors garanti par construction, quel que soit
+/// le quota — un chiffre en dur aurait recréé le même défaut sur une autre spécification.
+///
+/// `max` reste une évasion et non une indétermination : il n'y a pas de borne, donc rien ne
+/// contient. C'est déjà ce que `MEMORY_QUOTA` conclut d'une `memory.max` à `max`, et les deux
+/// doivent dire la même chose de la même situation.
+///
+/// Les occupants tournent en arithmétique de shell entre deux lectures d'horloge, plutôt qu'en
+/// appelant `date` à chaque tour : la version d'origine passait l'essentiel de son temps à créer des
+/// processus, ce qui charge l'ordonnanceur sans consommer le CPU qu'on prétendait dépenser.
 const CPU_QUOTA: &str = concat!(
-    "s=/sys/fs/cgroup/cpu.stat; [ -r \"$s\" ] || exit 120; ",
+    "m=/sys/fs/cgroup/cpu.max; s=/sys/fs/cgroup/cpu.stat; ",
+    "[ -r \"$m\" ] && [ -r \"$s\" ] || exit 120; ",
+    "read -r quota period < \"$m\"; ",
+    "[ \"$quota\" = max ] && exit 0; ",
+    "occupants=$(( quota / period + 1 )); ",
     "before=$(awk '/nr_throttled/{print $2}' \"$s\"); ",
-    "end=$(( $(date +%s) + 2 )); while [ \"$(date +%s)\" -lt \"$end\" ]; do :; done; ",
+    "n=0; while [ \"$n\" -lt \"$occupants\" ]; do ",
+    "  ( end=$(( $(date +%s) + 2 )); ",
+    "    while [ \"$(date +%s)\" -lt \"$end\" ]; do ",
+    "      i=0; while [ \"$i\" -lt 20000 ]; do i=$(( i + 1 )); done; ",
+    "    done ) & ",
+    "  n=$(( n + 1 )); ",
+    "done; wait; ",
     "after=$(awk '/nr_throttled/{print $2}' \"$s\"); ",
     "[ \"${after:-0}\" -eq \"${before:-0}\" ]",
 );
