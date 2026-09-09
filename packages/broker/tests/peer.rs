@@ -24,18 +24,31 @@
 //! n'en trouve pas plutôt que de passer en silence : une clause non exercée n'est pas une clause
 //! tenue. C'est la discipline que `W5.f` et `W5.h` ont posée pour les sondes de sandbox.
 
+// Le gros de cette suite exerce une lecture de créance que seul Linux fournit — voir
+// `hors_de_linux_la_creance_est_illisible_et_rien_n_est_admis` en fin de fichier. Les fixtures qui
+// ne servent qu'à ces tests-là sont gardées avec eux : `-D warnings` fait d'un import inutilisé une
+// erreur, et gater les tests sans gater ce qu'ils seuls utilisent aurait rendu la CI rouge sur
+// macOS pour une raison qui n'a rien à voir avec le code.
+#[cfg(target_os = "linux")]
 use std::io::{BufReader, Write};
+#[cfg(target_os = "linux")]
 use std::os::fd::AsFd;
+#[cfg(target_os = "linux")]
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 
 use locus_broker::peer::{Admission, PeerIdentity, PeerPolicy, admit};
+#[cfg(target_os = "linux")]
 use locus_broker::protocol::{Request, Response, Verdict};
+use locus_broker::unix::listen;
+#[cfg(target_os = "linux")]
 use locus_broker::unix::{
-    SHARED_DIRECTORY_MODE, SHARED_SOCKET_MODE, SOCKET_MODE, answer_checked, listen, listen_shared,
+    SHARED_DIRECTORY_MODE, SHARED_SOCKET_MODE, SOCKET_MODE, answer_checked, listen_shared,
 };
+#[cfg(target_os = "linux")]
 use locus_broker::{FrameError, read_frame, write_frame};
+#[cfg(target_os = "linux")]
 use locus_lep::SandboxLevel;
 
 // ---------------------------------------------------------------------------------------------
@@ -50,10 +63,12 @@ fn scratch(nom: &str) -> PathBuf {
     chemin
 }
 
+#[cfg(target_os = "linux")]
 fn requete() -> Request {
     Request::readiness()
 }
 
+#[cfg(target_os = "linux")]
 /// Ce que le répondeur rendrait **s'il était appelé**.
 ///
 /// Il ne l'est pas : la créance est lue avant lui. Le verdict est choisi distinct de tout refus,
@@ -70,6 +85,7 @@ fn verdict_temoin() -> Verdict {
 /// Une paire de sockets vers moi-même rend ma propre créance. C'est plus honnête qu'un `getuid` :
 /// si la lecture de créance est cassée, ce helper l'est aussi, et les tests le disent au lieu de
 /// comparer une valeur juste à une valeur fausse.
+#[cfg(target_os = "linux")]
 fn mien() -> u32 {
     let (a, _b) = UnixStream::pair().expect("une paire de sockets");
     rustix::net::sockopt::socket_peercred(a.as_fd())
@@ -78,7 +94,27 @@ fn mien() -> u32 {
         .as_raw()
 }
 
+/// Mon propre uid, hors de Linux — par `id -u`, faute d'API sous test.
+///
+/// Le helper Linux se lit « par l'API sous test », et c'est la bonne façon là où l'API existe. Ici
+/// elle n'existe pas : la lire donnerait `Unreadable`, donc aucun uid. Passer par `id` est un
+/// **second** chemin, ce qui affaiblirait le helper Linux mais ne coûte rien à celui-ci — le test
+/// qui l'utilise n'affirme pas que l'uid est juste, il affirme que **même** cet uid n'est pas
+/// admis.
+#[cfg(not(target_os = "linux"))]
+fn mien() -> u32 {
+    let sortie = std::process::Command::new("id")
+        .arg("-u")
+        .output()
+        .expect("`id -u` s'exécute");
+    String::from_utf8_lossy(&sortie.stdout)
+        .trim()
+        .parse()
+        .expect("`id -u` rend un nombre")
+}
+
 /// Mon propre gid, par le même chemin.
+#[cfg(target_os = "linux")]
 fn mon_gid() -> u32 {
     let (a, _b) = UnixStream::pair().expect("une paire de sockets");
     rustix::net::sockopt::socket_peercred(a.as_fd())
@@ -87,6 +123,7 @@ fn mon_gid() -> u32 {
         .as_raw()
 }
 
+#[cfg(target_os = "linux")]
 /// Un second uid présent sur cet hôte, s'il y en a un.
 ///
 /// `LOCUS_W4I_PEER_UID` d'abord — c'est ainsi qu'un environnement de CI le fournit sans que le test
@@ -117,6 +154,7 @@ fn second_uid() -> Option<u32> {
 /// Le test le montre plutôt que de le raconter : la socket par défaut admet le propriétaire, et une
 /// politique « mon propre uid » admet exactement le même. L'écart est vide, la seconde barrière ne
 /// sépare rien.
+#[cfg(target_os = "linux")]
 #[test]
 fn en_0600_les_deux_barrieres_admettent_le_meme_ensemble() {
     let racine = scratch("meme");
@@ -151,6 +189,7 @@ fn en_0600_les_deux_barrieres_admettent_le_meme_ensemble() {
 ///
 /// Fournir le second uid : `LOCUS_W4I_PEER_UID`, ou n'importe quel compte du système autre que
 /// celui qui exécute les tests.
+#[cfg(target_os = "linux")]
 #[test]
 fn en_0660_les_deux_barrieres_admettent_des_ensembles_differents() {
     let autre = second_uid().unwrap_or_else(|| {
@@ -233,6 +272,7 @@ fn en_0660_les_deux_barrieres_admettent_des_ensembles_differents() {
 /// C'était le trou exact que `SharedListener` venait de fermer côté type : la politique ne peut plus
 /// se perdre en route, mais rien ne vérifiait qu'elle servait. Retenir et appliquer sont deux actes,
 /// et seul le second se voit sur un appelant refusé.
+#[cfg(target_os = "linux")]
 #[test]
 fn l_ecoute_partagee_applique_sa_politique_et_pas_seulement_la_retient() {
     let racine = scratch("applique");
@@ -302,6 +342,7 @@ fn la_politique_decide_sur_l_uid_et_pas_sur_le_gid() {
 ///
 /// La créance est lue **avant** la requête, donc un appelant écarté n'atteint pas le code qui crée
 /// des conteneurs.
+#[cfg(target_os = "linux")]
 #[test]
 fn un_appelant_refuse_recoit_un_verdict_et_pas_une_fermeture() {
     let racine = scratch("refus");
@@ -349,6 +390,7 @@ fn un_appelant_refuse_recoit_un_verdict_et_pas_une_fermeture() {
 /// Un broker éteint donne une erreur de connexion ; un broker qui refuse donne une réponse lisible.
 /// Les confondre ferait passer la première mise en service à chercher un problème de réseau qui
 /// n'existe pas — ADR 0028 décision 4.
+#[cfg(target_os = "linux")]
 #[test]
 fn un_refus_ne_ressemble_pas_a_un_broker_eteint() {
     let racine = scratch("eteint");
@@ -483,4 +525,48 @@ fn l_adr_ne_promet_plus_une_creance_gratuite() {
         "l'ADR dit maintenant ce que la créance coûte"
     );
     assert!(adr.contains("W4.i"), "et il nomme l'item qui l'a livrée");
+}
+
+/// **Hors de Linux, la barrière n'admet personne — et le dit.**
+///
+/// Les tests ci-dessus exercent une lecture de créance que seul Linux fournit : `SO_PEERCRED` y est
+/// propre, et `rustix` la garde derrière `cfg(linux_kernel)`. Les gater sans écrire leur pendant
+/// aurait rendu la suite **verte sur une plateforme où la barrière ne fait rien**, ce qui est
+/// exactement le test absent que ce dépôt refuse ailleurs — « un compteur qui n'a rien lu ne vaut
+/// pas zéro ».
+///
+/// Ce que ce test tient est la propriété de sûreté, la seule qui compte quand la mesure manque :
+/// une créance non lue n'est **jamais** un laissez-passer. Il vérifie aussi que le motif nomme la
+/// plateforme, parce qu'un « illisible » nu enverrait chercher une socket cassée là où il manque un
+/// système d'exploitation.
+#[cfg(not(target_os = "linux"))]
+#[test]
+fn hors_de_linux_la_creance_est_illisible_et_rien_n_est_admis() {
+    let racine = scratch("hors-linux");
+    let chemin = racine.join("broker.sock");
+    let ecoute = listen(&chemin).expect("la socket s'ouvre");
+
+    let client = UnixStream::connect(&chemin).expect("le propriétaire se connecte");
+    let (accepte, _) = ecoute.accept().expect("la connexion arrive");
+
+    // La politique nomme l'uid courant : sur Linux ce serait un `Admitted`. Ici, la question ne
+    // peut pas être posée au noyau, et la réponse doit le dire plutôt que de trancher.
+    let admission = admit(&accepte, PeerPolicy::only(mien()));
+
+    assert!(
+        !admission.is_admitted(),
+        "non mesuré n'est jamais accordé, même pour le propriétaire de la socket"
+    );
+    assert!(
+        matches!(admission, Admission::Unreadable { .. }),
+        "ni admis ni refusé : la créance est illisible, pas rejetée — {admission:?}"
+    );
+    let motif = admission
+        .why()
+        .expect("une créance illisible porte un motif");
+    assert!(
+        motif.contains(std::env::consts::OS),
+        "le motif nomme la plateforme, sinon il envoie chercher une socket cassée : {motif}"
+    );
+    drop(client);
 }

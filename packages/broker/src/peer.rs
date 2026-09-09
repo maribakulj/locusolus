@@ -53,6 +53,7 @@
 //! ici ne demande `unsafe`, et `forbid` tient.
 
 use std::fmt;
+#[cfg(target_os = "linux")]
 use std::os::fd::AsFd;
 use std::os::unix::net::UnixStream;
 
@@ -185,6 +186,27 @@ impl fmt::Display for Admission {
 ///
 /// La lecture vient du **noyau**, pas de ce que l'appelant déclare : c'est la seule propriété qui
 /// distingue cette barrière d'un secret partagé, et la raison pour laquelle l'ADR 0028 en écarte un.
+///
+/// # Ce que cette fonction fait hors de Linux, et pourquoi ce n'est pas un contournement
+///
+/// `SO_PEERCRED` est une interface du noyau **Linux**, et `rustix` la garde derrière
+/// `cfg(linux_kernel)`. Les autres Unix la remplacent par `getpeereid`, que `rustix` n'expose pas :
+/// l'atteindre demanderait `libc`, c'est-à-dire exactement le lien C que l'ADR 0028 a mesuré et
+/// écarté du processus privilégié — et le faire ici reviendrait à défaire une décision dans le
+/// fichier qui l'applique.
+///
+/// La sortie n'est donc pas d'admettre à l'aveugle : c'est [`Admission::Unreadable`], qui existait
+/// déjà et qui dit **la vérité de cette plateforme** — la créance n'a pas pu être lue. Le
+/// commentaire de la variante le formule mieux que ne le ferait un `cfg` muet : « pas vérifié n'est
+/// jamais réussi ». `is_admitted` rend `false`, donc le lien du broker n'admet personne hors de
+/// Linux, et un exploitant qui lit le motif sait qu'il lui manque une plateforme, pas une
+/// autorisation.
+///
+/// Conséquence à connaître avant de déployer : sur macOS le daemon **compile et sert son HTTP**,
+/// mais le lien broker `locusd` ↔ `locus-execd` n'admet aucun worker. Lever cela demande d'amender
+/// l'ADR 0028 pour autoriser `getpeereid`, ou de faire tourner le control plane sous Linux. C'est
+/// une décision d'architecture, et elle n'appartient pas à ce fichier.
+#[cfg(target_os = "linux")]
 #[must_use]
 pub fn admit(stream: &UnixStream, policy: PeerPolicy) -> Admission {
     match rustix::net::sockopt::socket_peercred(stream.as_fd()) {
@@ -206,5 +228,22 @@ pub fn admit(stream: &UnixStream, policy: PeerPolicy) -> Admission {
                 }
             }
         }
+    }
+}
+
+/// La même barrière, sur une plateforme dont la créance de pair n'est pas atteignable.
+///
+/// Voir la version Linux pour le raisonnement complet. Rend toujours [`Admission::Unreadable`] :
+/// non mesuré, donc non accordé. Le motif nomme la plateforme et la dépendance, parce qu'un refus
+/// qui dit « illisible » sans dire pourquoi enverrait chercher une socket cassée.
+#[cfg(not(target_os = "linux"))]
+#[must_use]
+pub fn admit(_stream: &UnixStream, _policy: PeerPolicy) -> Admission {
+    Admission::Unreadable {
+        why: format!(
+            "la créance de pair n'est pas lisible sur {} : SO_PEERCRED est propre à Linux, \
+             et l'ADR 0028 écarte `libc` du processus privilégié",
+            std::env::consts::OS
+        ),
     }
 }
