@@ -44,8 +44,23 @@ révèle et qu'un test en ASCII rate."
     (should (equal (alist-get "Content-Type" headers nil nil #'equal) "application/json"))
     (should (equal (alist-get "Content-Length" headers nil nil #'equal)
                    (number-to-string (string-bytes body))))
-    (ert-info ("l'accent occupe deux octets : la longueur dépasse le nombre de caractères")
-      (should (> (string-bytes body) (length body))))))
+    (ert-info ("l'accent occupe bien deux octets sur le fil")
+      ;; La clause portait `(> (string-bytes body) (length body))', et elle
+      ;; mesurait la **représentation** d'Emacs plutôt que ce qui part sur le
+      ;; fil.  Sous Emacs 30, `json-serialize' rend une chaîne *unibyte* dont
+      ;; l'accent occupe déjà ses deux octets : `length' et `string-bytes'
+      ;; comptent alors la même chose, l'inégalité est fausse, et le test
+      ;; échoue en annonçant un défaut d'encodage là où il n'y en a pas.
+      ;;
+      ;; Ce que la clause voulait tenir est vrai et se vérifie sans supposer
+      ;; une représentation : le corps est plus long que le même corps en
+      ;; ASCII, d'exactement un octet, parce que « é » en coûte deux là où
+      ;; « e » en coûte un.  L'énoncé vaut que la chaîne soit unibyte ou non,
+      ;; et c'est la propriété que `Content-Length' doit refléter.
+      (let ((ascii (locus-http-request-body
+                    (locus-http-build "post" "/v1/commands"
+                                      :body '((name . "evaluation"))))))
+        (should (= (string-bytes body) (1+ (string-bytes ascii))))))))
 
 (ert-deftest locus-http-une-cle-mot-cle-est-refusee-pas-convertie ()
   "`json-serialize' rend le mot-clé `:a' comme `\":a\"' — **avec le

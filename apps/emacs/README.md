@@ -32,6 +32,26 @@ configuration de son auteur prouverait que le paquet marche là où ce n'était 
 La frontière est gardée deux fois, sans code partagé : par cette suite, depuis l'intérieur du
 paquet, et par la règle 5 de `tooling/boundaries/`, depuis l'extérieur.
 
+## Utiliser le cockpit
+
+```
+M-x locus-cockpit
+```
+
+Joint le daemon, relit ce qu'il sert, et affiche : projections, workers, conflits, timeline. Dans le
+tampon, `g` rafraîchit, `c` reconnecte, `q` ferme.
+
+La commande **s'ouvre même sans daemon** — c'est le moment où on regarde un cockpit. L'écran nomme
+alors la panne et montre le dernier état connu avec son âge, plutôt que de refuser ou de se vider :
+un écran vide se lirait comme un laboratoire au repos.
+
+L'endpoint est `locus-endpoint`. Attention au décalage : `SPEC.md` §5 écrit `7420`, et `apps/locusd`
+lie `127.0.0.1:8787` (`DEFAULT_BIND`). Tant que l'un des deux ne rejoint pas l'autre, un cockpit
+laissé au défaut de la spec ne trouve pas un daemon laissé au sien.
+
 ## État
 
-`W8.a` — la frontière. Le reste du cockpit décrit par `SPEC.md` arrive avec `W8.b` et suivants.
+`W8.a` à `W8.k` — la frontière, l'authentification, les événements, le cache, le rendu, les
+commandes, les artefacts, les intégrations, le transport, l'auteur, et la **session** qui les
+assemble. `W8.k` est le premier item dont le test de sortie est écrit du point de vue de qui s'en
+sert, et il existe parce que les dix précédents étaient tenus sans que rien ne s'ouvre.

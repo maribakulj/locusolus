@@ -64,13 +64,27 @@ promesse d'API que rien ne tient."
 de `locus-protocol-version' — le client évolue plus vite que le protocole, et
 les confondre rendrait une incompatibilité de protocole illisible.")
 
+(defvar locus--connection nil
+  "Ce que la session a établi, ou nil.
+
+Posée par `locus-session' et lue ici.  L'inversion est délibérée : `locus'
+ne requiert pas la session, donc charger le paquet ne tire toujours aucun
+transport et n'ouvre toujours aucune socket.  La variable est le seul point de
+contact, et il va dans ce sens-là parce que l'autre rendrait le fichier
+d'entrée dépendant de ce qu'il est censé rester capable d'ignorer.
+
+Nil au chargement, et `locus-separation-charger-n-ouvre-aucune-connexion' le
+tient.")
+
 (defun locus-connected-p ()
   "Renvoyer non-nil quand le client est connecté à un daemon.
 
-Renvoie toujours nil à ce stade, et c'est une réponse, pas un manque : rien
-dans ce package n'ouvre de connexion.  La fonction existe pour que le reste du
-cockpit ait un seul endroit où poser la question."
-  nil)
+Lit `locus--connection', que `locus-session-connect' pose et que
+`locus-session-disconnect' retire.  La fonction existe pour que le reste du
+cockpit ait un seul endroit où poser la question — c'est ce que sa version
+précédente annonçait en rendant toujours nil, faute d'une session qui pût
+répondre autre chose."
+  (and locus--connection t))
 
 ;;;###autoload
 (defun locus-describe ()

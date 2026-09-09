@@ -36,7 +36,33 @@ if (files.length === 0) {
   process.exit(0);
 }
 
-const emacsArgs = ["-Q", "--batch", "-L", unit, "-L", tests, "-l", "ert"];
+/**
+ * Native-compiled trampolines are disabled for the suite, and this is a correctness fix, not a
+ * speed knob.
+ *
+ * Several tests redefine primitives with `cl-letf` — `make-network-process`, `open-network-stream`
+ * — to poison the network and prove that a render talks to nobody. Advising a subr makes Emacs
+ * synthesise a trampoline and native-compile it on the spot, so on a host whose libgccjit cannot
+ * link (`ld: library 'emutls_w' not found`, seen on macOS/Homebrew) the *poison itself* fails and
+ * the test reports a native-compiler error. The property under test never gets exercised, and the
+ * failure names a compiler rather than the code.
+ *
+ * Interpreting the trampoline instead costs nothing a batch suite can measure and removes a
+ * dependency on the host's toolchain — which is exactly what `-Q` with a single `load-path` exists
+ * to remove everywhere else.
+ */
+const emacsArgs = [
+  "-Q",
+  "--batch",
+  "--eval",
+  "(setq native-comp-enable-subr-trampolines nil)",
+  "-L",
+  unit,
+  "-L",
+  tests,
+  "-l",
+  "ert",
+];
 for (const file of files) {
   emacsArgs.push("-l", join(tests, file));
 }
