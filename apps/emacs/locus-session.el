@@ -83,6 +83,54 @@ administrateur, ce qui est le cas d'un `personal-local' au premier démarrage :
 un cockpit qui exigerait une créance pour afficher quoi que ce soit rendrait le
 premier lancement impossible à réussir.")
 
+(defcustom locus-session-pages-max 20
+  "Nombre maximal de pages suivies pour une collection paginée.
+
+Une borne, parce qu'un journal grandit sans fin et qu'un cockpit qui le relirait
+en entier toutes les trois secondes deviendrait plus coûteux que ce qu'il
+observe.  Vingt pages de cinq cents font dix mille événements — largement au-delà
+de ce qu'un écran montre, et bien en deçà de ce qui ferait ramer la boucle."
+  :type 'integer
+  :group 'locus)
+
+(defun locus-session--page-entiere (path)
+  "Lire PATH en suivant son curseur, et rendre la page cumulée.
+
+# Pourquoi suivre le curseur, et pourquoi ça n'allait pas sans
+
+Le daemon rend les **cinquante premiers** éléments et un curseur.  Le cockpit ne
+lisait que cette première page : passé le cinquantième événement, il montrait un
+laboratoire figé au passé, et l'orchestrateur ne voyait jamais aboutir une
+étape — il attendait indéfiniment une fin déjà écrite, hors de sa vue.
+
+Le défaut est invisible tant qu'on essaie : les premières missions tiennent dans
+la première page, tout marche, et l'écran cesse de bouger un jour sans que rien
+n'ait changé dans le code.
+
+La page rendue garde la **forme** du daemon — `items` et `next` —, si bien que
+tout ce qui la lit ensuite l'ignore.  `next' rend le dernier curseur suivi
+plutôt que nil : dire qu'il n'y a plus rien alors qu'on s'est arrêté à la borne
+serait affirmer une exhaustivité qu'on n'a pas."
+  (let ((items nil)
+        (curseur nil)
+        (pages 0)
+        (fini nil))
+    (while (not fini)
+      (let* ((route (if curseur
+                        (format "%s?limit=500&cursor=%s" path curseur)
+                      (format "%s?limit=500" path)))
+             (page (locus-session-get route))
+             (lot (append (alist-get 'items page) nil)))
+        (setq items (nconc items lot))
+        (setq curseur (alist-get 'next page))
+        (cl-incf pages)
+        (when (or (null curseur)
+                  (eq curseur :null)
+                  (>= pages locus-session-pages-max))
+          (setq fini t))))
+    (list (cons 'items (vconcat items))
+          (cons 'next curseur))))
+
 (defconst locus-session--dashboard-buffer "*Locus Solus*"
   "Le tampon du cockpit.
 
@@ -261,7 +309,11 @@ Rend la liste des échecs, en (CLÉ . MOTIF) — vide quand tout est passé."
   (let (echecs)
     (pcase-dolist (`(,path . ,key) locus-session-collections)
       (condition-case err
-          (locus-cache-put key (locus-session-get path))
+          ;; Les collections paginées se lisent **en entier** ; les autres — comme
+          ;; `projections/status', qui n'est pas une page — se lisent telles quelles.
+          (locus-cache-put key (if (string-suffix-p "status" path)
+                                   (locus-session-get path)
+                                 (locus-session--page-entiere path)))
         (locus-session-unreachable
          (push (cons key (error-message-string err)) echecs))))
     (setq echecs (nreverse echecs))

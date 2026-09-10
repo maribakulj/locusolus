@@ -35,13 +35,13 @@
 (defun locus-orchestre-test--daemon (_host _port payload)
   "Un daemon qui accepte tout et retient les questions."
   (cond
-   ((string-match-p "\\`GET /timeline " payload)
+   ((string-match-p "\\`GET /timeline" payload)
     (format "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n{\"items\":[%s],\"next\":null}"
             (mapconcat #'identity locus-orchestre-test--journal ",")))
    ;; `GET /tasks/{id}/result` : ce que l'étape précédente a rendu, ou 404 tant
    ;; qu'elle n'a rien rendu.  Les deux comptent — c'est la différence entre un
    ;; relais qui porte du contenu et un relais vide.
-   ((string-match "\\`GET /tasks/\\([^/]+\\)/result " payload)
+   ((string-match "\\`GET /tasks/\\([^/?]+\\)/result" payload)
     (let ((tache (match-string 1 payload)))
       (if (member tache locus-orchestre-test--resultats-connus)
           (format "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n{\"task_id\":\"%s\",\"output\":{\"summary\":\"CE QUE %s A ETABLI\"}}"

@@ -43,9 +43,16 @@
   "Ce qu'un daemon rend, par chemin — les formes réelles de `apps/locusd'.")
 
 (defun locus-session-test--repond (_host _port payload)
-  "Un daemon qui répond, pour PAYLOAD."
-  (let* ((chemin (when (string-match "\\`GET \\([^ ]+\\) " payload)
-                   (match-string 1 payload)))
+  "Un daemon qui répond, pour PAYLOAD.
+
+La requête est **retirée** avant la comparaison : le client pagine, donc il
+demande `/timeline?limit=500&cursor=…', et une fixture qui comparerait le
+chemin entier ne reconnaîtrait plus aucune route.  Un vrai daemon route sur le
+chemin et lit la requête à part ; celle-ci fait pareil, sans quoi elle
+cesserait d'éprouver ce que le client fait vraiment."
+  (let* ((brut (when (string-match "\\`GET \\([^ ]+\\) " payload)
+                 (match-string 1 payload)))
+         (chemin (and brut (car (split-string brut "?"))))
          (corps (or (cdr (assoc chemin locus-session-test--reponses))
                     "{\"items\":[],\"next\":null}")))
     (format "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n%s" corps)))
@@ -175,7 +182,7 @@ là où il y a une route en difficulté."
   (locus-session-test--reset)
   (locus-session-test--avec
       (lambda (host port payload)
-        (if (string-match-p "GET /workers " payload)
+        (if (string-match-p "GET /workers" payload)
             (error "make client process failed: Connection refused, :name, x")
           (locus-session-test--repond host port payload)))
     (locus-session-connect)
@@ -332,6 +339,53 @@ personne n'ait rien tapé."
             (should (string-match-p "EN COURS" texte))
             (should (string-match-p "1 en cours sur 1" texte)))))
     (locus-cockpit-auto-mode -1)))
+
+(ert-deftest locus-session-une-collection-se-lit-au-dela-de-la-premiere-page ()
+  "**Le journal ne s'arrête pas au cinquantième événement.**
+
+Le daemon rend une page et un curseur.  Le cockpit ne lisait que la première :
+passé le cinquantième événement il montrait un laboratoire figé au passé, et
+l'orchestrateur attendait indéfiniment une fin déjà écrite, hors de sa vue.
+
+Le défaut est invisible tant qu'on essaie — les premières missions tiennent
+dans la première page, tout marche, et l'écran cesse de bouger un jour sans que
+rien n'ait changé."
+  (locus-session-test--reset)
+  (let ((demandes nil))
+    (locus-session-test--avec
+        (lambda (_host _port payload)
+          (let ((chemin (when (string-match "\\`GET \\([^ ]+\\) " payload)
+                          (match-string 1 payload))))
+            (push chemin demandes)
+            (cond
+             ((string-match-p "cursor=c1" chemin)
+              "HTTP/1.1 200 OK\r\n\r\n{\"items\":[\"deuxieme\"],\"next\":null}")
+             ((string-match-p "\\`/timeline" chemin)
+              "HTTP/1.1 200 OK\r\n\r\n{\"items\":[\"premier\"],\"next\":\"c1\"}")
+             (t "HTTP/1.1 200 OK\r\n\r\n{\"items\":[],\"next\":null}"))))
+      (let ((page (locus-session--page-entiere "timeline")))
+        (should (equal (append (alist-get (quote items) page) nil)
+                       (list "premier" "deuxieme")))
+        ;; Les deux pages ont bien été demandées, la seconde avec le curseur.
+        (should (seq-find (lambda (c) (string-match-p "cursor=c1" c)) demandes))))))
+
+(ert-deftest locus-session-le-suivi-de-curseur-a-une-borne ()
+  "Un journal sans fin ne se relit pas en entier toutes les trois secondes.
+
+Et la page rendue **ne prétend pas** être complète : `next' garde le dernier
+curseur suivi plutôt que nil, parce que dire qu'il n'y a plus rien alors qu'on
+s'est arrêté à la borne serait affirmer une exhaustivité qu'on n'a pas."
+  (locus-session-test--reset)
+  (let ((appels 0))
+    (locus-session-test--avec
+        (lambda (&rest _)
+          (cl-incf appels)
+          "HTTP/1.1 200 OK\r\n\r\n{\"items\":[\"encore\"],\"next\":\"toujours\"}")
+      (let* ((locus-session-pages-max 3)
+             (page (locus-session--page-entiere "timeline")))
+        (should (= appels 3))
+        (should (= (length (alist-get (quote items) page)) 3))
+        (should (equal (alist-get (quote next) page) "toujours"))))))
 
 (provide 'locus-session-test)
 
