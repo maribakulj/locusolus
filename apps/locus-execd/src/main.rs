@@ -28,8 +28,8 @@ use locus_execd::link::serve;
 #[cfg(target_os = "macos")]
 use locus_execd::linux::probe::Reader;
 use locus_execd::linux::{
-    BACKEND, HostFacts, PodmanBackend, RestrictedProfile, SeccompProfiles, SystemRunner, Workload,
-    certify,
+    BACKEND, BubblewrapBackend, HostFacts, PodmanBackend, RestrictedProfile, SeccompProfiles,
+    SystemRunner, Workload, certify,
 };
 #[cfg(target_os = "macos")]
 use locus_execd::macos::MachineFacts;
@@ -42,6 +42,12 @@ const LISTEN: &str = "--listen";
 
 /// L'option qui conduit une campagne et dépose ce qu'elle conclut.
 const CERTIFY: &str = "--certify";
+
+/// L'option qui choisit le mécanisme sous lequel la campagne conclut.
+const MECHANISM: &str = "--mechanism";
+
+/// Le nom du mécanisme `bubblewrap`, tel que l'option l'accepte.
+const BUBBLEWRAP: &str = "bubblewrap";
 
 fn main() -> ExitCode {
     // Le driver, construit sans condition. C'est la capacité que le crate exporte, et ce binaire
@@ -256,26 +262,40 @@ fn certifier(driver: &SystemRunner, facts: &HostFacts) -> ExitCode {
         }
     };
 
+    // # Le mécanisme voyage avec l'attestation, et il doit être celui du worker
+    //
+    // `locusd` refuse un placement quand le mécanisme prouvé n'est pas celui que le worker emploie
+    // — « confinement S2 prouvé sous `podman-rootless`, mécanisme que ce worker n'emploie pas ».
+    // Le refus est juste : les deux mécanismes échouent différemment, et une attestation qui les
+    // confondrait affirmerait un confinement que personne n'a mesuré. Certifier sous un seul les
+    // rendait donc inutilisables l'un pour l'autre.
+    let mecanisme = mecanisme_choisi(std::env::args().skip(1));
     println!(
-        "locus-execd : campagne à {} sur {}",
+        "locus-execd : campagne à {} sous {} sur {}",
         level.code(),
+        mecanisme,
         inputs.image
     );
-    let mut backend = PodmanBackend::new(
-        SystemRunner::new(),
-        SeccompProfiles {
-            restricted: Some(profile),
-        },
-        workload,
-    )
-    .with_host_boot_id(boot_id_du_noyau_qui_confine(driver));
-
-    let standing = certify(&mut backend, &spec, level);
+    let boot = boot_id_du_noyau_qui_confine(driver);
+    let standing = if mecanisme == BUBBLEWRAP {
+        let mut backend = BubblewrapBackend::new(SystemRunner::new()).with_host_boot_id(boot);
+        certify(&mut backend, &spec, level)
+    } else {
+        let mut backend = PodmanBackend::new(
+            SystemRunner::new(),
+            SeccompProfiles {
+                restricted: Some(profile),
+            },
+            workload,
+        )
+        .with_host_boot_id(boot);
+        certify(&mut backend, &spec, level)
+    };
     let Some(attestation) = locus_execd::attestation::record(
         &inputs.worker_id,
         &standing,
         facts,
-        BACKEND,
+        &mecanisme_backend(&mecanisme),
         maintenant(),
     ) else {
         // Le refus **nomme les sondes**. Sans elles il disait « la campagne n'a pas tenu S2 », ce
@@ -341,6 +361,26 @@ fn campagne_spec(workspace: &str, level: SandboxLevel) -> Result<SandboxSpec, St
         resources,
     )
     .map_err(|erreur| format!("spécification refusée — {erreur}"))
+}
+
+/// Le mécanisme demandé par `--mechanism`, ou `podman` à défaut.
+fn mecanisme_choisi(arguments: impl Iterator<Item = String>) -> String {
+    let mut arguments = arguments.skip_while(|argument| argument != MECHANISM);
+    arguments.next();
+    arguments.next().unwrap_or_else(|| "podman".to_owned())
+}
+
+/// Le nom que l'attestation portera, pour le mécanisme demandé.
+///
+/// Les deux constantes viennent des modules qui les appliquent, jamais d'une chaîne recopiée :
+/// `locusd` compare le mécanisme prouvé à celui que le worker annonce, et deux orthographes du
+/// même mécanisme feraient refuser un placement légitime.
+fn mecanisme_backend(mecanisme: &str) -> String {
+    if mecanisme == BUBBLEWRAP {
+        locus_execd::linux::bubblewrap::BACKEND.to_owned()
+    } else {
+        BACKEND.to_owned()
+    }
 }
 
 /// L'instant courant, en millisecondes depuis l'époque.
