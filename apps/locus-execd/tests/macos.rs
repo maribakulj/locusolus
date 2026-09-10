@@ -11,6 +11,7 @@
 use std::sync::Mutex;
 
 use locus_execd::linux::{Execution, Runner};
+use locus_execd::macos::machine::BORNE;
 use locus_execd::macos::{MachineFacts, MachineReader, MachineState};
 use locus_execd::{Missing, RuntimeError};
 use locus_execution::SandboxLevel;
@@ -40,6 +41,18 @@ impl MacHost {
     fn calls(&self) -> Vec<Vec<String>> {
         self.calls.lock().expect("verrou").clone()
     }
+
+    /// Ce que le script d'instantané rendrait pour cet invité.
+    ///
+    /// La borne vient de `machine.rs`, jamais recopiée : c'est ce qui empêche la fixture de
+    /// continuer à « marcher » le jour où le protocole change. Un fichier absent de `guest` est
+    /// simplement absent de la sortie, comme un `cat` qui échoue laisse son bloc vide.
+    fn instantane(&self) -> String {
+        self.guest
+            .iter()
+            .map(|(chemin, contenu)| format!("{BORNE}\n{chemin}\n{contenu}"))
+            .collect()
+    }
 }
 
 impl Runner for MacHost {
@@ -56,24 +69,40 @@ impl Runner for MacHost {
                 },
             });
         }
-        let path = arguments.last().expect("un chemin");
-        let found = self
-            .guest
-            .iter()
-            .find(|(name, _)| name == path)
-            .map(|(_, content)| (*content).to_owned());
-        Ok(match found {
-            Some(content) => Execution {
+        // Deux protocoles, parce que le code en parle deux — et une fixture qui n'en connaîtrait
+        // qu'un ferait passer un test sur une lecture que personne n'effectue plus.
+        //
+        // `MachineReader` lit **un** fichier par session : `machine ssh <m> cat <chemin>`.
+        // `MachineSnapshot` lit **tout** en une session : `machine ssh <m> sh -c <script>`, et
+        // rend des blocs bornés. La distinction se fait sur le verbe, jamais sur la longueur des
+        // arguments : c'est ce que le code écrit, et c'est donc ce que la fixture doit lire.
+        match arguments.get(3).map(String::as_str) {
+            Some("sh") => Ok(Execution {
                 code: 0,
-                stdout: content,
+                stdout: self.instantane(),
                 stderr: String::new(),
-            },
-            None => Execution {
-                code: 1,
-                stdout: String::new(),
-                stderr: format!("cat: {path}: No such file or directory"),
-            },
-        })
+            }),
+            _ => {
+                let path = arguments.last().expect("un chemin");
+                let found = self
+                    .guest
+                    .iter()
+                    .find(|(name, _)| name == path)
+                    .map(|(_, content)| (*content).to_owned());
+                Ok(match found {
+                    Some(content) => Execution {
+                        code: 0,
+                        stdout: content,
+                        stderr: String::new(),
+                    },
+                    None => Execution {
+                        code: 1,
+                        stdout: String::new(),
+                        stderr: format!("cat: {path}: No such file or directory"),
+                    },
+                })
+            }
+        }
     }
 }
 
@@ -190,14 +219,27 @@ fn les_faits_sont_lus_dans_l_invite_a_travers_la_machine() {
         assert!(guest.controllers().contains(controller));
     }
 
-    let ssh = host
+    let ssh: Vec<Vec<String>> = host
         .calls()
         .into_iter()
-        .find(|call| call.get(1).map(String::as_str) == Some("ssh"))
-        .expect("l'invité est interrogé par ssh");
-    assert_eq!(ssh[0], "machine");
-    assert_eq!(ssh[2], "podman-machine-default");
-    assert_eq!(ssh[3], "cat");
+        .filter(|call| call.get(1).map(String::as_str) == Some("ssh"))
+        .collect();
+    // **Une seule session**, et c'est la propriété que le commit existe pour tenir : la sonde de
+    // cgroup lit `/proc/self/cgroup` puis les contrôleurs du répertoire qu'elle y trouve, et à
+    // travers `podman machine ssh` deux sessions sont deux scopes systemd — le répertoire de la
+    // première n'existe plus quand la seconde le cherche. Compter les sessions est donc la seule
+    // façon d'éprouver ça sans VM.
+    assert_eq!(
+        ssh.len(),
+        1,
+        "l'invité se lit en une session : deux sessions rendraient une vue incohérente d'elle-même"
+    );
+    assert_eq!(ssh[0][0], "machine");
+    assert_eq!(ssh[0][2], "podman-machine-default");
+    assert_eq!(
+        ssh[0][3], "sh",
+        "l'instantané passe par un script, pas par un `cat` par fichier"
+    );
 }
 
 #[test]

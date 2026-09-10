@@ -190,7 +190,12 @@ const FICHIERS: [&str; 7] = [
 ];
 
 /// La marque qui sépare deux fichiers dans l'instantané.
-const BORNE: &str = "===locus===";
+/// Ce qui sépare deux fichiers dans la sortie du script.
+///
+/// Publique parce qu'un test doit pouvoir **composer** cette sortie sans la recopier : une fixture
+/// qui porterait sa propre borne cesserait de parler le protocole du jour où celle-ci changerait,
+/// et le test passerait en éprouvant autre chose.
+pub const BORNE: &str = "===locus===";
 
 /// Le script qui lit tout l'invité **en une fois**.
 ///
