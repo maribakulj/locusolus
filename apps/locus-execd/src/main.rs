@@ -23,6 +23,9 @@ use std::process::ExitCode;
 
 use locus_execd::announced::NothingProven;
 use locus_execd::link::serve;
+// `Reader` ne sert qu'au lecteur muet du chemin macOS ; sur Linux, l'hôte se lit
+// directement et l'import serait inutilisé — ce que `-D warnings` refuse.
+#[cfg(target_os = "macos")]
 use locus_execd::linux::probe::Reader;
 use locus_execd::linux::{
     BACKEND, HostFacts, PodmanBackend, RestrictedProfile, SeccompProfiles, SystemRunner, Workload,

@@ -104,17 +104,24 @@ impl std::fmt::Display for BootstrapRefusal {
 /// quand un identifiant ne se relit pas.
 pub fn read(
     lookup: impl Fn(&str) -> Option<String>,
-) -> Result<Option<(String, Grant)>, BootstrapRefusal> {
-    let Some(token) = lookup(TOKEN_ENV).filter(|token| !token.trim().is_empty()) else {
+) -> Result<Option<(Vec<String>, Grant)>, BootstrapRefusal> {
+    let Some(brut) = lookup(TOKEN_ENV).filter(|token| !token.trim().is_empty()) else {
         return Ok(None);
     };
+    let tokens = separer(&brut);
+    if tokens.is_empty() {
+        return Err(BootstrapRefusal {
+            variable: TOKEN_ENV,
+            reason: "ne porte que des séparateurs : aucun token à émettre".to_owned(),
+        });
+    }
 
     let workspace_id = required_id::<Workspace>(&lookup, WORKSPACE_ENV, TOKEN_ENV)?;
     let principal_id = required_id::<Agent>(&lookup, PRINCIPAL_ENV, TOKEN_ENV)?;
     let project_id = required_id::<Project>(&lookup, PROJECT_ENV, TOKEN_ENV)?;
 
     Ok(Some((
-        token,
+        tokens,
         Grant {
             scope: vec![BOOTSTRAP_SCOPE.to_owned()],
             labels: Vec::new(),
@@ -123,6 +130,31 @@ pub fn read(
             project_id,
         },
     )))
+}
+
+/// Les tokens portés par une variable, séparés par des virgules.
+///
+/// # Pourquoi plusieurs, alors qu'un seul suffisait
+///
+/// Un token d'enrôlement est **à usage unique** — §7.2 —, donc un amorçage qui n'en émet qu'un
+/// n'amorce qu'un worker. C'est une limite arbitraire pour un plan de contrôle dont la raison
+/// d'être est d'orchestrer une nuée : le second worker recevait `LocusServerRejected`, et rien ne
+/// disait que la cause était l'épuisement du token plutôt qu'un défaut d'identité.
+///
+/// Aucune autorité nouvelle n'est accordée : les tokens partagent le **même** grant — même
+/// workspace, même principal, même projet, même scope `worker`. Émettre trois tokens revient à
+/// permettre trois enrôlements de ce que l'opérateur avait déjà décrit, pas à décrire autre chose.
+///
+/// Les entrées vides sont écartées plutôt que refusées : une variable écrite à la main finit
+/// souvent par une virgule, et refuser le démarrage pour cela ferait payer très cher une faute de
+/// frappe sans conséquence. Une variable **entièrement** faite de séparateurs, en revanche, est une
+/// intention d'amorcer que rien n'honore, et celle-là refuse.
+fn separer(brut: &str) -> Vec<String> {
+    brut.split(',')
+        .map(str::trim)
+        .filter(|token| !token.is_empty())
+        .map(str::to_owned)
+        .collect()
 }
 
 /// Un identifiant qu'un amorçage exige, ou le refus qui nomme sa variable.
@@ -157,8 +189,10 @@ pub(crate) fn required_id<K: locus_protocol::IdKind>(
 /// Rend [`BootstrapRefusal`] quand l'amorçage est demandé et illisible — voir [`read`].
 pub fn tokens(lookup: impl Fn(&str) -> Option<String>) -> Result<MemoryTokens, BootstrapRefusal> {
     let issuer = MemoryTokens::new();
-    if let Some((token, grant)) = read(lookup)? {
-        issuer.issue(&token, grant);
+    if let Some((tokens, grant)) = read(lookup)? {
+        for token in tokens {
+            issuer.issue(&token, grant.clone());
+        }
     }
     Ok(issuer)
 }
