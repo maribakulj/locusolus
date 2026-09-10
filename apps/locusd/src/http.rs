@@ -87,6 +87,7 @@ where
         .route("/branches/{id}/history", get(branch_history::<S>))
         .route("/branches/{id}/diff", get(branch_diff::<S>))
         .route("/projections/status", get(projections_status::<S>))
+        .route(TASK_RESULT_PATH, get(task_result::<S>))
         .route(GRAPH_PATH, get(epistemic_graph::<S>))
         .route(CLAIM_PATH, post(claim::<S>))
         .route(EVENTS_PATH, post(worker_events::<S>))
@@ -267,6 +268,47 @@ async fn branch_history<S: EventStore + Send + Sync + 'static>(
             )
         }),
         Ok(Err(error)) => refusal(error),
+    }
+}
+
+/// Ce qu'une tâche a rendu — `GET /tasks/{id}/result`.
+///
+/// # La route qui manquait à l'enchaînement
+///
+/// La sortie d'un attempt entrait dans le journal et n'en ressortait pas. Un client voyait qu'une
+/// tâche s'était achevée, jamais ce qu'elle avait établi — de quoi suivre un travail, pas de quoi
+/// le poursuivre. Un orchestrateur ne pouvait donc passer à l'étape suivante que l'identifiant de
+/// la précédente, ce qui n'est pas un passage de relais : chaque étape repartait à vide, en payant
+/// son contexte au prix fort.
+///
+/// # 404 dit « pas encore », pas « jamais »
+///
+/// Une tâche qui tourne n'a pas de résultat, et une tâche qui n'existe pas non plus. Les
+/// distinguer demanderait de savoir si une tâche existe — une autre question, et une autre route.
+/// Ce qui compte pour l'appelant est identique dans les deux cas : il n'y a rien à lire, il
+/// repassera.
+pub const TASK_RESULT_PATH: &str = "/tasks/{id}/result";
+
+async fn task_result<S: EventStore + Send + Sync + 'static>(
+    State(desk): State<Offload<S>>,
+    Path(id): Path<String>,
+) -> Response {
+    match hors_du_fil(&desk, move |runtime| runtime.task_result(&id)).await {
+        Err(sature) => commande_refusee(&sature),
+        Ok(None) => StatusCode::NOT_FOUND.into_response(),
+        Ok(Some(result)) => (
+            StatusCode::OK,
+            [(axum::http::header::CONTENT_TYPE, "application/json")],
+            serde_json::json!({
+                "task_id": result.task_id,
+                "attempt_id": result.attempt_id,
+                "session_id": result.session_id,
+                "worker_id": result.worker_id,
+                "output": result.output,
+            })
+            .to_string(),
+        )
+            .into_response(),
     }
 }
 
@@ -1290,7 +1332,7 @@ pub const DEFAULT_BIND: &str = "127.0.0.1:8787";
 /// fichier : ajouter une route sans l'annoncer fait rougir, qu'elle soit une `Collection` ou non.
 /// Le déstructurage reste, pour ce qu'il couvre — un nom, pas seulement un nombre.
 #[must_use]
-pub fn served() -> [&'static str; 19] {
+pub fn served() -> [&'static str; 20] {
     let [timeline, workers, conflicts, events, history] = Collection::ALL.map(Collection::name);
     [
         timeline,
@@ -1320,5 +1362,8 @@ pub fn served() -> [&'static str; 19] {
         // La `ContextView` de §16.2, bâtie puis servie — `W20.ac`.
         BUILD_VIEW_PATH,
         VIEW_PATH,
+        // Ce qu'une tâche a rendu, relu — sans quoi un enchaînement ne passe à l'étape
+        // suivante qu'un identifiant.
+        TASK_RESULT_PATH,
     ]
 }

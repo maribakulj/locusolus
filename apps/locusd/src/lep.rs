@@ -952,6 +952,38 @@ impl Decide for Complete {
     }
 }
 
+/// Ce qu'une tâche a rendu, relu du journal.
+///
+/// # Pourquoi une lecture, et pourquoi elle manquait
+///
+/// La sortie d'un attempt entre dans le journal — `run.completed` la porte, avec la session qui
+/// l'a produite. Rien ne la ressortait : un client pouvait voir qu'une tâche s'était achevée et
+/// pas ce qu'elle avait établi.
+///
+/// C'est le manque qui distingue un **enchaînement** d'une suite de missions indépendantes. Un
+/// orchestrateur qui ne peut pas relire l'étape précédente ne peut passer à la suivante que
+/// l'identifiant de la tâche — donc rien d'utilisable —, et chaque étape recommence à vide en
+/// payant son contexte au prix fort.
+///
+/// # Le dernier résultat, pas le premier
+///
+/// Une tâche peut être reprise, et `attempt` conserve son numéro (§11.1). Plusieurs
+/// `run.completed` peuvent donc exister sur le même stream ; celui qui compte est le dernier, et
+/// rendre le premier ferait lire un travail que sa reprise a corrigé.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TaskResult {
+    /// La tâche.
+    pub task_id: String,
+    /// La tentative qui a rendu.
+    pub attempt_id: String,
+    /// La session amont qui l'a produite.
+    pub session_id: String,
+    /// Le worker qui a rendu, tel que sa créance l'identifiait.
+    pub worker_id: String,
+    /// Ce que l'attempt a rendu, tel quel.
+    pub output: serde_json::Value,
+}
+
 /// La tâche que vise le premier événement d'un lot, ou la chaîne vide.
 fn first_task(events: &[Event]) -> &str {
     events
@@ -1381,6 +1413,59 @@ impl<S: EventStore> Runtime<S> {
     /// # Errors
     ///
     /// [`CommandError`], comme ci-dessus.
+    /// Ce que TASK_ID a rendu, ou `None` si aucun attempt n'a abouti.
+    ///
+    /// `None` dit « aucun résultat », jamais « tâche inconnue » : les deux se réparent au même
+    /// endroit — on attend, ou on regarde pourquoi elle n'aboutit pas — et les distinguer
+    /// demanderait de savoir si une tâche existe, ce qui est une autre question et une autre route.
+    #[must_use]
+    pub fn task_result(&self, task_id: &str) -> Option<TaskResult> {
+        let stream = stream_of_task(task_id);
+        self.transaction_store()
+            .read_stream(&stream, 0)
+            .iter()
+            // Le **dernier**, et seulement ceux qui portent une sortie.
+            //
+            // Deux origines écrivent `run.completed` sur ce stream, et une seule porte le
+            // résultat. `/lep/v1/result` écrit celui de [`Complete`], avec `output` ; mais un
+            // worker fait aussi remonter **ses propres** événements par `/lep/v1/events`, et leur
+            // type est une chaîne qu'il choisit — `run.completed` en fait partie. Ceux-là ne
+            // portent que la tâche.
+            //
+            // Un `grep` du dépôt ne trouve donc qu'un émetteur, et il y en a deux : le second est
+            // dans la **donnée**, pas dans le code. Mesuré : la route rendait `output: null` sur
+            // toutes les vraies missions et le contenu attendu sur un `POST` fabriqué à la main.
+            //
+            // Filtrer sur la présence d'`output` plutôt que sur l'origine : le journal ne garde
+            // pas qui a écrit quoi par quelle route, et la sortie est précisément ce qu'on vient
+            // chercher.
+            .rev()
+            .find(|envelope| {
+                envelope.event_type.to_string() == "run.completed"
+                    && envelope.payload.get("output").is_some()
+            })
+            .and_then(|envelope| {
+                let payload = &envelope.payload;
+                let lire = |cle: &str| {
+                    payload
+                        .get(cle)
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or_default()
+                        .to_owned()
+                };
+                Some(TaskResult {
+                    task_id: lire("task_id"),
+                    attempt_id: lire("attempt_id"),
+                    session_id: lire("session_id"),
+                    worker_id: lire("worker_id"),
+                    output: payload
+                        .get("output")
+                        .cloned()
+                        .unwrap_or(serde_json::Value::Null),
+                })
+            })
+    }
+
     pub fn lep_result(
         &self,
         credential: &str,
