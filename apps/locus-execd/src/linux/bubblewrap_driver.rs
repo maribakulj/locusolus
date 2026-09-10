@@ -46,7 +46,7 @@ use locus_execution::{SandboxAttestation, SandboxLevel, SandboxSpec};
 
 use super::bubblewrap::{
     BACKEND, INSPECTED_NAMESPACES, INSPECTION, PROGRAM, joined_invocation, unenforced,
-    wrap_arguments_with_env,
+    wrap_arguments_seeing_cgroup,
 };
 use super::campaign::ProbeHost;
 use super::cgroup::{Delegation, Placement};
@@ -183,6 +183,16 @@ impl<R: Runner> BubblewrapBackend<R> {
             ),
             _ => (&self.runner, arguments),
         }
+    }
+
+    /// Le cgroup que cette sandbox doit **voir**, quand ce mécanisme la borne.
+    ///
+    /// `None` sous `bubblewrap` nu : il n'y a alors rien à montrer, et monter la hiérarchie de
+    /// l'hôte à la place montrerait tous les cgroups de la machine — une fuite que
+    /// `read_host_filesystem` compte, pour rien.
+    fn cgroup_view(&self, id: &SandboxId) -> Option<&std::path::Path> {
+        self.bounding.as_ref()?;
+        self.placed.get(id).map(super::cgroup::Placement::directory)
     }
 
     /// Dire au mécanisme quel est le `boot_id` de l'hôte.
@@ -330,10 +340,11 @@ impl<R: Runner> RuntimePort for BubblewrapBackend<R> {
     /// répondu ne porte pas les champs attendus — un champ absent n'est pas une valeur par défaut.
     fn attestation(&self, id: &SandboxId) -> Result<SandboxAttestation, RuntimeError> {
         let confinement = self.known(id)?;
-        let arguments = wrap_arguments_with_env(
+        let arguments = wrap_arguments_seeing_cgroup(
             confinement,
             &[],
             &["/bin/sh".to_owned(), "-c".to_owned(), INSPECTION.to_owned()],
+            self.cgroup_view(id),
         );
         let (runner, arguments) = self.invocation(id, arguments);
         let execution = runner.run(&arguments)?;
@@ -500,7 +511,12 @@ impl<R: Runner> ProbeHost for BubblewrapBackend<R> {
     ) -> Result<Execution, RuntimeError> {
         let confinement = self.known(id)?;
         let commande: Vec<String> = command.iter().map(|part| (*part).to_owned()).collect();
-        let arguments = wrap_arguments_with_env(confinement, &Self::declared(context), &commande);
+        let arguments = wrap_arguments_seeing_cgroup(
+            confinement,
+            &Self::declared(context),
+            &commande,
+            self.cgroup_view(id),
+        );
         let (runner, arguments) = self.invocation(id, arguments);
         runner.run(&arguments)
     }

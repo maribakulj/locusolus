@@ -184,6 +184,47 @@ pub fn wrap_arguments_with_env(
     env: &[(String, String)],
     command: &[String],
 ) -> Vec<String> {
+    wrap_arguments_seeing_cgroup(plan, env, command, None)
+}
+
+/// Le chemin où un processus lit **son propre** cgroup, et où les sondes de quota vont regarder.
+///
+/// Nommé plutôt qu'écrit deux fois : `selftest.rs` compose les commandes des sondes autour de cette
+/// même racine, et deux orthographes feraient chercher un quota là où personne ne l'a monté.
+pub const CGROUP_VIEW: &str = "/sys/fs/cgroup";
+
+/// Les mêmes arguments, la sandbox voyant en plus le cgroup qui la borne.
+///
+/// # Pourquoi poser le cgroup ne suffit pas à le prouver
+///
+/// `W5.ai.3` pose le cgroup et y inscrit l'enveloppeur ; les bornes **mordent** dès cet instant.
+/// Mais les trois sondes de quota ne les mesurent pas en subissant, elles les **lisent** —
+/// `cpu.max` dit combien de cœurs sont accordés, et c'est ce nombre qui décide combien d'occupants
+/// lancer. Or la racine de ce mécanisme est bâtie depuis [`SYSTEM_TREE`] : il n'y a pas de `/sys`
+/// dedans, et les sondes rendaient `NotRun` — « ce qu'elle devait lire n'était pas là » — sur un
+/// hôte où le bornage marchait pourtant. C'est le pas que `W5.am` ne nommait pas : il attendait un
+/// hôte qui délègue, et il fallait **aussi** que la sandbox voie ce qui la borne.
+///
+/// # En lecture seule, et pourquoi c'est nécessaire plutôt que prudent
+///
+/// `--ro-bind` : une sandbox qui pourrait écrire dans son propre `cpu.max` lèverait la borne que la
+/// campagne est en train de mesurer, et l'attestation vaudrait alors pour un confinement que
+/// personne n'applique. La sonde `escalate_to_root` porte sur des capacités ; celle-ci n'aurait
+/// nommé personne.
+///
+/// # Ce que le montage rend visible, et ce qu'il ne rend pas
+///
+/// Le répertoire monté est celui de **cette** sandbox, pas la hiérarchie de l'hôte : un
+/// `--ro-bind /sys/fs/cgroup /sys/fs/cgroup` aurait montré tous les cgroups de la machine, ce que
+/// `read_host_filesystem` compte comme une fuite et qui aurait fait échouer la campagne pour la
+/// bonne raison.
+#[must_use]
+pub fn wrap_arguments_seeing_cgroup(
+    plan: &ConfinementPlan,
+    env: &[(String, String)],
+    command: &[String],
+    cgroup: Option<&std::path::Path>,
+) -> Vec<String> {
     // Ce préfixe ne dépend pas du plan : il est ce qu'une sandbox de ce mécanisme **est**, avant
     // même qu'on sache ce qu'elle doit confiner.
     //
@@ -250,6 +291,15 @@ pub fn wrap_arguments_with_env(
         );
         arguments.push(mount.source.clone());
         arguments.push(mount.target.clone());
+    }
+
+    // **Après** les montages de la mission et **avant** le scellement : le cgroup n'est pas un
+    // montage du plan — il n'apparaît dans aucun `SandboxSpec` et ne se déclare pas —, il est ce
+    // que le mécanisme composé ajoute de lui-même quand il borne.
+    if let Some(directory) = cgroup {
+        arguments.push("--ro-bind".to_owned());
+        arguments.push(directory.to_string_lossy().into_owned());
+        arguments.push(CGROUP_VIEW.to_owned());
     }
 
     if plan.read_only_rootfs() {

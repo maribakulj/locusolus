@@ -19,6 +19,7 @@
 //! Toute la logique est dans [`locus_execd::link`] ; ce fichier reste une coquille, pour la même
 //! raison qu'avant : ce qu'aucun test ne traverse vieillit sans que rien ne le dise.
 
+use std::path::PathBuf;
 use std::process::ExitCode;
 
 use locus_execd::announced::NothingProven;
@@ -28,8 +29,8 @@ use locus_execd::link::serve;
 #[cfg(target_os = "macos")]
 use locus_execd::linux::probe::Reader;
 use locus_execd::linux::{
-    BACKEND, BubblewrapBackend, HostFacts, PodmanBackend, RestrictedProfile, SeccompProfiles,
-    SystemRunner, Workload, certify,
+    BACKEND, BubblewrapBackend, Delegation, HostFacts, PodmanBackend, RestrictedProfile,
+    SeccompProfiles, SystemRunner, Workload, certify, host_namespaces,
 };
 #[cfg(target_os = "macos")]
 use locus_execd::macos::MachineFacts;
@@ -270,17 +271,71 @@ fn certifier(driver: &SystemRunner, facts: &HostFacts) -> ExitCode {
     // confondrait affirmerait un confinement que personne n'a mesuré. Certifier sous un seul les
     // rendait donc inutilisables l'un pour l'autre.
     let mecanisme = mecanisme_choisi(std::env::args().skip(1));
-    println!(
-        "locus-execd : campagne à {} sous {} sur {}",
-        level.code(),
-        mecanisme,
-        inputs.image
-    );
     let boot = boot_id_du_noyau_qui_confine(driver);
-    let standing = if mecanisme == BUBBLEWRAP {
-        let mut backend = BubblewrapBackend::new(SystemRunner::new()).with_host_boot_id(boot);
-        certify(&mut backend, &spec, level)
+    let (standing, atteste) = if mecanisme == BUBBLEWRAP {
+        // # Un lanceur nommé, et les espaces de noms de l'hôte
+        //
+        // `SystemRunner::new()` vise `podman` par défaut, et le premier jet l'a laissé tel quel :
+        // la campagne a lancé `podman` avec des arguments de `bwrap`, et les quatre sondes sont
+        // remontées « le runtime n'a pas su démarrer la commande dans la sandbox » — un refus qui
+        // parle de sandbox pour une erreur de programme. Le nom vient de `bubblewrap::PROGRAM`,
+        // jamais d'une chaîne recopiée.
+        //
+        // `with_host_namespaces` fournit les identifiants d'espaces de noms **de l'hôte**, lus
+        // avant tout confinement : c'est ce à quoi les sondes comparent ceux qu'elles observent, et
+        // sans eux la comparaison porterait sur du vide.
+        let mut backend = BubblewrapBackend::new(
+            SystemRunner::new().with_program(locus_execd::linux::bubblewrap::PROGRAM),
+        )
+        .with_host_namespaces(host_namespaces())
+        .with_host_boot_id(boot);
+
+        // # Les bornes de ressources, quand l'hôte en délègue le moyen
+        //
+        // Sans cgroup, les trois sondes de quota ne lisent rien — elles rendent `NotRun`, qui est
+        // `Inconclusive` sur une sonde **critique**, et aucun niveau au-dessus de `S0` ne peut donc
+        // être tenu. Ce n'est pas un défaut de `bubblewrap` : il compose des namespaces et des
+        // montages, et ne borne pas. `W5.am` attendait « un hôte où le déploiement délègue un
+        // cgroup inscriptible » ; celui-ci en est un, et le code de `W5.ai.3` était prêt.
+        //
+        // Le mécanisme change de nom en même temps que de nature — `bubblewrap+cgroup`, ADR 0036
+        // décision 1 — et c'est le backend qui le dit, jamais une chaîne écrite ici : les deux
+        // s'installent différemment et échouent différemment.
+        //
+        // L'absence de délégation n'est **pas** une erreur : elle rend la campagne à `bubblewrap`
+        // nu, qui conclura ce qu'il peut conclure. Refuser ici ferait passer un hôte sans cgroup
+        // pour un hôte cassé, alors que c'est le mécanisme qui y est plus faible.
+        let backend = match cgroup_delegue(facts) {
+            Ok((delegation, sous)) => {
+                println!("locus-execd : cgroup délégué sous {}", sous.display());
+                backend.with_cgroup(
+                    delegation,
+                    sous,
+                    SystemRunner::new()
+                        .with_program(locus_execd::linux::bubblewrap::JOINING_PROGRAM),
+                )
+            }
+            Err(refus) => {
+                eprintln!("locus-execd : sans bornage — {refus}");
+                backend
+            }
+        };
+        let mut backend = backend;
+        let atteste = backend.attested_backend().to_owned();
+        println!(
+            "locus-execd : campagne à {} sous {} sur {}",
+            level.code(),
+            atteste,
+            inputs.image
+        );
+        (certify(&mut backend, &spec, level), atteste)
     } else {
+        println!(
+            "locus-execd : campagne à {} sous {} sur {}",
+            level.code(),
+            BACKEND,
+            inputs.image
+        );
         let mut backend = PodmanBackend::new(
             SystemRunner::new(),
             SeccompProfiles {
@@ -289,13 +344,13 @@ fn certifier(driver: &SystemRunner, facts: &HostFacts) -> ExitCode {
             workload,
         )
         .with_host_boot_id(boot);
-        certify(&mut backend, &spec, level)
+        (certify(&mut backend, &spec, level), BACKEND.to_owned())
     };
     let Some(attestation) = locus_execd::attestation::record(
         &inputs.worker_id,
         &standing,
         facts,
-        &mecanisme_backend(&mecanisme),
+        &atteste,
         maintenant(),
     ) else {
         // Le refus **nomme les sondes**. Sans elles il disait « la campagne n'a pas tenu S2 », ce
@@ -370,18 +425,65 @@ fn mecanisme_choisi(arguments: impl Iterator<Item = String>) -> String {
     arguments.next().unwrap_or_else(|| "podman".to_owned())
 }
 
-/// Le nom que l'attestation portera, pour le mécanisme demandé.
+/// Le cgroup que ce processus peut **subdiviser**, et la délégation qui le prouve.
 ///
-/// Les deux constantes viennent des modules qui les appliquent, jamais d'une chaîne recopiée :
-/// `locusd` compare le mécanisme prouvé à celui que le worker annonce, et deux orthographes du
-/// même mécanisme feraient refuser un placement légitime.
-fn mecanisme_backend(mecanisme: &str) -> String {
-    if mecanisme == BUBBLEWRAP {
-        locus_execd::linux::bubblewrap::BACKEND.to_owned()
-    } else {
-        BACKEND.to_owned()
+/// # Les deux faits sont distincts, et l'un ne se déduit pas de l'autre
+///
+/// [`Delegation::read`] lit ce que l'**hôte** délègue — `cgroup.controllers`. Ce qu'il ne dit pas,
+/// c'est si *ce processus-ci* peut écrire dans `cgroup.subtree_control` : sur un `session.scope`
+/// comme sur un runner GitHub, les contrôleurs sont délégués et l'écriture est refusée. La
+/// vérification tient donc aux deux, et c'est la seconde qui a écarté les deux hôtes du chantier.
+///
+/// # Pourquoi le processus se déplace avant de subdiviser
+///
+/// Le noyau refuse `cgroup.subtree_control` sur un cgroup qui **contient des processus** — « no
+/// internal process ». Le refus est `EBUSY`, et il se lit « Device or resource busy », ce qui ne
+/// ressemble à rien de ce qu'on cherchait. Le superviseur descend donc d'un cran, ce qui libère la
+/// racine pour les cgroups de sandbox que [`Delegation::place`] y posera.
+///
+/// # Errors
+///
+/// Une phrase qui nomme le fichier et ce que le système en a dit. Rendue plutôt qu'imprimée :
+/// l'absence de bornage n'arrête pas la campagne, elle la rend plus faible, et c'est l'appelant qui
+/// en décide.
+fn cgroup_delegue(facts: &HostFacts) -> Result<(Delegation, PathBuf), String> {
+    let delegation = Delegation::read(facts).map_err(|refus| refus.to_string())?;
+
+    let ligne = std::fs::read_to_string("/proc/self/cgroup")
+        .map_err(|erreur| format!("« /proc/self/cgroup » ne se lit pas — {erreur}"))?;
+    // `0::/chemin` — la hiérarchie unifiée est toujours la ligne d'identifiant 0.
+    let chemin = ligne
+        .lines()
+        .find_map(|ligne| ligne.strip_prefix("0::"))
+        .ok_or_else(|| "« /proc/self/cgroup » ne porte pas de ligne unifiée « 0:: »".to_owned())?
+        .trim();
+    let racine = PathBuf::from("/sys/fs/cgroup").join(chemin.trim_start_matches('/'));
+
+    let superviseur = racine.join(SUPERVISOR_CGROUP);
+    if let Err(erreur) = std::fs::create_dir(&superviseur)
+        && erreur.kind() != std::io::ErrorKind::AlreadyExists
+    {
+        return Err(format!(
+            "« {} » ne se crée pas — {erreur} : ce cgroup n'est pas délégué à ce processus",
+            superviseur.display()
+        ));
     }
+    let procs = superviseur.join("cgroup.procs");
+    std::fs::write(&procs, std::process::id().to_string()).map_err(|erreur| {
+        format!(
+            "« {} » n'accepte pas ce processus — {erreur}",
+            procs.display()
+        )
+    })?;
+
+    Ok((delegation, racine))
 }
+
+/// Où le superviseur se range pour laisser la racine subdivisible.
+///
+/// Un nom à nous plutôt qu'un nom du système : il apparaît dans l'arborescence cgroup de l'hôte, et
+/// un exploitant qui l'y trouve doit pouvoir savoir qui l'a posé.
+const SUPERVISOR_CGROUP: &str = "locus-superviseur";
 
 /// L'instant courant, en millisecondes depuis l'époque.
 fn maintenant() -> i64 {

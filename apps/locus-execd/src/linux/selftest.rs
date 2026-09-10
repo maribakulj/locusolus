@@ -324,22 +324,44 @@ pub fn unrunnable(code: i32) -> Option<&'static str> {
 /// Les occupants tournent en arithmétique de shell entre deux lectures d'horloge, plutôt qu'en
 /// appelant `date` à chaque tour : la version d'origine passait l'essentiel de son temps à créer des
 /// processus, ce qui charge l'ordonnanceur sans consommer le CPU qu'on prétendait dépenser.
+///
+/// # Elle lit en shell pur, et un compteur illisible n'est pas zéro
+///
+/// La rédaction précédente lisait `nr_throttled` par `awk`, et rendait un **échappement** sur un
+/// hôte où le confinement tenait parfaitement — mesuré : `nr_throttled 19` dans le cgroup, et la
+/// sonde annonçant que rien ne l'avait étranglé.
+///
+/// Deux défauts, et le second est le grave. `awk` sur Debian et Ubuntu est un lien vers
+/// `/etc/alternatives/awk` ; la racine de `bubblewrap` est bâtie depuis `/usr` **seul**, sans
+/// `/etc` — voir [`super::bubblewrap::SYSTEM_TREE`] pour pourquoi c'est délibéré —, si bien que le
+/// lien pend et que la commande n'existe pas. Rien ne le signalait : `${after:-0}` et
+/// `${before:-0}` rendaient deux zéros égaux, donc « aucun étranglement », donc une évasion.
+///
+/// C'est « un compteur qui n'a rien lu ne vaut pas zéro » — la règle du dépôt — enfreinte par une
+/// sonde du dépôt, et retournée dans le sens qui coûte le plus cher : une sonde de sécurité qui
+/// **accuse** un mécanisme conforme. Une valeur par défaut est le contraire d'une mesure.
+///
+/// La lecture ne passe donc plus par aucun binaire externe — une boucle `read` sur `cpu.stat` — et
+/// un compteur introuvable rend [`INCONCLUSIVE_EXIT_CODE`], jamais une comparaison.
 const CPU_QUOTA: &str = concat!(
     "m=/sys/fs/cgroup/cpu.max; s=/sys/fs/cgroup/cpu.stat; ",
     "[ -r \"$m\" ] && [ -r \"$s\" ] || exit 120; ",
     "read -r quota period < \"$m\"; ",
     "[ \"$quota\" = max ] && exit 0; ",
     "occupants=$(( quota / period + 1 )); ",
-    "before=$(awk '/nr_throttled/{print $2}' \"$s\"); ",
+    "etranglements() { while read -r cle valeur; do ",
+    "  [ \"$cle\" = nr_throttled ] && { echo \"$valeur\"; return 0; }; ",
+    "done < \"$s\"; return 1; }; ",
+    "avant=$(etranglements) || exit 120; ",
     "n=0; while [ \"$n\" -lt \"$occupants\" ]; do ",
-    "  ( end=$(( $(date +%s) + 2 )); ",
-    "    while [ \"$(date +%s)\" -lt \"$end\" ]; do ",
+    "  ( fin=$(( $(date +%s) + 2 )); ",
+    "    while [ \"$(date +%s)\" -lt \"$fin\" ]; do ",
     "      i=0; while [ \"$i\" -lt 20000 ]; do i=$(( i + 1 )); done; ",
     "    done ) & ",
     "  n=$(( n + 1 )); ",
     "done; wait; ",
-    "after=$(awk '/nr_throttled/{print $2}' \"$s\"); ",
-    "[ \"${after:-0}\" -eq \"${before:-0}\" ]",
+    "apres=$(etranglements) || exit 120; ",
+    "[ \"$apres\" -eq \"$avant\" ]",
 );
 
 const MEMORY_QUOTA: &str = concat!(
