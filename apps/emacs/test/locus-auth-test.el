@@ -141,7 +141,22 @@ passer le cache le plus naturel à écrire, puisque c'est la valeur que
 `auth-source' pose sous la main."
   (cond
    ((stringp value) (string-match-p (regexp-quote locus-auth-test--secret) value))
-   ((functionp value)
+   ;; Une **commande** ne se rappelle pas, même pour voir.
+   ;;
+   ;; Le balayage descend dans toutes les valeurs du paquet, keymaps comprises,
+   ;; et une keymap est une liste dont les cdr sont des commandes.  Sans cette
+   ;; garde, `holds-secret-p' les appelait toutes — `locus-cockpit-refresh',
+   ;; `locus-session-connect', et le reste — à chaque exécution du test.  Les
+   ;; effets étaient avalés par `ignore-errors' et ne se voyaient pas, jusqu'à
+   ;; ce qu'une des commandes soit un mode mineur : appelée sans argument, elle
+   ;; **bascule**, et le test suivant trouvait un minuteur armé qu'aucun test
+   ;; n'avait demandé.  Deux heures pour le voir, parce que le test qui
+   ;; échouait n'était pas celui qui fautait.
+   ;;
+   ;; Aucune perte de portée : `auth-source' rend son secret par une fermeture
+   ;; sans forme interactive, jamais par une commande.  Ce qu'on renonce à
+   ;; appeler ici est exactement ce qu'on n'aurait jamais dû appeler.
+   ((and (functionp value) (not (commandp value)))
     (let ((yielded (ignore-errors (funcall value))))
       (and (stringp yielded)
            (string-match-p (regexp-quote locus-auth-test--secret) yielded))))

@@ -292,6 +292,7 @@ partagent pas leurs pannes.")
 (defvar locus-cockpit-mode-map
   (let ((map (make-sparse-keymap)))
     (define-key map (kbd "g") #'locus-cockpit-refresh)
+    (define-key map (kbd "d") #'locus-cockpit-auto-mode)
     (define-key map (kbd "c") #'locus-session-connect)
     (define-key map (kbd "q") #'quit-window)
     map)
@@ -347,6 +348,92 @@ route qui gagnerait un champ doit se voir, fût-ce mal."
                   (if flux (format "   %s" flux) ""))
         (format "%s" item))))
    (t (format "%s" item))))
+
+(defconst locus-session-mission-states
+  '(("task.proposed"  . "proposée")
+    ("task.queued"    . "en file")
+    ("task.leased"    . "réclamée")
+    ("run.started"    . "EN COURS")
+    ("run.completed"  . "terminée")
+    ("run.failed"     . "ÉCHOUÉE")
+    ("attempt.rejected" . "refusée"))
+  "Ce qu'un type d'événement dit de l'état d'une mission — §11.2.
+
+Une table plutôt qu'un `cond' : la machine à états du daemon évolue plus vite
+que ce cockpit, et un type inconnu doit s'afficher **tel quel** au lieu d'être
+rangé de force dans un état voisin.  Un état inventé se lit comme une mesure.")
+
+(defun locus-session--missions (events)
+  "L'état de chaque mission, lu du journal EVENTS.
+
+# Le dernier événement gagne, et rien d'autre n'est déduit
+
+Le journal est ordonné par `position' : l'état d'une tâche est celui que dit
+son événement le plus récent, point.  Reconstituer une machine à états ici —
+« réclamée implique en file » — ferait exister deux vérités sur les mêmes
+transitions, et celle du daemon est la seule qui compte.
+
+Rend une liste de (IDENTIFIANT ÉTAT POSITION), les plus récentes d'abord.  Un
+journal élagué rend donc moins de missions qu'il n'y en a eu, ce qui est exact :
+ce cockpit montre ce que le daemon lui a dit, jamais ce qu'il suppose."
+  (let ((par-tache (make-hash-table :test 'equal)))
+    (dolist (evt events)
+      (when (consp evt)
+        (let* ((flux (alist-get 'stream_id evt))
+               (type (alist-get 'event_type evt))
+               (rang (or (alist-get 'position evt) 0))
+               (id (and (stringp flux)
+                        (string-prefix-p "task/" flux)
+                        (substring flux (length "task/")))))
+          (when id
+            (let ((connu (gethash id par-tache)))
+              (when (or (null connu) (> rang (nth 1 connu)))
+                (puthash id (list type rang) par-tache)))))))
+    (let (missions)
+      (maphash (lambda (id etat)
+                 (push (list id
+                             (or (cdr (assoc (nth 0 etat) locus-session-mission-states))
+                                 (nth 0 etat))
+                             (nth 1 etat))
+                       missions))
+               par-tache)
+      (sort missions (lambda (a b) (> (nth 2 a) (nth 2 b)))))))
+
+(defun locus-session--mission-en-cours-p (mission)
+  "Vrai quand MISSION n'a pas atteint un état terminal.
+
+Les états terminaux sont nommés, pas déduits d'une position dans la table :
+ajouter un état au milieu ne doit pas changer ce qui compte comme fini."
+  (not (member (nth 1 mission) '("terminée" "ÉCHOUÉE" "refusée"))))
+
+(defun locus-session--insert-missions ()
+  "La section des missions, repliée depuis le journal déjà en cache.
+
+Ne lit rien de plus que `Timeline' — c'est la même page, comptée autrement.
+Une requête de plus ferait dépendre cette section du réseau alors que la
+donnée est déjà là, et le cockpit sert d'abord quand le réseau ne va pas."
+  (let ((entry (locus-cache-get "timeline")))
+    (insert (propertize "Missions\n" 'face 'bold))
+    (if (null entry)
+        (insert "  — jamais lu\n\n")
+      (let* ((missions (locus-session--missions (locus-session--items "timeline")))
+             (actives (seq-filter #'locus-session--mission-en-cours-p missions)))
+        (if (null missions)
+            (insert "  (aucune)\n")
+          ;; Les actives d'abord et en gras : c'est ce qu'on vient regarder.
+          ;; Les terminées restent, parce qu'une mission qui vient de finir est
+          ;; l'information qu'on cherche aussi souvent que celle qui tourne.
+          (dolist (m missions)
+            (let ((en-cours (locus-session--mission-en-cours-p m)))
+              (insert "  "
+                      (propertize (format "%-10s" (nth 1 m))
+                                  'face (if en-cours 'warning 'shadow))
+                      " " (nth 0 m) "\n"))))
+        (insert (propertize (format "  · %d en cours sur %d · %s\n"
+                                    (length actives) (length missions)
+                                    (locus-session--age "timeline"))
+                            'face 'shadow))))
+    (insert "\n")))
 
 (defun locus-session--insert-section (titre key rendu)
   "Insérer la section TITRE pour la collection KEY, chaque élément par RENDU.
@@ -412,13 +499,19 @@ partiellement à jour qui ne le dirait pas se lirait comme un écran à jour."
                               'face 'error)))
         (when failures (insert "\n"))
         (locus-session--insert-projections)
+        (locus-session--insert-missions)
         (locus-session--insert-section
          "Workers" "workers" #'locus-session--rendre-item)
         (locus-session--insert-section
          "Conflits" "conflicts" #'locus-session--rendre-item)
         (locus-session--insert-section
          "Timeline" "timeline" #'locus-session--rendre-item)
-        (insert (propertize "g rafraîchir · c connecter · q quitter\n" 'face 'shadow))
+        (insert (propertize
+                 (format "g rafraîchir · d direct (%s) · c connecter · q quitter\n"
+                         (if (bound-and-true-p locus-cockpit-auto-mode)
+                             (format "actif, %ds" locus-cockpit-auto-interval)
+                           "arrêté"))
+                 'face 'shadow))
         (goto-char (min point-avant (point-max)))))
     buffer))
 
@@ -448,6 +541,76 @@ exactement ce dont on a besoin quand quelque chose ne va pas."
       (locus-session-unreachable
        (message "locus : %s" (error-message-string err)))))
   (pop-to-buffer (locus-cockpit-refresh)))
+
+;; --------------------------------------------------------------------------
+;; Le direct — une interrogation régulière, pas un flux
+;; --------------------------------------------------------------------------
+
+;; `locusd' ne pousse rien : `/timeline', `/workers' et `/conflicts' se lisent
+;; par pages, avec un curseur.  Le « direct » est donc une **interrogation
+;; régulière**, et c'est un choix qui se voit plutôt qu'une limite qu'on
+;; masque : un cockpit qui prétendrait recevoir un flux tairait le délai entre
+;; ce qui s'est passé et ce qu'il montre, alors que ce délai est précisément ce
+;; qu'un exploitant doit connaître.
+
+(defcustom locus-cockpit-auto-interval 3
+  "Secondes entre deux relectures quand `locus-cockpit-auto-mode' est actif.
+
+Trois secondes, et pas moins : chaque tour lit quatre routes, et un intervalle
+plus court ferait travailler le daemon pour montrer un écran qui n'a pas
+changé.  Une mission dure des minutes ; la voir avec trois secondes de retard
+n'a jamais empêché personne de la piloter."
+  :type 'integer
+  :group 'locus)
+
+(defvar locus-cockpit--timer nil
+  "Le minuteur du mode direct, ou nil.
+
+Un seul pour toute la session : deux cockpits sur deux endpoints partageraient
+ce minuteur, et c'est voulu — il rafraîchit le tampon courant du cockpit, qui
+est unique par construction (`locus-session--dashboard-buffer').")
+
+(defun locus-cockpit--tick ()
+  "Un tour de direct : relire, redessiner, et s'arrêter si le tampon est parti.
+
+# Pourquoi le minuteur se coupe lui-même
+
+Un minuteur qui survivrait à son tampon interrogerait le daemon pour personne,
+indéfiniment, et rien à l'écran ne dirait qu'il tourne.  C'est la forme de fuite
+la plus difficile à voir : elle ne casse rien, elle consomme."
+  (let ((buffer (get-buffer locus-session--dashboard-buffer)))
+    (if (not (buffer-live-p buffer))
+        (locus-cockpit-auto-mode -1)
+      (with-current-buffer buffer
+        ;; Le point et le début de fenêtre sont préservés par `locus-cockpit-render' ;
+        ;; sans cela, un écran qui se redessine toutes les trois secondes ramènerait
+        ;; la lecture en haut à chaque tour, ce qui le rendrait inutilisable
+        ;; exactement quand il y a quelque chose à lire.
+        (locus-cockpit-refresh)))))
+
+;;;###autoload
+(define-minor-mode locus-cockpit-auto-mode
+  "Relire le laboratoire toutes les `locus-cockpit-auto-interval' secondes.
+
+Global, parce que le minuteur l'est : le lier à un tampon donnerait un mode
+qui semble actif dans une fenêtre et inerte dans une autre, pour un même
+minuteur."
+  :global t
+  :lighter " ⟳"
+  :group 'locus
+  (when (timerp locus-cockpit--timer)
+    (cancel-timer locus-cockpit--timer)
+    (setq locus-cockpit--timer nil))
+  (when locus-cockpit-auto-mode
+    (setq locus-cockpit--timer
+          (run-with-timer locus-cockpit-auto-interval
+                          locus-cockpit-auto-interval
+                          #'locus-cockpit--tick)))
+  (when (called-interactively-p 'interactive)
+    (message "locus : direct %s"
+             (if locus-cockpit-auto-mode
+                 (format "activé — relecture toutes les %ds" locus-cockpit-auto-interval)
+               "arrêté"))))
 
 (provide 'locus-session)
 

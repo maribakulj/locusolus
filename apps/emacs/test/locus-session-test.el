@@ -237,6 +237,102 @@ vide ne dit rien du rendu de ses éléments."
     (should-not (string-match-p "event_type" rendu))
     (should-not (string-match-p "(" rendu))))
 
+(ert-deftest locus-session-les-missions-se-lisent-dans-le-journal ()
+  "**Ce qu'on vient regarder** : ce qui tourne en ce moment.
+
+Le cockpit affichait le journal brut — une suite d'événements dans laquelle il
+faut compter soi-même pour savoir si une mission tourne encore.  C'est le
+travail que l'écran est censé faire."
+  (let ((journal
+         (list '((position . 1) (event_type . "task.proposed") (stream_id . "task/task_A"))
+               '((position . 2) (event_type . "task.queued")   (stream_id . "task/task_A"))
+               '((position . 3) (event_type . "task.leased")   (stream_id . "task/task_A"))
+               '((position . 4) (event_type . "run.started")   (stream_id . "task/task_A"))
+               '((position . 5) (event_type . "task.proposed") (stream_id . "task/task_B"))
+               ;; Pas une tâche : un worker.  Il ne doit pas devenir une mission.
+               '((position . 6) (event_type . "worker.registered") (stream_id . "worker/w1")))))
+    (let ((missions (locus-session--missions journal)))
+      (should (= (length missions) 2))
+      ;; La plus récente d'abord.
+      (should (equal (nth 0 (car missions)) "task_B"))
+      (should (equal (nth 1 (car missions)) "proposée"))
+      ;; Le **dernier** événement d'une tâche gagne, et rien n'est déduit.
+      (let ((a (assoc "task_A" missions)))
+        (should (equal (nth 1 a) "EN COURS"))
+        (should (locus-session--mission-en-cours-p a))))))
+
+(ert-deftest locus-session-une-mission-terminee-cesse-d-etre-en-cours ()
+  "Les états terminaux sont **nommés**, pas déduits d'un rang dans la table.
+
+Insérer un état au milieu de `locus-session-mission-states' ne doit pas changer
+ce qui compte comme fini : c'est le genre de couplage qui se casse en silence."
+  (let ((journal
+         (list '((position . 1) (event_type . "run.started")   (stream_id . "task/task_A"))
+               '((position . 2) (event_type . "run.completed") (stream_id . "task/task_A")))))
+    (let ((mission (car (locus-session--missions journal))))
+      (should (equal (nth 1 mission) "terminée"))
+      (should-not (locus-session--mission-en-cours-p mission)))))
+
+(ert-deftest locus-session-un-type-inconnu-s-affiche-tel-quel ()
+  "Un événement que ce cockpit ne connaît pas ne se range pas dans un état voisin.
+
+La machine à états du daemon évolue plus vite que ce client.  Traduire un type
+inconnu en « en cours » ou en « terminée » afficherait une mesure inventée ;
+l'afficher tel quel est laid et vrai, et c'est ce qu'on veut du couple."
+  (let ((mission (car (locus-session--missions
+                       (list '((position . 1) (event_type . "task.exotique")
+                               (stream_id . "task/task_Z")))))))
+    (should (equal (nth 1 mission) "task.exotique"))
+    ;; Inconnu n'est pas terminal : mieux vaut montrer une mission de trop que
+    ;; taire une qui tourne.
+    (should (locus-session--mission-en-cours-p mission))))
+
+(ert-deftest locus-session-le-direct-ne-survit-pas-a-son-tampon ()
+  "Un minuteur qui survivrait au cockpit interrogerait le daemon pour personne.
+
+C'est la fuite la plus difficile à voir : elle ne casse rien, elle consomme, et
+rien à l'écran ne dit qu'elle tourne."
+  (locus-session-test--reset)
+  ;; `unwind-protect' n'est pas une précaution de style : un `should' qui échoue
+  ;; ici sortirait en laissant le minuteur armé, et c'est
+  ;; `locus-separation-charger-n-arme-aucun-timer' qui rougirait — dans un autre
+  ;; fichier, sur une propriété que ce test-ci n'a pas violée.  Un test qui fait
+  ;; échouer son voisin coûte plus cher que ce qu'il vérifie.
+  (unwind-protect
+      (progn
+        (locus-cockpit-auto-mode 1)
+        (should locus-cockpit--timer)
+        (when (get-buffer locus-session--dashboard-buffer)
+          (kill-buffer locus-session--dashboard-buffer))
+        (locus-cockpit--tick)
+        (should-not locus-cockpit-auto-mode)
+        (should-not locus-cockpit--timer))
+    (locus-cockpit-auto-mode -1)))
+
+(ert-deftest locus-session-le-direct-relit-et-redessine ()
+  "Un tour de direct fait les deux moitiés, et le tampon suit l'état du daemon.
+
+C'est la propriété qui distingue un cockpit « en direct » d'un cockpit qu'on
+rafraîchit à la main : ce qui change chez le daemon apparaît à l'écran sans que
+personne n'ait rien tapé."
+  (locus-session-test--reset)
+  (unwind-protect
+      (locus-session-test--avec #'locus-session-test--repond
+        (locus-cockpit)
+        (should (get-buffer locus-session--dashboard-buffer))
+        ;; Le daemon gagne une mission entre deux tours ; le tour suivant la montre.
+        (let ((locus-session-test--reponses
+               (cons '("/timeline"
+                       . "{\"items\":[{\"position\":9,\"event_type\":\"run.started\",\"stream_id\":\"task/task_NEUVE\"}],\"next\":null}")
+                     locus-session-test--reponses)))
+          (locus-cockpit--tick))
+        (with-current-buffer locus-session--dashboard-buffer
+          (let ((texte (buffer-substring-no-properties (point-min) (point-max))))
+            (should (string-match-p "task_NEUVE" texte))
+            (should (string-match-p "EN COURS" texte))
+            (should (string-match-p "1 en cours sur 1" texte)))))
+    (locus-cockpit-auto-mode -1)))
+
 (provide 'locus-session-test)
 
 ;;; locus-session-test.el ends here
