@@ -90,6 +90,19 @@ demandé doit au moins se lire quelque part."
         (message "locus : aucun `locus-mission-project' — projet de session %s" projet)
         projet)))
 
+(defvar locus-mission-capabilities nil
+  "Ce que la mission **exige** de l'hôte — `required_capabilities' de §15.4.
+
+Une liste de chaînes, vide par défaut : une mission qui n'exige rien n'exige
+rien, et lui prêter un besoin ferait refuser des hôtes qui lui suffisaient.
+
+Ce que l'installation répond à chaque capacité — quel modèle, quel outil — est
+sa décision, pas celle de la mission.  « vision » demande de voir une planche ;
+quel modèle voit est une propriété de la machine qui exécute.
+
+Variable et non `defcustom' : elle se lie autour d'une mission
+(`let'), parce qu'elle appartient à l'étape et non au déploiement.")
+
 (defcustom locus-mission-sandbox-level "S2"
   "Le plancher de confinement exigé — `S0' à `S5'.
 
@@ -298,6 +311,7 @@ Rend l'identifiant de la tâche ouverte — c'est lui que
                        (context_view_id . ,vue-id)
                        (context_view_hash . ,vue-hash)
                        (environment_id . ,(locus-mission--id "env"))
+                       (required_capabilities . ,(vconcat locus-mission-capabilities))
                        (sandbox_level . ,locus-mission-sandbox-level)
                        (network . ,locus-mission-network)
                        (resources . ,locus-mission-resources)

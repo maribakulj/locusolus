@@ -159,9 +159,12 @@ PRECEDENT est le texte de sortie de l'étape d'avant, ou nil pour la première."
                               "\n\nCe que l'étape précédente a établi :\n"
                               precedent)
                     (locus-etape-question etape))))
-    (locus-mission-lancer question
-                          (locus-etape-conditions etape)
-                          (locus-etape-cognition etape))))
+    ;; Les capacités de l'étape voyagent avec **sa** mission et pas au-delà : une
+    ;; étape qui exige la vision ne doit pas la faire exiger par la suivante.
+    (let ((locus-mission-capabilities (locus-etape-capacites etape)))
+      (locus-mission-lancer question
+                            (locus-etape-conditions etape)
+                            (locus-etape-cognition etape)))))
 
 (defun locus-orchestre--avancer ()
   "Un tour : relire, et soumettre la suite si l'étape en cours est finie.
