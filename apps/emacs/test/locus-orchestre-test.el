@@ -32,6 +32,9 @@
 (defvar locus-orchestre-test--resultats-connus nil
   "Les tâches pour lesquelles le faux daemon sert un résultat.")
 
+(defvar locus-orchestre-test--cout "0"
+  "Ce que le faux daemon déclare comme coût, en texte JSON.")
+
 (defun locus-orchestre-test--daemon (_host _port payload)
   "Un daemon qui accepte tout et retient les questions."
   (cond
@@ -44,8 +47,8 @@
    ((string-match "\\`GET /tasks/\\([^/?]+\\)/result" payload)
     (let ((tache (match-string 1 payload)))
       (if (member tache locus-orchestre-test--resultats-connus)
-          (format "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n{\"task_id\":\"%s\",\"output\":{\"summary\":\"CE QUE %s A ETABLI\"}}"
-                  tache tache)
+          (format "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n{\"task_id\":\"%s\",\"output\":{\"summary\":\"CE QUE %s A ETABLI\",\"budget_spent\":{\"cost\":%s}}}"
+                  tache tache locus-orchestre-test--cout)
         "HTTP/1.1 404 Not Found\r\n\r\n")))
    ((string-match-p "\\`GET " payload)
     "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n{\"items\":[],\"next\":null}")
@@ -75,11 +78,14 @@
          (locus-mission-project "prj_T")
          (locus-orchestre-test--journal nil)
          (locus-orchestre-test--resultats-connus nil)
+         (locus-orchestre-test--cout "0")
          (locus-orchestre-test--soumises nil))
      (locus-cache-purge)
-     (setq locus-orchestre--plan nil
+     (setq locus-orchestre--arrete nil
+           locus-orchestre--plan nil
            locus-orchestre--courante nil
            locus-orchestre--faites nil
+           locus-orchestre--depense 0.0
            locus-orchestre--nom nil)
      (when (timerp locus-orchestre--timer) (cancel-timer locus-orchestre--timer))
      (setq locus-orchestre--timer nil)
@@ -99,12 +105,26 @@
 Attendre l'intervalle ferait passer cinq secondes où rien ne se voit, et un
 lancement qui ne fait rien se lit comme un lancement raté."
   (locus-orchestre-test--avec
-    (locus-orchestre--avancer)                ; le tour que `lancer' fait d'emblée
-    (should (null locus-orchestre--courante))  ; rien n'a été soumis : le plan est vide
-    (setq locus-orchestre--plan (locus-orchestre-test--etapes "Première"))
-    (locus-orchestre--avancer)
+    ;; Par `lancer', pour éprouver ce que fait la commande plutôt qu'une
+    ;; reconstitution de ses effets.
+    (locus-orchestre-lancer "un" (locus-orchestre-test--etapes "Première"))
     (should locus-orchestre--courante)
     (should (equal (car locus-orchestre-test--soumises) "Première"))))
+
+(ert-deftest locus-orchestre-un-plan-vide-se-termine-et-ne-repart-pas ()
+  "Un plan sans étape restante se termine, et un tour de plus ne le ranime pas.
+
+Le drapeau d'arrêt vaut pour tous les arrêts, pas seulement pour celui qu'on
+demande à la main : un minuteur qui bat encore une fois après la fin du plan ne
+doit rien soumettre."
+  (locus-orchestre-test--avec
+    (setq locus-orchestre--arrete nil)
+    (locus-orchestre--avancer)
+    (should locus-orchestre--arrete)
+    (setq locus-orchestre--plan (locus-orchestre-test--etapes "Tardive"))
+    (locus-orchestre--avancer)
+    (should (null locus-orchestre--courante))
+    (should (null locus-orchestre-test--soumises))))
 
 (ert-deftest locus-orchestre-la-suivante-attend-que-la-precedente-finisse ()
   "Une étape ne part pas tant que la précédente n'a pas abouti.
@@ -169,7 +189,7 @@ compte, plus que la propreté du graphe."
       (setq locus-orchestre-test--journal
             (list (locus-orchestre-test--evenement premiere "run.failed" 1)))
       (locus-orchestre--avancer)
-      (should (null locus-orchestre--timer))
+      (should locus-orchestre--arrete)
       ;; La seconde n'est jamais partie.
       (should (equal (length locus-orchestre-test--soumises) 1))
       ;; Et le plan garde ce qu'il reste à faire, plutôt que de l'effacer :
@@ -216,9 +236,61 @@ travailler pour un plan qui n'existe plus, sans que personne le sache."
     (locus-orchestre-lancer "un" (locus-orchestre-test--etapes "Une"))
     (let ((partie (length locus-orchestre-test--soumises)))
       (locus-orchestre-arreter "à la main")
-      (should (null locus-orchestre--timer))
+      (should locus-orchestre--arrete)
       ;; Aucune requête d'annulation n'est partie.
       (should (equal (length locus-orchestre-test--soumises) partie)))))
+
+(ert-deftest locus-orchestre-le-plafond-de-plan-arrete-la-suite ()
+  "**Dix étapes dans leur budget peuvent ruiner un plan.**
+
+Chaque mission porte le sien, et le worker l'oppose : au plafond, la session
+s'arrête.  Mais une mission ne sait rien du plan qui l'a soumise — dix étapes à
+un demi-dollar respectent chacune leur borne et en dépensent cinq.  Le plafond
+d'ensemble se tient donc du côté qui voit la suite."
+  (locus-orchestre-test--avec
+    (let ((locus-orchestre-budget-total 1.0)
+          (locus-orchestre-test--cout "0.6"))
+      (setq locus-orchestre--plan (locus-orchestre-test--etapes "Une" "Deux" "Trois"))
+      (locus-orchestre--avancer)
+      (let ((premiere locus-orchestre--courante))
+        (setq locus-orchestre-test--resultats-connus (list premiere)
+              locus-orchestre-test--journal
+              (list (locus-orchestre-test--evenement premiere "run.completed" 1)))
+        (locus-orchestre--avancer)
+        ;; 0,6 sur 1,0 : sous le plafond, le plan continue.
+        (should (< (abs (- locus-orchestre--depense 0.6)) 0.001))
+        (should-not locus-orchestre--arrete)
+        (locus-orchestre--avancer)
+        (let ((deuxieme locus-orchestre--courante))
+          (should deuxieme)
+          (setq locus-orchestre-test--resultats-connus (list premiere deuxieme)
+                locus-orchestre-test--journal
+                (append locus-orchestre-test--journal
+                        (list (locus-orchestre-test--evenement deuxieme "run.completed" 2))))
+          (locus-orchestre--avancer)
+          ;; 1,2 sur 1,0 : le plan s'arrête, et la troisième ne part pas.
+          (should (>= locus-orchestre--depense 1.0))
+          (should locus-orchestre--arrete)
+          (should (equal (length locus-orchestre-test--soumises) 2))
+          ;; Ce qui n'a pas eu lieu reste lisible.
+          (should (equal (length locus-orchestre--plan) 1)))))))
+
+(ert-deftest locus-orchestre-un-cout-illisible-vaut-zero-et-se-voit ()
+  "Un worker qui ne rapporte pas sa dépense ne bloque pas le plan.
+
+Sous-compter fait dépasser le plafond ; sur-compter arrêterait un plan qui
+avait de quoi continuer.  Aucun des deux n'est bon, et c'est pourquoi le cumul
+s'écrit au journal à chaque étape plutôt que d'être seulement vérifié."
+  (locus-orchestre-test--avec
+    (setq locus-orchestre--plan (locus-orchestre-test--etapes "Une" "Deux"))
+    (locus-orchestre--avancer)
+    (let ((premiere locus-orchestre--courante))
+      ;; `resultats-connus' reste vide : 404, donc aucun coût lisible.
+      (setq locus-orchestre-test--journal
+            (list (locus-orchestre-test--evenement premiere "run.completed" 1)))
+      (locus-orchestre--avancer)
+      (should (= locus-orchestre--depense 0.0))
+      (should-not locus-orchestre--arrete))))
 
 (provide 'locus-orchestre-test)
 

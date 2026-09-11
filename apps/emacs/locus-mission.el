@@ -120,13 +120,30 @@ Pas d'accélérateur : son absence veut dire « aucun n'est requis », jamais
   :group 'locus-mission)
 
 (defcustom locus-mission-budget
-  '((max_model_calls . 40) (max_input_tokens . 200000) (max_output_tokens . 40000))
+  '((max_model_calls . 60)
+    (max_input_tokens . 2000000)
+    (max_output_tokens . 200000)
+    (max_cost_micros . 500000))
   "Les trois bornes de modèle, toutes obligatoires.
 
 Un budget est une borne, pas une prévision : le dépasser arrête l'attempt.
-Les valeurs par défaut tiennent une session de travail ordinaire et se
-remontent quand une mission le mérite — ce qui est une décision qu'on prend
-en la prenant, pas un défaut qu'on subit."
+
+# Pourquoi les jetons sont larges et le coût étroit
+
+Un appel de modèle part avec **environ vingt mille jetons d'entrée** avant même
+la question — prompt système et contexte —, mesuré sur ce worker.  Les
+deux cent mille jetons de la première rédaction ne faisaient donc que dix
+appels, et une mission de recherche s'arrêtait au milieu de son exploration,
+sur un budget qui avait coûté trois centimes.  Borner en jetons revenait à
+borner la patience en croyant borner la dépense.
+
+`max_cost_micros` borne ce qu'on voulait borner.  Un demi-dollar par mission
+est large pour un modèle économique — de l'ordre de cent cinquante appels — et
+serré pour un modèle frontière, ce qui est exactement le bon sens de
+l'asymétrie : c'est le second qu'il faut surveiller.
+
+Le plafond d'**ensemble** ne vit pas ici : une mission ne sait rien du plan qui
+l'a soumise, et `locus-orchestre-budget-total' le tient de l'autre côté."
   :type '(alist :key-type symbol :value-type integer)
   :group 'locus-mission)
 

@@ -84,8 +84,48 @@ lire une planche, et le placement refuse un worker qui ne l'annonce pas."
 (defvar locus-orchestre--faites nil
   "Les étapes achevées, en (IDENTIFIANT . ÉTAT), la plus récente en tête.")
 
+(defcustom locus-orchestre-budget-total 10.0
+  "Ce qu'un plan entier a le droit de dépenser, dans la devise du fournisseur.
+
+# Pourquoi le plafond d'ensemble ne peut pas vivre dans une mission
+
+Chaque mission porte le sien — `max_cost_micros` de §15.4 —, et le worker
+l'oppose : au plafond, la session s'arrête.  Mais une mission ne sait rien du
+plan qui l'a soumise.  Dix étapes à un demi-dollar respectent chacune leur
+borne et dépensent cinq dollars, sans qu'aucune n'ait rien enfreint.
+
+Le plafond d'ensemble se tient donc ici, au seul endroit qui voit la suite.
+
+# Une devise supposée, et il faut le dire
+
+Le protocole fait voyager un **nombre**, et `Usage` porte une devise
+facultative que ce compte n'inspecte pas.  Additionner des coûts de
+fournisseurs différents suppose donc qu'ils comptent dans la même unité.  C'est
+vrai des fournisseurs d'aujourd'hui, qui facturent tous en dollars ; ça cesse
+de l'être au premier qui ne le fera pas, et ce sera alors visible ici plutôt
+que dilué dans une somme."
+  :type 'number
+  :group 'locus-orchestre)
+
+(defvar locus-orchestre--depense 0.0
+  "Ce que le plan en cours a dépensé jusqu'ici.")
+
 (defvar locus-orchestre--timer nil
   "Le minuteur d'avancement, ou nil.")
+
+(defvar locus-orchestre--arrete t
+  "Vrai quand aucun plan ne doit avancer.
+
+# Pourquoi un drapeau plutôt que l'absence de minuteur
+
+Arrêter annulait le minuteur, et c'était tout.  Un tour déjà **en vol** au
+moment de l'arrêt — le minuteur se déclenche, `avancer' commence, l'arrêt
+survient pendant une lecture réseau — soumettait encore une étape, après la
+décision de ne plus rien soumettre.  La fenêtre est étroite et le cas se produit
+précisément quand on arrête pour cause de budget, c'est-à-dire au pire moment.
+
+Le drapeau rend la question lisible de l'intérieur : `avancer' le regarde avant
+d'agir, et un plan arrêté ne repart pas parce qu'on l'a poussé.")
 
 (defvar locus-orchestre--nom nil
   "Le nom du plan en cours, pour les messages.")
@@ -131,6 +171,11 @@ PRECEDENT est le texte de sortie de l'étape d'avant, ou nil pour la première."
 Les deux tournent peut-être en même temps, et faire dépendre l'avancement du
 mode direct rendrait l'orchestration muette dès qu'on ferme le cockpit — ce
 qu'on fait précisément quand on le laisse travailler."
+  (unless locus-orchestre--arrete
+    (locus-orchestre--avancer-1)))
+
+(defun locus-orchestre--avancer-1 ()
+  "Le tour proprement dit, une fois qu'on a le droit de l'accomplir."
   (locus-session-refresh)
   (let ((etat (and locus-orchestre--courante
                    (locus-orchestre--etat locus-orchestre--courante))))
@@ -145,11 +190,26 @@ qu'on fait précisément quand on le laisse travailler."
           (locus-orchestre--journal "→ étape soumise : %s — %s"
                                     locus-orchestre--courante
                                     (locus-etape-question etape)))))
-     ;; L'étape a abouti : on la range et le tour suivant soumettra la suite.
+     ;; L'étape a abouti : on la range, on compte ce qu'elle a coûté, et le tour
+     ;; suivant soumettra la suite — si le plan a encore de quoi.
      ((equal etat "terminée")
-      (push (cons locus-orchestre--courante etat) locus-orchestre--faites)
-      (locus-orchestre--journal "✓ %s terminée" locus-orchestre--courante)
-      (setq locus-orchestre--courante nil))
+      (let ((coute (locus-orchestre--cout locus-orchestre--courante)))
+        (setq locus-orchestre--depense (+ locus-orchestre--depense coute))
+        (push (cons locus-orchestre--courante etat) locus-orchestre--faites)
+        (locus-orchestre--journal "✓ %s terminée — %.4f, cumul %.4f / %.2f"
+                                  locus-orchestre--courante coute
+                                  locus-orchestre--depense locus-orchestre-budget-total)
+        (setq locus-orchestre--courante nil)
+        ;; Le plafond s'oppose **après** l'étape qui le franchit, jamais avant : on
+        ;; ne connaît le coût d'une étape qu'une fois faite.  La borne est donc « au
+        ;; plus une étape au-delà », comme celle d'un appel de modèle, et c'est une
+        ;; propriété du monde plutôt que de ce code.
+        (when (>= locus-orchestre--depense locus-orchestre-budget-total)
+          (locus-orchestre--journal
+           "✗ plafond de plan atteint : %.4f sur %.2f — les %d étape(s) restantes ne partiront pas"
+           locus-orchestre--depense locus-orchestre-budget-total
+           (length locus-orchestre--plan))
+          (locus-orchestre-arreter "budget de plan épuisé"))))
      ;; Un échec **arrête le plan**.  Enchaîner sur une étape dont la
      ;; précédente n'a rien établi ferait travailler la suite sur du vide, et
      ;; le budget paierait chaque étape suivante pour rien.
@@ -188,6 +248,24 @@ vaut mieux qu'un relais silencieusement vide."
         (let ((brut (json-serialize sortie)))
           (and (stringp brut) brut)))))
 
+(defun locus-orchestre--cout (task-id)
+  "Ce que TASK-ID a coûté, selon ce que le worker a rapporté, ou 0.
+
+Zéro quand rien n'est lisible — un résultat absent, un worker qui ne rapporte
+pas sa dépense.  C'est le seul défaut possible ici, et il est du bon côté :
+sous-compter fait dépasser le plafond, sur-compter arrêterait un plan qui avait
+de quoi continuer.  L'inverse serait pire, mais aucun des deux n'est bon, et
+c'est pourquoi le cumul s'écrit au journal à chaque étape plutôt que d'être
+seulement vérifié."
+  (condition-case nil
+      (let* ((rendu (locus-session-get (format "tasks/%s/result" task-id)))
+             (sortie (alist-get 'output rendu))
+             (depense (and sortie (alist-get 'budget_spent sortie)))
+             (cout (and depense (alist-get 'cost depense))))
+        (if (numberp cout) (float cout) 0.0))
+    (locus-session-unreachable 0.0)
+    (error 0.0)))
+
 (defun locus-orchestre--resultat (task-id)
   "Ce que TASK-ID a rendu, relu du daemon, ou nil.
 
@@ -225,15 +303,18 @@ concurrence qu'on ne veut pas découvrir sur une facture."
     (user-error "un plan tourne déjà : %s" (or locus-orchestre--nom "sans nom")))
   (unless etapes
     (user-error "un plan sans étape n'a rien à faire"))
-  (setq locus-orchestre--nom nom
+  (setq locus-orchestre--arrete nil
+        locus-orchestre--nom nom
         locus-orchestre--plan (copy-sequence etapes)
         locus-orchestre--courante nil
-        locus-orchestre--faites nil)
+        locus-orchestre--faites nil
+        locus-orchestre--depense 0.0)
   (with-current-buffer (get-buffer-create locus-orchestre-buffer)
     (let ((inhibit-read-only t))
       (erase-buffer)
       (special-mode)))
-  (locus-orchestre--journal "plan « %s » — %d étape(s)" nom (length etapes))
+  (locus-orchestre--journal "plan « %s » — %d étape(s), plafond %.2f"
+                            nom (length etapes) locus-orchestre-budget-total)
   ;; Un premier tour tout de suite : attendre l'intervalle pour soumettre la
   ;; première étape ferait passer cinq secondes où rien ne se voit, et un
   ;; lancement qui ne fait rien tout de suite se lit comme un lancement raté.
@@ -255,7 +336,8 @@ et le second passe par le daemon."
   (interactive)
   (when (timerp locus-orchestre--timer)
     (cancel-timer locus-orchestre--timer))
-  (setq locus-orchestre--timer nil)
+  (setq locus-orchestre--timer nil
+        locus-orchestre--arrete t)
   (locus-orchestre--journal "plan « %s » arrêté%s"
                             (or locus-orchestre--nom "sans nom")
                             (if motif (format " — %s" motif) ""))
@@ -267,15 +349,17 @@ et le second passe par le daemon."
   "Où en est le plan : rendu **et** affiché."
   (interactive)
   (let ((phrase
-         (if (null locus-orchestre--timer)
+         (if locus-orchestre--arrete
              "aucun plan en cours"
-           (format "plan « %s » : %d faite(s), %s, %d restante(s)"
+           (format "plan « %s » : %d faite(s), %s, %d restante(s), dépensé %.4f / %.2f"
                    locus-orchestre--nom
                    (length locus-orchestre--faites)
                    (if locus-orchestre--courante
                        (format "%s en cours" locus-orchestre--courante)
                      "aucune en cours")
-                   (length locus-orchestre--plan)))))
+                   (length locus-orchestre--plan)
+                   locus-orchestre--depense
+                   locus-orchestre-budget-total))))
     (when (called-interactively-p 'interactive)
       (message "locus : %s" phrase))
     phrase))
