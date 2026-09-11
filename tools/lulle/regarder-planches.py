@@ -22,7 +22,7 @@ Une énumération fermée, et « aucune » en fait partie. Sans elle, un modèle
 trouve toujours quelque chose — c'est le biais qui ferait classer les auréoles
 d'un bois gravé parmi les rotae.
 """
-import base64, json, os, sys, urllib.request, concurrent.futures as cf
+import base64, json, os, sys, time, urllib.request, concurrent.futures as cf
 
 INDEX = "/srv/locus/travail/w1/planches/index.json"
 SORTIE = "/srv/locus/travail/w1/typologie.json"
@@ -61,11 +61,27 @@ def regarder(entree):
     req = urllib.request.Request(
         "https://api.mistral.ai/v1/chat/completions", data=corps,
         headers={"Authorization": "Bearer " + CLE, "Content-Type": "application/json"})
-    try:
-        with urllib.request.urlopen(req, timeout=120) as r:
-            rep = json.loads(r.read())
-    except Exception as e:
-        return {**entree, "erreur": str(e)[:120]}
+    # # Reprendre, parce que le réseau est le mode d'échec principal
+    #
+    # Mesuré sur quarante planches en quatre fils : vingt-neuf « Name or service
+    # not known ». Ce n'est pas l'API qui refuse — c'est le résolveur DNS de la
+    # machine qui lâche sous la rafale, et quatre autres appels qui se font
+    # fermer la connexion au nez.
+    #
+    # Sans reprise, un défaut de transport devient un trou dans les données, et
+    # un trou dans les données se lit comme une planche sans figure. Le pire des
+    # deux : une absence qu'on prend pour une mesure.
+    rep = None
+    for essai in range(4):
+        try:
+            with urllib.request.urlopen(req, timeout=120) as r:
+                rep = json.loads(r.read())
+            break
+        except Exception as e:
+            dernier = str(e)[:120]
+            time.sleep(2 * (essai + 1))
+    if rep is None:
+        return {**entree, "erreur": dernier}
     txt = rep["choices"][0]["message"]["content"].strip()
     # Le modèle encadre parfois son JSON ; on ne réécrit pas sa réponse, on la dégage.
     if txt.startswith("```"):
@@ -85,8 +101,25 @@ if __name__ == "__main__":
     entrees = json.load(open(INDEX))
     n = int(sys.argv[1]) if len(sys.argv) > 1 else len(entrees)
     entrees = entrees[:n]
-    with cf.ThreadPoolExecutor(max_workers=4) as ex:
-        out = list(ex.map(regarder, entrees))
+
+    # Ce qui a déjà abouti ne se repaie pas. Une reprise qui rejouerait tout
+    # ferait payer deux fois les planches que le réseau avait bien servies, et
+    # c'est précisément ce qu'on veut éviter quand on reprend après un échec.
+    acquis = {}
+    if os.path.exists(SORTIE):
+        try:
+            for e in json.load(open(SORTIE)):
+                if not e.get("erreur"):
+                    acquis[e.get("fichier")] = e
+        except Exception:
+            pass
+    a_faire = [e for e in entrees if e["fichier"] not in acquis]
+    print("déjà acquises : %d — à regarder : %d" % (len(acquis), len(a_faire)))
+    # Deux fils, pas quatre : le goulot n'est pas le modèle, c'est le résolveur.
+    with cf.ThreadPoolExecutor(max_workers=2) as ex:
+        neuves = list(ex.map(regarder, a_faire))
+    out = [acquis.get(e["fichier"]) or next(n for n in neuves if n["fichier"] == e["fichier"])
+           for e in entrees]
     json.dump(out, open(SORTIE, "w"), ensure_ascii=False, indent=1)
 
     from collections import Counter
