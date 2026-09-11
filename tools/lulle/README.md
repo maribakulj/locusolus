@@ -43,3 +43,33 @@ est alors arrivé premier, et le folio 266 du même manuscrit troisième.
 
 Il reste des faux positifs : les initiales rubriquées et les cachets de
 bibliothèque sont ronds. C'est voulu — le détecteur trie, il ne juge pas.
+
+## Le tirage au sort, et pourquoi il a fallu une porte
+
+Une observation tirée d'un échantillon choisi par un détecteur de cercles ne
+peut pas être confirmée par cet échantillon : si l'on y trouve beaucoup de
+lettres dans des cases rondes, c'est d'abord qu'on a cherché des choses rondes.
+`tirage-aleatoire.py` tire donc deux folios par manuscrit, graine fixe, cœur du
+volume — les gardes et les plats fausseraient la mesure vers « rien ».
+
+`mesurer-lettres.py` pose la question. La première rédaction la posait
+directement — « une lettre isolée est-elle enfermée dans une case ? » — et
+obtenait **53 %** des folios. Deux positifs vérifiés à l'œil, deux
+hallucinations : un verso vierge où le modèle voyait « une lettre A dans un
+triangle rouge », une page de texte où il lisait « I, H, S dans un compartiment
+allongé ». Ni l'un ni l'autre n'existait.
+
+Le défaut n'est pas la vision. Sur les planches à figure saillante, le même
+modèle a lu correctement *Rota digestionum*, *Quinta Essentia*, *Figura
+compositionis Albi sulphuris*. Il est dans la **forme de la question** : un
+oui/non sur un détail subtil, posé d'une page ordinaire, obtient oui. Le modèle
+comble.
+
+La porte inverse la charge. On demande d'abord ce que la page **est** — vierge,
+texte seul, texte avec initiales, texte avec schéma, page de figure — et la
+question sur les lettres n'est posée que si la page porte quelque chose. Une
+page de texte ne peut plus produire un motif qu'elle n'a pas.
+
+**53 % → 3,6 %**, et la mesure devient cohérente avec elle-même : trois folios
+portent des lettres en case, trois portent un schéma, ce sont les mêmes. Sur les
+10 126 folios du corpus, cela fait de l'ordre de **366 folios porteurs**.
