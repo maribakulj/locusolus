@@ -370,7 +370,12 @@ fn certifier(driver: &SystemRunner, facts: &HostFacts) -> ExitCode {
         return ExitCode::FAILURE;
     };
 
-    let contenu = match locus_execd::attestation::emit(&[attestation], &inputs.out) {
+    // Le dépôt **accumule** : une attestation par worker, la sienne remplacée. Écrire un
+    // tableau d'un seul élément écrasait les autres, et trois campagnes réussies ne laissaient
+    // qu'un worker attesté — les deux suivants étant refusés au placement pour n'avoir jamais
+    // rien prouvé.
+    let existant = std::fs::read_to_string(&inputs.out).unwrap_or_default();
+    let contenu = match locus_execd::attestation::merge(&existant, attestation, &inputs.out) {
         Ok(contenu) => contenu,
         Err(refus) => {
             eprintln!("locus-execd : {refus}");

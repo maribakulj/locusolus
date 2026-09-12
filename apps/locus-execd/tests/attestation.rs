@@ -13,7 +13,7 @@
 use locus_execd::announced::{Attested, NothingProven, Proven};
 use locus_execd::attestation::{
     Attestation, EMIT_ENV, RECORD_ENV, RecordedProven, annonce, campaign_inputs, emit, fingerprint,
-    load, record,
+    load, record, merge,
 };
 use locus_execd::linux::HostFacts;
 use locus_execution::SandboxLevel;
@@ -766,4 +766,89 @@ fn un_profil_nomme_et_illisible_refuse() {
     let refus =
         campaign_inputs(|nom| lire(&paires, nom), |_| None).expect_err("le profil ne se lit pas");
     assert_eq!(refus.variable, "LOCUS_EXECD_SECCOMP_PROFILE");
+}
+
+/// **Trois workers, trois attestations** — le dépôt accumule au lieu d'écraser.
+///
+/// Une attestation lie un niveau prouvé à un hôte **et à un worker précis** : ce qui est prouvé
+/// pour l'un ne vaut pas pour l'autre. La conséquence n'avait pas été tirée du côté du dépôt, qui
+/// écrivait un tableau d'un seul élément.
+///
+/// Invisible tant qu'un seul worker existait. Mesuré dès le second : trois campagnes menées à la
+/// suite, trois succès annoncés, **une seule attestation sur disque**, et deux workers que le
+/// placement refuse en disant qu'ils n'ont jamais rien prouvé.
+#[test]
+fn le_depot_garde_une_attestation_par_worker() {
+    let mut depot = String::from("[]");
+    for worker in ["w-un", "w-deux", "w-trois"] {
+        let record = Attestation {
+            worker_id: worker.to_owned(),
+            level: "S2".to_owned(),
+            backend: "bubblewrap+cgroup".to_owned(),
+            host: "empreinte".to_owned(),
+            concluded_at: 1,
+        };
+        depot = merge(&depot, record, "/dev/null").expect("le dépôt se sérialise");
+    }
+    let lus: Vec<Attestation> = serde_json::from_str(&depot).expect("dépôt relisible");
+    assert_eq!(
+        lus.len(),
+        3,
+        "trois campagnes pour trois workers laissent trois attestations : {depot}"
+    );
+}
+
+/// Une **nouvelle** campagne pour un worker déjà présent remplace la sienne, jamais celle d'un autre.
+///
+/// Une campagne est un fait daté sur un worker. Accumuler ses passages ferait grossir le dépôt sans
+/// fin et laisserait le placement lire une preuve périmée à côté de la fraîche.
+#[test]
+fn une_seconde_campagne_remplace_la_sienne_et_pas_les_autres() {
+    let premier = Attestation {
+        worker_id: "w-un".to_owned(),
+        level: "S2".to_owned(),
+        backend: "bubblewrap+cgroup".to_owned(),
+        host: "empreinte".to_owned(),
+        concluded_at: 1,
+    };
+    let voisin = Attestation {
+        worker_id: "w-deux".to_owned(),
+        concluded_at: 2,
+        ..premier.clone()
+    };
+    let repris = Attestation {
+        worker_id: "w-un".to_owned(),
+        concluded_at: 99,
+        ..premier.clone()
+    };
+
+    let depot = merge("[]", premier, "/dev/null").expect("un");
+    let depot = merge(&depot, voisin, "/dev/null").expect("deux");
+    let depot = merge(&depot, repris, "/dev/null").expect("reprise");
+
+    let lus: Vec<Attestation> = serde_json::from_str(&depot).expect("dépôt relisible");
+    assert_eq!(lus.len(), 2, "la reprise ne crée pas un troisième : {depot}");
+    let un = lus.iter().find(|a| a.worker_id == "w-un").expect("w-un");
+    assert_eq!(un.concluded_at, 99, "c'est la campagne fraîche qui reste");
+    let deux = lus.iter().find(|a| a.worker_id == "w-deux").expect("w-deux");
+    assert_eq!(deux.concluded_at, 2, "le voisin n'a pas bougé");
+}
+
+/// Un dépôt illisible est **remplacé**, pas refusé.
+///
+/// Refuser laisserait un fichier corrompu bloquer toute certification ultérieure, ce qui est le
+/// contraire du service rendu : on se retrouverait sans attestation du tout parce qu'on en avait
+/// une mauvaise.
+#[test]
+fn un_depot_illisible_ne_bloque_pas_la_campagne() {
+    let record = Attestation {
+        worker_id: "w-un".to_owned(),
+        level: "S2".to_owned(),
+        backend: "bubblewrap+cgroup".to_owned(),
+        host: "empreinte".to_owned(),
+        concluded_at: 1,
+    };
+    let depot = merge("ceci n'est pas du JSON", record, "/dev/null").expect("la campagne aboutit");
+    let lus: Vec<Attestation> = serde_json::from_str(&depot).expect("dépôt relisible");
+    assert_eq!(lus.len(), 1);
 }

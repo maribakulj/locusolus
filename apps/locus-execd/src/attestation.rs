@@ -628,6 +628,39 @@ pub fn campaign_inputs(
 /// [`RecordRefusal`] quand la sérialisation échoue — ce qui ne devrait pas arriver sur des champs
 /// de chaînes et d'entiers, et qui est rendu plutôt que masqué par un `unwrap` au motif que ça
 /// n'arrive pas.
+/// Le dépôt d'attestations, **une par worker**, celle du worker courant remplacée.
+///
+/// # Pourquoi accumuler, et pourquoi ce n'était pas un détail
+///
+/// Une attestation lie un niveau prouvé à un hôte **et à un worker précis**
+/// (`W5.z`) : ce qui est prouvé pour l'un ne vaut pas pour l'autre, et c'est
+/// voulu — sans quoi enrôler un worker suffirait à hériter du confinement d'un
+/// voisin.
+///
+/// La conséquence n'avait pas été tirée du côté du dépôt : `--certify` écrivait
+/// un tableau d'un seul élément, donc **écrasait** le fichier. Tant qu'un seul
+/// worker existait, le défaut était invisible. Mesuré dès le second : trois
+/// campagnes menées à la suite, trois succès annoncés, **une seule attestation
+/// sur disque** — et deux workers que le placement refuse en disant qu'ils n'ont
+/// jamais rien prouvé.
+///
+/// Le remplacement se fait sur `worker_id` : une nouvelle campagne pour un
+/// worker déjà présent remplace la sienne, jamais celle d'un autre. Une
+/// campagne est un fait daté sur un worker, pas sur le fichier.
+///
+/// # Errors
+///
+/// [`RecordRefusal`] quand la sérialisation échoue. Un dépôt existant illisible
+/// n'est **pas** une erreur : il est remplacé par le seul enregistrement qu'on
+/// tient pour vrai. Refuser laisserait un fichier corrompu bloquer toute
+/// certification ultérieure, ce qui est le contraire du service rendu.
+pub fn merge(existing: &str, record: Attestation, path: &str) -> Result<String, RecordRefusal> {
+    let mut records: Vec<Attestation> = serde_json::from_str(existing).unwrap_or_default();
+    records.retain(|entry| entry.worker_id != record.worker_id);
+    records.push(record);
+    emit(&records, path)
+}
+
 pub fn emit(records: &[Attestation], path: &str) -> Result<String, RecordRefusal> {
     serde_json::to_string_pretty(records).map_err(|erreur| RecordRefusal {
         path: path.to_owned(),
