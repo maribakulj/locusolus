@@ -82,8 +82,10 @@
          (locus-orchestre-test--soumises nil))
      (locus-cache-purge)
      (setq locus-orchestre--arrete nil
+           locus-orchestre--derniere-volee nil
+           locus-orchestre--volee-echouee nil
            locus-orchestre--plan nil
-           locus-orchestre--courante nil
+           locus-orchestre--courantes nil
            locus-orchestre--faites nil
            locus-orchestre--depense 0.0
            locus-orchestre--nom nil)
@@ -97,6 +99,10 @@
   "Des étapes minimales pour QUESTIONS."
   (mapcar (lambda (q) (locus-etape-creer :question q :conditions '("rendue"))) questions))
 
+(defun locus-orchestre-test--volees (&rest questions)
+  "Un plan d'une étape par volée — la forme séquentielle, explicitée."
+  (mapcar #'list (apply #'locus-orchestre-test--etapes questions)))
+
 ;; ------------------------------------------------------------------------
 
 (ert-deftest locus-orchestre-une-etape-part-des-le-lancement ()
@@ -108,7 +114,7 @@ lancement qui ne fait rien se lit comme un lancement raté."
     ;; Par `lancer', pour éprouver ce que fait la commande plutôt qu'une
     ;; reconstitution de ses effets.
     (locus-orchestre-lancer "un" (locus-orchestre-test--etapes "Première"))
-    (should locus-orchestre--courante)
+    (should locus-orchestre--courantes)
     (should (equal (car locus-orchestre-test--soumises) "Première"))))
 
 (ert-deftest locus-orchestre-un-plan-vide-se-termine-et-ne-repart-pas ()
@@ -121,9 +127,9 @@ doit rien soumettre."
     (setq locus-orchestre--arrete nil)
     (locus-orchestre--avancer)
     (should locus-orchestre--arrete)
-    (setq locus-orchestre--plan (locus-orchestre-test--etapes "Tardive"))
+    (setq locus-orchestre--plan (locus-orchestre-test--volees "Tardive"))
     (locus-orchestre--avancer)
-    (should (null locus-orchestre--courante))
+    (should (null locus-orchestre--courantes))
     (should (null locus-orchestre-test--soumises))))
 
 (ert-deftest locus-orchestre-la-suivante-attend-que-la-precedente-finisse ()
@@ -132,22 +138,22 @@ doit rien soumettre."
 C'est toute la différence entre un plan et trois missions lancées ensemble :
 la seconde travaille sur ce que la première a établi."
   (locus-orchestre-test--avec
-    (setq locus-orchestre--plan (locus-orchestre-test--etapes "Une" "Deux"))
+    (setq locus-orchestre--plan (locus-orchestre-test--volees "Une" "Deux"))
     (locus-orchestre--avancer)
-    (let ((premiere locus-orchestre--courante))
+    (let ((premiere (car (car locus-orchestre--courantes))))
       (should (equal (length locus-orchestre-test--soumises) 1))
       ;; Elle tourne : rien de neuf ne part.
       (setq locus-orchestre-test--journal
             (list (locus-orchestre-test--evenement premiere "run.started" 1)))
       (locus-orchestre--avancer)
       (should (equal (length locus-orchestre-test--soumises) 1))
-      (should (equal locus-orchestre--courante premiere))
+      (should (equal (car (car locus-orchestre--courantes)) premiere))
       ;; Elle finit : le tour la range, le suivant soumet la seconde.
       (setq locus-orchestre-test--journal
             (append locus-orchestre-test--journal
                     (list (locus-orchestre-test--evenement premiere "run.completed" 2))))
       (locus-orchestre--avancer)
-      (should (null locus-orchestre--courante))
+      (should (null locus-orchestre--courantes))
       (setq locus-orchestre-test--resultats-connus (list premiere))
       (locus-orchestre--avancer)
       (should (equal (length locus-orchestre-test--soumises) 2))
@@ -166,9 +172,9 @@ Le daemon répond 404 tant qu'aucun attempt n'a abouti, et une sortie peut ne
 porter aucune prose.  L'étape suivante part alors sans relais : elle travaille
 moins bien, et c'est mieux qu'un plan qui s'arrête sur une lecture manquante."
   (locus-orchestre-test--avec
-    (setq locus-orchestre--plan (locus-orchestre-test--etapes "Une" "Deux"))
+    (setq locus-orchestre--plan (locus-orchestre-test--volees "Une" "Deux"))
     (locus-orchestre--avancer)
-    (let ((premiere locus-orchestre--courante))
+    (let ((premiere (car (car locus-orchestre--courantes))))
       (setq locus-orchestre-test--journal
             (list (locus-orchestre-test--evenement premiere "run.completed" 1)))
       ;; `resultats-connus' reste vide : le daemon rendra 404.
@@ -183,9 +189,9 @@ moins bien, et c'est mieux qu'un plan qui s'arrête sur une lecture manquante."
 Et le budget paierait chaque étape suivante pour rien — c'est la raison qui
 compte, plus que la propreté du graphe."
   (locus-orchestre-test--avec
-    (setq locus-orchestre--plan (locus-orchestre-test--etapes "Une" "Deux"))
+    (setq locus-orchestre--plan (locus-orchestre-test--volees "Une" "Deux"))
     (locus-orchestre--avancer)
-    (let ((premiere locus-orchestre--courante))
+    (let ((premiere (car (car locus-orchestre--courantes))))
       (setq locus-orchestre-test--journal
             (list (locus-orchestre-test--evenement premiere "run.failed" 1)))
       (locus-orchestre--avancer)
@@ -203,13 +209,13 @@ compte, plus que la propreté du graphe."
 traiter comme une fin ferait soumettre la suite pendant que la précédente
 tourne encore — deux missions concurrentes sur le même budget."
   (locus-orchestre-test--avec
-    (setq locus-orchestre--plan (locus-orchestre-test--etapes "Une" "Deux"))
+    (setq locus-orchestre--plan (locus-orchestre-test--volees "Une" "Deux"))
     (locus-orchestre--avancer)
     (setq locus-orchestre-test--journal
-          (list (locus-orchestre-test--evenement locus-orchestre--courante
+          (list (locus-orchestre-test--evenement (car (car locus-orchestre--courantes))
                                                  "task.exotique" 1)))
     (locus-orchestre--avancer)
-    (should locus-orchestre--courante)
+    (should locus-orchestre--courantes)
     (should (equal (length locus-orchestre-test--soumises) 1))))
 
 (ert-deftest locus-orchestre-deux-plans-ne-tournent-pas-ensemble ()
@@ -250,9 +256,9 @@ d'ensemble se tient donc du côté qui voit la suite."
   (locus-orchestre-test--avec
     (let ((locus-orchestre-budget-total 1.0)
           (locus-orchestre-test--cout "0.6"))
-      (setq locus-orchestre--plan (locus-orchestre-test--etapes "Une" "Deux" "Trois"))
+      (setq locus-orchestre--plan (locus-orchestre-test--volees "Une" "Deux" "Trois"))
       (locus-orchestre--avancer)
-      (let ((premiere locus-orchestre--courante))
+      (let ((premiere (car (car locus-orchestre--courantes))))
         (setq locus-orchestre-test--resultats-connus (list premiere)
               locus-orchestre-test--journal
               (list (locus-orchestre-test--evenement premiere "run.completed" 1)))
@@ -261,7 +267,7 @@ d'ensemble se tient donc du côté qui voit la suite."
         (should (< (abs (- locus-orchestre--depense 0.6)) 0.001))
         (should-not locus-orchestre--arrete)
         (locus-orchestre--avancer)
-        (let ((deuxieme locus-orchestre--courante))
+        (let ((deuxieme (car (car locus-orchestre--courantes))))
           (should deuxieme)
           (setq locus-orchestre-test--resultats-connus (list premiere deuxieme)
                 locus-orchestre-test--journal
@@ -282,15 +288,104 @@ Sous-compter fait dépasser le plafond ; sur-compter arrêterait un plan qui
 avait de quoi continuer.  Aucun des deux n'est bon, et c'est pourquoi le cumul
 s'écrit au journal à chaque étape plutôt que d'être seulement vérifié."
   (locus-orchestre-test--avec
-    (setq locus-orchestre--plan (locus-orchestre-test--etapes "Une" "Deux"))
+    (setq locus-orchestre--plan (locus-orchestre-test--volees "Une" "Deux"))
     (locus-orchestre--avancer)
-    (let ((premiere locus-orchestre--courante))
+    (let ((premiere (car (car locus-orchestre--courantes))))
       ;; `resultats-connus' reste vide : 404, donc aucun coût lisible.
       (setq locus-orchestre-test--journal
             (list (locus-orchestre-test--evenement premiere "run.completed" 1)))
       (locus-orchestre--avancer)
       (should (= locus-orchestre--depense 0.0))
       (should-not locus-orchestre--arrete))))
+
+(ert-deftest locus-orchestre-une-volee-part-en-entier ()
+  "**Le test de sortie du collectif.**  Trois étapes d'une volée partent ensemble.
+
+Un plan avançait une étape à la fois : trois workers attestés attendaient donc
+à deux contre un.  Une volée est ce qui les fait travailler en même temps."
+  (locus-orchestre-test--avec
+    (locus-orchestre-lancer
+     "collectif"
+     (list (apply #'locus-orchestre-test--etapes '("Facette A" "Facette B" "Facette C"))))
+    (should (= (length locus-orchestre--courantes) 3))
+    (should (= (length locus-orchestre-test--soumises) 3))
+    ;; Trois identifiants distincts : une volée n'est pas trois fois la même tâche.
+    (should (= (length (delete-dups (mapcar #'car locus-orchestre--courantes))) 3))))
+
+(ert-deftest locus-orchestre-la-volee-suivante-attend-toute-la-precedente ()
+  "Une volée ne part pas tant qu'il reste une étape en vol dans la précédente.
+
+C'est la différence entre un collectif et une rafale : la synthèse ne doit pas
+partir sur deux tiers du travail."
+  (locus-orchestre-test--avec
+    (locus-orchestre-lancer
+     "deux volées"
+     (list (apply #'locus-orchestre-test--etapes '("A" "B"))
+           (car (locus-orchestre-test--etapes "Synthèse"))))
+    (let ((ids (mapcar #'car locus-orchestre--courantes)))
+      (should (= (length ids) 2))
+      ;; La première retombe, la seconde vole encore : rien de neuf ne part.
+      (setq locus-orchestre-test--journal
+            (list (locus-orchestre-test--evenement (nth 0 ids) "run.completed" 1)))
+      (locus-orchestre--avancer)
+      (should (= (length locus-orchestre--courantes) 1))
+      (should (= (length locus-orchestre-test--soumises) 2))
+      ;; La seconde retombe : la volée est vide, la suivante peut partir.
+      (setq locus-orchestre-test--journal
+            (append locus-orchestre-test--journal
+                    (list (locus-orchestre-test--evenement (nth 1 ids) "run.completed" 2))))
+      (locus-orchestre--avancer)
+      (should (null locus-orchestre--courantes))
+      (locus-orchestre--avancer)
+      (should (= (length locus-orchestre-test--soumises) 3)))))
+
+(ert-deftest locus-orchestre-la-synthese-recoit-toute-la-volee ()
+  "Ce que plusieurs agents ont établi ne vaut que réuni.
+
+Ne passer que le dernier résultat ferait perdre le travail des autres — et
+c'est précisément ce qu'on a payé pour obtenir."
+  (locus-orchestre-test--avec
+    (locus-orchestre-lancer
+     "réunion"
+     (list (apply #'locus-orchestre-test--etapes '("A" "B"))
+           (car (locus-orchestre-test--etapes "Synthèse"))))
+    (let ((ids (mapcar #'car locus-orchestre--courantes)))
+      (setq locus-orchestre-test--resultats-connus ids
+            locus-orchestre-test--journal
+            (list (locus-orchestre-test--evenement (nth 0 ids) "run.completed" 1)
+                  (locus-orchestre-test--evenement (nth 1 ids) "run.completed" 2)))
+      (locus-orchestre--avancer)      ; range la volée
+      (locus-orchestre--avancer)      ; soumet la synthèse
+      (let ((question (car locus-orchestre-test--soumises)))
+        (should (string-match-p "Synthèse" question))
+        ;; Les **deux** contributions y sont, pas seulement la dernière.
+        (dolist (id ids)
+          (should (string-match-p (format "CE QUE %s A ETABLI" id) question)))))))
+
+(ert-deftest locus-orchestre-un-echec-attend-que-la-volee-retombe ()
+  "Couper pendant qu'une volée vole laisserait des missions tourner pour rien.
+
+Elles ont un bail chez le daemon et leur coût continuerait de courir, sans que
+plus personne ne le compte."
+  (locus-orchestre-test--avec
+    (locus-orchestre-lancer
+     "échec en volée"
+     (list (apply #'locus-orchestre-test--etapes '("A" "B"))
+           (car (locus-orchestre-test--etapes "Jamais"))))
+    (let ((ids (mapcar #'car locus-orchestre--courantes)))
+      ;; La première échoue ; la seconde vole encore.
+      (setq locus-orchestre-test--journal
+            (list (locus-orchestre-test--evenement (nth 0 ids) "run.failed" 1)))
+      (locus-orchestre--avancer)
+      (should-not locus-orchestre--arrete)
+      (should (= (length locus-orchestre--courantes) 1))
+      ;; Elle retombe : le plan s'arrête, et la troisième étape ne part pas.
+      (setq locus-orchestre-test--journal
+            (append locus-orchestre-test--journal
+                    (list (locus-orchestre-test--evenement (nth 1 ids) "run.completed" 2))))
+      (locus-orchestre--avancer)
+      (should locus-orchestre--arrete)
+      (should (= (length locus-orchestre-test--soumises) 2)))))
 
 (provide 'locus-orchestre-test)
 

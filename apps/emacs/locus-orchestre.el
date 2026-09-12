@@ -78,8 +78,19 @@ lire une planche, et le placement refuse un worker qui ne l'annonce pas."
 (defvar locus-orchestre--plan nil
   "Les étapes qui restent à soumettre, la prochaine en tête.")
 
-(defvar locus-orchestre--courante nil
-  "L'identifiant de la tâche en cours, ou nil.")
+(defvar locus-orchestre--courantes nil
+  "Les tâches de la volée en cours, en (IDENTIFIANT . QUESTION), ou nil.
+
+# Une volée, pas une étape
+
+Un plan avançait une étape à la fois : trois workers attestés attendaient donc
+à deux contre un.  Une **volée** est un groupe d'étapes soumises ensemble, et
+la volée suivante ne part que lorsque toutes celles-ci ont abouti.
+
+C'est le modèle le plus simple qui serve à quelque chose : du parallèle à
+l'intérieur d'une volée, du séquentiel entre les volées.  Un graphe de
+dépendances arbitraire serait plus général et demanderait de décider ce qu'on
+fait d'une branche morte — ce qui est une autre question, et un autre item.")
 
 (defvar locus-orchestre--faites nil
   "Les étapes achevées, en (IDENTIFIANT . ÉTAT), la plus récente en tête.")
@@ -177,53 +188,70 @@ qu'on fait précisément quand on le laisse travailler."
   (unless locus-orchestre--arrete
     (locus-orchestre--avancer-1)))
 
+(defun locus-orchestre--volee-suivante ()
+  "Soumettre la prochaine volée, ou terminer le plan."
+  (if (null locus-orchestre--plan)
+      (locus-orchestre-arreter "plan terminé")
+    (let ((volee (pop locus-orchestre--plan))
+          (acquis (locus-orchestre--acquis-precedents)))
+      (setq locus-orchestre--courantes
+            (mapcar (lambda (etape)
+                      (cons (locus-orchestre--soumettre etape acquis)
+                            (locus-etape-question etape)))
+                    volee))
+      (locus-orchestre--journal "→ volée de %d étape(s)" (length volee))
+      (dolist (paire locus-orchestre--courantes)
+        (locus-orchestre--journal "   %s — %s" (car paire)
+                                  (truncate-string-to-width (cdr paire) 90 nil nil "…"))))))
+
+(defun locus-orchestre--ranger (id etat)
+  "Ranger la tâche ID achevée dans ETAT, et compter ce qu'elle a coûté."
+  (let ((coute (locus-orchestre--cout id)))
+    (setq locus-orchestre--depense (+ locus-orchestre--depense coute))
+    (push (cons id etat) locus-orchestre--faites)
+    (locus-orchestre--journal "%s %s %s — %.4f, cumul %.4f / %.2f"
+                              (if (equal etat "terminée") "✓" "✗") id etat
+                              coute locus-orchestre--depense
+                              locus-orchestre-budget-total)))
+
 (defun locus-orchestre--avancer-1 ()
   "Le tour proprement dit, une fois qu'on a le droit de l'accomplir."
   (locus-session-refresh)
-  (let ((etat (and locus-orchestre--courante
-                   (locus-orchestre--etat locus-orchestre--courante))))
-    (cond
-     ;; Rien en cours : soumettre la prochaine, ou finir.
-     ((null locus-orchestre--courante)
-      (if (null locus-orchestre--plan)
-          (locus-orchestre-arreter "plan terminé")
-        (let ((etape (pop locus-orchestre--plan)))
-          (setq locus-orchestre--courante
-                (locus-orchestre--soumettre etape (locus-orchestre--dernier-resultat)))
-          (locus-orchestre--journal "→ étape soumise : %s — %s"
-                                    locus-orchestre--courante
-                                    (locus-etape-question etape)))))
-     ;; L'étape a abouti : on la range, on compte ce qu'elle a coûté, et le tour
-     ;; suivant soumettra la suite — si le plan a encore de quoi.
-     ((equal etat "terminée")
-      (let ((coute (locus-orchestre--cout locus-orchestre--courante)))
-        (setq locus-orchestre--depense (+ locus-orchestre--depense coute))
-        (push (cons locus-orchestre--courante etat) locus-orchestre--faites)
-        (locus-orchestre--journal "✓ %s terminée — %.4f, cumul %.4f / %.2f"
-                                  locus-orchestre--courante coute
-                                  locus-orchestre--depense locus-orchestre-budget-total)
-        (setq locus-orchestre--courante nil)
-        ;; Le plafond s'oppose **après** l'étape qui le franchit, jamais avant : on
-        ;; ne connaît le coût d'une étape qu'une fois faite.  La borne est donc « au
-        ;; plus une étape au-delà », comme celle d'un appel de modèle, et c'est une
-        ;; propriété du monde plutôt que de ce code.
-        (when (>= locus-orchestre--depense locus-orchestre-budget-total)
-          (locus-orchestre--journal
-           "✗ plafond de plan atteint : %.4f sur %.2f — les %d étape(s) restantes ne partiront pas"
-           locus-orchestre--depense locus-orchestre-budget-total
-           (length locus-orchestre--plan))
-          (locus-orchestre-arreter "budget de plan épuisé"))))
-     ;; Un échec **arrête le plan**.  Enchaîner sur une étape dont la
-     ;; précédente n'a rien établi ferait travailler la suite sur du vide, et
-     ;; le budget paierait chaque étape suivante pour rien.
-     ((member etat '("ÉCHOUÉE" "refusée"))
-      (push (cons locus-orchestre--courante etat) locus-orchestre--faites)
-      (locus-orchestre--journal "✗ %s : %s — plan arrêté"
-                                locus-orchestre--courante etat)
-      (setq locus-orchestre--courante nil)
-      (locus-orchestre-arreter (format "étape %s" etat)))
-     ;; Elle tourne, ou le journal ne la connaît pas encore.
-     (t nil))))
+  (if (null locus-orchestre--courantes)
+      (locus-orchestre--volee-suivante)
+    ;; Une volée est en vol : on range ce qui a abouti et on garde le reste.
+    (let (restantes)
+      (dolist (paire locus-orchestre--courantes)
+        (let ((etat (locus-orchestre--etat (car paire))))
+          (cond
+           ((equal etat "terminée") (locus-orchestre--ranger (car paire) etat))
+           ((member etat '("ÉCHOUÉE" "refusée"))
+            (locus-orchestre--ranger (car paire) etat)
+            (setq locus-orchestre--volee-echouee etat))
+           (t (push paire restantes)))))
+      (let ((retombees (- (length locus-orchestre--courantes) (length restantes))))
+        (when (> retombees 0) (setq locus-orchestre--derniere-volee (make-list retombees t))))
+      (setq locus-orchestre--courantes (nreverse restantes))
+      (cond
+       ;; Un échec **arrête le plan** — mais seulement une fois la volée retombée.
+       ;; Couper pendant qu'elle vole laisserait des missions tourner pour un plan
+       ;; qui n'existe plus, et leur coût continuerait de courir sans que rien ne
+       ;; le compte.
+       ((and locus-orchestre--volee-echouee (null locus-orchestre--courantes))
+        (locus-orchestre-arreter
+         (format "étape %s" locus-orchestre--volee-echouee)))
+       ;; Le plafond s'oppose **après** la volée qui le franchit : on ne connaît
+       ;; le coût d'une étape qu'une fois faite.  La borne est « au plus une volée
+       ;; au-delà », et c'est une propriété du monde plutôt que de ce code.
+       ((and (null locus-orchestre--courantes)
+             (>= locus-orchestre--depense locus-orchestre-budget-total))
+        (locus-orchestre--journal
+         "✗ plafond de plan atteint : %.4f sur %.2f — les %d volée(s) restantes ne partiront pas"
+         locus-orchestre--depense locus-orchestre-budget-total
+         (length locus-orchestre--plan))
+        (locus-orchestre-arreter "budget de plan épuisé"))
+       ;; La volée tourne encore, ou le journal ne la connaît pas encore.
+       (t nil)))))
 
 (defcustom locus-orchestre-relais-max 4000
   "Longueur maximale du texte passé d'une étape à la suivante, en caractères.
@@ -279,6 +307,52 @@ n'est pas une erreur ici : on demande justement pour savoir."
         (locus-orchestre--texte-de-sortie (alist-get 'output rendu)))
     (locus-session-unreachable nil)))
 
+(defun locus-orchestre--acquis-precedents ()
+  "Ce que la volée précédente a établi, toutes ses étapes réunies.
+
+# Pourquoi tout, et pourquoi borné
+
+Une volée fait travailler plusieurs agents sur des facettes différentes ; ce
+qu'ils ont établi ne vaut que réuni.  Ne passer que le dernier résultat ferait
+perdre le travail des autres, et c'est précisément ce qu'on a payé pour obtenir.
+
+La borne reste celle du relais, appliquée à l'ensemble : chaque étape de la
+volée suivante paie ce texte en jetons d'entrée, et le poste est déjà le
+principal du budget.  Chaque contribution est donc écourtée à sa part, plutôt
+que de laisser la première remplir toute la place."
+  (let* ((faites (seq-take locus-orchestre--faites
+                           (max 1 (length locus-orchestre--derniere-volee))))
+         (part (max 400 (/ locus-orchestre-relais-max (max 1 (length faites)))))
+         (morceaux
+          (delq nil
+                (mapcar (lambda (paire)
+                          (let ((texte (locus-orchestre--resultat (car paire))))
+                            (when (and texte (> (length texte) 0))
+                              (format "— %s :\n%s"
+                                      (car paire)
+                                      (if (<= (length texte) part)
+                                          texte
+                                        (concat (substring texte 0 part)
+                                                "\n[…] (écourté)"))))))
+                        faites))))
+    (and morceaux (string-join morceaux "\n\n"))))
+
+(defvar locus-orchestre--volee-echouee nil
+  "L'état terminal d'une étape de la volée en cours qui a échoué, ou nil.
+
+Retenu **d'un tour à l'autre** : une volée peut perdre une étape au tour 3 et
+retomber au tour 7, et l'arrêt n'a lieu qu'à la seconde date.  Un drapeau local
+à un tour aurait donc oublié l'échec avant de pouvoir l'opposer — et le plan
+aurait enchaîné sur la volée suivante comme si de rien n'était.  Attrapé par le
+test, pas à la lecture.")
+
+(defvar locus-orchestre--derniere-volee nil
+  "Le nombre d'étapes de la volée qui vient de retomber.
+
+Retenu parce que `faites' les accumule toutes : sans lui, le relais reprendrait
+l'historique entier du plan à chaque volée, et le ferait payer en jetons à
+chaque étape.")
+
 (defun locus-orchestre--dernier-resultat ()
   "Ce que la dernière étape achevée a rendu, tronqué à `locus-orchestre-relais-max'.
 
@@ -308,8 +382,14 @@ concurrence qu'on ne veut pas découvrir sur une facture."
     (user-error "un plan sans étape n'a rien à faire"))
   (setq locus-orchestre--arrete nil
         locus-orchestre--nom nom
-        locus-orchestre--plan (copy-sequence etapes)
-        locus-orchestre--courante nil
+        ;; Chaque élément est une **volée**.  Une étape seule en est une d'une
+        ;; seule : écrire un plan séquentiel ne demande donc pas de l'envelopper,
+        ;; et un plan qui mêle les deux formes reste lisible.
+        locus-orchestre--plan (mapcar (lambda (e) (if (listp e) e (list e)))
+                                      (copy-sequence etapes))
+        locus-orchestre--courantes nil
+        locus-orchestre--derniere-volee nil
+        locus-orchestre--volee-echouee nil
         locus-orchestre--faites nil
         locus-orchestre--depense 0.0)
   (with-current-buffer (get-buffer-create locus-orchestre-buffer)
@@ -354,12 +434,12 @@ et le second passe par le daemon."
   (let ((phrase
          (if locus-orchestre--arrete
              "aucun plan en cours"
-           (format "plan « %s » : %d faite(s), %s, %d restante(s), dépensé %.4f / %.2f"
+           (format "plan « %s » : %d faite(s), %s, %d volée(s) restante(s), dépensé %.4f / %.2f"
                    locus-orchestre--nom
                    (length locus-orchestre--faites)
-                   (if locus-orchestre--courante
-                       (format "%s en cours" locus-orchestre--courante)
-                     "aucune en cours")
+                   (if locus-orchestre--courantes
+                       (format "%d en vol" (length locus-orchestre--courantes))
+                     "aucune en vol")
                    (length locus-orchestre--plan)
                    locus-orchestre--depense
                    locus-orchestre-budget-total))))
